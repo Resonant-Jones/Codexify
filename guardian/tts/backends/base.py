@@ -1,4 +1,4 @@
-"""Base contract for TTS backend adapters."""
+"""Base contract for local TTS backend islands."""
 
 from __future__ import annotations
 
@@ -21,13 +21,8 @@ class TTSBackend(ABC):
 
     @abstractmethod
     def health(self) -> TTSHealthProbe:
-        """Return only readiness evidence this adapter has established."""
+        """Probe local install/model/import readiness."""
 
     @abstractmethod
     def render(self, request: TTSRenderRequest) -> TTSRenderResult:
         """Render text to a local audio file."""
-
-    def render_many(self, requests: list[TTSRenderRequest]) -> list[TTSRenderResult]:
-        """Render in request order; adapters may override to batch efficiently."""
-
-        return [self.render(request) for request in requests]

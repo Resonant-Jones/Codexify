@@ -70,7 +70,6 @@ from guardian.services.chronicle_interpretation_authorization import (
 from guardian.services.chronicle_model_exposure import ReviewedEvidenceReference
 from guardian.services.chronicle_preview import (
     ChroniclePreviewError,
-    ChroniclePreviewUnavailable,
     generate_chronicle_preview,
 )
 
@@ -370,7 +369,7 @@ def preview_chronicle(
             ),
         )
         return JSONResponse(content=result, media_type="application/json")
-    except (ChronicleAuthorizationUnavailable, ChroniclePreviewUnavailable):
+    except ChronicleAuthorizationUnavailable:
         raise HTTPException(
             status_code=503, detail="Chronicle preview unavailable"
         ) from None
@@ -446,10 +445,6 @@ def check_chronicle_interpretation_authorization(
             },
             media_type="application/json",
         )
-    except EvidenceRequestError:
-        raise HTTPException(
-            status_code=422, detail="Invalid inspection selection"
-        ) from None
     except ChronicleAuthorizationError as exc:
         status = 503 if isinstance(exc, ChronicleAuthorizationUnavailable) else 403
         raise HTTPException(

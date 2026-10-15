@@ -99,7 +99,7 @@ describe("landing inference disclosure", () => {
     expect(strip()).toHaveClass("justify-start"); expect(strip()).not.toHaveClass("justify-center");
     expect(within(strip()).getAllByRole("button")).toHaveLength(3);
     expect(within(strip()).queryByRole("button", { name: "Select project" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Toggle Coding Loop mode" })).toBeNull();
+    expect(within(strip()).queryByRole("button", { name: "Toggle Coding Loop mode" })).toBeNull();
     for (const name of ["Select provider", "Select model", "Select inference mode"]) {
       expect(screen.getByRole("button", { name })).toHaveAttribute(
         "data-composer-select-trigger-variant",
@@ -121,9 +121,7 @@ describe("landing inference disclosure", () => {
     mount({ presentationMode: "conversation" });
     expect(screen.queryByTestId("composer-landing-hover-zone")).toBeNull();
     expect(screen.getByTestId("composer-controls-strip")).toBeVisible();
-    expect(screen.queryByTestId("composer-coding-loop-toggle")).toBeNull();
-    expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
-    for (const name of ["Select provider", "Select model", "Select inference mode", "Open composer actions"]) {
+    for (const name of ["Select provider", "Select model", "Select inference mode", "Toggle Coding Loop mode", "Open composer actions"]) {
       expect(screen.getByRole("button", { name })).toBeVisible();
     }
     for (const name of ["Select provider", "Select model", "Select inference mode"]) {
@@ -132,51 +130,5 @@ describe("landing inference disclosure", () => {
         "bare"
       );
     }
-  });
-});
-
-describe("ordinary composer submission", () => {
-  it.each(["landing", "conversation"] as const)(
-    "sends ordinary chat and clears a successful %s draft",
-    async (presentationMode) => {
-      const onSend = vi.fn().mockResolvedValue(undefined);
-      mount({ presentationMode, onSend, draftValue: "" });
-      const textarea = screen.getByTestId("composer-textarea");
-      expect(textarea).toHaveAttribute("placeholder", "Write a message…");
-      expect(screen.queryByRole("button", { name: "Toggle Coding Loop mode" })).toBeNull();
-      fireEvent.change(textarea, { target: { value: "Ordinary chat" } });
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Send" }));
-      });
-      expect(onSend).toHaveBeenCalledTimes(1);
-      expect(onSend).toHaveBeenCalledWith("Ordinary chat", {
-        threadIdOverride: undefined,
-      });
-      expect(textarea).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Send" })).toBeVisible();
-    }
-  );
-
-  it("retains a failed draft and retries as ordinary chat", async () => {
-    const onSend = vi.fn()
-      .mockRejectedValueOnce(new Error("transport failed"))
-      .mockResolvedValueOnce(undefined);
-    mount({ presentationMode: "conversation", onSend, draftValue: "" });
-    const textarea = screen.getByTestId("composer-textarea");
-    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    });
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(textarea).toHaveValue("Keep this draft");
-    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    });
-    expect(onSend).toHaveBeenCalledTimes(2);
-    for (const call of onSend.mock.calls) {
-      expect(call).toEqual(["Keep this draft", { threadIdOverride: undefined }]);
-    }
-    expect(textarea).toHaveValue("");
   });
 });

@@ -1661,17 +1661,10 @@ async def stream_task_events(
     - Resumes from `last_id` query param or `Last-Event-ID` header.
     - Emits a `retry: 3000` hint on connect.
     - Stops streaming on task completion, failure, or cancellation.
-
-    Authorization (ADR-091 + ADR-092) completes before any transport side
-    effect: the caller must authenticate as exactly one principal lane, the
-    task must resolve through its durable `ChatCompletionAttempt` to a
-    canonical thread, and that thread must pass the shared thread-read policy.
-    `task_id` is an identifier, never authority. A denied request performs
-    zero Redis event reads.
     """
     from starlette.responses import StreamingResponse
 
-# Authenticate, resolve the durable backend-task mapping, and authorize
+    # Authenticate, resolve the durable backend-task mapping, and authorize
     # its canonical thread before constructing a response or reaching Redis.
     await asyncio.to_thread(
         authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
@@ -1685,11 +1678,7 @@ async def stream_task_events(
 
         heartbeat_elapsed = 0.0
         heartbeat_interval = 15.0
-        try:
-            block_ms = max(1, min(1000, int(os.getenv("TASK_EVENT_BLOCK_MS", "1000"))))
-        except ValueError:
-            logger.warning("[task-events] invalid transport block configuration")
-            return
+        block_ms = int(os.getenv("TASK_EVENT_BLOCK_MS", "15000"))
 
         while True:
             if await request.is_disconnected():
@@ -1697,7 +1686,7 @@ async def stream_task_events(
 
             try:
                 events = await asyncio.to_thread(
-                    task_events.read_events_bounded,
+                    task_events.read_events,
                     task_id,
                     last_id,
                     block_ms=block_ms,
@@ -1705,9 +1694,8 @@ async def stream_task_events(
                 )
             except Exception as exc:
                 logger.warning("[task-events] read failed: %s", exc)
-                # Transport uncertainty grants no request terminal outcome.
-                # Close this subscription; existing client recovery may rejoin.
-                return
+                await asyncio.sleep(1)
+                continue
 
             if events:
                 for ev_id, ev in events:

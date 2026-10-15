@@ -20,9 +20,7 @@ from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.core.config import Settings
 from guardian.core.dependencies import RequestUserScope
-from guardian.core.supported_profile import load_supported_profile
 from guardian.db.models import (
     Base,
     DirectMessage,
@@ -1149,145 +1147,14 @@ def test_direct_messages_enabled_on_hosted_test_profile(friends_family_app):
     assert "/api/profile/social-identity" in paths
 
 
-def _mounted_routes(app) -> dict[str, set[str]]:
-    """Real mounted route surface (path -> methods), independent of OpenAPI.
-
-    `internal_only` routes are deliberately stripped from the public OpenAPI
-    schema by supported-profile governance, so OpenAPI is NOT a valid proxy
-    for "is this mounted" on an internal_only label. `app.routes` is the
-    authoritative mounted surface.
-    """
-    mounted: dict[str, set[str]] = {}
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        if not isinstance(path, str) or not path:
-            continue
-        mounted.setdefault(path, set()).update(getattr(route, "methods", set()) or set())
-    return mounted
-
-
-def test_direct_messages_internal_only_on_default_profile(default_profile_app):
-    """Default local profile mounts DM as internal experimental capability.
-
-    Posture change (task-owned): `direct_messages` moved from unlisted
-    (governance -> quarantined) to `internal_only` on `v1-local-core-web-mcp`
-    so the already-implemented same-node People surface can be exercised in
-    the ordinary local environment. `internal_only` is deliberately NOT
-    `enabled`: this does not make direct messaging Beta Supported (ADR-069),
-    and route availability is not release qualification.
-    """
+def test_direct_messages_quarantined_on_default_profile(default_profile_app):
     guardian_api = default_profile_app
-
-    # --- Static / profile proof (acceptance criterion 1) -----------------
-    manifest = load_supported_profile("v1-local-core-web-mcp")
-    assert manifest.route_status("direct_messages") == "internal_only"
-    assert manifest.allows_route("direct_messages") is True
-    # Not ordinary Beta `enabled`, and not quarantined either.
-    assert "direct_messages" not in set(manifest.enabled_routes)
-    assert "direct_messages" not in set(manifest.quarantined_routes)
-
-    # --- Backend route proof (acceptance criterion 2) -------------------
-    assert "direct_messages" in guardian_api.app.state.supported_profile_enabled_labels
-
-    mounted = _mounted_routes(guardian_api.app)
-    for path, required_methods in (
-        ("/api/direct-messages/profiles", {"GET"}),
-        ("/api/direct-messages/relationships", {"GET", "POST"}),
-        ("/api/direct-messages/conversations", {"GET"}),
-        (
-            "/api/direct-messages/conversations/{conversation_id}",
-            {"GET"},
-        ),
-        (
-            "/api/direct-messages/conversations/{conversation_id}/messages",
-            {"GET", "POST"},
-        ),
-        ("/api/profile/social-identity", {"GET", "PUT"}),
-    ):
-        assert path in mounted, f"{path} is not mounted on the default profile"
-        assert required_methods <= mounted[path], (
-            f"{path} is missing methods {sorted(required_methods - mounted[path])}"
-        )
-
-    # `internal_only` routes stay out of the public OpenAPI contract while
-    # remaining fully routable and authenticated. This is the established
-    # meaning of `internal_only`, not a broken mount.
-    public_paths = set(guardian_api.app.openapi().get("paths", {}))
-    assert "/api/direct-messages/profiles" not in public_paths
-    assert "/api/profile/social-identity" not in public_paths
-
-
-def test_default_profile_health_reports_direct_messages_as_mounted_internal(
-    default_profile_app,
-):
-    """Operator-truth proof (acceptance criterion 3).
-
-    `/health` must report the route honestly: present in the mounted set and
-    declared `internal_only`. The frontend People/DM capability layer derives
-    availability from exactly this mounted-route truth, with no profile-name
-    special case.
-    """
-    guardian_api = default_profile_app
-    # Build the default profile's own provider contract explicitly so ambient
-    # host env cannot introduce unrelated provider drift into this assertion.
-    settings = Settings(
-        _env_file=None,
-        LLM_PROVIDER="local",
-        ALLOW_CLOUD_PROVIDERS=False,
-        CODEXIFY_LOCAL_ONLY_MODE=True,
-        CODEXIFY_EGRESS_ALLOWLIST="",
-        LOCAL_RUNTIME_PRESET="whooshd-mlx",
-        LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
-        LOCAL_API_KEY="local",
-        LOCAL_COMPAT_FIRST=True,
-        LOCAL_PROVIDER_DISPLAY_NAME="Whoosh'd",
-        LOCAL_PROVIDER_VENDOR="whooshd",
-    )
-    guardian_api._refresh_supported_profile_state(guardian_api.app, settings)
-
-    client = TestClient(guardian_api.app)
-    try:
-        response = client.get("/health")
-        assert response.status_code == 200
-        routes = response.json()["supported_profile"]["routes"]
-        assert "direct_messages" in routes["mounted"]
-        assert routes["declared"]["direct_messages"] == "internal_only"
-        # Operator truth stays internally consistent: no unmet requirements.
-        assert response.json()["supported_profile"]["valid"] is True
-    finally:
-        client.close()
-
-
-def test_default_profile_leaves_other_quarantined_routes_quarantined(
-    default_profile_app,
-):
-    """Invariants 11/15: only `direct_messages` was reclassified."""
-    manifest = load_supported_profile("v1-local-core-web-mcp")
-    for label in (
-        "llm_overrides",
-        "neo",
-        "iddb",
-        "backfill",
-        "memory",
-        "agent",
-        "research",
-        "federation",
-        "collaboration",
-        "connectors",
-        "google_connect",
-        "voice",
-        "flows",
-        "tools",
-        "api_tools",
-        "exports",
-        "codex",
-        "devtools",
-        "websocket",
-        "cron",
-        "ui_session",
-    ):
-        assert manifest.route_status(label) == "quarantined", label
-        assert manifest.allows_route(label) is False, label
+    enabled = getattr(guardian_api.app.state, "supported_profile_enabled_labels", set())
+    assert "direct_messages" not in enabled
+    paths = set(guardian_api.app.openapi().get("paths", {}))
+    assert "/api/direct-messages/conversations" not in paths
+    assert "/api/direct-messages/relationships" not in paths
+    assert "/api/profile/social-identity" not in paths
 
 
 # ── Inbox projection (latest-message preview + listing privacy) ──────────

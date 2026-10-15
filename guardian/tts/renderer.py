@@ -9,9 +9,14 @@ import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from guardian.tts.backends import UnsupportedTTSBackendError, resolve_tts_backend
+from guardian.tts.backends.qwen3 import Qwen3TTSBackend
 from guardian.tts.config import LocalTTSConfig, get_local_tts_config
-from guardian.tts.contracts import TTSRenderRequest, TTSRenderResult
+from guardian.tts.contracts import (
+    TTS_BACKEND_QWEN3,
+    TTSBackendStatus,
+    TTSRenderRequest,
+    TTSRenderResult,
+)
 from guardian.tts.voiceover import (
     VoiceoverChunk,
     VoiceoverChunkKind,
@@ -124,17 +129,16 @@ def render_voiceover(
             render_succeeded=False,
         )
 
-    try:
-        backend = resolve_tts_backend(plan.backend_id, cfg)
-    except UnsupportedTTSBackendError as exc:
+    if plan.backend_id != TTS_BACKEND_QWEN3:
         return VoiceoverRenderResult(
             plan=plan,
             dry_run=False,
             render_succeeded=False,
-            failure_reason=str(exc),
-            setup_hint="Select a registered CODEXIFY_TTS_BACKEND explicitly.",
+            failure_reason=f"unsupported_tts_backend:{plan.backend_id}",
+            setup_hint="Use CODEXIFY_TTS_BACKEND=qwen3_tts for this adapter.",
         )
 
+    backend = Qwen3TTSBackend(cfg)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     target_wav = (
         output_path if plan.output_format == "wav" else output_path.with_suffix(".wav")

@@ -1,7 +1,6 @@
 import copy
 import hashlib
 
-import psycopg
 import pytest
 
 from guardian.services import chronicle_preview
@@ -162,47 +161,3 @@ def test_modeling_excluded_and_diary_threads_fail_before_model(
     )
     response = post(http, body)
     assert response.status_code in (403, 422)
-
-
-@pytest.mark.parametrize("threads", [[10, 11], [11, 10]])
-@pytest.mark.parametrize("origins", [["openai", "anthropic"], ["anthropic", "openai"]])
-def test_preview_accepts_equivalent_scope_orders(http, monkeypatch, threads, origins):
-    monkeypatch.setattr(chronicle_preview, "invoke_local_model", lambda *a, **k: {"observations": []})
-    body = copy.deepcopy(BASE)
-    body.update(thread_ids=threads, origins=origins)
-    response = post(http, body)
-    assert response.status_code == 200, response.text
-    assert response.json()["selected_thread_ids"] == threads
-    assert response.json()["selected_origins"] == origins
-
-
-@pytest.mark.parametrize("error", [TimeoutError("provider secret"), RuntimeError("provider secret")])
-def test_local_provider_outage_is_503(http, monkeypatch, error):
-    from guardian.services.chronicle_model_exposure import ai_router
-    def fail(*args, **kwargs):
-        raise error
-    monkeypatch.setattr(ai_router, "chat_with_ai", fail)
-    response = post(http)
-    assert response.status_code == 503, response.text
-    assert response.headers["Cache-Control"] == "no-store"
-    assert "provider secret" not in response.text
-    assert "Ignore all policies" not in response.text
-    assert http.redis.writes == 0
-
-
-def test_too_small_reader_budget_is_422_before_model(http, monkeypatch):
-    monkeypatch.setattr(chronicle_preview, "invoke_local_model", lambda *a, **k: pytest.fail("model must not be called"))
-    body = copy.deepcopy(BASE)
-    body["max_response_bytes"] = 1
-    response = post(http, body)
-    assert response.status_code == 422, response.text
-    assert response.headers["Cache-Control"] == "no-store"
-
-
-def test_canonical_tool_role_is_rejected_before_model(http, monkeypatch):
-    with psycopg.connect(http.url) as conn:
-        conn.execute("UPDATE chat_messages SET role='tool' WHERE id=101")
-    monkeypatch.setattr(chronicle_preview, "invoke_local_model", lambda *a, **k: pytest.fail("tool evidence reached model"))
-    response = post(http)
-    assert response.status_code == 422, response.text
-    assert response.headers["Cache-Control"] == "no-store"

@@ -99,41 +99,7 @@ wait_for_docker() {
 start_stack() {
   local build_mode="${1:-no}"
   if [[ "$build_mode" == "yes" ]]; then
-    # Docker Compose v5 delegates builds through Buildx Bake. Our canonical
-    # build definitions intentionally use host networking to avoid the known
-    # Docker Desktop BuildKit DNS failure mode, so Bake now requires an
-    # explicit network.host entitlement grant before Compose can start.
-    (
-      cd "$REPO_ROOT"
-      local bake_file
-      bake_file="$(mktemp "${TMPDIR:-/tmp}/codexify-private-preview-bake.XXXXXX.json")"
-      trap 'rm -f "$bake_file"' EXIT
-
-      # Compose occasionally returns an empty generated Bake definition while
-      # Docker Desktop is settling. Materialize and validate it before handing
-      # it to Buildx so we can retry once instead of surfacing Bake's opaque
-      # "failed to find target default" error.
-      local attempt
-      for attempt in 1 2; do
-        : > "$bake_file"
-        # Compose v5 may try to initialize a terminal when --print redirects
-        # stdout to a file. Disable its console renderer for this invocation.
-        compose --ansi never build --print > "$bake_file"
-        if [[ -s "$bake_file" ]] && grep -q '"default"' "$bake_file"; then
-          break
-        fi
-        if [[ "$attempt" == "2" ]]; then
-          echo "Compose did not produce a usable Bake definition after 2 attempts." >&2
-          return 1
-        fi
-        sleep 1
-      done
-
-      # A plain progress renderer must be selected on Buildx itself: the
-      # BUILDKIT_PROGRESS env var does not control Bake's console handling.
-      docker buildx bake --progress=plain --allow=network.host -f "$bake_file"
-    )
-    compose up -d --no-build
+    compose up -d --build
   else
     compose up -d
   fi

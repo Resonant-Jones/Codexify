@@ -1,4 +1,3 @@
-import { BootstrapWorkflow, BootstrapHumanAction, BOOTSTRAP_CONTRACT_VERSION, type BootstrapReadiness } from "@/contracts/bootstrapReadiness.generated";
 import {
   NATIVE_BRIDGE_FAILURE_KIND,
   NativeBridgeUnavailableError,
@@ -75,7 +74,6 @@ export type RuntimeReadinessResult = BootstrapStepResult & {
   startupReady: boolean;
   redisReady: boolean;
   chatReady: boolean;
-  bootstrap?: BootstrapReadiness;
   llmReady?: boolean;
   probeContext?: "host-native" | "container-local" | "frontend" | "unknown";
   llmStatus?: string | null;
@@ -140,10 +138,19 @@ export type BootstrapRecoveryNotice = {
   detail?: string;
 };
 
-export type RuntimeBootstrapStatus = BootstrapWorkflow;
+export type RuntimeBootstrapStatus =
+  | "checking-requirements"
+  | "docker-missing"
+  | "compose-missing"
+  | "docker-not-running"
+  | "preparing-local-config"
+  | "downloading-local-images"
+  | "starting-local-services"
+  | "waiting-for-ready"
+  | "failed"
+  | "ready-for-welcome";
 
 export type RuntimeBootstrapState = {
-  bootstrap?: BootstrapReadiness;
   status: RuntimeBootstrapStatus;
   title: string;
   message: string;
@@ -426,28 +433,11 @@ export function normalizeRuntimeReadiness(
       : {};
   const rawChecks = Array.isArray(source.checks) ? source.checks : [];
 
-  const observedBootstrap = source.bootstrap && typeof source.bootstrap === "object"
-    ? source.bootstrap as Record<string, unknown> : undefined;
-  const coreReady = (!observedBootstrap || (observedBootstrap.version === BOOTSTRAP_CONTRACT_VERSION && observedBootstrap.coreReady === true))
-    && asBoolean(source.backendReachable ?? source.backend_reachable)
-    && asBoolean(source.startupReady ?? source.startup_ready)
-    && asBoolean(source.redisReady ?? source.redis_ready)
-    && asBoolean(source.chatReady ?? source.chat_ready);
-  const inferenceReady = coreReady && (source.llmReady ?? source.llm_ready) === true
-    && (!observedBootstrap || observedBootstrap.inferenceReady === true);
   return {
     ...base,
     step: "health-check",
-    ok: coreReady,
-    ready: coreReady,
-    bootstrap: {
-      version: BOOTSTRAP_CONTRACT_VERSION,
-      workflow: coreReady ? BootstrapWorkflow.COMPLETE : BootstrapWorkflow.VERIFYING,
-      coreReady,
-      inferenceReady,
-      humanAction: coreReady && !inferenceReady
-        ? BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED : BootstrapHumanAction.NONE,
-    },
+    ok: asBoolean(source.ok ?? source.ready),
+    ready: asBoolean(source.ready ?? source.ok),
     backendReachable: asBoolean(
       source.backendReachable ?? source.backend_reachable
     ),
@@ -489,7 +479,6 @@ type RuntimeBootstrapBuildOptions = {
   failureKind?: string;
   preflight?: RuntimePreflight | null;
   stepResults?: Partial<Record<BootstrapStep, BootstrapStepResult>>;
-  bootstrap?: BootstrapReadiness;
 };
 
 function buildRuntimeBootstrapState(
@@ -500,12 +489,6 @@ function buildRuntimeBootstrapState(
 ): RuntimeBootstrapState {
   return {
     status,
-    bootstrap: options.bootstrap ?? {
-      version: BOOTSTRAP_CONTRACT_VERSION, workflow: status,
-      coreReady: false, inferenceReady: false,
-      humanAction: status === BootstrapWorkflow.PAUSED ? BootstrapHumanAction.NETWORK_UNAVAILABLE
-        : status === BootstrapWorkflow.ACTION_REQUIRED ? BootstrapHumanAction.PREREQUISITE_UNAVAILABLE : BootstrapHumanAction.NONE,
-    },
     title,
     message,
     detail: options.detail,
@@ -632,6 +615,21 @@ function describeRuntimeReadinessCopy(
         };
   }
 
+  if (readiness.llmReady === false) {
+    return phase === "waiting"
+      ? {
+          title: "Model health is still red",
+          message:
+            "The backend and queue surfaces are up, but /health/llm still reports the model path as unavailable.",
+          failureKind: "llm-unavailable",
+        }
+      : {
+          title: "Model health did not recover",
+          message:
+            "The backend and queue surfaces are up, but /health/llm never became healthy. Retry readiness first, then inspect logs or restart services if the model path stays red.",
+          failureKind: "llm-unavailable",
+        };
+  }
 
   return generic;
 }
@@ -644,7 +642,7 @@ export function createCheckingRuntimeBootstrapState(
   detail?: string
 ): RuntimeBootstrapState {
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.INSPECTING,
+    "checking-requirements",
     "Checking local runtime",
     "Codexify is verifying Docker Desktop, Docker Compose, and daemon reachability before startup orchestration begins.",
     { detail }
@@ -662,7 +660,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "runtime-root-unavailable") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime root is unavailable",
       "Codexify could not resolve or create its Docker-compatible packaged runtime root, so startup stayed locked before setup or Compose could run.",
       {
@@ -676,7 +674,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "packaged-runtime-assets-missing") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime assets are missing",
       "This packaged build could not find the bundled runtime source it needs to materialize setup, Compose, and recovery assets into the packaged runtime root.",
       {
@@ -690,7 +688,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "packaged-runtime-materialization-failed") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime materialization failed",
       "Codexify found the packaged runtime payload, but it could not finish copying the required bootstrap assets into the Docker-compatible packaged runtime root.",
       {
@@ -704,7 +702,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "packaged-runtime-assets-corrupt") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime assets are missing or corrupt",
       "Codexify created the packaged runtime root, but the materialized attachment is incomplete or corrupt, so startup stayed locked instead of running against partial assets.",
       {
@@ -718,7 +716,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "repo-runtime-missing") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Repo-attached runtime is missing",
       "The development desktop shell could not resolve the repo-attached Codexify runtime from this checkout, so startup stayed locked instead of guessing at local paths.",
       {
@@ -732,7 +730,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "runtime-path-unavailable") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Startup path is unavailable",
       "Codexify could not determine a safe native startup path, so it kept the workspace locked instead of guessing at local runtime state.",
       {
@@ -746,7 +744,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "packaged-runtime-assets-invalid") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime assets are invalid",
       "Codexify found the packaged runtime root, but the materialized payload is incomplete or invalid for setup and Compose startup.",
       {
@@ -760,7 +758,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "docker-mount-path-unshared-or-unsupported") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Docker rejected the packaged runtime mount path",
       "Docker Desktop rejected the packaged runtime root path during Compose startup. This is a mount-path contract problem, not a missing Docker installation, so the workspace stayed locked.",
       {
@@ -774,7 +772,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "packaged-bootstrap-unsupported") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged bootstrap is not yet supported",
       "This macOS artifact launched without a packaged runtime payload it can safely attach to, so the workspace stayed locked instead of falling back to a development checkout.",
       {
@@ -791,7 +789,7 @@ export function mapRuntimePreflightFailureToState(
     "docker-cli-found-but-unusable-from-packaged-context"
   ) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged app could not execute Docker",
       "Codexify found a Docker installation, but this Finder-launched packaged app could not execute the Docker CLI cleanly from the current macOS launch context. The workspace stayed locked instead of pretending Docker is ready.",
       {
@@ -805,7 +803,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "docker-cli-execution-failed") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Docker CLI execution failed",
       "Codexify found Docker, but the Docker CLI could not be executed successfully from the current app context. Retry first, then inspect the technical details below before reinstalling Docker Desktop.",
       {
@@ -819,7 +817,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === NATIVE_BRIDGE_FAILURE_KIND) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Desktop native bridge unavailable",
       "Codexify could not run native setup checks from this context. Open Codexify from the desktop app, then retry. This is a native bridge problem, not a Docker installation problem.",
       {
@@ -836,7 +834,7 @@ export function mapRuntimePreflightFailureToState(
     preflight.failureKind === "docker-cli-unavailable"
   ) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.ACTION_REQUIRED,
+      "docker-missing",
       "Docker Desktop is required",
       "Codexify could not find a usable Docker installation on this machine. Install Docker Desktop, then retry the bootstrap check.",
       {
@@ -853,7 +851,7 @@ export function mapRuntimePreflightFailureToState(
     preflight.dockerComposeAvailable === false
   ) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.ACTION_REQUIRED,
+      "compose-missing",
       "Docker Compose is unavailable",
       "Codexify found Docker, but the Compose capability is not available from the native shell yet. Update Docker Desktop and retry.",
       {
@@ -870,7 +868,7 @@ export function mapRuntimePreflightFailureToState(
     preflight.dockerDaemonReachable === false
   ) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.ACTION_REQUIRED,
+      "docker-not-running",
       "Docker Desktop is not responding yet",
       "Codexify found Docker on this machine, but the local daemon is not reachable. Start Docker Desktop, wait for it to finish initializing, then retry.",
       {
@@ -884,7 +882,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "runtime-compose-file-missing") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged runtime Compose file is missing",
       "Packaged startup could not find the registry-backed Compose file it needs to start local services. Reinstall or repair Codexify, then retry.",
       {
@@ -901,7 +899,7 @@ export function mapRuntimePreflightFailureToState(
     preflight.failureKind === "runtime-image-pull-failed"
   ) {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       preflight.failureKind === "runtime-image-pull-failed"
         ? "Runtime image pull failed"
         : "Codexify needs to download its local runtime images",
@@ -919,7 +917,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.failureKind === "registry-runtime-unavailable") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Registry-backed runtime is unavailable",
       "Codexify could not use the packaged registry-backed runtime from this context. Open the packaged desktop app, then retry.",
       {
@@ -933,7 +931,7 @@ export function mapRuntimePreflightFailureToState(
 
   if (preflight.packaged && preflight.failureKind === "unexpected-execution-error") {
     return buildRuntimeBootstrapState(
-      BootstrapWorkflow.FAILED,
+      "failed",
       "Packaged startup failed unexpectedly",
       "The packaged desktop shell hit an unexpected startup error while validating the local runtime context. Retry first, then review the technical details below before trying broader recovery steps.",
       {
@@ -946,7 +944,7 @@ export function mapRuntimePreflightFailureToState(
   }
 
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.FAILED,
+    "failed",
     "Runtime preflight failed",
     "Codexify could not classify the Docker preflight cleanly. Retry the check and review the technical details below.",
     {
@@ -964,7 +962,7 @@ export function createPreparingLocalConfigState(
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
 ): RuntimeBootstrapState {
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.CONFIGURING,
+    "preparing-local-config",
     "Preparing local config",
     "Codexify is running the setup source of truth so local configuration stays aligned with the resolved packaged runtime root.",
     { detail, preflight, stepResults }
@@ -977,7 +975,7 @@ export function createDownloadingLocalImagesState(
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
 ): RuntimeBootstrapState {
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.DOWNLOADING,
+    "downloading-local-images",
     "Downloading local runtime images",
     "Codexify is pulling its registry-backed runtime images before it starts the packaged Compose stack.",
     { detail, preflight, stepResults }
@@ -990,7 +988,7 @@ export function createStartingLocalServicesState(
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {}
 ): RuntimeBootstrapState {
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.STARTING,
+    "starting-local-services",
     "Starting local services",
     "Codexify is bringing the local Docker Compose stack up from the registry-backed packaged runtime root.",
     { detail, preflight, stepResults }
@@ -1005,7 +1003,7 @@ export function createWaitingForReadyState(
 ): RuntimeBootstrapState {
   const copy = describeRuntimeReadinessCopy(readiness, "waiting");
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.VERIFYING,
+    "waiting-for-ready",
     copy.title,
     copy.message,
     { detail, preflight, stepResults }
@@ -1018,13 +1016,17 @@ export function createReadyForWelcomeState(
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>> = {},
   readiness?: RuntimeReadinessResult | null
 ): RuntimeBootstrapState {
+  const modelStatus =
+    readiness && typeof readiness.llmReady === "boolean"
+      ? readiness.llmReady
+        ? " The model health surface is green too."
+        : " The model health surface is still red."
+      : "";
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.COMPLETE,
-    "Your workspace is ready",
-    readiness?.llmReady === true
-      ? "Core services and inference are ready. Opening your workspace."
-      : "Core services are ready. Open your workspace and finish inference setup when you choose.",
-    { detail, preflight, stepResults, bootstrap: readiness?.bootstrap }
+    "ready-for-welcome",
+    "Local beta runtime is ready",
+    `Docker preflight passed, setup completed, Compose is up, and the local beta readiness checks succeeded.${modelStatus} Transitioning into the welcome screen now.`,
+    { detail, preflight, stepResults }
   );
 }
 
@@ -1039,7 +1041,7 @@ export function mapRuntimeReadinessFailureToState(
     readiness?.failureKind ??
     (preflight.packaged ? "packaged-readiness-failed" : copy.failureKind);
   return buildRuntimeBootstrapState(
-    BootstrapWorkflow.FAILED,
+    "failed",
     copy.title,
     copy.message,
     {
@@ -1059,21 +1061,11 @@ export function createFailedRuntimeBootstrapState(options: {
   preflight: RuntimePreflight;
   stepResults: Partial<Record<BootstrapStep, BootstrapStepResult>>;
 }): RuntimeBootstrapState {
-  const pull = options.stepResults["pull-images"]?.ok === false
-    ? options.stepResults["pull-images"] : options.stepResults["compose-up"];
-  const evidence = pull && !pull.ok ? [pull.stdout, pull.stderr, pull.detail].filter(Boolean).join("\n") : "";
-  const networkUnavailable = /network (?:is )?unreachable|i\/o timeout|connection timed out|connection reset|could not resolve|temporary failure in name resolution|tls handshake timeout|failed to fetch|failed to resolve source metadata/i.test(evidence);
-  const credentialsRequired = /unauthorized|authentication required|access denied/i.test(evidence);
-  const workflow = networkUnavailable ? BootstrapWorkflow.PAUSED
-    : credentialsRequired ? BootstrapWorkflow.ACTION_REQUIRED : BootstrapWorkflow.FAILED;
   return buildRuntimeBootstrapState(
-    workflow,
+    "failed",
     options.title,
-    networkUnavailable ? "Required asset acquisition is paused. Completed work is preserved; retry when connectivity returns." : options.message,
+    options.message,
     {
-      bootstrap: { version: BOOTSTRAP_CONTRACT_VERSION, workflow, coreReady: false, inferenceReady: false,
-        humanAction: networkUnavailable ? BootstrapHumanAction.NETWORK_UNAVAILABLE
-          : credentialsRequired ? BootstrapHumanAction.CREDENTIALS_REQUIRED : BootstrapHumanAction.NONE },
       detail: options.detail,
       failureKind: options.failureKind,
       preflight: options.preflight,
@@ -1306,8 +1298,10 @@ export function getBootstrapRecoveryStage(
   state: RuntimeBootstrapState
 ): BootstrapRecoveryStage | null {
   if (
-    state.status === BootstrapWorkflow.INSPECTING ||
-    state.status === BootstrapWorkflow.ACTION_REQUIRED
+    state.status === "checking-requirements" ||
+    state.status === "docker-missing" ||
+    state.status === "compose-missing" ||
+    state.status === "docker-not-running"
   ) {
     return "preflight";
   }
@@ -1328,7 +1322,7 @@ export function getBootstrapRecoveryStage(
     return "setup";
   }
 
-  if (state.status === BootstrapWorkflow.FAILED) {
+  if (state.status === "failed") {
     return "preflight";
   }
 
@@ -1339,12 +1333,17 @@ export function getBootstrapRecoveryActions(
   state: RuntimeBootstrapState
 ): BootstrapRecoveryAction[] {
   const stage = getBootstrapRecoveryStage(state);
-  if (state.status === BootstrapWorkflow.ACTION_REQUIRED) {
-    if (state.preflight?.dockerCliInstalled === false || state.preflight?.dockerComposeAvailable === false) {
-      return ["retry", "install-docker"];
-    }
-    if (state.preflight?.dockerDaemonReachable === false) return ["retry", "open-docker"];
-    return ["retry"];
+
+  if (state.status === "docker-missing") {
+    return ["retry", "install-docker"];
+  }
+
+  if (state.status === "compose-missing") {
+    return ["retry", "install-docker"];
+  }
+
+  if (state.status === "docker-not-running") {
+    return ["retry", "open-docker"];
   }
 
   const failureKind = stateFailureKind(state);

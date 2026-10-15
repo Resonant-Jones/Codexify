@@ -65,7 +65,6 @@ export default defineConfig({
     VitePWA({
       disable: IS_DEV || IS_TAURI_BUILD,
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'icons/*.png'],
       manifest: {
         name: 'Codexify',
         short_name: 'Codexify',

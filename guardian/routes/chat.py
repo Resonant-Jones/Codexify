@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, Any, AsyncGenerator, Dict, List, Literal, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 from urllib.parse import quote, unquote
 
 from fastapi import (
@@ -58,8 +58,6 @@ from guardian.conversation_origin import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
-from guardian.core.db import list_chat_completion_attempts_for_thread
-from guardian.core.chat_postgres_deadline import postgres_operation_scope
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
 )
@@ -73,13 +71,6 @@ from guardian.core.chat_completion_service import (
     DEBUG_LATEST_RAG_TRACE_METADATA_KEY,
     DEBUG_RAG_TRACE_CANDIDATE_METADATA_KEY,
     enqueue_chat_completion,
-    enable_provider_request_capture,
-    provider_capture_scope,
-    read_provider_request_captures,
-    store_provider_request_capture,
-    PROVIDER_CAPTURE_MAX_BYTES,
-    PROVIDER_CAPTURE_ORIGIN_MARKER,
-    reconcile_chat_attempt_receipts,
     _merge_thread_metadata_patch,
     resolve_thread_completion_settings,
     split_history_and_latest_turn,
@@ -88,9 +79,7 @@ from guardian.core.dependencies import (
     RequestUserScope,
     get_account_user_scope as get_request_user_scope,
     get_single_user_id,
-    require_service_capability,
 )
-from guardian.core.db import get_chat_completion_attempt_by_task_id
 from guardian.core.thread_access import require_thread_read_access
 from guardian.core.event_graph import get_event_writer
 from guardian.core.graph_write_inspection_store import (
@@ -120,7 +109,6 @@ from guardian.queue.redis_queue import (
     RedisOperationTimeout,
     enqueue,
     enqueue_chat_embed,
-    redis_operation_scope,
     run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
@@ -2422,77 +2410,43 @@ def chat_list_tasks(
     thread_id: int,
     api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
-    limit: Annotated[int, Query(ge=1, le=100)] = 100,
-    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     """Return task lifecycle receipts for a thread.
 
-    Durable attempt rows establish task identity. Redis task events remain
-    observation evidence; a persisted assistant link establishes completion
-    when terminal events are no longer available.
+    Returns a list of task receipts derived from persisted task
+    identity tracking and task-event terminal-state evidence.
+    Missing or non-terminal tasks are reported honestly without
+    fabricating completion.
     """
-    try:
-        with postgres_operation_scope(2):
-            thread = chatlog_db.get_chat_thread(thread_id)
-            if not thread:
-                raise HTTPException(status_code=404, detail="Thread not found")
-            _require_thread_account_scope(
-                thread_id, request_user_scope, thread=thread,
-            )
-            attempts = list_chat_completion_attempts_for_thread(
-                chatlog_db, thread_id, limit=limit + 1, offset=offset
-            )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail="Chat receipts could not be confirmed.") from exc
-    page = reconcile_chat_attempt_receipts(chatlog_db, attempts[:limit])
+    thread = chatlog_db.get_chat_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread,
+    )
+
+    metadata = _fetch_thread_metadata(thread_id)
+    task_id = _thread_latest_task_id(thread_id, metadata)
+
     receipts: list[dict[str, Any]] = []
-    with redis_operation_scope():
-        for attempt in page:
-            task_id = attempt["backend_task_id"]
-            if attempt.get("completed_message_id") is not None:
-                state = {
-                    "state": "terminal",
-                    "event_type": "task.completed",
-                    "reason": "durable_completion_recorded",
-                }
-            elif attempt.get("terminal_event_type") in {
-                "task.failed",
-                "task.cancelled",
-            }:
-                state = {
-                    "state": "terminal",
-                    "event_type": attempt["terminal_event_type"],
-                    "reason": "durable_terminal_outcome_recorded",
-                }
-            else:
-                state = task_events.describe_terminal_state_in_scope(task_id)
-            receipts.append(
-                {
-                    "task_id": task_id,
-                    **{
-                        key: value
-                        for key, value in attempt.items()
-                        if key not in {"backend_task_id", "terminal_event_type", "turn_lock_token"}
-                    },
-                    "state": state.get("state"),
-                    "event_type": state.get("event_type"),
-                    "reason": state.get("reason"),
-                    **({"failure_code": attempt["terminal_outcome"]["failure_code"]}
-                       if attempt.get("terminal_outcome") else {}),
-                }
-            )
+    if task_id:
+        state = task_events.describe_terminal_state(task_id)
+        receipts.append(
+            {
+                "task_id": task_id,
+                "state": state.get("state"),
+                "event_type": state.get("event_type"),
+                "reason": state.get("reason"),
+            }
+        )
 
     return {
         "ok": True,
         "thread_id": thread_id,
         "tasks": receipts,
         "count": len(receipts),
-        "limit": limit,
-        "offset": offset,
-        "next_offset": offset + len(receipts),
-        "has_more": len(attempts) > limit,
     }
 
 
@@ -2792,9 +2746,6 @@ async def chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
-    inspect_provider_request: bool = Header(
-        False, alias="X-Provider-Request-Inspection"
-    ),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """
@@ -2825,13 +2776,6 @@ async def chat_complete(
         request_user_scope,
         thread=thread_exists if isinstance(thread_exists, dict) else None,
     )
-
-    capture_owner = None
-    capture_project_id = None
-    if inspect_provider_request is True:
-        capture_owner, capture_project_id = _require_provider_capture_owner(
-            thread_id, request_user_scope
-        )
 
     limit = int(body.max_context or 50)
     try:
@@ -3098,20 +3042,6 @@ async def chat_complete(
     )
     task.turn_id = turn_id
     task.request_id = root_request_id
-    if capture_owner is not None:
-        try:
-            capture_enabled = enable_provider_request_capture(
-                task_id=task.task_id,
-                request_id=root_request_id,
-                account_id=capture_owner,
-                thread_id=thread_id,
-                project_id=capture_project_id,
-            )
-        except Exception:
-            capture_enabled = False
-        if capture_enabled:
-            task.origin += f"|{PROVIDER_CAPTURE_ORIGIN_MARKER}"
-
     try:
         enqueue_result = enqueue_chat_completion(
             task,
@@ -5328,24 +5258,6 @@ def api_chat_get_thread(
     )
 
 
-@api_chat_router.get("/threads/{thread_id}/tasks")
-def api_chat_list_tasks(
-    thread_id: int,
-    api_key: str = Depends(require_api_key),
-    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
-    limit: Annotated[int, Query(ge=1, le=100)] = 100,
-    offset: Annotated[int, Query(ge=0)] = 0,
-):
-    """Compatibility adapter using the canonical durable receipt policy."""
-    return chat_list_tasks(
-        thread_id,
-        api_key=api_key,
-        request_user_scope=request_user_scope,
-        limit=limit,
-        offset=offset,
-    )
-
-
 @api_chat_router.post("/messages")
 def api_chat_post_message_create_on_send(
     body: ChatMessageCreateRequest = Body(...),
@@ -5388,9 +5300,6 @@ async def api_chat_complete(
     request: Request = None,
     api_key: str = Depends(require_api_key),
     request_id: str | None = Header(None, alias="X-Request-ID"),
-    inspect_provider_request: bool = Header(
-        False, alias="X-Provider-Request-Inspection"
-    ),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
     """Compat alias for POST /chat/{thread_id}/complete used in tests."""
@@ -5400,7 +5309,6 @@ async def api_chat_complete(
         request=request,
         api_key=api_key,
         request_id=request_id,
-        inspect_provider_request=inspect_provider_request,
         request_user_scope=request_user_scope,
     )
 
@@ -5638,121 +5546,3 @@ def api_delete_thread(
         api_key=api_key,
         request_user_scope=request_user_scope,
     )
-
-
-# Capture ownership is stricter than legacy local-thread convenience: a service
-# key or X-User-ID alone never supplies an account principal, even in local mode.
-def _require_provider_capture_owner(thread_id, principal):
-    account_id = str(principal.account_id or "").strip()
-    if not account_id or not principal.subject_id:
-        raise HTTPException(status_code=401, detail="Authenticated account required")
-    thread = _require_thread_account_scope(thread_id, principal)
-    if str(thread.get("user_id") or "") != account_id:
-        raise HTTPException(status_code=403, detail="Capture ownership denied")
-    project_id = _coerce_project_id(thread.get("project_id"))
-    if project_id is not None:
-        project = _find_project_record(project_id)
-        if not project or str(project.get("user_id") or "") != account_id:
-            raise HTTPException(
-                status_code=403, detail="Capture Project ownership denied"
-            )
-    return account_id, project_id
-
-
-def _provider_capture_binding(task_id):
-    scope = provider_capture_scope(task_id)
-    if scope is None:
-        return None
-    attempt = get_chat_completion_attempt_by_task_id(chatlog_db, task_id)
-    if not attempt or (
-        attempt["request_id"] != scope["request_id"]
-        or attempt["thread_id"] != scope["thread_id"]
-    ):
-        return None
-    # Revalidate both independent canonical owners and containment. Moves or
-    # transfers invalidate old consent rather than granting access to new owners.
-    principal = RequestUserScope(
-        user_id=scope["account_id"],
-        account_id=scope["account_id"],
-        subject_id=scope["account_id"],
-        multi_user_enabled=True,
-    )
-    try:
-        _, project_id = _require_provider_capture_owner(scope["thread_id"], principal)
-    except HTTPException:
-        return None
-    return scope if project_id == scope["project_id"] else None
-
-
-@api_chat_router.get("/{thread_id}/debug/provider-requests/{task_id}", tags=["Debug"])
-def get_provider_request_captures(
-    thread_id: int,
-    task_id: str,
-    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
-):
-    account_id, project_id = _require_provider_capture_owner(
-        thread_id, request_user_scope
-    )
-    attempt = get_chat_completion_attempt_by_task_id(chatlog_db, task_id)
-    if attempt is None or attempt["thread_id"] != thread_id:
-        raise HTTPException(status_code=404, detail="Completion attempt not found")
-    scope = provider_capture_scope(task_id)
-    if scope is not None and (
-        scope["account_id"] != account_id
-        or scope["project_id"] != project_id
-        or scope["request_id"] != attempt["request_id"]
-    ):
-        raise HTTPException(status_code=403, detail="Capture scope changed")
-    payload = read_provider_request_captures(task_id)
-    payload.update(
-        request_id=attempt["request_id"], task_id=task_id, thread_id=thread_id
-    )
-    return JSONResponse(
-        payload, headers={"Cache-Control": "no-store", "Vary": "Authorization, Cookie"}
-    )
-
-
-@api_chat_router.get("/internal/provider-request-captures/{task_id}", tags=["Debug"])
-def provider_request_capture_permit(
-    task_id: str,
-    _capability: None = Depends(require_service_capability),
-):
-    # Service capability can check existing consent, never create it or read content.
-    return JSONResponse(
-        {"enabled": _provider_capture_binding(task_id) is not None},
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@api_chat_router.post("/internal/provider-request-captures/{task_id}", tags=["Debug"])
-async def receive_provider_request_capture(
-    task_id: str,
-    request: Request,
-    request_id: str = Query(..., max_length=128),
-    attempt_id: str = Query(..., max_length=128),
-    dispatch_index: int = Query(..., ge=1, le=17),
-    provider: str = Query(..., max_length=32),
-    logical_model: str = Query(..., max_length=256),
-    byte_size: int = Query(..., ge=0),
-    _capability: None = Depends(require_service_capability),
-):
-    scope = _provider_capture_binding(task_id)
-    if scope is None or scope["request_id"] != request_id:
-        raise HTTPException(status_code=404, detail="Capture consent unavailable")
-    # Bound input before buffering it. Oversized bodies are unavailable in full.
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > PROVIDER_CAPTURE_MAX_BYTES:
-            raise HTTPException(status_code=413, detail="Capture body too large")
-        body.extend(chunk)
-    stored = store_provider_request_capture(
-        task_id=task_id,
-        request_id=request_id,
-        attempt_id=attempt_id,
-        dispatch_index=dispatch_index,
-        provider=provider,
-        logical_model=logical_model,
-        body=bytes(body),
-        byte_size=byte_size,
-    )
-    return JSONResponse({"stored": stored}, headers={"Cache-Control": "no-store"})

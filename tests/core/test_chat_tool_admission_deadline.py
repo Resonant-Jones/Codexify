@@ -172,23 +172,10 @@ def test_command_success_after_expiry_cannot_start_followup_generation(
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_in_budget_tool_continuation_succeeds_and_snapshotless_task_is_blocked(
-    loop, legacy
-):
+def test_in_budget_and_legacy_tool_continuation_still_succeed(loop, legacy):
     if legacy:
         for key in loop["snapshot"]:
             setattr(loop["task"], key, None)
-    if legacy:
-        # A task that carries no accepted-chat snapshot is unbound: it owns no
-        # durable ChatCompletionAttempt, so it may not dispatch a
-        # replay-protected tool command. Deadline-free legacy completions may
-        # still answer plainly, but never through Command Bus.
-        with pytest.raises(service.ToolLoopExecutionError) as caught:
-            run(loop)
-        assert str(caught.value) == "tool_command_blocked"
-        assert loop["invoke"].call_count == 0
-        assert loop["provider"].call_count == 1
-        return
     result = run(loop)
     assert result["assistant_text"] == "done"
     assert loop["invoke"].call_count == 1
@@ -197,9 +184,10 @@ def test_in_budget_tool_continuation_succeeds_and_snapshotless_task_is_blocked(
     assert payload.command_id == CANONICAL_COMMAND_ID
     assert loop["invoke"].call_args.kwargs["allow_write_execution"] is False
     assert loop["invoke"].call_args.kwargs["confirmation_granted"] is False
-    assert {key: getattr(loop["task"], key) for key in loop["snapshot"]} == loop[
-        "snapshot"
-    ]
+    if not legacy:
+        assert {key: getattr(loop["task"], key) for key in loop["snapshot"]} == loop[
+            "snapshot"
+        ]
 
 
 def test_command_error_before_deadline_keeps_existing_failure(loop):
@@ -218,15 +206,10 @@ def test_tool_invoke_inherits_exact_snapshot_without_public_payload_fields(
     if legacy:
         for key in loop["snapshot"]:
             setattr(loop["task"], key, None)
-    if legacy:
-        # Unbound snapshot-less tasks are stopped before dispatch, so no
-        # deadline is ever threaded into `execute_invoke`.
-        with pytest.raises(service.ToolLoopExecutionError) as caught:
-            run(loop)
-        assert str(caught.value) == "tool_command_blocked"
-        assert loop["invoke"].call_count == 0
-        return
     run(loop)
     kwargs = loop["invoke"].call_args.kwargs
-    assert kwargs["accepted_deadline"].to_dict() == loop["snapshot"]
+    if legacy:
+        assert "accepted_deadline" not in kwargs
+    else:
+        assert kwargs["accepted_deadline"].to_dict() == loop["snapshot"]
     assert not any("deadline" in key for key in kwargs["payload"].model_dump())

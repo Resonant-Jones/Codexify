@@ -220,8 +220,6 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": NOW,
                 "pinned": True,
                 "held": False,
-                "review_state": "approved",
-                "lifecycle_state": "active",
                 "extensions": {
                     "display_hint": "roundtrip",
                     "lifecycle_token": "episodic-open",
@@ -242,8 +240,6 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": LATER,
                 "pinned": False,
                 "held": True,
-                "review_state": "approved",
-                "lifecycle_state": "active",
                 "extensions": {
                     "display_hint": "sovereignty",
                     "lifecycle_token": "verified-frozen",
@@ -264,8 +260,6 @@ def _make_bundle() -> dict[str, list[dict[str, Any]]]:
                 "activated_at": None,
                 "pinned": False,
                 "held": False,
-                "review_state": "pending",
-                "lifecycle_state": "dormant",
                 "extensions": {
                     "display_hint": "tentative",
                     "lifecycle_token": "candidate-open",

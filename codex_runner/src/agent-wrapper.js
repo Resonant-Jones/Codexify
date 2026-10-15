@@ -213,7 +213,7 @@ function getEffectiveToolNames(session) {
 	return out;
 }
 
-async function loadPiSdk({ isolatedCredentials = false } = {}) {
+async function loadPiSdk() {
 	const wrapperDirectory = path.dirname(fileURLToPath(import.meta.url));
 	const packageRoot = process.env.PI_CODING_AGENT_PACKAGE_ROOT
 		? path.resolve(process.env.PI_CODING_AGENT_PACKAGE_ROOT)
@@ -246,23 +246,9 @@ async function loadPiSdk({ isolatedCredentials = false } = {}) {
 	// Construct the canonical maintained runtime.
 	// `allowModelNetwork: false` disables remote model-catalog refresh;
 	// readiness must never contact a remote provider.
-	const runtimeOptions = { allowModelNetwork: false };
-	if (isolatedCredentials) {
-		const nodeModulesRoot = process.env.PI_CODING_AGENT_NODE_MODULES
-			? path.resolve(process.env.PI_CODING_AGENT_NODE_MODULES)
-			: path.resolve(packageRoot, "../../");
-		const piAi = await import(
-			pathToFileURL(
-				path.join(nodeModulesRoot, "@earendil-works/pi-ai/dist/index.js")
-			).href
-		);
-		if (typeof piAi.InMemoryCredentialStore !== "function") {
-			throw new Error("Pi runtime does not expose an in-memory credential store");
-		}
-		runtimeOptions.credentials = new piAi.InMemoryCredentialStore();
-		runtimeOptions.modelsPath = null;
-	}
-	const modelRuntime = await codingAgent.ModelRuntime.create(runtimeOptions);
+	const modelRuntime = await codingAgent.ModelRuntime.create({
+		allowModelNetwork: false,
+	});
 
 	return {
 		createAgentSession: codingAgent.createAgentSession,
@@ -274,51 +260,6 @@ async function loadPiSdk({ isolatedCredentials = false } = {}) {
 		harnessId: ACTUAL_HARNESS_ID,
 		harnessVersion: String(packageMetadata.version || ""),
 	};
-}
-
-async function readGuardianAuthorizedCredential() {
-	const chunks = [];
-	let size = 0;
-	for await (const chunk of process.stdin) {
-		const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-		size += bytes.length;
-		if (size > 16_384) {
-			throw new Error("guardian_authorized_credential_invalid");
-		}
-		chunks.push(bytes);
-	}
-	const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	if (
-		!payload ||
-		payload.credential_type !== "api_key" ||
-		typeof payload.api_key !== "string" ||
-		payload.api_key.trim().length === 0
-	) {
-		throw new Error("guardian_authorized_credential_invalid");
-	}
-	return payload.api_key;
-}
-
-async function checkCodingWorkerReadiness() {
-	try {
-		const runtime = await loadPiSdk({ isolatedCredentials: true });
-		console.log(JSON.stringify({
-			adapter_initialized: true,
-			harness_id: runtime.harnessId,
-			harness_version: runtime.harnessVersion,
-			credential_authority: "invocation_scoped",
-		}));
-	} catch (error) {
-		console.log(JSON.stringify({
-			adapter_initialized: false,
-			harness_id: ACTUAL_HARNESS_ID,
-			harness_version: null,
-			credential_authority: "invocation_scoped",
-			reason: isModuleResolutionError(error)
-				? "pi_sdk_build_missing"
-				: "adapter_initialization_failed",
-		}));
-	}
 }
 
 async function checkGuardianAuthorizedReadiness() {
@@ -471,20 +412,10 @@ async function runAgent() {
 	let harnessId;
 	let harnessVersion;
 
-	let authorizedIdentity = null;
-	let authorizedCredential = null;
-	if (guardianAuthorizedMode) {
-		// The phase sequence is ordered, so the opening phase is emitted
-		// before any identity or credential work can fail.
-		emitAuthorizedPhase("wrapper_started");
-		try {
-			authorizedIdentity = requireGuardianAuthorizedIdentity();
-			authorizedCredential = await readGuardianAuthorizedCredential();
-		} catch (_error) {
-			emitAuthorizedFailure("authorized_identity_rejected", "authorization");
-			return;
-		}
-	}
+	const authorizedIdentity = guardianAuthorizedMode
+		? requireGuardianAuthorizedIdentity()
+		: null;
+	if (guardianAuthorizedMode) emitAuthorizedPhase("wrapper_started");
 
 	try {
 		({
@@ -496,7 +427,7 @@ async function runAgent() {
 			getProviders,
 			harnessId,
 			harnessVersion,
-		} = await loadPiSdk({ isolatedCredentials: guardianAuthorizedMode }));
+		} = await loadPiSdk());
 	} catch (error) {
 		if (guardianAuthorizedMode) {
 			emitAuthorizedFailure(
@@ -513,21 +444,6 @@ async function runAgent() {
 			process.exit(1);
 		}
 		throw error;
-	}
-	if (guardianAuthorizedMode) {
-		try {
-			await modelRuntime.setRuntimeApiKey(
-				authorizedIdentity.providerId,
-				authorizedCredential,
-				{ allowNetwork: false },
-			);
-			// The transport copy is invocation-local; Pi keeps only its
-			// in-memory runtime override for this subprocess.
-			authorizedCredential = "";
-		} catch (_error) {
-			emitAuthorizedFailure("oauth_auth_unavailable", "credential_installation");
-			return;
-		}
 	}
 
 	const resolvedModelId = guardianAuthorizedMode
@@ -1028,14 +944,6 @@ async function runAgent() {
 			return;
 		}
 		throw error;
-	} finally {
-		if (guardianAuthorizedMode) {
-			try {
-				await modelRuntime.removeRuntimeApiKey(authorizedIdentity.providerId);
-			} catch (_error) {
-				// This wrapper process is scoped to one invocation and exits afterward.
-			}
-		}
 	}
 
 	// Bounded observation of the final Pi 0.82.1 assistant messages.
@@ -1187,9 +1095,7 @@ function extractJsonResponse(messages) {
 
 // Readiness is deliberately non-executing: it imports the adapter, resolves the
 // configured model, and asks Pi whether a matching credential is available.
-if (mode === "coding-worker-readiness") {
-	checkCodingWorkerReadiness();
-} else if (mode === "readiness") {
+if (mode === "readiness") {
 	checkReadiness()
 		.then((payload) => console.log(JSON.stringify(payload)))
 		.catch(() => console.log(JSON.stringify({

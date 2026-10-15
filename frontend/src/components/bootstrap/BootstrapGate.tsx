@@ -1,4 +1,3 @@
-import { BootstrapWorkflow } from "@/contracts/bootstrapReadiness.generated";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -47,11 +46,11 @@ const PHASE_STEP_MAP: Record<
   Exclude<BootstrapStep, "health-check"> | "preflight" | "readiness",
   string
 > = {
-  preflight: BootstrapWorkflow.INSPECTING,
-  setup: BootstrapWorkflow.CONFIGURING,
-  "pull-images": BootstrapWorkflow.DOWNLOADING,
-  "compose-up": BootstrapWorkflow.STARTING,
-  readiness: BootstrapWorkflow.VERIFYING,
+  preflight: "checking-requirements",
+  setup: "preparing-local-config",
+  "pull-images": "downloading-local-images",
+  "compose-up": "starting-local-services",
+  readiness: "waiting-for-ready",
 };
 
 const PREFLIGHT_FAILURE_KINDS = new Set([
@@ -162,14 +161,16 @@ function phaseStateFor(
   const failureKind = state.failureKind ?? state.preflight?.failureKind;
 
   if (step === "preflight") {
-    if (state.status === BootstrapWorkflow.INSPECTING) return "running";
+    if (state.status === "checking-requirements") return "running";
     if (
-      state.status === BootstrapWorkflow.ACTION_REQUIRED
+      state.status === "docker-missing" ||
+      state.status === "compose-missing" ||
+      state.status === "docker-not-running"
     ) {
       return "failed";
     }
     if (
-      state.status === BootstrapWorkflow.FAILED &&
+      state.status === "failed" &&
       failureKind &&
       PREFLIGHT_FAILURE_KINDS.has(failureKind)
     ) {
@@ -180,36 +181,36 @@ function phaseStateFor(
 
   if (step === "setup") {
     const result = state.stepResults.setup;
-    if (state.status === BootstrapWorkflow.CONFIGURING) return "running";
+    if (state.status === "preparing-local-config") return "running";
     if (result?.ok) return "done";
     if (result && !result.ok) return "failed";
-    return state.status === BootstrapWorkflow.INSPECTING ? "pending" : "pending";
+    return state.status === "checking-requirements" ? "pending" : "pending";
   }
 
   if (step === "pull-images") {
     const result = state.stepResults["pull-images"];
-    if (state.status === BootstrapWorkflow.DOWNLOADING) return "running";
+    if (state.status === "downloading-local-images") return "running";
     if (result?.ok) return "done";
     if (result && !result.ok) return "failed";
-    if (state.status === BootstrapWorkflow.CONFIGURING) return "pending";
+    if (state.status === "preparing-local-config") return "pending";
     return "pending";
   }
 
   if (step === "compose-up") {
     const result = state.stepResults["compose-up"];
-    if (state.status === BootstrapWorkflow.STARTING) return "running";
+    if (state.status === "starting-local-services") return "running";
     if (result?.ok) return "done";
     if (result && !result.ok) return "failed";
-    if (state.status === BootstrapWorkflow.CONFIGURING) return "pending";
+    if (state.status === "preparing-local-config") return "pending";
     return "pending";
   }
 
   const result = state.stepResults["health-check"];
-  if (state.status === BootstrapWorkflow.VERIFYING) return "running";
-  if (state.status === BootstrapWorkflow.COMPLETE) return "done";
+  if (state.status === "waiting-for-ready") return "running";
+  if (state.status === "ready-for-welcome") return "done";
   if (result?.ok) return "done";
-  if (result && !result.ok && state.status === BootstrapWorkflow.FAILED) return "failed";
-  if (state.status === BootstrapWorkflow.STARTING) return "pending";
+  if (result && !result.ok && state.status === "failed") return "failed";
+  if (state.status === "starting-local-services") return "pending";
   return "pending";
 }
 
@@ -236,11 +237,11 @@ export default function BootstrapGate({
   const showLogsAction = recoveryActions.includes("view-logs");
   const showRestartAction = recoveryActions.includes("restart-services");
   const isBusy =
-    state.status === BootstrapWorkflow.INSPECTING ||
-    state.status === BootstrapWorkflow.CONFIGURING ||
-    state.status === BootstrapWorkflow.DOWNLOADING ||
-    state.status === BootstrapWorkflow.STARTING ||
-    state.status === BootstrapWorkflow.VERIFYING;
+    state.status === "checking-requirements" ||
+    state.status === "preparing-local-config" ||
+    state.status === "downloading-local-images" ||
+    state.status === "starting-local-services" ||
+    state.status === "waiting-for-ready";
   const actionsBusy = isBusy || openingDocker || restartingServices;
   const failureKind = state.failureKind ?? state.preflight?.failureKind;
   const runtimeHome =
@@ -330,10 +331,12 @@ export default function BootstrapGate({
                 className={`h-2 w-2 rounded-full ${isBusy ? "animate-pulse" : ""}`}
                 style={{
                   background:
-                    state.status === BootstrapWorkflow.COMPLETE
+                    state.status === "ready-for-welcome"
                       ? "var(--accent-strong, #7dd3fc)"
-                      : state.status === BootstrapWorkflow.FAILED ||
-                          state.status === BootstrapWorkflow.ACTION_REQUIRED
+                      : state.status === "failed" ||
+                          state.status === "docker-missing" ||
+                          state.status === "compose-missing" ||
+                          state.status === "docker-not-running"
                       ? "var(--danger-text, #fca5a5)"
                       : isBusy
                       ? "#fbbf24"
@@ -395,9 +398,9 @@ export default function BootstrapGate({
                     className="h-2 w-2 rounded-full"
                     style={{
                       background:
-                        state.status === BootstrapWorkflow.COMPLETE
+                        state.status === "ready-for-welcome"
                           ? "var(--accent-strong, #7dd3fc)"
-                          : state.status === BootstrapWorkflow.FAILED
+                          : state.status === "failed"
                           ? "var(--danger-text, #fca5a5)"
                           : "#fbbf24",
                     }}
@@ -504,12 +507,12 @@ export default function BootstrapGate({
                 style={{ color: "var(--muted)" }}
               >
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-transparent" />
-                {state.status === BootstrapWorkflow.COMPLETE
+                {state.status === "ready-for-welcome"
                   ? "Opening welcome screen..."
                   : "Running native startup orchestration..."}
               </div>
             )}
-            {state.status === BootstrapWorkflow.COMPLETE && (
+            {state.status === "ready-for-welcome" && (
               <p className="text-sm" style={{ color: "var(--muted)" }}>
                 Local beta readiness checks are green. Opening the welcome screen next.
               </p>

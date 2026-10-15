@@ -18,7 +18,6 @@ import {
 } from "@/lib/runtimeConfig";
 import {
   mapRuntimePreflightFailureToState,
-  createFailedRuntimeBootstrapState,
   getBootstrapDisplayCopy,
   getBootstrapRecoveryActions,
   formatRuntimeReadinessResult,
@@ -154,25 +153,6 @@ describe("runtime bootstrap preflight", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("reports a resumable canonical network pause for native image acquisition", () => {
-    const state = createFailedRuntimeBootstrapState({title: "Pull failed", message: "Pull failed",
-      preflight: {ready: false, packaged: true} as RuntimePreflight,
-      stepResults: {"pull-images": {ok:false, step:"pull-images", stderr:"network is unreachable"}},
-    });
-    expect(state.status).toBe("paused");
-    expect(state.bootstrap?.humanAction).toBe("network_unavailable");
-    expect(getBootstrapRecoveryActions(state)).toContain("retry");
-  });
-
-  it("preserves native core-service failure despite healthy backend probes", () => {
-    const readiness = normalizeRuntimeReadiness({
-      bootstrap: { version: 1, coreReady: false, inferenceReady: false },
-      backendReachable: true, startupReady: true, redisReady: true, chatReady: true, llmReady: true,
-    });
-    expect(readiness.ready).toBe(false);
-    expect(readiness.bootstrap.inferenceReady).toBe(false);
-  });
-
   it("normalizes and formats packaged readiness diagnostics from the native dispatcher", () => {
     const readiness = normalizeRuntimeReadiness({
       ok: true,
@@ -224,7 +204,7 @@ describe("runtime bootstrap preflight", () => {
     expect(rendered).toContain("llmReady=true");
   });
 
-  it("opens core immediately when inference is unavailable", async () => {
+  it("keeps the startup gate moving when readiness turns green after an earlier red poll", async () => {
     vi.useFakeTimers();
     vi.mocked(invokeTauriCommand)
       .mockResolvedValueOnce({
@@ -284,8 +264,8 @@ describe("runtime bootstrap preflight", () => {
     const result = await readinessPromise;
 
     expect(result.ok).toBe(true);
-    expect(result.attempts).toBe(1);
-    expect(result.lastCheck.llmReady).toBe(false);
-    expect(result.lastCheck.bootstrap).toMatchObject({ coreReady: true, inferenceReady: false, workflow: "complete", humanAction: "provider_model_choice_required" });
+    expect(result.attempts).toBe(2);
+    expect(result.lastCheck.llmReady).toBe(true);
+    expect(result.lastCheck.llmFailureReason).toBeUndefined();
   });
 });

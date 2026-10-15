@@ -4,19 +4,10 @@ import { GuardianEventSource } from "@/lib/guardianEventSource";
 import api, { buildAuthenticatedFetchInit } from "@/lib/api";
 import {
   ACCEPTED_TASK_DEADLINE_DETAIL_TEXT,
-  ACCEPTED_TASK_ORPHAN_DETAIL_TEXT,
-  isAcceptedTaskOrphanFailure,
-  isRetryableAcceptedTaskFailure,
   describeTaskFailureDetailText,
-  getToolCommandFailureReason,
   isAcceptedTaskDeadlineFailure,
 } from "@/features/chat/requestFailurePresentation";
-import {
-  CHAT_REQUEST_STATES,
-  TOOL_LOOP_STOP_REASONS,
-  TOOL_TURN_STATES,
-  type ToolCommandFailureReason,
-} from "@/contracts/runtimeTokens";
+import { CHAT_REQUEST_STATES } from "@/contracts/runtimeTokens";
 import {
   createIdleInferenceRequestState,
   isActiveInferencePhase,
@@ -53,8 +44,6 @@ const INFERENCE_LIFECYCLE_STATE = {
   STREAMING: "streaming",
   COMPLETED: "completed",
   PROVIDER_ERROR: "provider_error",
-  // Presentation of a failed tool turn; does not assign request retryability.
-  TOOL_FAILED: TOOL_TURN_STATES.FAILED,
   FAILED_RETRYABLE: CHAT_REQUEST_STATES.FAILED_RETRYABLE,
   DEGRADED: "degraded",
   CANCELLED: "cancelled",
@@ -280,8 +269,6 @@ type LifecycleTimingState = Pick<
   | "detailText"
   | "errorText"
   | "failureCode"
-  | "toolLoopStopReason"
-  | "durableFailureOnly"
   | "queuedAt"
   | "awaitingModelAt"
   | "awaitingFirstTokenAt"
@@ -294,7 +281,7 @@ function buildDelayedDetailText(
   state: Pick<LifecycleTimingState, "taskId">,
   canonicalState: Exclude<
     InferenceLifecycleState,
-    "idle" | "completed" | "provider_error" | "failed" | "failed_retryable" | "degraded" | "cancelled"
+    "idle" | "completed" | "provider_error" | "failed_retryable" | "degraded" | "cancelled"
   >,
   sendElapsedMs: number
 ): string {
@@ -382,13 +369,11 @@ export function describeInferenceRequestState(
   let canonicalState: InferenceLifecycleState = INFERENCE_LIFECYCLE_STATE.IDLE;
   // completed_at records terminal timing for failures and cancellations too.
   if (state.phase === "failed" || state.errorText) {
-    canonicalState = isRetryableAcceptedTaskFailure({
+    canonicalState = isAcceptedTaskDeadlineFailure({
       failure_code: state.failureCode,
     })
       ? INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE
-      : state.durableFailureOnly || state.toolLoopStopReason
-        ? INFERENCE_LIFECYCLE_STATE.TOOL_FAILED
-        : INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR;
+      : INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR;
   } else if (state.phase === "cancelled") {
     canonicalState = INFERENCE_LIFECYCLE_STATE.CANCELLED;
   } else if (state.phase === "completed" || completedAtMs != null) {
@@ -410,7 +395,6 @@ export function describeInferenceRequestState(
     sendElapsedMs >= INFERENCE_SLOW_PATH_MS &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.COMPLETED &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR &&
-    canonicalState !== INFERENCE_LIFECYCLE_STATE.TOOL_FAILED &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE &&
     canonicalState !== INFERENCE_LIFECYCLE_STATE.CANCELLED;
 
@@ -667,52 +651,27 @@ export function useInferenceRequestState(options: {
       options: {
         detailText?: string | null;
         failureCode?: string | null;
-        durableFailureOnly?: boolean;
-        toolLoopStopReason?: ToolCommandFailureReason | null;
         timingPatch?: Partial<InferenceRequestState>;
       } = {}
     ) => {
       closeTaskStream();
-      const orphaned = isAcceptedTaskOrphanFailure({ failure_code: options.failureCode });
       const deadlineExceeded = isAcceptedTaskDeadlineFailure({
         failure_code: options.failureCode,
       });
-      const toolFailurePayload = {
-        toolTurnState: TOOL_TURN_STATES.FAILED,
-        loopStopReason: options.toolLoopStopReason,
-        failure_code: options.failureCode,
-      };
-      const toolFailure = getToolCommandFailureReason(toolFailurePayload);
       applyPatch({
         ...options.timingPatch,
         phase: "failed",
         taskId: null,
-        statusText: orphaned
-          ? "Request closed without completion."
-          : deadlineExceeded
+        statusText: deadlineExceeded
           ? "Request time limit reached."
-          : toolFailure === TOOL_LOOP_STOP_REASONS.TOOL_COMMAND_BLOCKED
-            ? "Action not authorized."
-            : toolFailure
-              ? "Action failed."
-              : options.durableFailureOnly
-                ? "Response failed."
-                : INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
+          : INFERENCE_STATUS_TEXT.PROVIDER_ERROR,
         detailText:
           options.detailText ??
-          (orphaned
-            ? ACCEPTED_TASK_ORPHAN_DETAIL_TEXT
-            : deadlineExceeded
+          (deadlineExceeded
             ? ACCEPTED_TASK_DEADLINE_DETAIL_TEXT
-            : toolFailure
-              ? describeTaskFailureDetailText(toolFailurePayload)
-              : options.durableFailureOnly
-                ? "A failure was recorded for this response. Send a new request to try again."
-                : INFERENCE_DETAIL_TEXT.PROVIDER_ERROR),
+            : INFERENCE_DETAIL_TEXT.PROVIDER_ERROR),
         errorText,
-        durableFailureOnly: options.durableFailureOnly ?? false,
         failureCode: options.failureCode ?? null,
-        toolLoopStopReason: toolFailure,
         canCancel: false,
         canSwitchToFast: false,
         isPendingCancel: false,
@@ -734,7 +693,6 @@ export function useInferenceRequestState(options: {
         statusText: null,
         detailText,
         errorText: null,
-        durableFailureOnly: false,
         failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
@@ -757,7 +715,6 @@ export function useInferenceRequestState(options: {
         statusText: null,
         detailText,
         errorText: null,
-        durableFailureOnly: false,
         failureCode: null,
         canCancel: false,
         canSwitchToFast: false,
@@ -777,7 +734,6 @@ export function useInferenceRequestState(options: {
       applyPatch({
         taskId,
         phase: stateRef.current.mode === "think" ? "thinking" : "sending",
-        durableFailureOnly: false,
         errorText: null,
         isPendingCancel: false,
       });
@@ -867,7 +823,6 @@ export function useInferenceRequestState(options: {
               : "Guardian could not finish the response.";
           markFailed(errorText, {
             detailText: describeTaskFailureDetailText(payload),
-            toolLoopStopReason: getToolCommandFailureReason(payload),
             failureCode:
               typeof payload?.failure_code === "string" ? payload.failure_code : null,
             timingPatch,
@@ -923,7 +878,6 @@ export function useInferenceRequestState(options: {
             : "Guardian could not finish the response.";
         markFailed(errorText, {
           detailText: describeTaskFailureDetailText(payload),
-          toolLoopStopReason: getToolCommandFailureReason(payload),
           failureCode:
             typeof payload?.failure_code === "string" ? payload.failure_code : null,
           timingPatch: extractTimingPatch(payload),
@@ -938,11 +892,7 @@ export function useInferenceRequestState(options: {
       stream.addEventListener("completion.error", handleTaskFailed as EventListener);
       stream.onerror = () => {
         if (!ownsCurrentStream()) return;
-        if (
-          stateRef.current.phase === "completed" ||
-          stateRef.current.phase === "cancelled" ||
-          stateRef.current.phase === "failed"
-        ) {
+        if (stateRef.current.phase === "completed" || stateRef.current.phase === "cancelled") {
           return;
         }
         const snapshot = describeInferenceRequestState(stateRef.current);
@@ -970,7 +920,6 @@ export function useInferenceRequestState(options: {
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.COMPLETED ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.DEGRADED ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR ||
-      snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.TOOL_FAILED ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE ||
       snapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.CANCELLED
     ) {
@@ -994,7 +943,6 @@ export function useInferenceRequestState(options: {
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.COMPLETED ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.DEGRADED ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.PROVIDER_ERROR ||
-        currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.TOOL_FAILED ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.FAILED_RETRYABLE ||
         currentSnapshot.canonicalState === INFERENCE_LIFECYCLE_STATE.CANCELLED ||
         currentSnapshot.delayDetailText == null ||

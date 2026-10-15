@@ -930,15 +930,13 @@ export function useChat(options: UseChatOptions = {}) {
             params: { limit, offset: 0 },
             signal: controller.signal,
           });
-          const activeThreadId = activeThreadRef.current;
-          const tokenMatches = snapshotLaneRef.current.token === nextToken;
-          const parsed = parseMessagesResponse(response?.data);
           if (
-            activeThreadId !== threadId ||
-            !tokenMatches
+            activeThreadRef.current !== threadId ||
+            snapshotLaneRef.current.token !== nextToken
           ) {
             return [];
           }
+          const parsed = parseMessagesResponse(response?.data);
           const normalizedPage = parsed
             ? parsed[0]
                 .map((message) => normalizeMessage(message, threadId))
@@ -1139,16 +1137,11 @@ export function useChat(options: UseChatOptions = {}) {
       }
 
       const numericThreadId = Number(threadId);
-      if (activeThreadRef.current === numericThreadId) {
-        if (snapshotMessagesRef.current.length) return;
-        const activeSnapshot = snapshotLaneRef.current;
-        if (
-          activeSnapshot.threadId === numericThreadId &&
-          activeSnapshot.promise
-        ) {
-          await activeSnapshot.promise;
-          return;
-        }
+      if (
+        activeThreadRef.current === numericThreadId &&
+        snapshotMessagesRef.current.length
+      ) {
+        return;
       }
 
       activeThreadRef.current = numericThreadId;

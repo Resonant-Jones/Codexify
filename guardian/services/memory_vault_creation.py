@@ -159,8 +159,6 @@ class MemoryVaultCreationService:
             activated_at=now_expr,
             pinned=False,
             held=False,
-            review_state="approved",
-            lifecycle_state="active",
             extensions=None,
         )
         self._session.add(new_row)

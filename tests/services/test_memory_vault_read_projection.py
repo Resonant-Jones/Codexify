@@ -203,8 +203,6 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     canonical_ids["episodic_id"] = episodic_id
@@ -222,8 +220,6 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     canonical_ids["project_scoped_id"] = project_scoped_id
@@ -241,8 +237,6 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=True,
             held=False,
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     canonical_ids["pinned_id"] = pinned_id
@@ -260,8 +254,6 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=True,
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     canonical_ids["held_id"] = held_id
@@ -280,8 +272,6 @@ def _seed_canonical_fixtures(session, *, account_id: str, project_id: int) -> di
             activated_at=sa.func.now(),
             pinned=False,
             held=False,
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     session.flush()
@@ -392,8 +382,6 @@ def _seed_account_b_fixtures(session, *, account_id: str) -> dict:
             text_content="Account-B canonical memory",
             reviewed_at=sa.func.now(),
             activated_at=sa.func.now(),
-            review_state="approved",
-            lifecycle_state="active",
         )
     )
     me_b = MemoryEntry(

@@ -192,10 +192,3 @@ def test_unavailable_canonical_authorization_store_fails_closed(http, monkeypatc
     )
     response = post(http)
     denied(response, 503)
-
-
-
-def test_too_small_reader_budget_is_request_error(http):
-    body = deepcopy(BODY)
-    body["max_response_bytes"] = 1
-    denied(post(http, body), 422)

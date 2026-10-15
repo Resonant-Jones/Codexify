@@ -178,8 +178,6 @@ vi.mock("@/lib/authState", () => ({
   checkAuthGate: () => authTestState.gateAllowed,
 }));
 
-const cancelActiveCompletionSpy = vi.hoisted(() => vi.fn());
-
 vi.mock("@/state/session/SessionSpine", () => ({
   SessionSpine: class {
     static getRegisteredSpine() {
@@ -193,7 +191,7 @@ vi.mock("@/state/session/SessionSpine", () => ({
         startCompletion: vi.fn(),
         attachCompletionIdentity: vi.fn(),
         failActiveCompletion: vi.fn(),
-        cancelActiveCompletion: cancelActiveCompletionSpy,
+        cancelActiveCompletion: vi.fn(),
       };
     }
     static subscribeActiveSpine() {
@@ -613,23 +611,6 @@ describe("AppShell canonical desktop geometry", () => {
 beforeEach(() => {
   setViewportWidth(1280);
   setAuthenticatedAuthState();
-});
-
-describe("AppShell Stop request authority", () => {
-  afterEach(() => { cleanup(); vi.clearAllMocks(); });
-
-  it("does not terminalize the session when a Stop POST is dispatched", () => {
-    installMatchMedia(false);
-    localStorage.setItem("cfy.lastView", "guardian");
-    render(<AppShell />);
-    const interceptor = vi.mocked(api.interceptors.request.use).mock.calls.at(-1)?.[0];
-    expect(interceptor).toBeTypeOf("function");
-    const config = { method: "post", url: "/api/tasks/accepted-task/cancel", data: {} };
-
-    expect(interceptor?.(config as any)).toBe(config);
-
-    expect(cancelActiveCompletionSpy).not.toHaveBeenCalled();
-  });
 });
 
 describe("AppShell logo wordmark color contract", () => {
@@ -1204,7 +1185,7 @@ describe("AppShell settings utility trigger", () => {
         "Dashboard",
         "Documents",
         "Gallery",
-        "Lens",
+        "Persona Studio",
       ].includes(label)
     );
 
@@ -1213,17 +1194,17 @@ describe("AppShell settings utility trigger", () => {
       "Dashboard",
       "Documents",
       "Gallery",
-      "Lens",
+      "Persona Studio",
     ]);
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
     expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Lens" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Persona Studio" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
 
-    await user.click(primaryNav.getByRole("button", { name: "Lens" }));
+    await user.click(primaryNav.getByRole("button", { name: "Persona Studio" }));
 
     expect(await screen.findByTestId("persona-studio-page")).toBeInTheDocument();
     expect(screen.queryByTestId("persona-studio-framecard")).not.toBeInTheDocument();

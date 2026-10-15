@@ -238,6 +238,7 @@ export function Composer({
   draftScopeKey,
   draftSyncDebounceMs,
   onDraftValueChange,
+  onExecutionModeChange,
   activeProviderId,
   providerOptions = [],
   providerOpenSignal,
@@ -279,6 +280,7 @@ export function Composer({
   draftScopeKey?: string;
   draftSyncDebounceMs?: number;
   onDraftValueChange?: (value: string) => void;
+  onExecutionModeChange?: (mode: CodingLoopExecutionMode) => void;
   activeProviderId?: string | null;
   providerOptions?: ComposerSelectOption[];
   providerOpenSignal?: number;
@@ -354,6 +356,8 @@ export function Composer({
 
   const [internalSending, setInternalSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [executionMode, setExecutionMode] =
+    useState<CodingLoopExecutionMode>("chat");
   const [showImgGen, setShowImgGen] = useState(false);
   const [landingControlsFocused, setLandingControlsFocused] = useState(false);
   const [landingSelectorOpen, setLandingSelectorOpen] = useState(false);
@@ -795,9 +799,11 @@ export function Composer({
             ? uploadThreadId
             : undefined,
         ...(slashIntent ? { slashIntent } : {}),
+        ...(executionMode === "coding" ? { executionMode } : {}),
       });
 
       // Clear the draft after a successful send.
+      setExecutionMode("chat");
       setValue("");
       valueRef.current = "";
       commitDraftNow("");
@@ -935,6 +941,17 @@ export function Composer({
       return;
     }
     void send();
+  };
+  const toggleExecutionMode = () => {
+    if (draftControlsDisabled) {
+      notifyTransportBusy();
+      return;
+    }
+    setExecutionMode((current) => {
+      const next = current === "chat" ? "coding" : "chat";
+      onExecutionModeChange?.(next);
+      return next;
+    });
   };
   const sourceLabel =
     sourceOptions.find((option) => option.value === sourceMode)?.label ??
@@ -1108,7 +1125,11 @@ export function Composer({
           setIsComposerFocused(false);
           commitDraftNow(valueRef.current);
         }}
-        placeholder="Write a message…"
+        placeholder={
+          executionMode === "coding"
+            ? "Describe the coding task…"
+            : "Write a message…"
+        }
         onPaste={onPaste}
         onKeyDown={handleComposerKeyDown}
         aria-controls={
@@ -1207,13 +1228,15 @@ export function Composer({
       type="button"
       onClick={handleAttemptSend}
       disabled={sendTransportDisabled}
-      aria-label="Send"
+      aria-label={executionMode === "coding" ? "Dispatch Coding Loop" : "Send"}
       aria-disabled={sendTransportDisabled || sendBlockedByTurnLock}
       tabIndex={sendTransportDisabled ? -1 : 0}
       title={
         sendBlockedByTurnLock
           ? "Finish the current reply before sending."
-          : undefined
+          : executionMode === "coding"
+            ? "Dispatch this message to the Guardian Coding Loop."
+            : undefined
       }
       size="icon"
       className={cn(
@@ -1523,6 +1546,25 @@ export function Composer({
                 data-testid="composer-controls-strip"
                 className="flex shrink-0 items-center"
               >
+                <Button
+                  type="button"
+                  data-testid="composer-coding-loop-toggle"
+                  aria-pressed={executionMode === "coding"}
+                  aria-label="Toggle Coding Loop mode"
+                  disabled={draftControlsDisabled}
+                  onClick={toggleExecutionMode}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 shrink-0 rounded-none px-2 text-[11px]",
+                    executionMode === "coding"
+                      ? "bg-[var(--chip-bg)]"
+                      : "opacity-75"
+                  )}
+                  style={{ color: "var(--text)" }}
+                >
+                  Coding Loop
+                </Button>
                 {renderComposerActionMenu()}
               </div>
               {renderComposerTextarea()}
@@ -1550,6 +1592,25 @@ export function Composer({
                 data-testid="composer-controls-strip"
                 className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 overflow-x-auto"
               >
+                <Button
+                  type="button"
+                  data-testid="composer-coding-loop-toggle"
+                  aria-pressed={executionMode === "coding"}
+                  aria-label="Toggle Coding Loop mode"
+                  disabled={draftControlsDisabled}
+                  onClick={toggleExecutionMode}
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 shrink-0 rounded-none px-2 text-[11px]",
+                    executionMode === "coding"
+                      ? "bg-[var(--chip-bg)]"
+                      : "opacity-75"
+                  )}
+                  style={{ color: "var(--text)" }}
+                >
+                  Coding Loop
+                </Button>
                 {renderComposerActionMenu()}
                 {obsidianSlashActive ? (
                   <div

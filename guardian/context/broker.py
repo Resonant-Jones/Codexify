@@ -44,8 +44,6 @@ from guardian.protocol_tokens import (
     TraceSnapshotAbsenceReason,
 )
 
-from guardian.tasks.chat_deadline import AcceptedChatTaskDeadlineExceeded
-
 logger = logging.getLogger(__name__)
 _OBSIDIAN_CONNECTOR_NAME = "obsidian_local"
 _LOW_CONFIDENCE_SCORE_THRESHOLD = 0.1
@@ -441,8 +439,6 @@ def _workspace_backend_obsidian_results(
         )
         response.raise_for_status()
         payload = response.json()
-    except AcceptedChatTaskDeadlineExceeded:
-        raise
     except Exception as exc:
         logger.debug(
             "[ContextBroker] workspace backend retrieval probe failed base=%s: %s",
@@ -1132,8 +1128,6 @@ class ContextBroker:
                 thread_id, n_messages, user_id=resolved_user_id
             )
             context["messages"] = messages
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as e:
             logger.warning(
                 "[ContextBroker] Failed to fetch messages for thread %s: %s",
@@ -1329,8 +1323,6 @@ class ContextBroker:
                                 assume_obsidian_namespace=True,
                             )
                         )
-                    except AcceptedChatTaskDeadlineExceeded:
-                        raise
                     except Exception as exc:
                         logger.warning(
                             "[ContextBroker] Obsidian retrieval failed; continuing without it: %s",
@@ -1338,8 +1330,6 @@ class ContextBroker:
                         )
                 context["obsidian"] = semantic_obsidian
                 context["semantic"] = semantic_thread + semantic_obsidian
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(f"Failed to perform semantic search: {e}")
                 context["semantic"] = []
@@ -1367,8 +1357,6 @@ class ContextBroker:
                     retrieval_policy=effective_context_policy,
                 )
                 context["docs"] = scoped_docs
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(
                     "[ContextBroker] Failed to fetch scoped documents: %s", e
@@ -1421,8 +1409,6 @@ class ContextBroker:
                     personal_facts_trace
                 )
                 context["personal_facts_context"] = dict(personal_facts_trace)
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(
                     "[ContextBroker] Personal facts unavailable; continuing without them: %s",
@@ -1469,8 +1455,6 @@ class ContextBroker:
                     "source_mode": normalized_source_mode,
                     "boundary": source_mode_boundary,
                 }
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(
                     "[ContextBroker] Graph context unavailable; continuing without it: %s",
@@ -1544,8 +1528,6 @@ class ContextBroker:
                         "boundary": source_mode_boundary,
                         "source_mode": normalized_source_mode,
                     }
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(f"Failed to fetch memory results: {e}")
                 context["memory"] = []
@@ -1613,8 +1595,6 @@ class ContextBroker:
                     context["sensors"] = snapshot
                 else:
                     context["sensors"] = {}
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(f"Failed to snapshot sensors: {e}")
                 context["sensors"] = {}
@@ -1629,8 +1609,6 @@ class ContextBroker:
                         query, k_semantic
                     )
                     context["federated"] = federated_results
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(f"Failed to fetch federated context: {e}")
                 context["federated"] = []
@@ -1821,8 +1799,6 @@ class ContextBroker:
                 len(context.get("graph", [])),
                 graph_trace.get("status"),
             )
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception:
             pass
 
@@ -1937,8 +1913,6 @@ class ContextBroker:
                 ),
             )
             return eligible_facts, trace
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             trace.update(
                 attempted=True,
@@ -2058,8 +2032,6 @@ class ContextBroker:
 
         try:
             from guardian.db.models import UploadedDocument
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] UploadedDocument model unavailable; skipping readiness check: %s",
@@ -2087,8 +2059,6 @@ class ContextBroker:
                 uploaded_model=UploadedDocument,
             )
             return self._uploaded_document_row_is_ready(row)
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] Uploaded document readiness check failed doc_id=%s: %s",
@@ -2100,8 +2070,6 @@ class ContextBroker:
             if session is not None and hasattr(session, "close"):
                 try:
                     session.close()
-                except AcceptedChatTaskDeadlineExceeded:
-                    raise
                 except Exception:
                     pass
 
@@ -2242,8 +2210,6 @@ class ContextBroker:
                 policy_reason=policy_reason,
                 assume_obsidian_namespace=True,
             )
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Obsidian retrieval failed user=%s project=%s: %s",
@@ -2476,8 +2442,6 @@ class ContextBroker:
                     f"via MemoryOSRetriever"
                 )
                 return memory_results, trace
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as e:
                 logger.warning(
                     f"[ContextBroker] MemoryOS retriever failed: {e}"
@@ -2536,8 +2500,6 @@ class ContextBroker:
                         f"results from legacy memory_store"
                     )
                     return filtered, trace
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as fallback_error:
                 logger.warning(
                     f"[ContextBroker] Legacy memory_store also failed: {fallback_error}"
@@ -2570,8 +2532,6 @@ class ContextBroker:
             if isinstance(thread, dict):
                 resolved_user = str(thread.get("user_id") or "").strip()
                 return resolved_user or None
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] Failed to resolve user_id for thread %s: %s",
@@ -2747,8 +2707,6 @@ class ContextBroker:
                 namespace=_thread_namespace(thread_id),
                 user_id=user_id,
             )
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             diagnostics.update(
                 attempted=True,
@@ -2934,8 +2892,6 @@ class ContextBroker:
                     namespace=_thread_namespace(candidate_id),
                     user_id=user_id,
                 )
-            except AcceptedChatTaskDeadlineExceeded:
-                raise
             except Exception as exc:
                 diagnostics.update(
                     status="failed",
@@ -3231,8 +3187,6 @@ class ContextBroker:
                 thread = await thread
             if isinstance(thread, dict):
                 return _coerce_int(thread.get("project_id"))
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] Failed to resolve project_id for thread %s: %s",
@@ -3271,8 +3225,6 @@ class ContextBroker:
                 ThreadDocument,
                 UploadedDocument,
             )
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[ContextBroker] Document models unavailable; skipping doc retrieval: %s",
@@ -3335,8 +3287,6 @@ class ContextBroker:
                     thread_link_model=ThreadDocument,
                     retrieval_policy=retrieval_policy,
                 )
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Scoped document retrieval failed thread=%s project=%s err=%s",
@@ -3348,8 +3298,6 @@ class ContextBroker:
             if session is not None and hasattr(session, "close"):
                 try:
                     session.close()
-                except AcceptedChatTaskDeadlineExceeded:
-                    raise
                 except Exception:
                     pass
 
@@ -3696,8 +3644,6 @@ class ContextBroker:
         except ImportError:
             logger.debug("Federation context module not available")
             return []
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as e:
             logger.warning(f"Error searching federated peers: {e}")
             return []
@@ -3717,8 +3663,6 @@ class ContextBroker:
             from neomodel import db as neo_db
 
             from guardian.graph.connection import connect_neo4j
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:  # pragma: no cover - optional dependency
             logger.debug("[ContextBroker] Graph modules unavailable: %s", exc)
             trace.update(reason="modules_unavailable", error=str(exc))
@@ -3826,8 +3770,6 @@ class ContextBroker:
 
             trace.update(status="empty", reason="no_rows")
             return [], trace
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.warning(
                 "[ContextBroker] Graph context unavailable; proceeding without it: %s",

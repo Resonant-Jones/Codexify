@@ -10,7 +10,6 @@ from guardian.services.chronicle_interpretation_authorization import (
     ChronicleInterpretationGrant,
 )
 from guardian.services.chronicle_model_exposure import (
-    LocalModelUnavailable,
     ModelExposureError,
     ReviewedEvidenceReference,
     authorize_reviewed_evidence,
@@ -23,10 +22,6 @@ from guardian.services.imported_history_evidence import ImportedHistoryEvidence
 
 class ChroniclePreviewError(Exception):
     """Content-free preview failure."""
-
-
-class ChroniclePreviewUnavailable(Exception):
-    """Local model service is unavailable; no source content is exposed."""
 
 
 def generate_chronicle_preview(
@@ -42,8 +37,6 @@ def generate_chronicle_preview(
         messages = build_local_evidence_messages(exposed)
         raw = invoke_local_model(messages, transport=transport)
         output = validate_preview_output(raw, exposed)
-    except LocalModelUnavailable:
-        raise ChroniclePreviewUnavailable("Local model unavailable") from None
     except ModelExposureError as exc:
         raise ChroniclePreviewError(str(exc)) from None
     generated_at = datetime.now(timezone.utc).isoformat()

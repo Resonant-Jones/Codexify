@@ -14,10 +14,6 @@ const BUNDLE_RESOURCE_PATHS: &[&str] = &[
     "guardian",
     "plugins",
     "pytest.ini",
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "contracts",
     "requirements",
     "requirements.txt",
     "scripts",
@@ -75,17 +71,6 @@ fn stage_bundle_resources() -> Result<(), String> {
         let destination_path = staging_root.join(relative_path);
 
         println!("cargo:rerun-if-changed={}", source_path.display());
-        // The canonical dependency manifest moved into requirements/. Keep the
-        // packaged compatibility entrypoint without requiring a stale root file.
-        if *relative_path == "requirements.txt" && !source_path.exists() {
-            let canonical_manifest = repo_root.join("requirements/all.txt");
-            if !canonical_manifest.is_file() {
-                return Err("canonical requirements/all.txt is missing".to_string());
-            }
-            fs::write(&destination_path, "-r requirements/all.txt\n")
-                .map_err(|err| format!("failed to stage requirements entrypoint: {err}"))?;
-            continue;
-        }
         copy_resource_path(&source_path, &destination_path, &mut visited_directories)?;
     }
 

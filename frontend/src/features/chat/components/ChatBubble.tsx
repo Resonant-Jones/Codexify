@@ -21,9 +21,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import DocumentContextTileView from "@/features/chat/components/DocumentContextTile";
-import GenerativeUIRenderer, { isGenerativeUiEnabled } from "@/features/chat/components/generativeUi/GenerativeUIRenderer";
-import { parseUiArtifacts } from "@/features/chat/components/generativeUi/artifactCodec";
-import { requestComposerPrefill } from "@/features/chat/components/generativeUi/hostActions";
 
 type Attachment = {
   kind: "image" | "document";
@@ -446,13 +443,9 @@ export function ChatBubble({
   const { tiles: documentTiles, text: documentCleanText } = parseDocumentContextContent(
     message.content || ""
   );
-  const { artifacts: uiArtifacts, text: uiCleanText } = React.useMemo(
-    () => parseUiArtifacts(documentCleanText),
-    [documentCleanText]
-  );
   const { attachments: contentAttachments, text } = React.useMemo(
-    () => parseAttachments(uiCleanText),
-    [uiCleanText]
+    () => parseAttachments(documentCleanText),
+    [documentCleanText]
   );
   const attachments = React.useMemo(
     () => mergeAttachments(message.attachments, contentAttachments),
@@ -496,9 +489,7 @@ export function ChatBubble({
   const hasDocumentTiles = visibleDocumentTiles.length > 0;
   const hasAttachments = attachments.length > 0;
   const hasText = Boolean(assistantContent);
-  const hasUiArtifacts = uiArtifacts.length > 0;
-  const hasWideUi = isGuardian && isGenerativeUiEnabled() && uiArtifacts.some((artifact) => artifact.layout === "wide");
-  const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles || hasUiArtifacts;
+  const hasVisibleContent = hasText || hasAttachments || hasDocumentTiles;
   const formattedTime = fmtTime(message.createdAt);
   const execution = message.execution;
   const executionBadgeLabel =
@@ -661,7 +652,7 @@ export function ChatBubble({
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
         className={cn(
           "mr-auto min-w-0 space-y-1",
-          isPhoneShell || hasWideUi ? "w-full max-w-full" : "max-w-[85%]"
+          isPhoneShell ? "w-full max-w-full" : "max-w-[85%]"
         )}
       >
         <div
@@ -670,13 +661,6 @@ export function ChatBubble({
         >
           {message.authorName}
         </div>
-        {hasUiArtifacts ? (
-          <GenerativeUIRenderer
-            artifacts={uiArtifacts}
-            // A sandbox may only request a turn; the user still presses send.
-            onSendPrompt={requestComposerPrefill}
-          />
-        ) : null}
         {hasDocumentTiles ? (
           <div className="flex flex-col gap-2">
             {visibleDocumentTiles.map((tile) => (

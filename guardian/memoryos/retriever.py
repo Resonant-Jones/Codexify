@@ -7,8 +7,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from guardian.tasks.chat_deadline import AcceptedChatTaskDeadlineExceeded
-
 logger = logging.getLogger(__name__)
 
 
@@ -357,8 +355,6 @@ class MemoryOSRetriever:
                         (source_thread_id, lower, upper),
                     )
                     rows = [dict(row) for row in cur.fetchall()]
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as exc:
             logger.debug(
                 "[MemoryOSRetriever] Neighbor query unavailable: %s", exc
@@ -595,8 +591,6 @@ class MemoryOSRetriever:
 
             return ordered, trace
 
-        except AcceptedChatTaskDeadlineExceeded:
-            raise
         except Exception as e:
             trace.update(
                 status="failed",

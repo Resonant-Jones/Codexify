@@ -39,11 +39,6 @@ from guardian.db.models import (
 from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
-from .chat_postgres_deadline import (
-    AcceptedDeadlineQueuePool,
-    accepted_postgres_queries_active,
-    connect_with_query_bounds,
-)
 from .default_project import canonicalize_default_project, resolve_project_id_or_default
 
 _DEFAULT_USER_ID = "local"
@@ -135,12 +130,7 @@ class PgDB(ChatDB):
         """
         self.dsn = self._normalize_dsn(dsn)
         self._sa_url = self._build_sqlalchemy_url(self.dsn)
-        self._sa_engine = create_engine(
-            self._sa_url,
-            future=True,
-            poolclass=AcceptedDeadlineQueuePool,
-            creator=lambda: connect_with_query_bounds(self.dsn),
-        )
+        self._sa_engine = create_engine(self._sa_url, future=True)
         self._SessionLocal = sessionmaker(
             bind=self._sa_engine, autoflush=False, autocommit=False
         )
@@ -182,8 +172,6 @@ class PgDB(ChatDB):
         scoped = self._conversation_connection.get()
         if scoped is not None:
             return _BorrowedConversationConnection(scoped)
-        if accepted_postgres_queries_active():
-            return connect_with_query_bounds(self.dsn, row_factory=dict_row)
         return psycopg.connect(self.dsn, row_factory=dict_row)
 
     @contextmanager
@@ -211,12 +199,7 @@ class PgDB(ChatDB):
             yield session
             session.commit()
         except Exception:
-            try:
-                session.rollback()
-            except Exception:
-                # A deadline-closed connection cannot roll back on the wire.
-                # Discard it without replacing the authoritative failure.
-                session.invalidate()
+            session.rollback()
             raise
         finally:
             session.close()
@@ -1521,14 +1504,8 @@ class PgDB(ChatDB):
         *,
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
-        extra_meta: dict[str, Any] | None = None,
     ) -> int:
-        """Insert a message row and return its id.
-
-        `extra_meta` is written in the same statement as the message, so a caller
-        never has to follow up with a separate best-effort update that a crash
-        or failed write could leave unapplied.
-        """
+        """Insert a message row and return its id."""
         validate_message_provenance(
             hosted_room_participant_id,
             sender_display_name_snapshot,
@@ -1539,13 +1516,6 @@ class PgDB(ChatDB):
             str(user_id or (thread or {}).get("user_id") or _default_user_id()).strip()
             or _default_user_id()
         )
-        serialized_extra_meta = (
-            json.dumps(extra_meta)
-            if isinstance(extra_meta, dict) and extra_meta
-            # chat_messages.extra_meta is NOT NULL with a `'{}'` server default;
-            # naming the column explicitly bypasses that default, so restate it.
-            else "{}"
-        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 if created_at is not None:
@@ -1554,10 +1524,9 @@ class PgDB(ChatDB):
                         INSERT INTO chat_messages (
                             thread_id, user_id, role, content, created_at,
                             hosted_room_participant_id,
-                            sender_display_name_snapshot,
-                            extra_meta
+                            sender_display_name_snapshot
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1568,7 +1537,6 @@ class PgDB(ChatDB):
                             created_at,
                             hosted_room_participant_id,
                             sender_display_name_snapshot,
-                            serialized_extra_meta,
                         ),
                     )
                 else:
@@ -1577,10 +1545,9 @@ class PgDB(ChatDB):
                         INSERT INTO chat_messages (
                             thread_id, user_id, role, content,
                             hosted_room_participant_id,
-                            sender_display_name_snapshot,
-                            extra_meta
+                            sender_display_name_snapshot
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
@@ -1590,7 +1557,6 @@ class PgDB(ChatDB):
                             content,
                             hosted_room_participant_id,
                             sender_display_name_snapshot,
-                            serialized_extra_meta,
                         ),
                     )
                 row = cur.fetchone()
@@ -1612,101 +1578,6 @@ class PgDB(ChatDB):
         if message_id is None:
             raise RuntimeError("Failed to insert chat message")
         return message_id
-
-    def create_assistant_message_for_completion_attempt(
-        self,
-        *,
-        thread_id: int,
-        content: str,
-        request_id: str,
-        backend_task_id: str,
-        turn_id: str,
-        hosted_room_participant_id: str | None = None,
-        sender_display_name_snapshot: str | None = None,
-        extra_meta: dict[str, Any] | None = None,
-    ) -> tuple[int, bool]:
-        """Persist a successful assistant and bind it to its attempt atomically.
-
-        `extra_meta` is written with the message inside the same transaction as
-        the attempt binding, so accepted chat turns never depend on a later
-        best-effort update that an interruption could leave unapplied.
-        """
-        with self.conversation_transaction():
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT request_id, thread_id, turn_id, completed_message_id,
-                               terminal_event_type
-                        FROM chat_completion_attempts
-                        WHERE backend_task_id = %s
-                        FOR UPDATE
-                        """,
-                        (backend_task_id,),
-                    )
-                    attempt = cur.fetchone()
-
-            if attempt is not None:
-                if (
-                    attempt["request_id"] != request_id
-                    or attempt["thread_id"] != thread_id
-                    or attempt["turn_id"] != turn_id
-                ):
-                    raise ValueError(
-                        "Completion task identity does not match its durable attempt"
-                    )
-                if attempt["completed_message_id"] is not None:
-                    existing_message_id = int(attempt["completed_message_id"])
-                    with self._connect() as conn:
-                        with conn.cursor() as cur:
-                            cur.execute(
-                                """
-                                SELECT id FROM chat_messages
-                                WHERE id = %s AND thread_id = %s AND role = 'assistant'
-                                """,
-                                (existing_message_id, thread_id),
-                            )
-                            if cur.fetchone() is None:
-                                raise ValueError(
-                                    "Completion attempt points to no assistant in its thread"
-                                )
-                    return existing_message_id, True
-                if attempt["terminal_event_type"] is not None:
-                    raise ValueError(
-                        "Completion attempt already has a failure or cancellation outcome"
-                    )
-
-            message_id = self.create_message(
-                thread_id,
-                "assistant",
-                content,
-                hosted_room_participant_id=hosted_room_participant_id,
-                sender_display_name_snapshot=sender_display_name_snapshot,
-                extra_meta=extra_meta,
-            )
-            if attempt is None:
-                return message_id, False
-
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        UPDATE chat_completion_attempts
-                        SET completed_message_id = %s
-                        WHERE request_id = %s
-                          AND backend_task_id = %s
-                          AND thread_id = %s
-                          AND turn_id = %s
-                          AND completed_message_id IS NULL
-                          AND terminal_event_type IS NULL
-                        """,
-                        (message_id, request_id, backend_task_id, thread_id, turn_id),
-                    )
-                    if cur.rowcount != 1:
-                        raise RuntimeError(
-                            "Completion attempt changed before assistant binding"
-                        )
-            return message_id, True
 
     def record_thread_move(
         self,
@@ -4985,15 +4856,6 @@ ACCOUNT_EXPORT_UNIFIED_MEMORY_PAYLOAD_ORDER = (
     "memory_records",
     "memory_persona_links",
     "memory_provenance",
-    "memory_revisions",
-    "memory_review_revisions",
-    "memory_lifecycle_revisions",
-    # UMS-11: minimum non-content permanent-erasure suppression state. It has
-    # no parent memory row -- the purge that writes it deletes that row -- so
-    # it carries no memory_id and cannot participate in the parent-first walk
-    # the revision families rely on. It is therefore last, and it is
-    # deliberately independent of the erased canonical graph.
-    "memory_purge_tombstones",
 )
 
 
@@ -5447,7 +5309,6 @@ def fetch_account_export_bundle_for_user(
                         memory_id, user_id, project_id, semantic_species,
                         text_content, fact_key, fact_value, fact_confidence,
                         reviewed_at, activated_at, pinned, held, extensions,
-                        review_state, lifecycle_state,
                         created_at, updated_at
                     FROM memory_records
                     WHERE user_id = %s
@@ -5484,73 +5345,6 @@ def fetch_account_export_bundle_for_user(
                     FROM memory_provenance
                     WHERE user_id = %s
                     ORDER BY memory_id ASC, provenance_id ASC
-                    """,
-                    (user_id,),
-                )
-                bundles["memory_revisions"] = _export_rows(
-                    cur,
-                    """
-                    SELECT
-                        revision_id, memory_id, user_id, revision_number,
-                        old_text_content, new_text_content, created_at
-                    FROM memory_revisions
-                    WHERE user_id = %s
-                    ORDER BY memory_id ASC, revision_number ASC,
-                             revision_id ASC
-                    """,
-                    (user_id,),
-                )
-                # UMS-05C10A-P: ordinary-memory review-transition history.
-                # Deterministic export ordering, independent of the content
-                # revision family.
-                bundles["memory_review_revisions"] = _export_rows(
-                    cur,
-                    """
-                    SELECT
-                        review_revision_id, memory_id, user_id,
-                        revision_number, old_review_state, new_review_state,
-                        actor_account_id, created_at
-                    FROM memory_review_revisions
-                    WHERE user_id = %s
-                    ORDER BY memory_id ASC, revision_number ASC,
-                             review_revision_id ASC
-                    """,
-                    (user_id,),
-                )
-
-                # UMS-05C10B-P: ordinary-memory lifecycle-transition history.
-                # old_lifecycle_state preserves the pre-retirement posture
-                # required by the restore contract.
-                bundles["memory_lifecycle_revisions"] = _export_rows(
-                    cur,
-                    """
-                    SELECT
-                        lifecycle_revision_id, memory_id, user_id,
-                        revision_number, old_lifecycle_state,
-                        new_lifecycle_state, created_at
-                    FROM memory_lifecycle_revisions
-                    WHERE user_id = %s
-                    ORDER BY memory_id ASC, revision_number ASC,
-                             lifecycle_revision_id ASC
-                    """,
-                    (user_id,),
-                )
-
-                # UMS-11: permanent-erasure suppression state. Exports only
-                # the minimum non-content fields; the erased canonical memory
-                # and all of its content-bearing history are gone by the time
-                # a tombstone exists, so nothing purged can reappear here.
-                bundles["memory_purge_tombstones"] = _export_rows(
-                    cur,
-                    """
-                    SELECT
-                        purge_receipt_id, user_id,
-                        purged_record_fingerprint,
-                        source_system, source_entity_kind,
-                        source_atom_fingerprint, purged_at, suppress_reimport
-                    FROM memory_purge_tombstones
-                    WHERE user_id = %s
-                    ORDER BY purge_receipt_id ASC
                     """,
                     (user_id,),
                 )
@@ -5785,32 +5579,6 @@ def fetch_account_export_memory_provenance_for_user(
     return _unified_memory_bundle_family_rows(user_id, "memory_provenance")
 
 
-def fetch_account_export_memory_revisions_for_user(
-    user_id: str,
-) -> list[dict[str, Any]]:
-    return _unified_memory_bundle_family_rows(user_id, "memory_revisions")
-
-
-def fetch_account_export_memory_review_revisions_for_user(
-    user_id: str,
-) -> list[dict[str, Any]]:
-    """UMS-05C10A-P: ordinary-memory review-transition history rows."""
-    return _unified_memory_bundle_family_rows(user_id, "memory_review_revisions")
-
-
-def fetch_account_export_memory_purge_tombstones_for_user(
-    user_id: str,
-) -> list[dict[str, Any]]:
-    """UMS-11: permanent-erasure suppression tombstone rows.
-
-    Only the minimum non-content fields are ever selected. There is no
-    query path from this reader to purged memory content, because by the
-    time a tombstone exists the erased canonical row and all of its
-    content-bearing history are already gone.
-    """
-    return _unified_memory_bundle_family_rows(user_id, "memory_purge_tombstones")
-
-
 def iter_account_export_payloads_for_user(
     user_id: str,
     *,
@@ -5938,26 +5706,6 @@ def iter_account_export_payloads_for_user(
                 "memory_provenance",
                 "entities/memory_provenance.json",
                 "fetch_account_export_memory_provenance_for_user",
-            ),
-            (
-                "memory_revisions",
-                "entities/memory_revisions.json",
-                "fetch_account_export_memory_revisions_for_user",
-            ),
-            (
-                "memory_review_revisions",
-                "entities/memory_review_revisions.json",
-                "fetch_account_export_memory_review_revisions_for_user",
-            ),
-            (
-                "memory_lifecycle_revisions",
-                "entities/memory_lifecycle_revisions.json",
-                "fetch_account_export_memory_lifecycle_revisions_for_user",
-            ),
-            (
-                "memory_purge_tombstones",
-                "entities/memory_purge_tombstones.json",
-                "fetch_account_export_memory_purge_tombstones_for_user",
             ),
         )
     for family, path, _reader_name in payload_order:

@@ -143,7 +143,7 @@ function buildPreviewDraftSnapshot(
   profile: PersonaProfileDraft | null
 ): PreviewDraftSnapshot {
   const config = profile?.config ?? null;
-  const personaName = config?.identity?.name || profile?.name || "Lens";
+  const personaName = config?.identity?.name || profile?.name || "Persona";
   const description =
     config?.identity?.description || profile?.description || "No description set.";
   const modelLine = config
@@ -199,7 +199,7 @@ function buildPreviewDraftSnapshot(
 function getPreviewPromptTone(prompt: string) {
   const normalizedPrompt = prompt.trim().toLowerCase();
   if (!normalizedPrompt) {
-    return "I will keep the reply anchored to the current Lens draft and stay inside the Lens editor.";
+    return "I will keep the reply anchored to the current persona draft and stay inside the studio harness.";
   }
   if (/(code|bug|test|refactor|debug|implement)/.test(normalizedPrompt)) {
     return "I will keep this implementation-first and explicit about tradeoffs.";
@@ -213,7 +213,7 @@ function getPreviewPromptTone(prompt: string) {
   if (/(hello|hi|casual|chat|conversation)/.test(normalizedPrompt)) {
     return "I will keep the tone warm, direct, and low-friction.";
   }
-  return "I will answer from the current draft without leaving the Lens editor.";
+  return "I will answer from the current draft without leaving Persona Studio.";
 }
 
 function buildPreviewReply(
@@ -225,16 +225,16 @@ function buildPreviewReply(
   const promptLine = trimmedPrompt ? `You said: "${trimmedPrompt}".` : "You sent an empty prompt.";
   const turnLine =
     turnNumber === 1
-      ? "This is the first preview turn in this Lens editor session."
-      : `This is preview turn ${turnNumber} in the current Lens editor session.`;
+      ? "This is the first preview turn in this Studio session."
+      : `This is preview turn ${turnNumber} in the current Studio session.`;
 
   return [
-    `${draftSnapshot.personaName} is the active Lens draft right now.`,
+    `${draftSnapshot.personaName} is the active persona draft right now.`,
     promptLine,
     getPreviewPromptTone(trimmedPrompt),
     `Current draft snapshot: ${draftSnapshot.modelLine}; temperature ${draftSnapshot.temperatureLine}; retrieval ${draftSnapshot.retrieval}; voice ${draftSnapshot.voice}.`,
     turnLine,
-    "This preview stays local to the Lens editor, never persists, and clears on reload.",
+    "This preview stays local to Persona Studio, never persists, and clears on reload.",
   ].join(" ");
 }
 
@@ -477,7 +477,7 @@ export default function PersonaPreviewPanel({
                                     className="text-[10px] font-semibold uppercase tracking-[0.16em]"
                                     style={{ color: "var(--muted)" }}
                                   >
-                                    Lens
+                                    Persona
                                   </div>
                                   <p className="mt-1 leading-6">{entry.draftSnapshot.personaName}</p>
                                 </div>
@@ -712,7 +712,7 @@ export default function PersonaPreviewPanel({
                 value={previewPrompt}
                 onChange={(event) => setPreviewPrompt(event.target.value)}
                 placeholder="Send a temporary test prompt"
-                aria-label="Lens preview prompt"
+                aria-label="Persona preview prompt"
                 className="min-h-[80px] w-full resize-y"
                 disabled={isResponding}
                 onKeyDown={(event) => {
@@ -744,7 +744,7 @@ export default function PersonaPreviewPanel({
       <div
         className="persona-preview-panel--embedded flex min-h-0 flex-1 flex-col"
         role="region"
-        aria-label="Lens Preview panel"
+        aria-label="Persona Preview panel"
         data-testid="persona-preview-panel"
       >
         {panelContents}
@@ -756,7 +756,7 @@ export default function PersonaPreviewPanel({
     <Card
       className="bezel-none flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border lg:h-full"
       role="region"
-      aria-label="Lens Preview panel"
+      aria-label="Persona Preview panel"
       data-testid="persona-preview-panel"
       style={{
         background: "color-mix(in srgb, var(--panel-bg) 94%, transparent)",

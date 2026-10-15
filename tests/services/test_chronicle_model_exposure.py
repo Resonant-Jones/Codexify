@@ -1,5 +1,4 @@
 import hashlib
-from dataclasses import replace
 
 import pytest
 
@@ -9,7 +8,6 @@ from guardian.services.chronicle_interpretation_authorization import (
     ChronicleInterpretationGrant,
 )
 from guardian.services.chronicle_model_exposure import (
-    LocalModelUnavailable,
     ModelExposureError,
     ReviewedEvidenceReference,
     authorize_reviewed_evidence,
@@ -175,57 +173,3 @@ def test_local_dispatch_is_strict_and_tool_free():
         "strict_provider_model": True,
         "strict_single_request": True,
     }
-
-
-@pytest.mark.parametrize("threads", [(10, 11), (11, 10)])
-@pytest.mark.parametrize("origins", [(Origin.OPENAI, Origin.ANTHROPIC), (Origin.ANTHROPIC, Origin.OPENAI)])
-def test_scope_comparison_preserves_membership_without_order(threads, origins):
-    item = excerpt()
-    authority = replace(grant(), thread_ids=threads, origins=origins)
-    evidence = replace(bundle(item), selected_thread_ids=(10, 11), permitted_origins=(Origin.ANTHROPIC, Origin.OPENAI))
-    assert authorize_reviewed_evidence(authority, evidence, [ref(item)])
-
-
-@pytest.mark.parametrize("field,value", [
-    ("selected_thread_ids", (10, 12)),
-    ("selected_thread_ids", (10, 10)),
-    ("permitted_origins", (Origin.OPENAI,)),
-])
-def test_scope_normalization_does_not_widen_authority(field, value):
-    authority = replace(grant(), thread_ids=(10, 11), origins=(Origin.OPENAI, Origin.ANTHROPIC))
-    evidence = replace(bundle(), selected_thread_ids=(10, 11), permitted_origins=(Origin.OPENAI, Origin.ANTHROPIC))
-    with pytest.raises(ModelExposureError, match="scope changed"):
-        authorize_reviewed_evidence(authority, replace(evidence, **{field: value}), [ref(excerpt())])
-
-
-@pytest.mark.parametrize("field", ["canonical_role", "importer_role", "original_role"])
-@pytest.mark.parametrize("role", ["system", "developer", "tool", "tool_result", "server_tool_result", " TOOL "])
-def test_instruction_roles_are_rejected_at_every_provenance_layer(field, role):
-    item = replace(excerpt(), **{field: role})
-    with pytest.raises(ModelExposureError, match="instruction role"):
-        authorize_reviewed_evidence(grant(), bundle(item), [ref(item)])
-
-
-@pytest.mark.parametrize("error", [TimeoutError("private provider detail"), RuntimeError("private provider detail")])
-def test_local_transport_failures_have_distinct_content_free_error(error):
-    def fail(*args, **kwargs):
-        raise error
-    with pytest.raises(LocalModelUnavailable, match="^Local model unavailable$"):
-        invoke_local_model([], transport=fail)
-
-
-
-def test_preview_preserves_local_unavailability(monkeypatch):
-    from guardian.services import chronicle_preview
-    item = excerpt()
-    def fail(*args, **kwargs):
-        raise TimeoutError("provider details")
-    with pytest.raises(chronicle_preview.ChroniclePreviewUnavailable, match="^Local model unavailable$"):
-        chronicle_preview.generate_chronicle_preview(grant(), bundle(item), [ref(item)], transport=fail)
-
-
-def test_preview_keeps_malformed_output_as_request_error():
-    from guardian.services import chronicle_preview
-    item = excerpt()
-    with pytest.raises(chronicle_preview.ChroniclePreviewError, match="Malformed Chronicle output"):
-        chronicle_preview.generate_chronicle_preview(grant(), bundle(item), [ref(item)], transport=lambda *a, **k: "not json")

@@ -1,4 +1,4 @@
-# Product Spec — Lens Editor
+# Product Spec — Persona Studio
 
 ## Architecture Status
 
@@ -8,39 +8,18 @@
 
 Current code-path scope remains narrower: Studio maintains a broad browser-local draft, while backend persistence and system-profile resolution carry only name, system prompt, model provider, model ID, and temperature. Broader fields are authored intent, not current runtime enforcement or release support.
 
-## Naming Layers
-
-This surface uses three deliberately different vocabularies. They are not
-inconsistent with each other.
-
-| Layer | Vocabulary | Examples |
-|---|---|---|
-| Product language | **Lens** | Nav entry `Lens`, page `Lens Editor`, frames `Lens Assistant` / `Lens Editor`, form section `Lens identity` |
-| Internal implementation | **Persona** (unchanged) | `personaStudio` module tree, `PersonaStudioPage`, `persona-studio-*` test IDs, `personaStudioStore`, `personaStudioApi` |
-| Canonical authority | **Persona Profile** (unchanged) | `PersonaProfileManifest`, `PersonaProfileBinding`, ADR-082 |
-
-Internal identifiers remain Persona until a structural change justifies
-renaming them. They are implementation detail, not product vocabulary, and
-they are not accessibility surface. Accessibility labels and user-facing copy
-are product language and must use Lens.
-
 ## 1. Overview
 
-The Lens Editor is a non-conversational configuration interface for defining, editing, inspecting, and locally testing a Lens. A Lens changes the authored approach and configuration Guardian works under; it is not a separate autonomous agent and does not replace Guardian. It may configure model behavior, voice, prompt, requested capabilities, and retrieval intent, but saving remains neither runtime execution nor an authority grant.
+Persona Studio is a non-conversational configuration interface for defining, editing, inspecting, and locally testing Persona Profiles. It may configure model behavior, voice, prompt, requested capabilities, and retrieval intent, but saving remains neither runtime execution nor an authority grant.
 
-The Lens Editor does not maintain chat history, write memory, act as normal conversation, or create runtime authority.
-
-Its default path is the common authoring loop; implementation mechanics are
-disclosed on request. See §4.4.
+Persona Studio does not maintain chat history, write memory, act as normal conversation, or create runtime authority.
 
 ## 2. Core Principles
 
-- The Lens Editor is configuration; Runtime Chat is execution; memory, Project, connection, and binding systems retain their own authority.
-- Guardian remains the primary runtime and assistant authority. A Lens shapes how Guardian approaches work and never becomes a second agent.
+- Persona Studio is configuration; Runtime Chat is execution; memory, Project, connection, and binding systems retain their own authority.
 - Build receipts and Test transcripts are local, ephemeral UI state, not conversation objects or message persistence.
 - Manifest owns authored intent; Binding is server-owned environmental state; requested configuration is not effective configuration.
 - Editing, saving, validating, importing, exporting, Build, and Test do not write memory, infer durable traits, or execute runtime behavior.
-- The default editor shows the common authoring path. Implementation mechanics stay behind an explicit disclosure, and hiding a control never removes a value or an editing capability.
 
 ## 3. Core Entities
 
@@ -62,59 +41,39 @@ Studio retains a selected local draft, dirty/saved comparison state, local Build
 
 ### 4.1 Layout
 
-The route is an AppShell sibling view. AppShell owns Dock, scene, theme, and global shell tokens. The Lens Editor renders exactly two canonical `FrameCard` surfaces:
+The route is an AppShell sibling view. AppShell owns Dock, scene, theme, and global shell tokens. Persona Studio renders exactly two canonical `FrameCard` surfaces:
 
 ```text
-Lens Assistant  |  Lens Editor
+Studio Assistant  |  Configuration
 ```
 
-Lens Editor is wider on desktop; the surfaces stack at narrow width without horizontal overflow. There is no third outer frame and no full-width page footer/status panel.
+Configuration is wider on desktop; the surfaces stack at narrow width without horizontal overflow. There is no third outer frame and no full-width page footer/status panel.
 
-### 4.2 Lens Assistant
+### 4.2 Studio Assistant
 
 Build is deterministic local configuration, not a model-backed assistant. It recognizes approved prototype mappings for analytic/warmer behavior, Anthropic/Claude or OpenAI/GPT model choice, higher/lower temperature, requested web/email permissions, voice on/off, and retrieval on/off. Recognized changes apply to the selected draft only, show a local receipt, and highlight affected Form fields/sections. Unrecognized text leaves the draft unchanged. Build never auto-saves or calls a provider, normal chat, tool, retrieval, connector, or memory surface.
 
 Test reuses the deterministic draft-aware preview engine. It remains local, ephemeral, non-threaded, and independently clearable. It must not create a Guardian thread, chat history, memory write, provider request, tool call, retrieval execution, connector call, or persisted Persona mutation. Its embedded layout must not create another primary frame or duplicate heading.
 
-### 4.3 Lens Editor
+### 4.3 Configuration
 
-The Lens Editor header has the compact profile selector, acknowledgement state, Revert, Save, and a subordinate Duplicate-as-new action. Status states are `Saved · rev N` for a clean acknowledged draft, `Unsaved changes · saved rev N` for a dirty acknowledged draft, and `Unsaved draft` with no acknowledged baseline. The client never predicts a future revision; Save remains `Save`, not `Save rev N+1`.
+The Configuration header has the compact profile selector, acknowledgement state, Revert, Save, and a subordinate Duplicate-as-new action. Status states are `Saved · rev N` for a clean acknowledged draft, `Unsaved changes · saved rev N` for a dirty acknowledged draft, and `Unsaved draft` with no acknowledged baseline. The client never predicts a future revision; Save remains `Save`, not `Save rev N+1`.
 
-The header carries no projection tab row. The draft is always presented as the Lens form first; the Manifest and Effective inspections are reached through the Advanced disclosure (§4.4).
+Configuration has Form, Manifest, and Effective projections of the same selected draft.
 
 #### Form
 
-Form contains collapsible Lens identity, Behavior / Instructions, Voice, Model, Capabilities, Retrieval, and Activation & Bindings sections. It replaces the retired permanent seven-tab editor. Generation Top K and Retrieval Top K remain separate authored parameters.
+Form contains collapsible Identity, Behavior / Prompt, Model, Voice, Capabilities, Retrieval, and Activation & Bindings sections. It replaces the retired permanent seven-tab editor. Generation Top K and Retrieval Top K remain separate authored parameters.
 
-### 4.4 Default Path and Advanced Disclosure
-
-The default Lens authoring path is the common intent an author reaches for when shaping how Guardian should approach work:
-
-- **Lens identity** — portable name and description.
-- **Behavior / Instructions** — authored system prompt, style notes, directives.
-- **Voice** — requested voice preference; a user-intent-level setting, kept on the common path and collapsed rather than disclosed.
-
-Implementation-oriented mechanics sit behind a single explicit **Advanced** disclosure at the end of the form. Opening it reveals, without removing anything:
-
-- Model — requested provider/model and detailed tuning.
-- Capabilities — requested permissions and tool lists.
-- Retrieval — retrieval tuning.
-- Activation & Bindings — the non-portable Binding boundary.
-- The **Manifest** and **Effective** inspections.
-
-This is presentation reduction, not schema reduction. Every disclosed field keeps its prior value, definition, and editing behavior, and all advanced controls remain reachable from the same draft.
-
-Disclosure is not a hiding rule Build may violate: when Build or a change-link targets a section inside the disclosure, the disclosure expands automatically so an applied value is never hidden behind a collapsed region.
-
-### 4.5 Manifest
+#### Manifest
 
 Manifest is editable JSON for the writable authored shape. Form edits regenerate the JSON projection; valid JSON changes update the same draft. Invalid JSON remains in the local buffer with an inline validation error and cannot corrupt the draft. The editor rejects mismatched `apiVersion`, another profile identity, revision fields, bindings, credentials, Project authority, runtime grants, and unknown fields. YAML import/export remains deferred.
 
-### 4.6 Effective
+#### Effective
 
 Effective may inspect authored/requested values only. Until an authoritative resolver exists, provider/model availability, connector authorization/health, Project bindings, capability grants, and runtime effect must be labelled `Not resolved`, `Unavailable to resolve here`, or equivalent neutral wording. The view must not fabricate availability, authorization, or runtime truth.
 
-### 4.7 Activation & Bindings
+#### Activation & Bindings
 
 This section preserves the non-portable Binding boundary. It has no Project-pin editor, `@persona` alias editor, connector grant control, credential field, or fake authorization toggle unless a later authorized task provides an authoritative production seam.
 
@@ -138,24 +97,22 @@ The intended path is not UI-to-runtime: Manifest records requested configuration
 
 ### 6.3 Strict Isolation
 
-The Lens Editor must never, merely by editing, saving, importing, exporting, validating, testing, or inspecting a profile, write memory stores, modify thread history or create conversation records, invoke a model/tool/retrieval/connector, change provider health, or grant new authority.
+Persona Studio must never, merely by editing, saving, importing, exporting, validating, testing, or inspecting a profile, write memory stores, modify thread history or create conversation records, invoke a model/tool/retrieval/connector, change provider health, or grant new authority.
 
 ## 7. Observability Requirements
 
-Effective distinguishes requested values from unavailable unresolved environment state. It does not claim available, denied, or effective runtime configuration without an owning resolver/evidence source. Draft-vs-saved state and transient Build highlights are sufficient inspection surfaces.
+Effective distinguishes requested values from unavailable unresolved environment state. It does not claim available, denied, or effective runtime configuration without an owning resolver/evidence source. Draft-vs-saved state and transient Build highlights are sufficient V2 inspection surfaces.
 
 ## 8. Critical UX Rules
 
-- No normal Guardian chat UI, conversation threading, or hidden assistant presence in the editor.
+- No normal Guardian chat UI, conversation threading, or hidden assistant persona presence in Studio.
 - Keep generation and retrieval parameters semantically separate.
-- Make unsaved state visible in the Lens Editor header, not a page footer.
+- Make unsaved state visible in the Configuration header, not a page footer.
 - Use actual FrameCard material and AppShell scene ownership; do not port the prototype's simulated shell or environmental claims.
-- Progressive disclosure must not remove capability. A collapsed or undisclosed control keeps its value and stays reachable.
-- Never apply an authored change into a region the author cannot see; expand the disclosure when a Build change targets it.
 
 ## 9. Non-Goals
 
-This surface does not implement model-backed configuration, a new backend endpoint, Binding persistence/editor, Project pins, `@persona` aliases, connector grants, provider health resolution, capability enforcement, retrieval execution, voice runtime enforcement, YAML import/export, new identity/memory behavior, global Dock/FrameCard/token redesign, legacy-component cleanup, or release promotion.
+V2 does not implement model-backed configuration, a new backend endpoint, Binding persistence/editor, Project pins, `@persona` aliases, connector grants, provider health resolution, capability enforcement, retrieval execution, voice runtime enforcement, YAML import/export, new identity/memory behavior, global Dock/FrameCard/token redesign, legacy-component cleanup, or release promotion.
 
 ## 10. Future Extensions
 
@@ -163,21 +120,11 @@ Potential future work includes individually authorized effective-config resoluti
 
 ## 11. Naming
 
-Product language presented to users:
-
-- Feature: Lens Editor
-- Nav entry: Lens
-- Left workspace: Lens Assistant
-- Right workspace: Lens Editor
-- Local modes: Build / Test, plus the Advanced disclosure and its Manifest / Effective inspections
-
-Deliberately unchanged:
-
-- Canonical authority: `PersonaProfileManifest`, `PersonaProfileBinding`, ADR-082.
-- Internal implementation: `personaStudio` module tree, `PersonaStudioPage`, `persona-studio-*` test IDs, and the `/persona-studio` route.
-
-Internal Persona naming is not product vocabulary and is not a simplification target. It changes only when a structural change requires it, not to make identifiers cosmetically consistent.
+- Feature: Persona Studio
+- Left workspace: Studio Assistant
+- Right workspace: Configuration
+- Local modes: Build / Test and Form / Manifest / Effective
 
 ## 12. Definition of Done
 
-The presentation is complete when AppShell directly contains the page and the page renders exactly two primary FrameCards; Build/Test retain local-only non-authoritative behavior; Lens identity, Behavior / Instructions, and Voice form the default path; Model, Capabilities, Retrieval, Activation & Bindings, Manifest, and Effective are reachable through one explicit Advanced disclosure without losing any value or editing capability; Build expands that disclosure when it changes something inside it; Manifest and Binding stay separate; acknowledgement/revision semantics remain intact; and no runtime, identity, memory, connector, or release claim is inferred from editor interaction.
+The V2 presentation is complete when AppShell directly contains the page and the page renders exactly two primary FrameCards; Build/Test retain local-only non-authoritative behavior; Form/Manifest/Effective are one draft projected honestly; Manifest and Binding stay separate; acknowledgement/revision semantics remain intact; and no runtime, identity, memory, connector, or release claim is inferred from Studio interaction.

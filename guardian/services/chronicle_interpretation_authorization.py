@@ -23,6 +23,7 @@ from guardian.services.imported_history_evidence import (
     EvidenceAccessError,
     EvidenceMetadataError,
     EvidenceReadError,
+    EvidenceRequestError,
     ImportedHistoryEvidenceReader,
     InspectionLimits,
     MAX_EXCERPT_BYTES,
@@ -222,6 +223,7 @@ def authorize_chronicle_interpretation(
         EvidenceAccessError,
         EvidenceMetadataError,
         EvidenceReadError,
+        EvidenceRequestError,
     ):
         raise ChronicleAuthorizationUnavailable("Authorization unavailable") from None
     if {excerpt.thread_id for excerpt in evidence.excerpts} != set(thread_ids):

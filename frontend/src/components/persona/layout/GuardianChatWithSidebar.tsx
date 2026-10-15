@@ -104,15 +104,22 @@ function PanelShell({
     ...(surfaceStyle ?? {}),
   };
 
+  if (transparent) {
+    return (
+      <div className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)} style={panelStyle}>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <FrameCard
       fill
-      unframed={transparent}
-      refractiveFallback={!transparent}
+      refractiveFallback
       shimmerMode="subtle"
       liquidBezelWidth={3}
       className={clsx("flex flex-col h-full w-full min-h-0 box-border", className)}
-      hoverPop={!disabled && !transparent}
+      hoverPop={!disabled}
       ariaLabel={disabled ? "panel disabled" : undefined}
       style={{
         borderRadius: "var(--card-radius)",
@@ -142,11 +149,6 @@ function formatDesktopAuthDiagnostics(): string[] {
 function isCanonicalGuardianStartRoute(): boolean {
   if (typeof window === "undefined") return false;
   return window.location.pathname === "/" || window.location.pathname === "/chat";
-}
-
-function readRouteThreadId(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.location.pathname.match(/\/chat\/(\d+)/)?.[1] ?? null;
 }
 
 // Presentation only: thread identity continues to belong to SessionSpine.
@@ -528,11 +530,7 @@ export default function GuardianChatWithSidebar({
     projectCache.projectList,
     projectSelection,
   ]);
-  const [activeId, setActiveId] = React.useState<string | null>(readRouteThreadId);
-  const [assistantMessageRefresh, setAssistantMessageRefresh] = React.useState<{
-    threadId: number;
-    sequence: number;
-  } | null>(null);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
   const lastSidebarSnapshotSignatureRef = React.useRef<string | null>(null);
   const [threadsLoaded, setThreadsLoaded] = React.useState(false);
   const [threadsHasMore, setThreadsHasMore] = React.useState(true);
@@ -645,7 +643,10 @@ export default function GuardianChatWithSidebar({
   });
 
   const resolveRouteThreadId = React.useCallback((): string | null => {
-    return readRouteThreadId();
+    if (typeof window === "undefined") return null;
+    const match = window.location.pathname.match(/\/chat\/(\d+)/);
+    if (match && match[1]) return match[1];
+    return null;
   }, []);
 
   React.useEffect(() => {
@@ -1802,15 +1803,6 @@ export default function GuardianChatWithSidebar({
     const offMessage = subscribe("message.created", (event) => {
       const payload = (event.data as any)?.data ?? event.data;
       console.info("[live] message.created", payload);
-      if (String(payload?.role ?? "").trim().toLowerCase() === "assistant") {
-        const assistantThreadId = Number(payload?.thread_id ?? payload?.threadId);
-        if (Number.isFinite(assistantThreadId)) {
-          setAssistantMessageRefresh((previous) => ({
-            threadId: assistantThreadId,
-            sequence: (previous?.sequence ?? 0) + 1,
-          }));
-        }
-      }
       const rawId = payload?.thread_id ?? payload?.threadId ?? payload?.id;
       if (rawId == null) {
         return;
@@ -2386,7 +2378,6 @@ export default function GuardianChatWithSidebar({
                   providerRuntimeState={providerRuntimeState}
                   runtimeHealth={runtimeHealth}
                   activeThread={activeThread}
-                  assistantMessageRefresh={assistantMessageRefresh}
                   workspaceProjectId={selectedProjectId}
                   workspaceProjectName={selectedProjectName}
                   projectOptions={projectCache.projectList}

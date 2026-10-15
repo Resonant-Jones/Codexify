@@ -1,4 +1,3 @@
-import { BootstrapWorkflow } from "@/contracts/bootstrapReadiness.generated";
 import React from "react";
 
 import BootstrapGate from "./components/bootstrap/BootstrapGate";
@@ -205,8 +204,10 @@ function resolveBootstrapRecoveryStage(
   state: RuntimeBootstrapState
 ): BootstrapRecoveryStage | null {
   if (
-    state.status === BootstrapWorkflow.INSPECTING ||
-    state.status === BootstrapWorkflow.ACTION_REQUIRED
+    state.status === "checking-requirements" ||
+    state.status === "docker-missing" ||
+    state.status === "compose-missing" ||
+    state.status === "docker-not-running"
   ) {
     return "preflight";
   }
@@ -219,15 +220,11 @@ function resolveBootstrapRecoveryStage(
     return "compose-up";
   }
 
-  if (state.stepResults["pull-images"] && !state.stepResults["pull-images"]?.ok) {
-    return "setup";
-  }
-
   if (state.stepResults.setup && !state.stepResults.setup?.ok) {
     return "setup";
   }
 
-  if (state.status === BootstrapWorkflow.FAILED) {
+  if (state.status === "failed") {
     return "preflight";
   }
 

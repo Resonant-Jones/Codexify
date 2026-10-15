@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from guardian.cognition.generative_ui_prompt import build_generative_ui_guidance_block
 from guardian.cognition.identity_resolution import (
     resolve_imprint,
     resolve_persona,
@@ -217,11 +216,6 @@ def _compose_guardian_system_prompt(
         _system_profile_block(profile_text).strip(),
         _rag_hint_block(bundle_payload).strip(),
     ]
-    # Feature-gated (GUARDIAN_GENERATIVE_UI, default off). Provider-neutral:
-    # rides the ordinary prompt rather than the provider-gated tool rail.
-    generative_ui_block = build_generative_ui_guidance_block()
-    if generative_ui_block:
-        scratchpad_parts.append(generative_ui_block)
     user_system_override = bundle_payload.get("user_system_override")
     if isinstance(user_system_override, str) and user_system_override.strip():
         scratchpad_parts.append(

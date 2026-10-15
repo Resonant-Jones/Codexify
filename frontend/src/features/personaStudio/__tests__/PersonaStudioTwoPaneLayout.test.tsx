@@ -43,16 +43,14 @@ describe("Persona Studio V2 responsive two-pane layout", () => {
     expect(screen.getByTestId("persona-studio-build-transcript")).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
   });
 
-  it("keeps compact profile/save controls and reaches both inspections behind Advanced", async () => {
+  it("keeps compact profile/save controls and all three projections reachable", async () => {
     const user = userEvent.setup();
     render(<PersonaStudioPage />);
 
     expect(screen.getByTestId("persona-studio-profile-selector-trigger")).toBeVisible();
     expect(screen.getByTestId("persona-studio-action-save")).toHaveTextContent("Save");
     expect(screen.getByTestId("persona-studio-action-reset")).toHaveTextContent("Revert");
-
-    await user.click(screen.getByTestId("persona-studio-advanced-toggle"));
-    for (const projection of ["manifest", "effective"] as const) {
+    for (const projection of ["manifest", "effective", "form"] as const) {
       await user.click(screen.getByRole("tab", { name: new RegExp(`^${projection}$`, "i") }));
       expect(screen.getByRole("tab", { name: new RegExp(`^${projection}$`, "i") })).toHaveAttribute("aria-selected", "true");
     }

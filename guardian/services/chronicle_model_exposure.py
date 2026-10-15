@@ -21,10 +21,6 @@ class ModelExposureError(Exception):
     """Content-free failure before or during local model exposure."""
 
 
-class LocalModelUnavailable(Exception):
-    """Local inference failed; no provider details or evidence are exposed."""
-
-
 BLOCKED_POLICY = "Content-level modeling policy is unresolved"
 
 
@@ -52,12 +48,11 @@ def authorize_reviewed_evidence(
     reviewed: Sequence[ReviewedEvidenceReference],
 ) -> tuple[ExposedEvidence, ...]:
     """Admit only exact, current, human-reviewed reader output."""
-    if (
-        evidence.project_id != grant.project_id
-        or sorted(evidence.selected_thread_ids) != sorted(grant.thread_ids)
-    ):
+    if evidence.project_id != grant.project_id or tuple(
+        evidence.selected_thread_ids
+    ) != tuple(grant.thread_ids):
         raise ModelExposureError("Evidence scope changed")
-    if sorted(evidence.permitted_origins) != sorted(grant.origins):
+    if tuple(evidence.permitted_origins) != tuple(grant.origins):
         raise ModelExposureError("Evidence origin scope changed")
     if not reviewed or len(reviewed) > grant.limits.max_messages:
         raise ModelExposureError("Reviewed evidence selection is invalid")
@@ -91,14 +86,11 @@ def authorize_reviewed_evidence(
             raise ModelExposureError("Truncated evidence cannot be exposed")
         if not excerpt.source_message_id or not excerpt.imported_at:
             raise ModelExposureError("Imported provenance is incomplete")
-        if any(
-            (role or "").strip().lower() in {
-                "system", "developer", "tool", "tool_result", "server_tool_result"
-            }
-            for role in (
-                excerpt.canonical_role, excerpt.importer_role, excerpt.original_role
-            )
-        ):
+        if (excerpt.original_role or "").strip().lower() in {
+            "system",
+            "developer",
+            "tool",
+        }:
             raise ModelExposureError("Historical instruction role cannot be exposed")
         admitted.append(ExposedEvidence(excerpt, digest))
     # The accepted ADR-016 clarification permits this explicit owner approval
@@ -171,8 +163,8 @@ def invoke_local_model(
             strict_provider_model=True,
             strict_single_request=True,
         )
-    except Exception:
-        raise LocalModelUnavailable("Local model unavailable") from None
+    except Exception as exc:
+        raise ModelExposureError("Local model unavailable") from exc
 
 
 def validate_preview_output(

@@ -36,13 +36,13 @@ function classifyRouteAvailability(error: unknown): {
       return {
         summary: "Voice discovery is unavailable in this posture.",
         detail:
-          "This runtime reports that Lens voice discovery is not enabled here.",
+          "This runtime reports that Persona Studio voice discovery is not enabled here.",
       };
     }
     return {
       summary: "Voice discovery is unavailable in this runtime.",
       detail:
-        "The Lens editor could not find the backend voice discovery surface in this environment.",
+        "Persona Studio could not find the backend voice discovery surface in this environment.",
     };
   }
 
@@ -305,7 +305,7 @@ export default function PersonaVoicePanel({
               Provider
             </h3>
             <p className="text-sm leading-6 text-[var(--text)]">
-              Select a provider without turning the Lens editor into a provider console.
+              Select a provider without turning Persona Studio into a provider console.
             </p>
           </div>
           {currentProvider ? (
@@ -426,7 +426,7 @@ export default function PersonaVoicePanel({
               Voice Preset
             </h3>
             <p className="text-sm leading-6 text-[var(--text)]">
-              Bind a selectable preset voice. Advanced creation stays outside the Lens editor.
+              Bind a selectable preset voice. Advanced creation stays outside Persona Studio V1.
             </p>
           </div>
           <Button
@@ -491,7 +491,7 @@ export default function PersonaVoicePanel({
             </p>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
               {voices.find((voice) => voice.voiceId === selectedVoiceId)?.summary ??
-                "Preset-first binding keeps the Lens editor fast and provider-reactive."}
+                "Preset-first binding keeps Persona Studio fast and provider-reactive."}
             </p>
           </div>
         </div>

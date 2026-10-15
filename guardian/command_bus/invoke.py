@@ -46,7 +46,6 @@ from guardian.codex_runner_bridge.command_bus import (
     is_guardian_bridge_command,
 )
 from guardian.protocol_tokens import ErrorCode
-from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline
 from guardian.tools.policy import (
     apply_policy_mode,
     evaluate_tool_policy,
@@ -319,7 +318,6 @@ async def execute_invoke(
     allow_write_execution: bool = False,
     confirmation_granted: bool = False,
     work_order_store: Any = None,
-    accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ) -> dict[str, Any]:
     if execution_lane != "tools":
         # Write unlock is tools-lane only; raw/public lane stays read-only.
@@ -712,7 +710,6 @@ async def execute_invoke(
                 "policy_mode": policy_mode,
                 "confirmation_granted": confirmation_granted,
             },
-            **({"accepted_deadline": accepted_deadline} if accepted_deadline else {}),
         )
     except Exception as exc:
         error_text = str(exc)
@@ -756,13 +753,6 @@ async def execute_invoke(
                 "provenance_json": provenance_json,
             },
         )
-        if (
-            isinstance(exc, HTTPException)
-            and isinstance(exc.detail, dict)
-            and exc.detail.get("failure_code")
-            == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
-        ):
-            raise
         failed_response = {
             "run_id": run_id,
             "status": "failed",

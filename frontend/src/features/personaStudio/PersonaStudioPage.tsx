@@ -30,7 +30,7 @@ import {
 } from "./personaStudioStore";
 
 type AssistantMode = "build" | "test";
-type InspectionMode = "manifest" | "effective";
+type ConfigurationMode = "form" | "manifest" | "effective";
 type FormSectionId =
   | "identity"
   | "prompt"
@@ -67,23 +67,6 @@ const INITIAL_OPEN_SECTIONS: Record<FormSectionId, boolean> = {
   retrieval: false,
   bindings: false,
 };
-
-/**
- * Implementation-oriented controls that stay reachable but are disclosed only
- * on request. The default Lens path is identity, behavior/instructions, and the
- * user-intent-level voice preference; this is presentation reduction only, so
- * every value below remains authored and editable exactly as before.
- */
-const ADVANCED_FORM_SECTIONS: readonly FormSectionId[] = [
-  "model",
-  "capabilities",
-  "retrieval",
-  "bindings",
-];
-
-function isAdvancedFormSection(section: FormSectionId): boolean {
-  return ADVANCED_FORM_SECTIONS.includes(section);
-}
 
 const WRITABLE_MANIFEST_KEYS = [
   "apiVersion",
@@ -342,8 +325,7 @@ export default function PersonaStudioPage() {
     resetSelectedProfile,
   } = usePersonaStudioLocalDraftState();
   const [assistantMode, setAssistantMode] = React.useState<AssistantMode>("build");
-  const [advancedOpen, setAdvancedOpen] = React.useState(false);
-  const [inspectionMode, setInspectionMode] = React.useState<InspectionMode | null>(null);
+  const [configurationMode, setConfigurationMode] = React.useState<ConfigurationMode>("form");
   const [openSections, setOpenSections] = React.useState(INITIAL_OPEN_SECTIONS);
   const [highlightedFields, setHighlightedFields] = React.useState<string[]>([]);
   const [buildInput, setBuildInput] = React.useState("");
@@ -405,9 +387,7 @@ export default function PersonaStudioPage() {
     const firstSection = changes[0]?.section;
     if (!firstSection) return;
     const formSection = CONFIGURATOR_FORM_SECTION[firstSection];
-    // A change that landed behind the advanced disclosure must still be visible.
-    if (isAdvancedFormSection(formSection)) setAdvancedOpen(true);
-    setInspectionMode(null);
+    setConfigurationMode("form");
     setOpenSections((previous) => ({ ...previous, [formSection]: true }));
     window.setTimeout(() => {
       document.getElementById(`persona-studio-form-section-${formSection}`)?.scrollIntoView({
@@ -426,15 +406,8 @@ export default function PersonaStudioPage() {
     if (result.recognized) {
       updateSelectedProfile(() => result.draft);
       setHighlightedFields(result.changedFieldPaths);
-      const changedSections = result.sections.map(
-        (section) => CONFIGURATOR_FORM_SECTION[section]
-      );
-      // Disclose advanced mechanics when a recognized change targets them, so an
-      // applied value is never silently hidden behind a collapsed region.
-      if (changedSections.some(isAdvancedFormSection)) setAdvancedOpen(true);
-      setInspectionMode(null);
-      setOpenSections((previous) => changedSections.reduce(
-        (next, section) => ({ ...next, [section]: true }),
+      setOpenSections((previous) => result.sections.reduce(
+        (next, section) => ({ ...next, [CONFIGURATOR_FORM_SECTION[section]]: true }),
         previous
       ));
       if (highlightTimeout.current != null) window.clearTimeout(highlightTimeout.current);
@@ -464,7 +437,7 @@ export default function PersonaStudioPage() {
   };
 
   if (!selectedProfile) {
-    return <div className="flex h-full items-center justify-center" data-testid="persona-studio-page">No Lens is selected.</div>;
+    return <div className="flex h-full items-center justify-center" data-testid="persona-studio-page">No Persona Profile is selected.</div>;
   }
 
   const { config } = selectedProfile;
@@ -473,10 +446,6 @@ export default function PersonaStudioPage() {
     ...previous,
     [section]: !previous[section],
   }));
-  const toggleAdvanced = () => {
-    setAdvancedOpen((previous) => !previous);
-    setInspectionMode(null);
-  };
 
   return (
     <main className="h-full min-h-0 w-full overflow-y-auto" data-testid="persona-studio-page" data-persona-studio-layout="assistant-configuration">
@@ -577,21 +546,21 @@ export default function PersonaStudioPage() {
         }
       `}</style>
       <PersonaStudioActionChipStyles />
-      <h1 className="sr-only">Lens</h1>
+      <h1 className="sr-only">Persona Studio</h1>
       <div
         data-testid="persona-studio-workspace"
         data-layout="assistant-configuration"
       >
-        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-assistant-frame" ariaLabel="Lens Assistant">
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-assistant-frame" ariaLabel="Studio Assistant">
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--panel-border)" }}>
               <div>
-                <h2 className="text-base font-semibold">Lens Assistant</h2>
+                <h2 className="text-base font-semibold">Studio Assistant</h2>
                 <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Deterministic local draft editing and ephemeral preview.</p>
               </div>
               <Badge className="px-2 py-1 text-[10px] uppercase tracking-[0.14em]" style={{ borderColor: "var(--panel-border)" }}>Local only</Badge>
             </header>
-            <div className="flex gap-1" role="tablist" aria-label="Lens Assistant mode">
+            <div className="flex gap-1" role="tablist" aria-label="Studio Assistant mode">
               {(["build", "test"] as const).map((mode) => (
                 <button key={mode} type="button" role="tab" aria-selected={assistantMode === mode} onClick={() => setAssistantMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={assistantMode === mode ? "active" : "inactive"}>{mode}</button>
               ))}
@@ -628,18 +597,18 @@ export default function PersonaStudioPage() {
           </div>
         </FrameCard>
 
-        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-configuration-frame" ariaLabel="Lens Editor">
+        <FrameCard refractiveFallback shimmerMode="subtle" data-testid="persona-studio-configuration-frame" ariaLabel="Configuration">
           <div className="flex min-h-0 flex-1 flex-col">
             <header className="ps-configuration-header space-y-[var(--card-pad)] border-b pb-[var(--card-pad)]" style={{ borderColor: "var(--panel-border)" }}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-tight">Lens Editor</h2>
-                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Authored approach for this Lens. Guardian remains the runtime authority.</p>
+                  <h2 className="text-2xl font-semibold tracking-tight">Configuration</h2>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">One local draft projected as Form, Manifest, or effective inspection.</p>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild><Button {...personaStudioActionChip("selector", "max-w-[15rem] justify-between gap-2")} variant="ghost" type="button" data-testid="persona-studio-profile-selector-trigger"><span className="truncate">{selectedProfile.name}</span><span aria-hidden>⌄</span></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64" data-testid="persona-studio-profile-selector-list">
-                    <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Lenses</div>
+                    <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Persona Profiles</div>
                     {profiles.map((profile) => <DropdownMenuItem key={profile.id} onClick={() => setSelectedProfileId(profile.id)} className="flex flex-col items-start gap-1"><span>{profile.name}</span><span className="text-xs text-[var(--muted)]">{profile.id === selectedProfile.id ? "Current draft" : profile.description}</span></DropdownMenuItem>)}
                     <div role="separator" className="my-1 h-px bg-[var(--panel-border)]" />
                     <DropdownMenuItem onClick={saveSelectedProfileAsNew} data-testid="persona-studio-action-save-as-new">Duplicate as new</DropdownMenuItem>
@@ -653,49 +622,27 @@ export default function PersonaStudioPage() {
                   <Button {...personaStudioActionChip("primary")} type="button" variant="ghost" size="sm" onClick={saveSelectedProfile} disabled={!isDirty} data-testid="persona-studio-action-save">Save</Button>
                 </div>
               </div>
+              <div className="ps-projection-nav flex gap-1" role="tablist" aria-label="Configuration projection">
+                {(["form", "manifest", "effective"] as const).map((mode) => <button key={mode} type="button" role="tab" aria-selected={configurationMode === mode} onClick={() => setConfigurationMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={configurationMode === mode ? "active" : "inactive"}>{mode}</button>)}
+              </div>
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto pt-[var(--card-pad)]" data-testid="persona-studio-configuration-viewport" data-saved-profile-id={hasSavedVersion ? selectedProfile.id : ""} data-draft-state={isDirty ? "dirty" : "clean"}>
-              <div className="space-y-[var(--card-pad)]">
+              {configurationMode === "form" ? (
                 <div data-testid="persona-studio-form" className="space-y-[var(--card-pad)]">
-                  <FormSection id="identity" title="Lens identity" summary="Portable name and description for this Lens." open={openSections.identity} highlighted={false} onToggle={() => toggleSection("identity")}>
+                  <FormSection id="identity" title="Identity" summary="Portable name and description for this Persona Profile." open={openSections.identity} highlighted={false} onToggle={() => toggleSection("identity")}>
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <FieldLabel htmlFor="persona-studio-name"><span>Lens name</span><Input id="persona-studio-name" aria-label="Lens name" value={config.identity.name} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, name: event.target.value } }))} placeholder="Enter lens name" /></FieldLabel>
-                      <FieldLabel htmlFor="persona-studio-description"><span>Description</span><Textarea id="persona-studio-description" aria-label="Lens description" value={config.identity.description} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, description: event.target.value } }))} rows={3} className="min-h-[88px] resize-y" /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-name"><span>Persona name</span><Input id="persona-studio-name" aria-label="Persona name" value={config.identity.name} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, name: event.target.value } }))} placeholder="Enter persona name" /></FieldLabel>
+                      <FieldLabel htmlFor="persona-studio-description"><span>Description</span><Textarea id="persona-studio-description" aria-label="Persona description" value={config.identity.description} onChange={(event) => updateConfig((current) => ({ ...current, identity: { ...current.identity, description: event.target.value } }))} rows={3} className="min-h-[88px] resize-y" /></FieldLabel>
                     </div>
                   </FormSection>
-                  <FormSection id="prompt" title="Behavior / Instructions" summary="Authored guidance only. It shapes how Guardian works; it is not a separate agent." open={openSections.prompt} highlighted={sectionIsHighlighted("prompt")} onToggle={() => toggleSection("prompt")}>
+                  <FormSection id="prompt" title="Behavior / Prompt" summary="Authored prompt guidance only; it does not execute an assistant." open={openSections.prompt} highlighted={sectionIsHighlighted("prompt")} onToggle={() => toggleSection("prompt")}>
                     <FieldLabel htmlFor="persona-studio-system-prompt" highlighted={fieldIsHighlighted("prompt.systemPrompt")}><span>System prompt</span><Textarea id="persona-studio-system-prompt" value={config.prompt.systemPrompt} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, systemPrompt: event.target.value } }))} rows={5} className="min-h-[130px] resize-y" /></FieldLabel>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <FieldLabel htmlFor="persona-studio-style-notes" highlighted={fieldIsHighlighted("prompt.styleNotes")}><span>Style notes</span><Textarea id="persona-studio-style-notes" value={config.prompt.styleNotes} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, styleNotes: event.target.value } }))} rows={4} className="min-h-[106px] resize-y" /></FieldLabel>
                       <FieldLabel htmlFor="persona-studio-directives" highlighted={fieldIsHighlighted("prompt.directives")}><span>Directives</span><Textarea id="persona-studio-directives" value={config.prompt.directives} onChange={(event) => updateConfig((current) => ({ ...current, prompt: { ...current.prompt, directives: event.target.value } }))} rows={4} className="min-h-[106px] resize-y" /></FieldLabel>
                     </div>
                   </FormSection>
-                  <FormSection id="voice" title="Voice" summary="Requested voice settings. Discovery remains separately bounded by its existing surface." open={openSections.voice} highlighted={sectionIsHighlighted("voice")} onToggle={() => toggleSection("voice")}><PersonaVoicePanel config={config} onChange={(next) => updateConfig(() => next)} /></FormSection>
-                  <button
-                    type="button"
-                    onClick={toggleAdvanced}
-                    aria-expanded={advancedOpen}
-                    data-testid="persona-studio-advanced-toggle"
-                    className="ps-section-toggle flex w-full items-start justify-between gap-[var(--card-pad)] text-left"
-                    style={{
-                      border: "1px solid var(--panel-border)",
-                      borderRadius: "var(--radius-micro)",
-                      background: "color-mix(in srgb, var(--panel-bg) 92%, var(--text))",
-                    }}
-                  >
-                    <span>
-                      <span className="block text-base font-semibold leading-6">Advanced</span>
-                      <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">Model tuning, capabilities, retrieval, bindings, and manifest or effective inspection.</span>
-                    </span>
-                    <svg className="mt-1 h-4 w-4 shrink-0 text-[var(--muted)]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                      <path d={advancedOpen ? "M3 10l5-5 5 5" : "M3 6l5 5 5-5"} />
-                    </svg>
-                  </button>
-                </div>
-                {advancedOpen ? (
-                <>
-                <div id="persona-studio-advanced-region" data-testid="persona-studio-advanced-region" className="space-y-[var(--card-pad)]">
                   <FormSection id="model" title="Model" summary="Requested provider and model values; availability is not resolved here." open={openSections.model} highlighted={sectionIsHighlighted("model")} onToggle={() => toggleSection("model")}>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <FieldLabel htmlFor="persona-studio-model-provider" highlighted={fieldIsHighlighted("model.provider")}><span>Provider</span><select id="persona-studio-model-provider" aria-label="Model provider" className="h-9 w-full rounded-md border px-3 text-sm" style={{ background: "transparent", borderColor: "var(--panel-border)", color: "var(--text)" }} value={config.model.provider} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, provider: event.target.value } }))}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="local">Local</option></select></FieldLabel>
@@ -710,6 +657,7 @@ export default function PersonaStudioPage() {
                       <FieldLabel htmlFor="persona-studio-top-p"><span>Top P</span><Input id="persona-studio-top-p" type="number" step="0.01" value={config.model.topP} onChange={(event) => updateConfig((current) => ({ ...current, model: { ...current.model, topP: Number(event.target.value) || 0 } }))} /></FieldLabel>
                     </div>
                   </FormSection>
+                  <FormSection id="voice" title="Voice" summary="Requested voice settings. Discovery remains separately bounded by its existing surface." open={openSections.voice} highlighted={sectionIsHighlighted("voice")} onToggle={() => toggleSection("voice")}><PersonaVoicePanel config={config} onChange={(next) => updateConfig(() => next)} /></FormSection>
                   <FormSection id="capabilities" title="Capabilities" summary="Requested permissions are not proof of an available or granted capability." open={openSections.capabilities} highlighted={sectionIsHighlighted("capabilities")} onToggle={() => toggleSection("capabilities")}>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {(["web", "email", "calendar", "cli", "filesystem"] as const).map((permission) => <label key={permission} className="flex items-center gap-2 rounded-[var(--radius-micro)] border px-3 py-2 text-sm" style={{ borderColor: fieldIsHighlighted(`capabilities.permissions.${permission}`) ? "var(--accent)" : "var(--panel-border)" }}><input type="checkbox" checked={config.tools.permissions[permission]} onChange={(event) => updateConfig((current) => ({ ...current, tools: { ...current.tools, permissions: { ...current.tools.permissions, [permission]: event.target.checked } } }))} />{permission === "cli" ? "CLI" : permission.charAt(0).toUpperCase() + permission.slice(1)} requested</label>)}
@@ -731,16 +679,9 @@ export default function PersonaStudioPage() {
                     <div className="space-y-3 rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}><p>Project pins, invocation aliases, connector grants, credentials, and runtime authorization are not editable in this workspace.</p><p className="text-xs text-[var(--muted)]">Bindings: Not resolved. No authoritative Binding editor or effective-config resolver is available here.</p></div>
                   </FormSection>
                 </div>
-                <div className="space-y-3 py-3">
-                  <div className="ps-projection-nav flex gap-1" role="tablist" aria-label="Lens inspection">
-                    {(["manifest", "effective"] as const).map((mode) => <button key={mode} type="button" role="tab" aria-selected={inspectionMode === mode} onClick={() => setInspectionMode(mode)} className="pill-tab min-w-0 flex-1 px-3 py-2 text-sm capitalize" data-state={inspectionMode === mode ? "active" : "inactive"}>{mode}</button>)}
-                  </div>
-                  {inspectionMode === "manifest" ? <section data-testid="persona-studio-manifest" className="space-y-3 py-3"><div><h3 className="text-sm font-semibold">Writable authored manifest</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This JSON is the same local draft as the Lens form. Revision, bindings, credentials, and runtime grants are rejected.</p></div><Textarea aria-label="Lens manifest JSON" value={manifestBuffer} onChange={(event) => handleManifestChange(event.target.value)} spellCheck={false} className="min-h-[28rem] font-mono text-xs leading-5" />{manifestError ? <p role="alert" className="text-xs leading-5 text-[var(--accent)]" data-testid="persona-studio-manifest-error">Manifest not applied: {manifestError}</p> : <p className="text-xs text-[var(--muted)]">Valid JSON updates the local draft; Save remains explicit.</p>}</section> : null}
-                  {inspectionMode === "effective" ? <section data-testid="persona-studio-effective" className="space-y-4 py-3"><div><h3 className="text-sm font-semibold">Effective inspection</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This route has no authoritative effective-configuration resolver. Requested values below are not runtime truth.</p></div><dl className="space-y-2 text-sm">{[["Requested model", `${config.model.provider} / ${config.model.model}`], ["Requested web capability", config.tools.permissions.web ? "Requested" : "Not requested"], ["Requested retrieval", config.retrieval.enabled ? "Requested" : "Not requested"]].map(([label, value]) => <div key={label} className="grid gap-1 rounded-[var(--radius-micro)] border px-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_1fr]" style={{ borderColor: "var(--panel-border)" }}><dt className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</dt><dd>{value}</dd></div>)}</dl><div className="rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}><p className="font-medium">Unavailable to resolve here</p><p className="mt-1 text-xs text-[var(--muted)]">Provider availability, model availability, connector authorization and health, Project bindings, capability grants, and runtime effectiveness are Not resolved.</p></div></section> : null}
-                </div>
-                </>
               ) : null}
-              </div>
+              {configurationMode === "manifest" ? <section data-testid="persona-studio-manifest" className="space-y-3 py-3"><div><h3 className="text-sm font-semibold">Writable authored manifest</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This JSON is the same local draft as Form. Revision, bindings, credentials, and runtime grants are rejected.</p></div><Textarea aria-label="Persona manifest JSON" value={manifestBuffer} onChange={(event) => handleManifestChange(event.target.value)} spellCheck={false} className="min-h-[28rem] font-mono text-xs leading-5" />{manifestError ? <p role="alert" className="text-xs leading-5 text-[var(--accent)]" data-testid="persona-studio-manifest-error">Manifest not applied: {manifestError}</p> : <p className="text-xs text-[var(--muted)]">Valid JSON updates the local draft; Save remains explicit.</p>}</section> : null}
+              {configurationMode === "effective" ? <section data-testid="persona-studio-effective" className="space-y-4 py-3"><div><h3 className="text-sm font-semibold">Effective inspection</h3><p className="mt-1 text-xs leading-5 text-[var(--muted)]">This route has no authoritative effective-configuration resolver. Requested values below are not runtime truth.</p></div><dl className="space-y-2 text-sm">{[["Requested model", `${config.model.provider} / ${config.model.model}`], ["Requested web capability", config.tools.permissions.web ? "Requested" : "Not requested"], ["Requested retrieval", config.retrieval.enabled ? "Requested" : "Not requested"]].map(([label, value]) => <div key={label} className="grid gap-1 rounded-[var(--radius-micro)] border px-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_1fr]" style={{ borderColor: "var(--panel-border)" }}><dt className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</dt><dd>{value}</dd></div>)}</dl><div className="rounded-[var(--tile-radius)] border px-3 py-3 text-sm leading-6" style={{ borderColor: "var(--panel-border)", background: "color-mix(in srgb, var(--panel-bg) 95%, transparent)" }}><p className="font-medium">Unavailable to resolve here</p><p className="mt-1 text-xs text-[var(--muted)]">Provider availability, model availability, connector authorization and health, Project bindings, capability grants, and runtime effectiveness are Not resolved.</p></div></section> : null}
             </div>
           </div>
         </FrameCard>

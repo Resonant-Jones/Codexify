@@ -1,4 +1,4 @@
-"""Cancellable HTTP I/O for one accepted provider request's immutable envelope.
+"""Cancellable HTTP I/O for one accepted local stream's immutable envelope.
 
 The synchronous parser waits on native async I/O, not an abandoned blocking
 Requests thread. Each await inherits the same absolute monotonic deadline.
@@ -26,7 +26,6 @@ class DeadlineResponse:
         self.status_code = response.status_code
         self.headers = response.headers
         self.lines = response.aiter_lines()
-        self._content = None
 
     def iter_lines(self, decode_unicode=False):
         while True:
@@ -38,9 +37,7 @@ class DeadlineResponse:
 
     @property
     def content(self):
-        if self._content is None:
-            self._content = self.owner.call(self.response.aread())
-        return self._content
+        return self.owner.call(self.response.aread())
 
     @property
     def text(self):
