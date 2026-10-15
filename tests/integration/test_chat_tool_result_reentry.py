@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,6 +28,7 @@ from guardian.core import dependencies
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.db.models import ChatCompletionAttempt, ChatMessage, ChatThread, User
 from guardian.routes import command_bus as command_bus_routes
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 
 
@@ -98,6 +100,10 @@ def _seed_attempt(db: GuardianDB) -> tuple[int, ChatCompletionTask]:
         model="proof-model",
         tools=[{"command_id": "op::health_check"}],
     )
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.turn_id = turn_id
     return thread_id, task
 

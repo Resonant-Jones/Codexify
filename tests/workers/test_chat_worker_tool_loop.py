@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -42,6 +44,10 @@ def _build_task(
         selection_source="explicit",
         origin=f"api:chat.complete|turn_id={TURN_ID}",
     )
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.turn_id = TURN_ID
     task.turn_lock_owner = task_id
     task.request_id = task_id

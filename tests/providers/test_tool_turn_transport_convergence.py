@@ -23,6 +23,7 @@ correlation or runtime evidence but never as command authority.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -45,6 +46,7 @@ from guardian.providers.whooshd_qualification import (
     STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
 )
 from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 
 # ── Canonical fixture shared by both transport paths ────────────────────────
@@ -110,6 +112,10 @@ def _build_task(
         model=model,
         origin="api:chat.complete|turn_id=22222222-2222-4222-8222-222222222222",
     )
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.latest_turn_message_id = 2
     task.turn_id = "22222222-2222-4222-8222-222222222222"
     task.tools = tools

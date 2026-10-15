@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -28,6 +29,7 @@ from guardian.providers.whooshd_tool_adapter import (
     WhooshdStructuredTransportError,
 )
 from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 
 
 def _build_task(
@@ -43,6 +45,10 @@ def _build_task(
         model="mock-model",
         origin="api:chat.complete|turn_id=11111111-1111-4111-8111-111111111111",
     )
+    for name, value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, name, value)
     task.latest_turn_message_id = 2
     task.turn_id = "11111111-1111-4111-8111-111111111111"
     return task
