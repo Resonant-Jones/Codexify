@@ -53,6 +53,12 @@ route_posture:
     - notion_setup
     - google_drive_setup
     - memory_vault
+    # Same-node People discovery + direct messaging. Mounted on the default
+    # local profile so the implemented capability can be exercised during
+    # product discovery. `internal_only` is deliberate: this is an internal
+    # experimental capability, NOT part of the Beta Supported release promise
+    # (ADR-069). Route availability never implies release qualification.
+    - direct_messages
   quarantined:
     - llm_overrides
     - neo

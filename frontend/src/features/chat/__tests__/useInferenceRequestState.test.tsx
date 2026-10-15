@@ -315,12 +315,14 @@ describe("useInferenceRequestState", () => {
       emitTaskEvent(source, type, {
         thread_id: 1, task_id: "current-task", state: "FAILED",
         failure_code: "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
+        toolTurnState: "failed", loopStopReason: "tool_command_failed",
         error: "Accepted chat task work deadline exceeded.",
         failed_after_state: "QUEUED", provider_request_started: false,
         first_output_observed: false, completed_at: "2026-04-05T00:12:01.000Z",
       });
       expect(result.current.state.phase).toBe("failed");
       expect(result.current.state.failureCode).toBe("CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED");
+      expect(result.current.state.toolLoopStopReason).toBeNull();
       expect(result.current.state.statusText).toMatch(/request.*time limit/i);
       expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed_retryable");
       expect(describeInferenceRequestState(result.current.state).isDelayed).toBe(false);
@@ -361,6 +363,60 @@ describe("useInferenceRequestState", () => {
     apiSpies.post.mockReturnValueOnce(promise);
     return { resolve, reject };
   }
+
+  it.each(["task.failed", "completion.error", "task.state"].flatMap((type) =>
+    ["tool_command_failed", "tool_command_blocked"].map((reason) => [type, reason])
+  ))("preserves owned command failure from %s: %s", (type, reason) => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const source = eventSources.instances[0];
+    emitTaskEvent(source, type, {
+      thread_id: 1, task_id: "current-task", state: "FAILED",
+      toolTurnState: "failed", loopStopReason: reason,
+      error: reason, completed_at: "2026-04-05T00:00:01.000Z",
+    });
+    expect(result.current.state.phase).toBe("failed");
+    expect(result.current.state.toolLoopStopReason).toBe(reason);
+    expect(result.current.state.statusText).toMatch(/action/i);
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed");
+    expect(describeInferenceRequestState(result.current.state).isDelayed).toBe(false);
+    expect(source.close).toHaveBeenCalledOnce();
+    act(() => {
+      source.emitError();
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(result.current.state.statusText).not.toMatch(/provider|degraded/i);
+    render(<InferenceStatusBanner state={result.current.state} />);
+    expect(screen.getByText("Reply failed")).toBeInTheDocument();
+    expect(screen.getByText(reason === "tool_command_failed"
+      ? /requested action failed/i : /requested action was not authorized/i)).toBeInTheDocument();
+    expect(screen.queryByText(/provider error|completed/i)).not.toBeInTheDocument();
+    act(() => result.current.startRequest(request));
+    expect(result.current.state.toolLoopStopReason).toBeNull();
+  });
+
+  it("rejects retired and foreign command failure events", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("old-task");
+    });
+    act(() => {
+      result.current.startRequest(request);
+      result.current.attachTask("current-task");
+    });
+    const failure = { toolTurnState: "failed", loopStopReason: "tool_command_failed" };
+    emitTaskEvent(eventSources.instances[0], "task.failed", failure);
+    emitTaskEvent(eventSources.instances[1], "task.failed", { ...failure, task_id: "old-task" });
+    emitTaskEvent(eventSources.instances[1], "task.failed", { ...failure, task_id: "current-task", thread_id: 2 });
+    expect(result.current.state.taskId).toBe("current-task");
+    expect(result.current.state.toolLoopStopReason).toBeNull();
+    expect(result.current.state.phase).not.toBe("failed");
+    expect(eventSources.instances[1].close).not.toHaveBeenCalled();
+  });
 
   it.each(["default", "think"] as const)(
     "keeps the %s task observable when its stop POST fails",
@@ -734,5 +790,40 @@ describe("useInferenceRequestState", () => {
         taskId: "task-1",
       })
     );
+  });
+});
+
+describe("recorded orphan and cause-unknown terminal truth", () => {
+  const request = { threadId: 1, providerId: "local", modelId: "local-model", mode: "default" as const };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    eventSources.instances.length = 0;
+  });
+  it.each(["task.failed", "task.state", "completion.error"])("projects canonical orphan from %s without invented terminal timing", (type) => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => { result.current.startRequest(request); result.current.attachTask("current-task"); });
+    const source = eventSources.instances[0];
+    emitTaskEvent(source, type, { thread_id: 1, task_id: "current-task", state: "FAILED",
+      failure_code: "CHAT_ACCEPTED_TASK_ORPHANED", reconciled_at: "2026-04-05T00:13:00Z",
+      failure_kind: "provider_timeout", toolTurnState: "failed", loopStopReason: "tool_command_failed" });
+    expect(result.current.state.phase).toBe("failed");
+    expect(result.current.state.statusText).toMatch(/closed without completion/);
+    expect(result.current.state.detailText).toMatch(/recovery deadline/);
+    expect(result.current.state.toolLoopStopReason).toBeNull();
+    expect(result.current.state.completedAt).toBeNull();
+    expect(result.current.state.firstOutputAt).toBeNull();
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed_retryable");
+    expect(source.close).toHaveBeenCalledOnce();
+    expect(apiSpies.post).not.toHaveBeenCalled();
+  });
+
+  it("does not infer a provider cause from a durable generic failure receipt", () => {
+    const { result } = renderHook(() => useInferenceRequestState());
+    act(() => result.current.markFailed("Recorded failure", { durableFailureOnly: true }));
+    expect(result.current.state.statusText).toBe("Response failed.");
+    expect(result.current.state.detailText).not.toMatch(/provider|tool|deadline/);
+    expect(describeInferenceRequestState(result.current.state).canonicalState).toBe("failed");
+    act(() => result.current.startRequest(request));
+    expect(result.current.state.durableFailureOnly).toBe(false);
   });
 });

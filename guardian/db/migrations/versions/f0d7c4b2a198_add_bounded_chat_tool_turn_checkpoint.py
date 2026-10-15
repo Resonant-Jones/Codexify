@@ -1,7 +1,16 @@
 """Add the bounded chat tool decision checkpoint to accepted attempts.
 
 Revision ID: f0d7c4b2a198
-Revises: 17b23052da6a
+Revises: 2e865c4a9b10, a7b9c4d2e6f1, c7f4a9b2e6d1
+
+The original parent was `17b23052da6a`. Reconciling against current `main`
+showed that `main` now carries three independent heads
+(`2e865c4a9b10`, `a7b9c4d2e6f1`, `c7f4a9b2e6d1`), so keeping the old parent
+would have added a fourth branch instead of extending the mainline. This
+revision therefore merges those three heads and applies the checkpoint DDL on
+top, which both keeps the checkpoint on the mainline and restores a single
+head for `upgrade head`. This revision has never been applied anywhere,
+because the pull request carrying it is still open.
 """
 
 from __future__ import annotations
@@ -13,7 +22,11 @@ from alembic import op
 
 
 revision: str = "f0d7c4b2a198"
-down_revision: str | Sequence[str] | None = "17b23052da6a"
+down_revision: str | Sequence[str] | None = (
+    "2e865c4a9b10",
+    "a7b9c4d2e6f1",
+    "c7f4a9b2e6d1",
+)
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

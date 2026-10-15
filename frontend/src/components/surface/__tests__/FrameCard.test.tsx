@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import FrameCard from "../FrameCard";
@@ -37,5 +37,26 @@ describe("FrameCard canonical chrome", () => {
     const { container } = render(<FrameCard liquidBezel={false}>Content</FrameCard>);
     expect(container.querySelector(".fc-rim")).toBeInTheDocument();
     expect(container.querySelector(".fc-liquid")).not.toBeInTheDocument();
+  });
+
+  it("preserves content and nested framed cards when toggling unframed presentation", () => {
+    const content = (
+      <>
+        <input aria-label="Draft" defaultValue="" />
+        <FrameCard data-testid="nested-card">Nested content</FrameCard>
+      </>
+    );
+    const view = render(<FrameCard unframed data-testid="outer-card">{content}</FrameCard>);
+    const draft = screen.getByRole("textbox", { name: "Draft" });
+    fireEvent.change(draft, { target: { value: "live request draft" } });
+    expect(screen.getByTestId("outer-card")).toHaveStyle({ background: "transparent", padding: "0px" });
+    expect(screen.getByTestId("nested-card")).not.toHaveAttribute("data-unframed");
+
+    view.rerender(<FrameCard data-testid="outer-card">{content}</FrameCard>);
+
+    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+    expect(draft).toHaveValue("live request draft");
+    expect(screen.getByTestId("outer-card")).not.toHaveAttribute("data-unframed");
+    expect(screen.getByTestId("nested-card")).not.toHaveAttribute("data-unframed");
   });
 });

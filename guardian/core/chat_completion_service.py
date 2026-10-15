@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -40,6 +41,10 @@ from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
 from guardian.core.pgdb import PgDB
+from guardian.core.chat_postgres_deadline import (
+    postgres_operation_scope,
+    require_accepted_work_budget,
+)
 from guardian.context.context_directive_resolver import (
     CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
     SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -69,10 +74,13 @@ from guardian.core.db import (
     create_chat_completion_attempt,
     create_chat_message_with_metadata,
     freeze_chat_tool_decision,
+    get_chat_completion_attempt_by_task_id,
     get_chat_tool_checkpoint,
     mark_chat_completion_attempt_accepted,
+    reconcile_chat_completion_attempt_after_deadline,
 )
 from guardian.core.ai_router import (
+    observe_provider_requests,
     _encode_image_url_to_base64,
     _image_turn_vision_unsupported_detail,
     build_openai_vision_content,
@@ -111,6 +119,7 @@ from guardian.core.request_correlation import (
     correlation_metadata,
     generate_attempt_id,
     normalize_request_id,
+    is_safe_identifier,
 )
 from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
 from guardian.core.chat_attachments import (
@@ -140,7 +149,6 @@ from guardian.core.provider_registry import (
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     AcceptanceStatus,
-    ChatEventType,
     CompletionTerminalStatus,
     ContextRequestStatus,
     ErrorCode,
@@ -154,9 +162,11 @@ from guardian.protocol_tokens import (
 )
 from guardian.tasks.chat_deadline import (
     ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+    AcceptedChatTaskDeadline,
     AcceptedChatTaskDeadlineExceeded,
     accepted_chat_deadline_for_task,
     build_accepted_chat_task_deadline,
+    parse_accepted_chat_task_deadline,
 )
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
@@ -165,6 +175,7 @@ from guardian.queue.redis_queue import (
     RedisOperationTimeout,
     enqueue,
     get_redis_connection,
+    redis_operation_scope,
     run_with_redis_timeout,
 )
 from guardian.queue.turn_lock import (
@@ -172,10 +183,9 @@ from guardian.queue.turn_lock import (
     acquire_turn_lock,
     renew_turn_lock,
     build_turn_lock_envelope,
-    clear_turn_lock,
     get_turn_lock,
     release_turn_lock,
-    turn_lock_is_stale,
+    release_terminal_attempt_turn_lock,
 )
 from guardian.routes.health import _classify_chat_worker_heartbeat
 from guardian.tasks.types import (
@@ -184,7 +194,7 @@ from guardian.tasks.types import (
     TaskLifecycleState,
 )
 from guardian.vector.store import VectorStore
-from guardian.utils.log_safety import install_safe_logging
+from guardian.utils.log_safety import install_safe_logging, sanitize_log_text
 
 try:  # pragma: no cover - Remote Recall is an optional, gated lane
     from guardian.web.remote_recall import (
@@ -238,6 +248,256 @@ _ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION = (
     "If no relevant workspace context is available, say that no relevant local context was found.\n"
     "This directive does not grant arbitrary external tool access."
 )
+
+
+# Sensitive, non-authoritative diagnostics. No raw data enters task/event stores.
+PROVIDER_CAPTURE_TTL_SECONDS = 300
+PROVIDER_CAPTURE_MAX_BYTES = 2 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_REQUESTS = 64
+PROVIDER_CAPTURE_MAX_DISPATCHES = 16
+PROVIDER_CAPTURE_ORIGIN_MARKER = "provider_request_inspection=enabled"
+_PROVIDER_CAPTURE_LOCK = threading.RLock()
+_PROVIDER_CAPTURE_REQUESTS: dict[str, dict[str, Any]] = {}
+
+
+def _expire_provider_capture(task_id: str, expires_at: float) -> None:
+    with _PROVIDER_CAPTURE_LOCK:
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry and entry["expires_at"] == expires_at:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def _purge_provider_captures() -> None:
+    now = time.monotonic()
+    for task_id, entry in list(_PROVIDER_CAPTURE_REQUESTS.items()):
+        if now >= entry["expires_at"]:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def enable_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    account_id: str,
+    thread_id: int,
+    project_id: int | None,
+) -> bool:
+    """Called only after account, thread and Project authorization by the route."""
+    if not (is_safe_identifier(task_id) and is_safe_identifier(request_id)):
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        if task_id in _PROVIDER_CAPTURE_REQUESTS:
+            return False  # Never reuse consent or captures for another request.
+        if len(_PROVIDER_CAPTURE_REQUESTS) >= PROVIDER_CAPTURE_MAX_REQUESTS:
+            return False
+        expires_at = time.monotonic() + PROVIDER_CAPTURE_TTL_SECONDS
+        _PROVIDER_CAPTURE_REQUESTS[task_id] = {
+            "request_id": request_id,
+            "account_id": account_id,
+            "thread_id": thread_id,
+            "project_id": project_id,
+            "expires_at": expires_at,
+            "captures": {},
+        }
+        timer = threading.Timer(
+            PROVIDER_CAPTURE_TTL_SECONDS,
+            _expire_provider_capture,
+            args=(task_id, expires_at),
+        )
+        timer.daemon = True
+        try:
+            timer.start()
+        except Exception:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+            return False
+        return True
+
+
+def provider_capture_scope(task_id: str) -> dict[str, Any] | None:
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None:
+            return None
+        return {
+            key: entry[key]
+            for key in (
+                "request_id",
+                "account_id",
+                "thread_id",
+                "project_id",
+            )
+        }
+
+
+def store_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    attempt_id: str,
+    dispatch_index: int,
+    provider: str,
+    logical_model: str,
+    body: bytes,
+    byte_size: int,
+) -> bool:
+    """Accept an exact body under existing consent; never truncate or overwrite."""
+    if not is_safe_identifier(attempt_id) or dispatch_index < 1:
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None or entry["request_id"] != request_id:
+            return False
+        key = (attempt_id, dispatch_index)
+        captures = entry["captures"]
+        if key in captures:
+            return False
+        if len(captures) >= PROVIDER_CAPTURE_MAX_DISPATCHES:
+            entry["dispatch_limit_exceeded"] = True
+            return False
+        total = sum(
+            len(item["body"] or b"")
+            for request in _PROVIDER_CAPTURE_REQUESTS.values()
+            for item in request["captures"].values()
+        )
+        reason = None
+        if byte_size > PROVIDER_CAPTURE_MAX_BYTES:
+            reason = "capture_size_exceeded"
+        elif byte_size != len(body):
+            reason = "capture_body_size_mismatch"
+        elif total + byte_size > PROVIDER_CAPTURE_MAX_TOTAL_BYTES:
+            reason = "capture_memory_budget_exceeded"
+        else:
+            try:
+                if not isinstance(json.loads(body.decode("utf-8")), dict):
+                    reason = "invalid_request_json"
+            except (ValueError, UnicodeError, RecursionError):
+                reason = "invalid_request_json"
+        captures[key] = {
+            "body": body if reason is None else None,
+            "byte_size": byte_size,
+            "capture_timestamp": datetime.now(UTC).isoformat(),
+            "request_id": request_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "dispatch_index": dispatch_index,
+            "provider": provider,
+            "logical_model": logical_model,
+            "completeness": "COMPLETE" if reason is None else "CAPTURE_UNAVAILABLE",
+            "omission_reasons": [reason] if reason else [],
+        }
+        return True
+
+
+def read_provider_request_captures(task_id: str) -> dict[str, Any]:
+    """Route must reauthorize canonical ownership before invoking this reader."""
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        items = []
+        for capture in (entry or {}).get("captures", {}).values():
+            item = {key: value for key, value in capture.items() if key != "body"}
+            body = capture["body"]
+            item["raw_json"] = body.decode("utf-8") if body is not None else None
+            item["request_json"] = json.loads(body) if body is not None else None
+            item["model_visible_fields"] = [
+                key
+                for key in ("messages", "system", "prompt", "tools", "response_format")
+                if key in (item["request_json"] or {})
+            ]
+            item["effective_model"] = (item["request_json"] or {}).get("model")
+            item["parameter_fields"] = [
+                key
+                for key in (item["request_json"] or {})
+                if key not in item["model_visible_fields"]
+            ]
+            item["limitations"] = [
+                "Guardian HTTP body only; provider-side templates, tokenization and framing are unobserved",
+                "Transport authentication and headers are excluded",
+            ]
+            item["max_bytes"] = PROVIDER_CAPTURE_MAX_BYTES
+            items.append(item)
+        return {
+            "availability": (
+                "CAPTURED"
+                if any(item["completeness"] == "COMPLETE" for item in items)
+                else "CAPTURE_UNAVAILABLE"
+            ),
+            "dispatch_limit_exceeded": bool((entry or {}).get("dispatch_limit_exceeded")),
+            "omission_reasons": (
+                ["capture_dispatch_limit_exceeded"]
+                if (entry or {}).get("dispatch_limit_exceeded")
+                else ([] if items else ["no_process_local_capture"])
+            ),
+            "retention_seconds": PROVIDER_CAPTURE_TTL_SECONDS,
+            "captures": items,
+        }
+
+
+def _provider_request_capture_observer(task, *, provider: str, model: str):
+    """Relay only opted-in captures to the API's bounded process-local store.
+
+    The service key grants delivery capability, never account read authority.
+    Consent lives in API memory, not in the task's advisory opt-in marker.
+    """
+    if PROVIDER_CAPTURE_ORIGIN_MARKER not in str(task.origin).split("|"):
+        return None
+    try:
+        from guardian.command_bus.loopback_http_adapter import resolve_loopback_base
+        import requests
+
+        request_id = task.request_id
+        task_id = task.task_id
+        attempt_id = task.attempt_id
+        if not all(
+            is_safe_identifier(value) for value in (request_id, task_id, attempt_id)
+        ):
+            return None
+        settings = get_settings()
+        service_key = str(getattr(settings, "GUARDIAN_API_KEY", None) or "").strip()
+        if not service_key:
+            return None
+        url = f"{resolve_loopback_base()}/api/chat/internal/provider-request-captures/{task_id}"
+        headers = {"X-API-Key": service_key}
+        permit = requests.get(url, headers=headers, timeout=1, allow_redirects=False)
+        if permit.status_code != 200 or permit.json().get("enabled") is not True:
+            return None
+    except Exception:
+        return None
+    dispatch_index = 0
+
+    def capture(body):
+        nonlocal dispatch_index
+        dispatch_index += 1
+        if dispatch_index > PROVIDER_CAPTURE_MAX_DISPATCHES + 1:
+            return
+        size = len(body)
+        # No raw content is sent for an oversized request.
+        requests.post(
+            url,
+            data=(
+                body
+                if size <= PROVIDER_CAPTURE_MAX_BYTES
+                and dispatch_index <= PROVIDER_CAPTURE_MAX_DISPATCHES
+                else b""
+            ),
+            params={
+                "request_id": request_id,
+                "attempt_id": attempt_id,
+                "dispatch_index": dispatch_index,
+                "provider": provider,
+                "logical_model": model,
+                "byte_size": size,
+            },
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            timeout=1,
+            allow_redirects=False,
+        )
+
+    return capture
 
 
 class ChatCompletionEnqueueError(RuntimeError):
@@ -596,96 +856,99 @@ def _commit_acceptance_participant(
     return True
 
 
-def _recover_orphaned_turn_lock(thread_id: int) -> bool:
-    stale_lock = _run_completion_redis_op(
-        lambda: get_turn_lock(thread_id),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock probe unavailable: %s",
-    )
-    if stale_lock is None or not turn_lock_is_stale(stale_lock):
-        return False
-
-    terminal_evidence = _task_terminal_event(stale_lock.owner_task_id)
-    terminal_state = str(
-        terminal_evidence.get("state")
-        if isinstance(terminal_evidence, dict)
-        else "unknown"
-    )
-    heartbeat_evidence = _chat_worker_heartbeat_evidence()
-    heartbeat_state = str(
-        heartbeat_evidence.get("state")
-        if isinstance(heartbeat_evidence, dict)
-        else "unknown"
-    )
-
-    recoverable = False
-    recovery_reason = "unrecoverable_state"
-    if terminal_state == "terminal":
-        recoverable = True
-        recovery_reason = "terminal_task_event"
-    elif terminal_state == "nonterminal" and heartbeat_state in {
-        "stale",
-        "dead",
-        "missing",
-    }:
-        recoverable = True
-        recovery_reason = f"nonterminal_task_and_{heartbeat_state}_heartbeat"
-
-    if not recoverable:
-        logger.warning(
-            "[chat.complete] stale turn lock recovery denied thread_id=%s owner_task_id=%s terminal_state=%s terminal_reason=%s worker_state=%s worker_reason=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            terminal_state,
-            terminal_evidence.get("reason")
-            if isinstance(terminal_evidence, dict)
-            else "unknown",
-            heartbeat_state,
-            heartbeat_evidence.get("reason")
-            if isinstance(heartbeat_evidence, dict)
-            else "unknown",
-        )
-        return False
-
-    cleared = _run_completion_redis_op(
-        lambda: clear_turn_lock(thread_id, expected=stale_lock),
-        reason="turn_lock_unavailable",
-        log_message="[chat.complete] stale turn lock clear unavailable: %s",
-    )
-    if cleared and hasattr(dependencies.chatlog_db, "write_audit_log"):
-        dependencies.chatlog_db.write_audit_log(
-            "recover_orphaned_turn_lock",
-            "chat_thread",
-            str(thread_id),
-            user_id="system",
-        )
+def reconcile_chat_attempt_receipts(
+    chatlog_db: Any, attempts: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Bound one authorized receipt page; recovery never executes the task."""
+    rows = [dict(attempt) for attempt in attempts]
+    cleanup = []
+    try:
+        # One fixed page budget, not a fresh deadline per attempt.
+        with postgres_operation_scope(2):
+            for attempt in rows:
+                outcome = attempt.get("terminal_outcome") or {}
+                orphan = outcome.get("failure_code") == ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
+                if not orphan:
+                    if attempt.get("completed_message_id") is not None or attempt.get("terminal_event_type"):
+                        continue
+                    if attempt.get("accepted_at") is None or attempt.get("deadline_snapshot") is None:
+                        continue
+                    deadline = parse_accepted_chat_task_deadline(attempt["deadline_snapshot"])
+                    if deadline is None:
+                        raise ValueError("Original accepted recovery envelope is missing")
+                    if datetime.now(UTC) < deadline.terminal_deadline_at:
+                        continue
+                result = reconcile_chat_completion_attempt_after_deadline(
+                    chatlog_db,
+                    request_id=attempt["request_id"],
+                    backend_task_id=attempt["backend_task_id"],
+                    thread_id=attempt["thread_id"],
+                    turn_id=attempt["turn_id"],
+                )
+                attempt.update(
+                    completed_message_id=result.completed_message_id,
+                    terminal_event_type=result.terminal_event_type,
+                    terminal_outcome=result.terminal_outcome,
+                )
+                if result.turn_lock_token is not None:
+                    cleanup.append((attempt["thread_id"], attempt["backend_task_id"], result.turn_lock_token))
+    except Exception as exc:
+        logger.warning("[chat-recovery] durable reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
+    if cleanup:
         try:
-            event_bus.emit_event(
-                ChatEventType.ORPHANED_TURN_RECOVERED.value,
-                {
-                    "thread_id": thread_id,
-                    "owner_task_id": stale_lock.owner_task_id,
-                    "turn_id": stale_lock.turn_id,
-                    "recovery_reason": recovery_reason,
-                    "terminal_state": terminal_state,
-                    "worker_state": heartbeat_state,
-                    "lifecycle_state": "orphaned",
-                },
-            )
-        except Exception:
-            logger.exception(
-                "[chat.complete] orphan recovery event publish failed thread_id=%s",
-                thread_id,
-            )
-        logger.info(
-            "[chat.complete] stale turn lock recovered thread_id=%s owner_task_id=%s recovery_reason=%s terminal_state=%s worker_state=%s",
-            thread_id,
-            stale_lock.owner_task_id,
-            recovery_reason,
-            terminal_state,
-            heartbeat_state,
+            # Durable commits precede this separate, bounded Redis cleanup batch.
+            with redis_operation_scope():
+                for thread_id, task_id, token in cleanup:
+                    release_terminal_attempt_turn_lock(
+                        thread_id, owner_task_id=task_id, lease_token=token
+                    )
+        except Exception as exc:
+            logger.warning("[chat-recovery] terminal lock cleanup unconfirmed cause_class=%s", type(exc).__name__)
+    return rows
+
+
+def _recover_orphaned_turn_lock(thread_id: int) -> bool:
+    # A task's terminal envelope, not the lock safety margin or worker heartbeat,
+    # decides recovery. Existing durable terminal truth may also end the lock.
+    with redis_operation_scope():
+        lock = _run_completion_redis_op(
+            lambda: get_turn_lock(thread_id),
+            reason="turn_lock_unavailable",
+            log_message="[chat.complete] turn lock probe unavailable: %s",
         )
-    return bool(cleared)
+    if lock is None:
+        return False
+    try:
+        with postgres_operation_scope(2):
+            attempt = get_chat_completion_attempt_by_task_id(
+                dependencies.chatlog_db, lock.owner_task_id
+            )
+            if attempt is None or attempt["thread_id"] != thread_id or attempt["turn_id"] != lock.turn_id:
+                return False
+            result = reconcile_chat_completion_attempt_after_deadline(
+                dependencies.chatlog_db,
+                request_id=attempt["request_id"],
+                backend_task_id=lock.owner_task_id,
+                thread_id=thread_id,
+                turn_id=lock.turn_id,
+            )
+    except Exception as exc:
+        logger.warning("[chat-recovery] retry reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
+    if result.completed_message_id is None and result.terminal_event_type is None:
+        return False
+    # Legacy *terminal* attempts can use the observed structured capability only
+    # after the exact durable task/thread/turn binding above; no backfill occurs.
+    token = result.turn_lock_token or lock.lease_token
+    with redis_operation_scope():
+        return _run_completion_redis_op(
+            lambda: release_terminal_attempt_turn_lock(
+                thread_id, owner_task_id=lock.owner_task_id, lease_token=token
+            ),
+            reason="turn_lock_unavailable",
+            log_message="[chat.complete] terminal turn lock cleanup unavailable: %s",
+        )
 
 
 def enqueue_chat_completion(
@@ -863,6 +1126,8 @@ def enqueue_chat_completion(
             backend_task_id=task_identity,
             thread_id=thread_id,
             turn_id=turn_id,
+            deadline_snapshot=deadline,
+            turn_lock_token=locked.lease_token,
         )
     except Exception as exc:
         if participant is not None and participant_prepared:
@@ -1449,8 +1714,36 @@ def _execute_completion_attempt(
         raise AcceptedChatTaskDeadlineExceeded()
     request_id, _ = normalize_request_id(getattr(task, "request_id", None))
     task.request_id = request_id
-    attempt_id = generate_attempt_id()
-    task.attempt_id = attempt_id
+    task.attempt_id = generate_attempt_id()
+    try:
+        observer = _provider_request_capture_observer(task, provider=provider, model=model)
+    except Exception:
+        observer = None
+    with observe_provider_requests(observer):
+        return _dispatch_completion_attempt(
+            task=task, messages_for_llm=messages_for_llm, provider=provider,
+            model=model, bundle=bundle, accepted_deadline=accepted_deadline,
+            token_callback=token_callback,
+            chunk_callback=chunk_callback, cancel_check=cancel_check,
+            tool_exposure=tool_exposure,
+        )
+
+
+def _dispatch_completion_attempt(
+    *,
+    task: ChatCompletionTask,
+    messages_for_llm: list[dict[str, Any]],
+    provider: str,
+    model: str,
+    bundle: dict[str, Any] | None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
+    token_callback: Callable[[str], None] | None = None,
+    chunk_callback: Callable[[str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    tool_exposure: dict[str, Any] | None = None,
+) -> CompletionAttemptResult:
+    request_id = task.request_id
+    attempt_id = task.attempt_id
     if callable(cancel_check) and cancel_check():
         raise ChatTaskCancelled(provider=provider, model=model)
 
@@ -1640,9 +1933,14 @@ def _execute_completion_attempt(
                     "task_id": task.task_id,
                     "attempt_id": attempt_id,
                     "requested_model_is_authoritative": exact_text_model,
+                    "accepted_deadline": accepted_deadline,
                 },
             ),
         )
+    except AcceptedChatTaskDeadlineExceeded as exc:
+        _record_attempt_failure(exc)
+        exc.detail["visible_output_emitted"] = False
+        raise
     except Exception as exc:
         _record_attempt_failure(exc)
         _terminal_failure_for_exception(
@@ -2190,6 +2488,8 @@ async def _apply_context_request_plans(
                     else None
                 ),
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             context_request_results.append(
                 _context_request_result_record(
@@ -2496,12 +2796,15 @@ def _workspace_completion_vector_store() -> VectorStore:
     if _WorkspaceVectorEmbedder is None:
         return store
     try:
+        require_accepted_work_budget()
         store.embedder = _WorkspaceVectorEmbedder(
             store=store.store,
             chroma_path=store.chroma_path,
             collection=store.collection,
         )
         store._embedder_factory_token = id(_WorkspaceVectorEmbedder)
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception:
         logger.debug(
             "[chat-completion] fresh workspace vector store rebuild failed",
@@ -5041,6 +5344,8 @@ async def build_messages_for_llm(
                 exc.code,
             )
             raise
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             if accepted_selection is not None:
                 raise
@@ -5073,6 +5378,8 @@ async def build_messages_for_llm(
                 if raw_inferred_provider is not None
                 else None
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             inferred_provider = None
         if inferred_provider:
@@ -5113,6 +5420,8 @@ async def build_messages_for_llm(
         items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
         try:
             items = sorted(items, key=lambda m: m.get("id") or 0)
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             pass
 
@@ -5280,6 +5589,8 @@ async def build_messages_for_llm(
             prompt_meta["request_user_id"] = task_user_id
             bundle["_prompt_meta"] = prompt_meta
         assembly_succeeded = True
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception as exc:
         logger.warning(
             "[chat-completion] context assemble failed depth=%s err=%s",
@@ -5300,6 +5611,8 @@ async def build_messages_for_llm(
                 user_id=context_user_id,
                 project_id=project_id_for_prompt,
             )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] context request plan application failed depth=%s err=%s",
@@ -5368,6 +5681,8 @@ async def build_messages_for_llm(
                 "Prefer clear, structured answers for a busy software engineer. "
                 "If you are uncertain, say so explicitly and avoid fabrication."
             )
+    except AcceptedChatTaskDeadlineExceeded:
+        raise
     except Exception as exc:
         logger.warning("[chat-completion] failed to build system prompt: %s", exc)
         system_content = (
@@ -5384,6 +5699,8 @@ async def build_messages_for_llm(
             merged_meta = dict(existing_meta)
             merged_meta.update(prompt_meta or {})
             bundle["_prompt_meta"] = merged_meta
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             bundle["_prompt_meta"] = dict(prompt_meta or {})
 
@@ -5434,6 +5751,8 @@ async def build_messages_for_llm(
             merged_meta = dict(bundle.get("_prompt_meta") or {})
             merged_meta.update(prompt_meta or {})
             bundle["_prompt_meta"] = merged_meta
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception:
             bundle["_prompt_meta"] = dict(prompt_meta or {})
         bundle["_attachment_meta"] = {
@@ -5458,6 +5777,8 @@ async def build_messages_for_llm(
                 user_depth=depth,
             )
             trace["retrieval_policy"] = retrieval_policy_obj.as_dict()
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] retrieval policy serialization failed depth=%s err=%s",
@@ -5497,6 +5818,8 @@ async def build_messages_for_llm(
                     if remote_recall_outcome is not None
                     else {"invoked": False}
                 )
+        except AcceptedChatTaskDeadlineExceeded:
+            raise
         except Exception as exc:
             logger.warning(
                 "[chat-completion] remote recall failed depth=%s err=%s",
@@ -6031,6 +6354,12 @@ def _execute_bounded_tool_turn_completion(
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     current_messages = [dict(message) for message in messages_for_llm]
+    accepted_deadline = accepted_chat_deadline_for_task(task)
+
+    def _require_tool_work_budget() -> None:
+        if accepted_deadline and datetime.now(UTC) >= accepted_deadline.work_deadline_at:
+            raise AcceptedChatTaskDeadlineExceeded(attempted=True)
+
     request_id = _completion_request_id(task) or None
     latest_turn_message_id = _extract_latest_turn_message_id(task)
     final_provider = provider
@@ -6256,6 +6585,7 @@ def _execute_bounded_tool_turn_completion(
             response_correlation=first_attempt.response_correlation,
         )
 
+    _require_tool_work_budget()
     tool_turn_id = str(uuid.uuid4())
     # A replay-protected tool decision must be frozen against a durable accepted
     # attempt before dispatch. An unbound direct completion has no such record,
@@ -6425,6 +6755,7 @@ def _execute_bounded_tool_turn_completion(
     )
     from guardian.routes import command_bus as command_bus_routes
 
+    _require_tool_work_budget()
     try:
         invoke_result = execute_invoke(
             payload=invoke_request,
@@ -6435,6 +6766,7 @@ def _execute_bounded_tool_turn_completion(
             execution_lane="tools",
             allow_write_execution=False,
             confirmation_granted=False,
+            **({"accepted_deadline": accepted_deadline} if accepted_deadline else {}),
         )
         command_result = (
             asyncio.run(invoke_result)
@@ -6442,6 +6774,14 @@ def _execute_bounded_tool_turn_completion(
             else invoke_result
         )
     except Exception as exc:
+        if (
+            isinstance(exc, HTTPException)
+            and isinstance(exc.detail, dict)
+            and exc.detail.get("failure_code")
+            == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
+        ):
+            raise
+        _require_tool_work_budget()
         command_error = {
             "error": str(exc),
             "error_type": exc.__class__.__name__,
@@ -6461,10 +6801,13 @@ def _execute_bounded_tool_turn_completion(
             },
         ) from exc
 
+    _require_tool_work_budget()
     if not isinstance(command_result, dict):
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
+# A queued or running Command Bus run is not a completed tool result, and a
+    # "completed" status carrying no inline result has nothing to reinject.
     if (
         not command_run_id
         or command_status not in {"completed", "failed", "blocked"}
@@ -6481,19 +6824,30 @@ def _execute_bounded_tool_turn_completion(
             ),
         )
     if command_status in {"failed", "blocked"}:
+        loop_stop_reason = (
+            ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
+            if command_status == "blocked"
+            else ToolLoopStopReason.TOOL_COMMAND_FAILED.value
+        )
+        command_error = {
+            "error": sanitize_log_text(
+                str(command_result.get("error") or loop_stop_reason)
+            )[:1024],
+        }
         raise ToolLoopExecutionError(
             "tool_command_terminal_failure",
             metadata=_tool_loop_identity_fields(
                 task=task,
                 tool_turn_id=tool_turn_id,
                 tool_turn_state=ToolTurnState.FAILED.value,
-                loop_stop_reason=(
-                    ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
-                    if command_status == "blocked"
-                    else ToolLoopStopReason.TOOL_COMMAND_FAILED.value
-                ),
+                loop_stop_reason=loop_stop_reason,
                 command_run_id=command_run_id,
-            ),
+            )
+            | {
+                "command_id": command_id,
+                "command_status": command_status,
+                "command_error": command_error,
+            },
         )
     tool_turn_state = ToolTurnState.COMMAND_DISPATCHED.value
 

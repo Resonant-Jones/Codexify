@@ -310,6 +310,45 @@ def release_turn_lock(thread_id: int, owner: str | TurnLockEnvelope) -> bool:
     return bool(_with_reconnect(_release))
 
 
+def release_terminal_attempt_turn_lock(
+    thread_id: int, *, owner_task_id: str, lease_token: str
+) -> bool:
+    """Atomically clean only the lock bound to acknowledged durable terminal truth.
+
+    The recovery controller must own an existing Redis maintenance operation scope.
+    Absent is idempotent success; mismatches are preserved. Transport/script errors
+    propagate without a non-atomic read/delete fallback or terminal-truth rollback.
+    """
+    if not isinstance(owner_task_id, str) or not owner_task_id.strip():
+        raise ValueError("Terminal cleanup requires the durable task owner")
+    if not isinstance(lease_token, str) or not lease_token.strip():
+        raise ValueError("Terminal cleanup requires the preserved turn lock token")
+    key = turn_lock_key(thread_id)
+
+    def _release(client) -> bool:
+        return bool(client.eval(
+            """
+            local value = redis.call('GET', KEYS[1])
+            if not value then
+                return 1
+            end
+            local ok, payload = pcall(cjson.decode, value)
+            if not ok or type(payload) ~= 'table' then
+                return 0
+            end
+            if payload.owner_task_id ~= ARGV[1]
+                or payload.lease_token ~= ARGV[2]
+                or payload.thread_id ~= tonumber(ARGV[3]) then
+                return 0
+            end
+            return redis.call('DEL', KEYS[1])
+            """,
+            1, key, owner_task_id, lease_token, int(thread_id),
+        ))
+
+    return bool(_with_reconnect(_release))
+
+
 def clear_turn_lock(
     thread_id: int,
     expected: str | TurnLockEnvelope | None = None,

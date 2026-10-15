@@ -1,5 +1,12 @@
 # Claude Code Guidance for Codexify
 
+## Installation intent
+
+Requests such as “install Codexify”, “set this up”, “set this up for personal use”, “get Codexify running”, or “configure the local install” are operational requests. Invoke `./scripts/setup` from the repository root; use `./scripts/setup --json` for machine-readable observation.
+
+An installation/setup request is not authorization to modify Codexify application source. If setup reveals a defect requiring source modification, stop and obtain explicit change authorization. Do not silently repair or refactor the repository. Never answer host-software consent prompts on the user’s behalf. Respect requests for provider/model choice, credentials, installations/downloads, elevation, external accounts, exposure, or new permissions.
+
+
 This file guides Claude Code style work inside the Codexify repo. It emphasizes repo-grounded edits, small blast radius, and architectural clarity.
 
 ## Purpose

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
@@ -61,6 +63,8 @@ def _prepare_worker_harness(
     persisted_meta: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     published: list[tuple[str, dict[str, Any]]] = []
+    from tests.workers.test_chat_worker_streaming_chunks import _install_attempt_harness
+    _install_attempt_harness(monkeypatch)
     _isolate_turn_anchor(monkeypatch)
 
     mock_db = SimpleNamespace(
@@ -109,7 +113,14 @@ def _prepare_worker_harness(
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
+    # `main` added a durable assistant-message link on the successful completion
+    # path. These orchestration fixtures acknowledge durable writes through the
+    # same seam used for the terminal link; native database tests verify the
+    # attempt identity and fencing independently.
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_link", lambda *_args: True
+    )
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -371,6 +382,64 @@ def test_worker_surfaces_bounded_failure_metadata_on_tool_execution_error(
     assert failure_payload["loopStopReason"] == "tool_command_failed"
     assert failure_payload.get("commandRunId") is None
     assert json.dumps(failure_payload)
+
+
+@pytest.mark.parametrize("status", ["failed", "blocked"])
+def test_returned_command_failure_cannot_persist_or_publish_chat_success(
+    monkeypatch, status
+):
+    from unittest.mock import Mock
+
+    published = _prepare_worker_harness(monkeypatch)
+    task = _build_task(task_id=f"fixture-worker-returned-{status}")
+    task.tools = [{"command_id": "op::echo"}]
+    task.selection_source = "default"
+    task.provider_pinned = False
+    persistence = Mock(return_value=42)
+    monkeypatch.setattr(
+        chat_worker.dependencies.chatlog_db, "create_message", persistence
+    )
+    fallback = Mock(return_value=["local"])
+    monkeypatch.setattr(chat_worker, "_fallback_provider_candidates", fallback)
+    command = Mock(
+        return_value={
+            "run_id": "run-worker-returned",
+            "status": status,
+            "error": "fixture command outcome",
+        }
+    )
+    monkeypatch.setattr(chat_worker._chat_completion_service, "execute_invoke", command)
+    provider = Mock(
+        side_effect=[
+            '{"type":"tool_decision","command_id":"op::echo","arguments":{}}',
+            "misleading final answer",
+        ]
+    )
+    monkeypatch.setattr(chat_worker, "chat_with_ai", provider)
+    chat_worker._run_chat_task(task)
+    terminals = [
+        (kind, payload)
+        for kind, payload in published
+        if kind in {"task.completed", "task.failed", "task.cancelled"}
+    ]
+    assert [kind for kind, _ in terminals] == ["task.failed"], (
+        [kind for kind, _ in published],
+        persistence.call_count,
+    )
+    failure = terminals[0][1]
+    assert failure["toolTurnState"] == "failed"
+    assert failure["loopStopReason"] == (
+        "tool_command_blocked" if status == "blocked" else "tool_command_failed"
+    )
+    assert failure["commandRunId"] == "run-worker-returned"
+    assert failure["command_status"] == status
+    assert failure["requestId"] == task.request_id
+    assert failure["messageId"] == task.latest_turn_message_id
+    assert failure["completion_truth"]["completed"] is False
+    assert failure["completion_truth"]["fallback_attempted"] is False
+    assert provider.call_count == command.call_count == 1
+    persistence.assert_not_called()
+    fallback.assert_not_called()
 
 
 def test_worker_replay_after_persisted_turn_deduplicates_before_execution(

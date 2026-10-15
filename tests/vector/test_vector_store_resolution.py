@@ -70,3 +70,18 @@ def test_vector_store_blank_env_defaults_to_canonical_shared_runtime(
     assert store.store == runtime.backend
     assert store.describe_runtime() == runtime.as_dict()
     assert created["kwargs"]["store"] == DEFAULT_VECTOR_STORE_BACKEND
+
+
+def test_core_store_defers_model_initialization_until_capability_use(monkeypatch):
+    calls = []
+    def factory(**kwargs):
+        calls.append(kwargs)
+        return _RecordingEmbedder(**kwargs)
+    monkeypatch.setattr(vector_store_module, "Embedder", factory)
+    store = vector_store_module.VectorStore(initialize_embedder=False)
+    assert calls == []
+    assert store.describe_runtime()
+    assert calls == []
+    first = store.embedder
+    assert store.embedder is first
+    assert len(calls) == 1

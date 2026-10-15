@@ -1091,6 +1091,7 @@ class CodingExecutionTask(BaseTask):
     timeout_seconds: int = 300
     coding_task_id: str = ""
     attempt_id: str = ""
+    execution_binding: dict[str, Any] | None = None
     campaign_id: str | None = None
     work_order_id: str | None = None
     thread_id: int | None = None
@@ -1121,6 +1122,13 @@ class CodingExecutionTask(BaseTask):
             timeout_seconds=int(payload.get("timeout_seconds") or 300),
             coding_task_id=str(payload.get("coding_task_id") or "").strip(),
             attempt_id=str(payload.get("attempt_id") or "").strip(),
+            execution_binding=(
+                _coerce_mapping(
+                    payload.get("execution_binding")
+                    or payload.get("executionBinding")
+                )
+                or None
+            ),
             campaign_id=_coerce_optional_text(
                 payload.get("campaign_id") or payload.get("campaignId")
             ),

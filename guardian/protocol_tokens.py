@@ -307,6 +307,7 @@ class ErrorCode(str, Enum):
     MIXED_PRINCIPAL_CREDENTIALS = "mixed_principal_credentials"
     ACCOUNT_SESSION_INVALID = "ACCOUNT_SESSION_INVALID"
     CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED = "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED"
+    CHAT_ACCEPTED_TASK_ORPHANED = "CHAT_ACCEPTED_TASK_ORPHANED"
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     CHAT_COMPLETE_ENQUEUE_FAILED = "CHAT_COMPLETE_ENQUEUE_FAILED"
     TASK_EVENT_PUBLISH_FAILED = "TASK_EVENT_PUBLISH_FAILED"
@@ -421,6 +422,37 @@ class MemoryPersonaLinkKind(str, Enum):
     CAPTURED_UNDER = "captured_under"
     SUGGESTED_BY = "suggested_by"
     ASSOCIATED_WITH = "associated_with"
+
+
+class MemoryReviewState(str, Enum):
+    """Canonical review authority for ordinary canonical memory.
+
+    Independent from ``PersonaSubjectLifecycle`` and
+    ``PersonalFactStatus``. Per UMS-05C7 revalidation these four
+    values are the sole canonical review vocabulary for ordinary
+    ``memory_records``. No aliases (no ``archived``, ``inactive``,
+    ``enabled``/``disabled``, ``deleted``).
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DISPUTED = "disputed"
+
+
+class MemoryLifecycleState(str, Enum):
+    """Canonical lifecycle authority for ordinary canonical memory.
+
+    Independent from ``PersonaSubjectLifecycle`` and the
+    ``is_active`` boolean on ``PersonalFact``. Per UMS-05C7
+    revalidation these three values are the sole canonical lifecycle
+    vocabulary for ordinary ``memory_records``. No aliases (no
+    ``inactive``, ``archived``, ``deleted``, ``enabled``/``disabled``).
+    """
+
+    ACTIVE = "active"
+    DORMANT = "dormant"
+    RETIRED = "retired"
 
 
 class AccountImportStatus(str, Enum):
@@ -855,6 +887,8 @@ __all__ = [
     "ToolLoopStopReason",
     "TestResultStatus",
     "DelegationJobStatus",
+    "MemoryLifecycleState",
+    "MemoryReviewState",
     "PersonalFactStatus",
     "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",

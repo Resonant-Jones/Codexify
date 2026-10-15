@@ -96,6 +96,150 @@ do not contain and must not fabricate Persona Profile state. Required-file,
 family, count, and checksum validation is selected by schema version and remains
 fail-closed.
 
+### UMS canonical schema versions (UMS-04 → UMS-05C10A-P)
+
+Each addition of a canonical UMS entity family introduces a new, immutable
+schema version. An existing version's family set is never widened.
+
+| Schema version | Canonical UMS families | Introduced by |
+| --- | --- | --- |
+| `account-export.v4` | `persona_subjects`, `persona_subject_bindings`, `memory_records`, `memory_persona_links`, `memory_provenance` | UMS-04B (restore not supported) |
+| `account-export.v5` | the five above plus `memory_revisions` | UMS-05C9 |
+| `account-export.v6` | the six above plus `memory_review_revisions` | UMS-05C10A-P |
+| `account-export.v7` | the seven above plus `memory_lifecycle_revisions` | UMS-05C10B-P |
+| `account-export.v8` | the eight above plus `memory_purge_tombstones` | UMS-11 |
+
+`account-export.v8` is the current nine-family canonical UMS account
+schema. `account-export.v7` retains its exact eight-family meaning; a v7
+archive never carries `memory_purge_tombstones`, and it is not
+reinterpreted as malformed because v8 exists. `account-export.v6` retains
+its exact seven-family meaning; a v6 archive never carries
+`memory_lifecycle_revisions`, and it is not reinterpreted as malformed
+because v7 exists. `account-export.v5` retains
+its exact six-family meaning; a v5 archive never carries
+`memory_review_revisions`, and a v5 restore never fabricates review
+history for a memory that has none.
+
+`memory_review_revisions` is canonical ordinary-memory review-transition
+history: ordered, typed old/new review state, accountable actor, and immutable
+transition timestamp. It is a different truth surface from `memory_revisions`
+(content history) and from `memory_provenance` (intent / source / audit
+evidence). None of the three substitutes for another.
+
+Required v6 behavior:
+
+- deterministic ordering by `memory_id`, then `revision_number`, then
+  `review_revision_id`, with numeric (not lexicographic) sequence ordering;
+- an exact `memory_review_revisions` row count in `entity_counts`;
+- a memory, or a whole account, with zero review revisions is valid, and
+  absence of history is never filled in;
+- export fails closed on malformed canonical review history — orphan parent,
+  account mismatch, actor mismatch, unsupported parent species, invalid review
+  token, no-op transition, non-positive or duplicate sequence, sequence gap,
+  broken chain, and terminal-state mismatch — and never repairs it, including
+  by consulting provenance extensions;
+- restore validates the same shape before any write, persists
+  `memory_records` before `memory_review_revisions` inside one transaction, and
+  treats the restored `memory_records.review_state` as canonical present truth
+  that history reconciles to but never overrides;
+- an identical replay creates zero rows, and a semantic conflict or
+  sequence-occupancy conflict fails closed with the whole restore rolled back.
+
+A v6 archive records review transitions; it does not authorize them. No legal
+review-transition graph is encoded in the schema or in export/restore.
+
+### Permanent-erasure suppression (account-export.v8)
+
+`memory_purge_tombstones` is **not** a canonical memory family and must not
+be treated as one. Every other UMS family in this graph is a child of a live
+`memory_records` row. A tombstone's defining property is that its parent is
+**absent**: it is the surviving record of a memory that was permanently
+erased. It therefore has no `memory_id`, is not validated against
+`memory_records`, and does not participate in the parent-first restore order.
+
+What it carries is the minimum non-content suppression authority:
+`purge_receipt_id`, `user_id`, `purged_record_fingerprint`, the source
+*kind* (`source_system`, `source_entity_kind`), an opaque
+`source_atom_fingerprint`, `purged_at`, and `suppress_reimport`.
+
+Required v8 behavior:
+
+- exact field set, with no content-bearing column, so an archive can never be
+  a surviving copy of what was supposedly erased;
+- versioned, non-content fingerprints. A bare, unversioned, malformed, or
+  **unrecognised-version** digest fails closed: an older build must refuse a
+  future-versioned tombstone rather than silently reinterpret a digest it
+  cannot produce;
+- `suppress_reimport` must be `true`. An archive claiming relaxed suppression
+  is malformed, never permissive, and is never silently repaired;
+- deterministic ordering by `purge_receipt_id`;
+- an exact `memory_purge_tombstones` row count in `entity_counts`;
+- account isolation on both export and restore.
+
+**Contradiction rule.** A v8 archive must fail closed if it carries both a
+live canonical memory and a tombstone suppressing that same identity, or
+suppressing that memory's source atom. The check recomputes the canonical
+digest from the live row and compares exactly, so neither side is silently
+preferred. Neither is the tombstone silently dropped, which would leave a
+previously purged atom resurrectable.
+
+**Replay.** A second restore of the same v8 archive is idempotent: it creates
+no second tombstone, no second receipt identity, and reports the existing row
+as identical. A same-receipt-id, different-semantics row is a conflict and
+rolls back.
+
+**Backup truth.** Restoring an archive restores suppression; it does not
+retroactively erase content from copies of the source instance's backups or
+from archive files the user already downloaded. UMS-11 proves deletion from
+state under Codexify's direct control and makes no claim beyond that.
+
+### Lifecycle-transition history (account-export.v7)
+
+`memory_lifecycle_revisions` is canonical ordinary-memory
+lifecycle-transition history: ordered, typed old/new lifecycle state,
+and immutable transition timestamp. It is a fourth truth surface,
+distinct from `memory_revisions` (content), `memory_review_revisions`
+(review), and `memory_provenance` (intent / source / audit evidence).
+None substitutes for another.
+
+`memory_records.lifecycle_state` remains the parent-row present-state
+authority. History must reconcile to that present value when history
+exists.
+
+Required v7 behavior:
+
+- deterministic ordering by `memory_id`, then `revision_number`
+  (**numeric**, so revision 10 follows 9 rather than 2), then
+  `lifecycle_revision_id`;
+- an exact `memory_lifecycle_revisions` row count in `entity_counts`;
+- **pre-retirement posture portability**: a transition `X -> retired`
+  preserves `X` exactly, so `active -> retired` and `dormant -> retired`
+  survive the round trip without collapsing into one another. This is the
+  obligation UMS-05C10B-R identified, and it is what makes the contractual
+  restore rule representable at all;
+- **no synthetic history**: a memory with zero lifecycle revisions is
+  valid, and a currently-`retired` memory whose pre-retirement posture was
+  never canonically recorded remains exportable and restorable as
+  zero-history. Neither export nor restore invents a creation, import,
+  decay, or retirement revision, and neither back-fills a prior posture;
+- export fails closed on orphan parent, account mismatch, unsupported parent
+  species, invalid lifecycle token, no-op transition, non-positive or
+  duplicate sequence, sequence gap, chain mismatch, and terminal-state
+  mismatch — and never repairs history, including from provenance
+  extensions;
+- restore validates the same shape before any write, persists
+  `memory_records` before `memory_lifecycle_revisions` in one transaction,
+  never mutates the parent's current `lifecycle_state` from history rows, and
+  is idempotent on identical replay;
+- a stable-ID semantic conflict, a sequence-occupancy conflict, or a late
+  lifecycle-history insert failure fails closed with the whole restore
+  rolled back.
+
+A v7 archive records lifecycle transitions; it does not authorize them. No
+legal lifecycle-transition graph is encoded in the schema or in
+export/restore: that decision is owned by UMS-05C10B-C, and the retire /
+restore writer remains frozen.
+
 ## Required Export Surface
 
 All IDs, metadata, and relationships in the following families must be explicit in the export. No family may depend on implicit joins during restore.

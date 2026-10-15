@@ -27,6 +27,7 @@ const chatState = vi.hoisted(() => ({
   error: null as string | null,
   hasMore: false,
 }));
+const refreshSnapshotMock = vi.hoisted(() => vi.fn());
 const composerState = vi.hoisted(() => ({
   slashIntent: null as
     | {
@@ -181,7 +182,7 @@ vi.mock("@/features/chat/useChat", () => ({
     error: chatState.error,
     hasMore: chatState.hasMore,
     activateThread: vi.fn().mockResolvedValue([]),
-    refreshSnapshot: vi.fn().mockResolvedValue([]),
+    refreshSnapshot: refreshSnapshotMock,
     loadOlderMessages: vi.fn().mockResolvedValue([]),
     completionState: {
       isCompleting: false,
@@ -392,6 +393,7 @@ function renderChat(
     userProfession?: string;
     workspaceProjectId?: string | number | null;
     workspaceProjectName?: string | null;
+    onThreadPersisted?: (threadId: number, title?: string) => void;
   } = {}
 ) {
   const onSendMessage = vi.fn().mockResolvedValue(undefined);
@@ -403,6 +405,7 @@ function renderChat(
       activeThread={buildThread(threadId)}
       workspaceProjectId={overrides.workspaceProjectId}
       workspaceProjectName={overrides.workspaceProjectName}
+      onThreadPersisted={overrides.onThreadPersisted}
       onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
       sessionTabs={buildSessionTabs(threadId)}
@@ -482,6 +485,7 @@ describe("GuardianChat inference rail", () => {
     chatState.loading = false;
     chatState.error = null;
     chatState.hasMore = false;
+    refreshSnapshotMock.mockReset().mockResolvedValue([]);
     eventSources.instances.length = 0;
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -891,6 +895,91 @@ describe("GuardianChat inference rail", () => {
       "/chat/2/messages",
       expect.objectContaining({ project_id: 42 })
     );
+  });
+
+  it("shows a persisted new-thread message before requesting completion", async () => {
+    const onThreadPersisted = vi.fn();
+    renderChat("draft-thread", { onThreadPersisted });
+
+    apiMock.post.mockImplementation(async (url: string) => {
+      if (url === "/api/chat/threads") {
+        return createApiResponse(
+          { thread_id: 2, thread: { id: 2, title: "hello" } },
+          201
+        );
+      }
+      if (url === "/chat/2/messages") {
+        return createApiResponse(
+          {
+            ok: true,
+            thread: { id: 2, title: "hello" },
+            message: { id: 456, thread_id: 2, role: "user", content: "hello" },
+          },
+          200
+        );
+      }
+      if (url === "/chat/2/complete") {
+        return createApiResponse({ task_id: "task-123" }, 200);
+      }
+      return createApiResponse({}, 200);
+    });
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url === "/chat/2/messages") {
+        return {
+          data: {
+            messages: [
+              {
+                id: 456,
+                thread_id: 2,
+                role: "user",
+                content: "hello",
+                created_at: "2026-04-05T00:00:00.000Z",
+              },
+            ],
+            total: 1,
+          },
+        };
+      }
+      return { data: {} };
+    });
+    refreshSnapshotMock.mockImplementation(async (threadId: number) => {
+      const response = await apiMock.get(`/chat/${threadId}/messages`);
+      chatState.messages = response.data.messages;
+      return chatState.messages;
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("composer-send"));
+    });
+
+    expect(apiMock.post).toHaveBeenCalledWith(
+      "/chat/2/messages",
+      expect.objectContaining({ role: "user", content: "hello" })
+    );
+    expect(onThreadPersisted).toHaveBeenCalledWith(2, "hello", {
+      tabId: "tab-1",
+    });
+    const userMessagePost = apiMock.post.mock.invocationCallOrder[
+      apiMock.post.mock.calls.findIndex(([url]) => url === "/chat/2/messages")
+    ];
+    expect(onThreadPersisted.mock.invocationCallOrder[0]).toBeGreaterThan(
+      userMessagePost
+    );
+    expect(refreshSnapshotMock).toHaveBeenCalledWith(2, "user-send");
+    expect(apiMock.get).toHaveBeenCalledWith("/chat/2/messages");
+    expect(screen.getByTestId("chat-message")).toHaveTextContent("hello");
+    expect(apiMock.post).not.toHaveBeenCalledWith(
+      "/chat/2/complete",
+      expect.anything()
+    );
+
+    await advanceTimers(100);
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/chat/2/complete",
+        expect.anything()
+      );
+    });
   });
 
   it("omits the local user id when creating a thread in remote auth mode", async () => {

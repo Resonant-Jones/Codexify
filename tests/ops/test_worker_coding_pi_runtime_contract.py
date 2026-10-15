@@ -13,6 +13,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+NODE_BINARY = shutil.which("node")
 COMPOSE = ROOT / "docker-compose.yml"
 DOCKERFILE = ROOT / "backend/Dockerfile"
 RUNBOOK = ROOT / "docs/Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md"
@@ -23,6 +24,12 @@ RUNTIME_LOCK = ROOT / "codex_runner/pi-runtime/package-lock.json"
 VENDORED_PACKAGE = ROOT / "codex_runner/vendor/pi-coding-agent/package.json"
 CANONICAL_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 OBSOLETE_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+
+
+def _node_executable() -> str:
+    if not NODE_BINARY:
+        pytest.skip("Node.js is required for Pi runtime contract tests")
+    return NODE_BINARY
 
 
 def _load_runner_cli_for_test():
@@ -64,7 +71,7 @@ def _run_guardian_authorized_readiness(
     try:
         result = subprocess.run(
             [
-                "node",
+                _node_executable(),
                 str(ROOT / "codex_runner/src/agent-wrapper.js"),
                 "guardian-authorized-readiness",
             ],
@@ -101,17 +108,18 @@ def _service_block(text: str, service: str) -> str:
     return "".join(lines)
 
 
-def test_worker_coding_uses_dedicated_image_and_narrow_pi_auth_mount() -> None:
+def test_worker_coding_has_invocation_scoped_identity_and_no_shared_pi_auth() -> None:
     text = COMPOSE.read_text(encoding="utf-8")
     worker = _service_block(text, "worker-coding")
 
     assert "image: codexify-worker-coding-runtime:latest" in worker
     assert "target: worker-coding-runtime" in worker
-    assert "codexify_pi_auth:/home/codexify/.pi" in worker
+    assert "env_file:" not in worker
+    assert "codexify_pi_auth" not in worker
     assert "codexify_cli_home:/home/codexify" not in worker
-    assert "PI_PROVIDER:" in worker
-    assert "PI_MODEL:" in worker
-    assert "ANTHROPIC_API_KEY:" in worker
+    assert "PI_PROVIDER:" not in worker
+    assert "PI_MODEL:" not in worker
+    assert "ANTHROPIC_API_KEY:" not in worker
     assert "check_worker_coding_readiness.py" in worker
 
 
@@ -166,16 +174,18 @@ def test_active_runtime_loader_imports_maintained_coding_agent() -> None:
 
 
 def test_active_runtime_loader_uses_canonical_model_runtime() -> None:
-    """The 0.82.1 wrapper must use the unified async model/auth facade."""
+    """The authorized runtime uses an isolated, in-memory credential store."""
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
 
-    # Maintained Pi 0.82.1 ModelRuntime factory, with network refresh disabled.
-    assert "await codingAgent.ModelRuntime.create({" in loader
+    assert "await codingAgent.ModelRuntime.create(runtimeOptions)" in loader
     assert "allowModelNetwork: false" in loader
     assert "modelRuntime.getModel.bind(modelRuntime)" in loader
     assert "modelRuntime.getProviders.bind(modelRuntime)" in loader
+    assert 'runtimeOptions.credentials = new piAi.InMemoryCredentialStore()' in loader
+    assert "runtimeOptions.modelsPath = null" in loader
+    assert "isolatedCredentials: guardianAuthorizedMode" in loader
+    assert "await modelRuntime.setRuntimeApiKey(" in loader
     assert "modelRuntime," in loader
-    # No stale Pi 0.72-era auth/model-registry APIs.
     assert "piAi.AuthStorage" not in loader
     assert "AuthStorage.create()" not in loader
     assert "authStorage.hasAuth(" not in loader
@@ -183,45 +193,64 @@ def test_active_runtime_loader_uses_canonical_model_runtime() -> None:
     assert "OPENAI_CODEX_MODELS" not in loader
 
 
-def test_active_coding_worker_defaults_are_coherent() -> None:
-    """The six active default surfaces must share the reconciled model."""
-    from guardian.agents.adapters.pi_codex_runner import (
-        DEFAULT_PI_MODEL as ADAPTER_DEFAULT_PI_MODEL,
-    )
-    from guardian.agents.pi_readiness import (
-        DEFAULT_PI_MODEL,
-        DEFAULT_PI_PROVIDER,
-    )
+def test_authorized_coding_worker_has_no_ambient_provider_model_authority() -> None:
+    """Readiness and the authorized path must not use worker-level identity."""
+    from guardian.agents import pi_readiness
 
-    profile_module, runner_module = _load_runner_cli_for_test()
-    assert profile_module.DEFAULT_MODEL == CANONICAL_ANTHROPIC_MODEL
-    assert runner_module.DEFAULT_MODEL == profile_module.DEFAULT_MODEL
-    assert profile_module.Profile(name="default").model == CANONICAL_ANTHROPIC_MODEL
-    assert (
-        profile_module.Profile.from_dict("default", {}).model
-        == CANONICAL_ANTHROPIC_MODEL
-    )
-    for name in ("default", "fast", "review"):
-        assert (
-            profile_module.DEFAULT_PROFILES[name]["model"]
-            == CANONICAL_ANTHROPIC_MODEL
+    assert not hasattr(pi_readiness, "DEFAULT_PI_PROVIDER")
+    assert not hasattr(pi_readiness, "DEFAULT_PI_MODEL")
+    assert {"PI_PROVIDER", "PI_MODEL", "ANTHROPIC_API_KEY"}.isdisjoint(
+        pi_readiness._probe_environment(
+            {
+                "PATH": "/usr/bin",
+                "PI_PROVIDER": "ambient-provider",
+                "PI_MODEL": "ambient-model",
+                "ANTHROPIC_API_KEY": "ambient-secret",
+            }
         )
-    assert profile_module.DEFAULT_PROFILES["thorough"]["model"] == "claude-opus-4-5"
-
-    assert DEFAULT_PI_PROVIDER == "anthropic"
-    assert DEFAULT_PI_MODEL == CANONICAL_ANTHROPIC_MODEL
-    assert ADAPTER_DEFAULT_PI_MODEL == DEFAULT_PI_MODEL
+    )
 
     loader = (ROOT / "codex_runner/src/agent-wrapper.js").read_text(encoding="utf-8")
-    assert 'const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";' in loader
-    assert "model: process.env.PI_MODEL || DEFAULT_ANTHROPIC_MODEL" in loader
-    for alias in ('"sonnet":', '"sonnet4":', '"sonnet-4":'):
-        assert f"{alias} DEFAULT_ANTHROPIC_MODEL" in loader
-    assert OBSOLETE_ANTHROPIC_MODEL not in loader
+    assert "? authorizedIdentity.modelId" in loader
+    assert ": resolveModel(OPTIONS.model, getModel)" in loader
+    assert "? authorizedIdentity.providerId" in loader
+    assert ": OPTIONS.provider" in loader
+    assert 'model.provider !== authorizedIdentity.providerId' in loader
+    assert 'model.id !== authorizedIdentity.modelId' in loader
 
     compose = COMPOSE.read_text(encoding="utf-8")
-    assert 'PI_PROVIDER: "${PI_PROVIDER:-anthropic}"' in compose
-    assert f'PI_MODEL: "${{PI_MODEL:-{CANONICAL_ANTHROPIC_MODEL}}}"' in compose
+    worker = _service_block(compose, "worker-coding")
+    assert "PI_PROVIDER:" not in worker
+    assert "PI_MODEL:" not in worker
+    assert "ANTHROPIC_API_KEY:" not in worker
+
+
+def test_pi_adapter_requires_invocation_credential_before_wrapper_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
+    from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+
+    def fail_if_launched(*_args, **_kwargs):
+        raise AssertionError("Pi wrapper must not launch without a credential lease")
+
+    monkeypatch.setattr(
+        "guardian.agents.adapters.pi_codex_runner.subprocess.run", fail_if_launched
+    )
+    result = PiCodexRunnerAdapter().execute_authorized(
+        AgentExecutionRequest(prompt="synthetic", cwd=str(tmp_path), timeout_seconds=5),
+        AgentExecutionIdentity(
+            provider_id="provider-a",
+            model_id="model-a",
+            harness_id="pi-coding-agent",
+            harness_version="0.82.1",
+        ),
+        read_only=True,
+    )
+
+    assert result.status == "error"
+    assert result.failure_classification == "authorized_identity_rejected"
+    assert result.failure_stage == "credential_authorization"
 
 
 def test_runner_cli_uses_canonical_default_for_agent_and_command_fallbacks(
@@ -280,6 +309,10 @@ def test_runbook_uses_compose_owned_environment_and_canonical_readiness() -> Non
     assert "check_worker_coding_readiness.py --format human" in runbook
     assert "LOCAL_PROVIDER_DISPLAY_NAME" in runbook
     assert "apostrophe" in runbook.lower()
+    assert "sealed,\nattempt-bound credential lease" in runbook
+    assert "Set in the Guardian runtime environment" in runbook
+    assert "codexify_pi_auth" not in runbook
+    assert "The effective provider and model are selected with" not in runbook
 
 
 def test_canonical_pi_source_vendor_runtime_bundle_is_complete() -> None:
@@ -368,7 +401,7 @@ def test_source_relative_wrapper_loads_pi_runtime_with_full_locked_closure() -> 
             "PI_DISABLE_TOOLS": "1",
         }
         result = subprocess.run(
-            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            [_node_executable(), str(wrapper_path), "guardian-authorized-readiness"],
             cwd=str(empty_home),
             env=env,
             capture_output=True,
@@ -445,7 +478,7 @@ console.log(JSON.stringify({
 '''
     try:
         result = subprocess.run(
-            ["node", "--input-type=module", "-e", script],
+            [_node_executable(), "--input-type=module", "-e", script],
             cwd=str(ROOT),
             env={
                 "HOME": str(home),
@@ -573,7 +606,7 @@ def test_synthetic_oauth_credential_readiness_returns_oauth_available() -> None:
             "PI_DISABLE_TOOLS": "1",
         }
         result = subprocess.run(
-            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            [_node_executable(), str(wrapper_path), "guardian-authorized-readiness"],
             cwd=str(home),
             env=env,
             capture_output=True,
@@ -732,7 +765,7 @@ def test_session_can_be_initialized_without_prompt_via_modelruntime() -> None:
             "PI_DISABLE_TOOLS": "1",
         }
         result = subprocess.run(
-            ["node", str(wrapper_path), "guardian-authorized-readiness"],
+            [_node_executable(), str(wrapper_path), "guardian-authorized-readiness"],
             cwd=str(home),
             env=env,
             capture_output=True,
@@ -851,7 +884,7 @@ process.env.HOME = home;
 
         target = Path(tempfile.mkdtemp(prefix="codexify-pi-0821-tool-regression-target-"))
         result = subprocess.run(
-            ["node", str(driver_path), str(home), str(target), str(ROOT)],
+            [_node_executable(), str(driver_path), str(home), str(target), str(ROOT)],
             cwd=str(ROOT),
             env={
                 **os.environ,
@@ -1026,13 +1059,21 @@ def test_active_runtime_serializes_no_assistant_text_or_arguments() -> None:
         "tool_args", "toolCallArgs", "toolCallId",
         # Provider payload fragments.
         '"choices":', '"delta":', '"usage":',
-        # Credentials.
-        "api_key", "openai_api_key", "PI_API_KEY",
+        # Explicit environment-based key authority is forbidden. The
+        # authorized wrapper accepts its invocation-bound key over stdin and
+        # stores it in memory, so the parser field name is intentionally present.
+        "openai_api_key", "PI_API_KEY",
     )
     for marker in forbidden_substrings:
         assert marker not in loader, (
             f"wrapper must not serialize {marker!r}"
         )
+
+    emitter = loader.split("function emitAuthorizedFailure(", 1)[1].split(
+        "// The maintained Pi", 1
+    )[0]
+    assert "api_key" not in emitter
+    assert "credential_material" not in emitter
 
 
 def test_active_runtime_preserves_canonical_writable_tool_set() -> None:

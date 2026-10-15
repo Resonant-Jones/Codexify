@@ -334,6 +334,95 @@ describe("commandCenterRunAggregation", () => {
     });
   });
 
+  it("does not let a late task.created breadcrumb roll a running task back", () => {
+    useSequentialNow();
+
+    const running = normalizeCommandCenterEvent(
+      makeMessage(
+        "task.running",
+        {
+          request_id: "request-late-created",
+          task_id: "task-late-created",
+          thread_id: 31,
+          type: "chat_completion",
+        },
+        "evt-running-before-created"
+      )
+    );
+    const created = normalizeCommandCenterEvent(
+      makeMessage(
+        "task.created",
+        {
+          task_id: "task-late-created",
+          thread_id: 31,
+          type: "chat_completion",
+        },
+        "evt-created-after-running"
+      )
+    );
+
+    const result = aggregateCommandCenterEvents([running, created]);
+    const run = result.runs[0];
+
+    expect(run).toMatchObject({
+      eventCount: 2,
+      lastType: "task.created",
+      state: "running",
+      status: COMMAND_CENTER_RUN_STATUSES.RUNNING,
+      summary: "chat completion · running",
+    });
+    expect(run?.events?.map((event) => event.type)).toEqual([
+      "task.running",
+      "task.created",
+    ]);
+    expect(run?.lifecycleStates).toEqual(["AWAITING_MODEL"]);
+  });
+
+  it("preserves terminal truth when task.created is appended after completion", () => {
+    useSequentialNow();
+
+    const completed = normalizeCommandCenterEvent(
+      makeMessage(
+        "task.completed",
+        {
+          message_id: "assistant-late-created",
+          task_id: "task-terminal-late-created",
+          thread_id: 32,
+          type: "chat_completion",
+        },
+        "evt-completed-before-created"
+      )
+    );
+    const created = normalizeCommandCenterEvent(
+      makeMessage(
+        "task.created",
+        {
+          task_id: "task-terminal-late-created",
+          thread_id: 32,
+          type: "chat_completion",
+        },
+        "evt-created-after-completion"
+      )
+    );
+
+    const result = aggregateCommandCenterEvents([completed, created]);
+    const run = result.runs[0];
+
+    expect(run).toMatchObject({
+      eventCount: 2,
+      lastType: "task.created",
+      state: "completed",
+      status: COMMAND_CENTER_RUN_STATUSES.COMPLETED,
+      summary: "chat completion · completed",
+      terminalOutcome: COMMAND_CENTER_RUN_TERMINAL_OUTCOMES.COMPLETED,
+    });
+    expect(run?.events?.map((event) => event.type)).toEqual([
+      "task.completed",
+      "task.created",
+    ]);
+    expect(run?.lifecycleStates).toEqual(["COMPLETED"]);
+  });
+
   it("keeps unclassified events visible without polluting classified runs", () => {
     useSequentialNow();
 

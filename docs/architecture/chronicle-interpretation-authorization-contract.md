@@ -12,7 +12,7 @@ The authorization preflight names one canonical Project, one to twenty unique th
 
 The consuming `POST /api/imports/history/chronicle/preview` request carries those authorization fields plus each exact reviewed reference: `thread_id`, `message_id`, the current SHA-256 `digest`, and strict boolean `approve_for_local_chronicle: true`. These per-message approvals apply only to that consuming request; the preflight returns no reusable authorization, receipt, or bearer token.
 
-The positive response confirms `authorized: true` and echoes the exact bounded scope. It returns no excerpt, grant, receipt, or bearer token. Rejected requests use content-free responses and the route sets `Cache-Control: no-store` on success and failure.
+The positive response confirms `authorized: true` and echoes the exact bounded scope. It returns no excerpt, grant, receipt, or bearer token. Invalid reader budgets return HTTP 422; database or authority availability failures return HTTP 503. Rejected requests use content-free responses and the route sets `Cache-Control: no-store` on success and failure.
 
 ## Positive authorization requirements
 

@@ -384,7 +384,17 @@ def test_non_operator_sentinels_keep_distinct_auth_dependencies():
     assert require_api_key in set(_calls(local_route))
     assert require_operator_auth not in set(_calls(local_route))
 
+    # Task-event SSE (ADR-091 + ADR-092 + ADR-098): this route no longer treats the
+    # generic API-key seam as its resource authority. It authenticates exactly one
+    # principal lane through the shared read-principal dependency, then authorizes
+    # the durable task->thread resource before any transport side effect. The
+    # sentinel intent is unchanged: the route is still not operator-gated.
     sse_route = _find("guardian.guardian_api", "GET", "/api/tasks/{task_id}/events")
     assert require_task_event_read_principal in set(_calls(sse_route))
     assert require_api_key not in set(_calls(sse_route))
     assert require_operator_auth not in set(_calls(sse_route))
+    import inspect
+
+    sse_source = inspect.getsource(sse_route.endpoint)
+    assert "authorize_task_event_read" in sse_source
+    assert "require_api_key" not in sse_source

@@ -11,9 +11,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from guardian.core.db import GuardianDB
-from guardian.core.dependencies import RequestUserScope, get_account_user_scope as get_request_user_scope
-from guardian.tts.backends.qwen3 import Qwen3TTSBackend
+from guardian.core.dependencies import RequestUserScope
+from guardian.core.dependencies import get_account_user_scope as get_request_user_scope
+from guardian.tts.backends import registered_tts_backend_ids, resolve_tts_backend
 from guardian.tts.config import get_local_tts_config
+from guardian.tts.contracts import TTS_BACKEND_QWEN3
 from guardian.tts.profiles import (
     TTSVoiceProfileError,
     create_tts_voice_profile,
@@ -57,7 +59,7 @@ class TTSRenderRequestBody(BaseModel):
 class TTSVoiceProfileCreateBody(BaseModel):
     id: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=255)
-    backend_id: str = "qwen3_tts"
+    backend_id: str = TTS_BACKEND_QWEN3
     is_default: bool = False
     description: str | None = None
     voice_mode: str = "preset"
@@ -160,15 +162,16 @@ async def render_tts_voiceover(
 async def list_tts_backends(
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
-    """Return local TTS backend controls without invoking synthesis."""
+    """Return controls and adapter evidence without invoking synthesis."""
 
     _ = request_user_scope
     cfg = get_local_tts_config()
     backends = get_tts_backend_control_schemas(cfg.backend_id)
-    qwen_health = Qwen3TTSBackend(cfg).health().to_dict()
+    registered_ids = registered_tts_backend_ids()
     for backend in backends:
-        if backend["backend_id"] == "qwen3_tts":
-            backend["health"] = qwen_health
+        if backend["backend_id"] in registered_ids:
+            adapter = resolve_tts_backend(backend["backend_id"], cfg)
+            backend["health"] = adapter.health().to_dict()
     return {
         "active_backend_id": cfg.backend_id,
         "local_only": cfg.local_only,

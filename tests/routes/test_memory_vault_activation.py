@@ -44,11 +44,27 @@ VAULT_PROJECT_SCOPE_PATCH_PATH = (
 VAULT_PERSONA_ATTRIBUTION_PATCH_PATH = (
     "/api/memory-vault/items/canonical/{memory_id}/persona-attribution"
 )
+VAULT_CONTENT_CORRECTION_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/content"
+)
+#: UMS-05C10A-W. The review-transition endpoint joins the same internal-only
+#: Memory Vault surface as every other mutation route.
+VAULT_REVIEW_TRANSITION_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/review"
+)
+#: UMS-05C10B-W. The lifecycle-transition endpoint joins the same
+#: internal-only Memory Vault surface as every other mutation route.
+VAULT_LIFECYCLE_TRANSITION_PATCH_PATH = (
+    "/api/memory-vault/items/canonical/{memory_id}/lifecycle"
+)
 VAULT_PATCH_PATHS = {
     VAULT_PIN_PATCH_PATH,
     VAULT_HOLD_PATCH_PATH,
     VAULT_PROJECT_SCOPE_PATCH_PATH,
     VAULT_PERSONA_ATTRIBUTION_PATCH_PATH,
+    VAULT_CONTENT_CORRECTION_PATCH_PATH,
+    VAULT_REVIEW_TRANSITION_PATCH_PATH,
+    VAULT_LIFECYCLE_TRANSITION_PATCH_PATH,
 }
 VAULT_PATHS = VAULT_GET_PATHS | VAULT_PATCH_PATHS
 

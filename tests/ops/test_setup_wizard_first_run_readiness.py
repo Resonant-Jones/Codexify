@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from guardian.core.local_runtime_presets import WHOOSHD_ALIAS_MODEL as _WHOOSHD_MODEL
 from guardian.ops import setup_wizard
 
@@ -56,7 +58,10 @@ def test_normalizer_creates_missing_env_with_local_beta_posture(
     assert env["LOCAL_CHAT_MODEL"] == _WHOOSHD_MODEL
     assert env["LOCAL_COMPAT_FIRST"] == "1"
     assert env["VAULTNODE_BASE_URL"] == "http://host.docker.internal:8000"
-    assert env["VAULTNODE_HEALTH_ENDPOINTS"] == "/health,/health/runtime,/ready,/v1/models,/api/tags"
+    assert (
+        env["VAULTNODE_HEALTH_ENDPOINTS"]
+        == "/health,/health/runtime,/ready,/v1/models,/api/tags"
+    )
     assert env["NEO4J_USER"] == "neo4j"
     assert env["NEO4J_PASS"]
 
@@ -95,8 +100,8 @@ def test_placeholder_guardian_api_key_is_replaced(tmp_path: Path) -> None:
     assert len(env["GUARDIAN_API_KEY"]) == 64
 
 
-def test_invalid_local_provider_split_is_normalized() -> None:
-    """LLM_PROVIDER=ollama is normalized to local (the canonical provider)."""
+def test_invalid_local_provider_split_is_preserved_for_user_resolution() -> None:
+    """A valid but conflicting choice is never silently overwritten."""
     result = setup_wizard.normalize_local_beta_config_values(
         {
             **_valid_env(),
@@ -104,7 +109,7 @@ def test_invalid_local_provider_split_is_normalized() -> None:
         }
     )
 
-    assert result.values["LLM_PROVIDER"] == "local"
+    assert result.values["LLM_PROVIDER"] == "ollama"
     assert "LLM_PROVIDER" in result.conflict_keys
 
 
@@ -151,14 +156,16 @@ def test_classifies_missing_docker(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setattr(
         setup_wizard,
         "detect_dependency",
-        lambda binary, display, custom_path=None: setup_wizard.DepStatus(
-            name=display,
-            is_present=False,
-            found_path=None,
-            help_text=f"{display} missing",
-        )
-        if binary == "docker"
-        else setup_wizard.DepStatus(display, True, binary, "ok"),
+        lambda binary, display, custom_path=None: (
+            setup_wizard.DepStatus(
+                name=display,
+                is_present=False,
+                found_path=None,
+                help_text=f"{display} missing",
+            )
+            if binary == "docker"
+            else setup_wizard.DepStatus(display, True, binary, "ok")
+        ),
     )
 
     summary = setup_wizard.classify_setup_readiness(tmp_path)
@@ -184,7 +191,9 @@ def test_classifies_docker_unavailable(tmp_path: Path, monkeypatch: Any) -> None
     assert summary.state == setup_wizard.SetupReadinessState.DOCKER_NOT_RUNNING
 
 
-def test_classifies_local_inference_unavailable(tmp_path: Path, monkeypatch: Any) -> None:
+def test_classifies_local_inference_unavailable(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     _write_env(tmp_path / ".env", **_valid_env())
     monkeypatch.setattr(
         setup_wizard,
@@ -200,13 +209,17 @@ def test_classifies_local_inference_unavailable(tmp_path: Path, monkeypatch: Any
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if "11434" in url:
             raise ConnectionError("ollama stopped")
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {"completion_service": {"ok": True, "redis_reachable": True}}
+            )
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
     )
 
-    assert summary.state == setup_wizard.SetupReadinessState.OLLAMA_NOT_RUNNING
+    assert summary.state == setup_wizard.SetupReadinessState.CORE_READY
 
 
 def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> None:
@@ -225,13 +238,17 @@ def test_classifies_selected_model_missing(tmp_path: Path, monkeypatch: Any) -> 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/api/tags"):
             return 200, '{"models":[{"name":"other:latest"}]}'
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {"completion_service": {"ok": True, "redis_reachable": True}}
+            )
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
     )
 
-    assert summary.state == setup_wizard.SetupReadinessState.MODEL_MISSING
+    assert summary.state == setup_wizard.SetupReadinessState.CORE_READY
 
 
 def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> None:
@@ -252,6 +269,10 @@ def test_classifies_compose_config_invalid(tmp_path: Path, monkeypatch: Any) -> 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
         if url.endswith("/api/tags"):
             return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {"completion_service": {"ok": True, "redis_reachable": True}}
+            )
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -280,6 +301,10 @@ def test_classifies_frontend_not_running(tmp_path: Path, monkeypatch: Any) -> No
             return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
         if "5173" in url:
             raise ConnectionError("frontend stopped")
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {"completion_service": {"ok": True, "redis_reachable": True}}
+            )
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
@@ -303,12 +328,141 @@ def test_classifies_ready(tmp_path: Path, monkeypatch: Any) -> None:
         return subprocess.CompletedProcess(args, 0, "", "")
 
     def http_getter(url: str, timeout: float) -> tuple[int, str]:
+        if url.endswith("/health/llm"):
+            return 200, json.dumps(
+                {
+                    "status": "ok",
+                    "details": {
+                        "provider": "local",
+                        "configured_model_available": True,
+                        "models_available": True,
+                    },
+                }
+            )
         if url.endswith("/api/tags"):
             return 200, json.dumps({"models": [{"name": _WHOOSHD_MODEL}]})
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {"completion_service": {"ok": True, "redis_reachable": True}}
+            )
         return 200, '{"status":"ok"}'
 
     summary = setup_wizard.classify_setup_readiness(
         tmp_path, runner=runner, http_getter=http_getter
     )
 
-    assert summary.state == setup_wizard.SetupReadinessState.READY
+    assert summary.state == setup_wizard.SetupReadinessState.INFERENCE_READY
+    assert summary.bootstrap is not None
+    assert summary.bootstrap.core_ready is True
+    assert summary.bootstrap.inference_ready is True
+    assert summary.bootstrap.human_action == setup_wizard.BootstrapHumanAction.NONE
+
+
+def test_writer_preserves_comments_secrets_unknown_keys_and_rerun(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / ".env"
+    _write_env(path, **_valid_env(), CUSTOM_CHOICE="keep-this")
+    path.write_text("# My own configuration\n" + path.read_text())
+    setup_wizard.write_env_file(path, setup_wizard.read_env_file(path))
+    first = path.read_bytes()
+    setup_wizard.write_env_file(path, setup_wizard.read_env_file(path))
+    assert path.read_bytes() == first
+    assert first.startswith(b"# My own configuration\n")
+    assert b"CUSTOM_CHOICE=keep-this" in first
+    assert setup_wizard.read_env_file(path)["NEO4J_PASS"] == "not-a-placeholder"
+
+
+@pytest.mark.parametrize(
+    "key", ["LLM_PROVIDER", "LOCAL_BASE_URL", "LOCAL_CHAT_MODEL", "all"]
+)
+@pytest.mark.parametrize("value", [None, "", "change-me"])
+@pytest.mark.parametrize("core_healthy", [True, False])
+def test_inference_config_does_not_block_core_checks(
+    tmp_path: Path, monkeypatch: Any, key: str, value: str | None, core_healthy: bool
+) -> None:
+    env = _valid_env()
+    keys = (
+        ("LLM_PROVIDER", "LOCAL_BASE_URL", "LOCAL_CHAT_MODEL")
+        if key == "all"
+        else (key,)
+    )
+    for missing_key in keys:
+        if value is None:
+            env.pop(missing_key)
+        else:
+            env[missing_key] = value
+    env_path = tmp_path / ".env"
+    _write_env(env_path, **env)
+    original = env_path.read_bytes()
+    monkeypatch.setattr(
+        setup_wizard,
+        "detect_dependency",
+        lambda binary, display, custom_path=None: setup_wizard.DepStatus(
+            display, True, binary, "ok"
+        ),
+    )
+    observed: list[str] = []
+
+    def runner(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, "ok", "")
+
+    def http_getter(url: str, timeout: float) -> tuple[int, str]:
+        observed.append(url)
+        assert not url.endswith("/health/llm")
+        if url.endswith("/health/chat"):
+            return 200, json.dumps(
+                {
+                    "completion_service": {
+                        "ok": core_healthy,
+                        "redis_reachable": core_healthy,
+                    }
+                }
+            )
+        return 200, '{"status":"ok"}'
+
+    summary = setup_wizard.classify_setup_readiness(
+        tmp_path, runner=runner, http_getter=http_getter
+    )
+    assert any(url.endswith("/health/chat") for url in observed)
+    assert env_path.read_bytes() == original
+    assert summary.bootstrap is not None
+    assert summary.bootstrap.inference_ready is False
+    if core_healthy:
+        assert summary.state == setup_wizard.SetupReadinessState.CORE_READY
+        assert summary.bootstrap.core_ready is True
+        assert (
+            summary.bootstrap.human_action
+            == setup_wizard.BootstrapHumanAction.PROVIDER_MODEL_CHOICE_REQUIRED
+        )
+        assert "http://127.0.0.1:5173/" in observed
+    else:
+        assert summary.state == setup_wizard.SetupReadinessState.BACKEND_UNHEALTHY
+        assert summary.bootstrap.core_ready is False
+
+
+@pytest.mark.parametrize("key", ["GUARDIAN_API_KEY", "NEO4J_USER", "NEO4J_PASS"])
+def test_missing_core_config_still_requires_credentials(
+    tmp_path: Path, key: str
+) -> None:
+    env = _valid_env()
+    env.pop(key)
+    _write_env(tmp_path / ".env", **env)
+    summary = setup_wizard.classify_setup_readiness(tmp_path)
+    assert summary.state == setup_wizard.SetupReadinessState.CONFIG_INCOMPLETE
+    assert key in summary.details
+    assert summary.bootstrap is not None
+    assert (
+        summary.bootstrap.human_action
+        == setup_wizard.BootstrapHumanAction.CREDENTIALS_REQUIRED
+    )
+
+
+@pytest.mark.parametrize("provider", ["ollama", "openai"])
+def test_explicit_provider_conflict_is_preserved(tmp_path: Path, provider: str) -> None:
+    env = _valid_env()
+    env["LLM_PROVIDER"] = provider
+    env.pop("LOCAL_CHAT_MODEL")
+    _write_env(tmp_path / ".env", **env)
+    summary = setup_wizard.classify_setup_readiness(tmp_path)
+    assert summary.state == setup_wizard.SetupReadinessState.CONFIG_CONFLICT

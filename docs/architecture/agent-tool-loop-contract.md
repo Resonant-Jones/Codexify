@@ -37,6 +37,37 @@ The completion service now normalizes provider output into one of two bounded ou
 2. A structured tool decision.
 
 If the provider returns plain output, the existing completion path continues.
+For a task that claims the accepted-chat lifecycle, this plain answer is still
+reconciled against the durable checkpoint first, so it can never replace an
+already frozen tool decision.
+
+## Checkpoint Scope For Direct Completions
+
+Checkpoint reconciliation is scoped to tasks that claim the accepted-chat
+lifecycle, identified by the ADR-087 accepted deadline snapshot that only
+`enqueue_chat_completion` mints alongside the durable `ChatCompletionAttempt`.
+
+This distinction exists because not every completion is an accepted chat
+attempt. The voice worker constructs a `ChatCompletionTask` directly and calls
+`run_chat_completion_task`, so it owns no accepted attempt and no attempt row;
+the hosted-room and chat-route paths both go through `enqueue_chat_completion`
+and therefore do own one. A missing request id is not the discriminator, because
+`ChatCompletionTask.__post_init__` synthesizes a `req_...` id for every task.
+
+The scoping preserves both directions:
+
+- An unbound direct completion is not rejected for lacking a checkpoint it was
+  never able to create, so ordinary voice turns still answer and persist.
+- A task that claims acceptance must still present a matching durable row and
+  fails closed when it does not; a claim is never downgraded to the unchecked
+  path because its record is absent or mismatched.
+- An unbound completion may not dispatch a replay-protected tool command at all,
+  even if tool IDs were advertised to it, because there is no accepted attempt
+  against which to freeze a checkpoint.
+
+A present-but-invalid acceptance snapshot is treated as a claim so that a
+corrupted acceptance envelope fails closed rather than silently becoming
+unbound.
 
 If the provider returns a structured tool decision:
 
@@ -49,8 +80,9 @@ If the provider returns a structured tool decision:
 4. Plaintext/JSON-normalized tool decisions pass through this same provider-neutral authority check and receive no bypass.
 5. After the advertised-subset gate and durable request, task, thread, turn,
    and account binding checks, the first decision wins an atomic checkpoint
-   commit. The attempt row is committed before queue enqueue; `accepted_at`
-   may be recorded later and is not the checkpoint authority gate.
+   commit. The attempt row is committed before queue enqueue; the checkpoint
+   columns on that row are the checkpoint authority, and the row's `accepted_at`
+   column may be recorded later without being the checkpoint authority gate.
    A matching retry uses its stored `toolTurnId`; a different command or
    argument hash fails before Command Bus dispatch. A plain answer cannot
    replace a previously frozen decision.

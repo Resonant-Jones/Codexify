@@ -1675,6 +1675,195 @@ columns extend the existing provenance family; `extensions` cannot become
 evidence, review, or disposition authority. Candidate evidence remains linked
 to candidate `memory_id` after promotion and follows candidate erasure.
 
+#### 4.16.5b Review-transition revision table — `memory_review_revisions`
+
+Added by UMS-05C10A-P to discharge the §3.3 revision
+requirement that UMS-05C10A-R found unimplemented for
+ordinary `review_state` transitions.
+
+Three truth surfaces remain strictly separate and are
+never merged:
+
+| Surface | Authority meaning |
+| --- | --- |
+| `memory_records.review_state` | current review authority (present posture) |
+| `memory_revisions` | authored **content** transition history |
+| `memory_review_revisions` | review-authority **transition** history |
+| `memory_provenance` | intent / source / audit evidence; `extensions` non-authority |
+
+`memory_review_revisions` is append-only and immutable. It
+records *that* a typed review state changed, in order, with
+an accountable actor and an immutable transition timestamp.
+
+| Column | Type | Null | Authority meaning |
+|---|---|---|---|
+| `review_revision_id` | `String(36)` PK | NOT NULL | Stable review-revision identity |
+| `memory_id` | `String(36)` | NOT NULL | Parent canonical memory |
+| `user_id` | `String(255)` | NOT NULL | Canonical account owner |
+| `revision_number` | `Integer` | NOT NULL | Per-memory sequence within this family, `>= 1`, `UNIQUE (memory_id, revision_number)` |
+| `old_review_state` | `String(32)` | NOT NULL | Prior typed review token |
+| `new_review_state` | `String(32)` | NOT NULL | Resulting typed review token |
+| `actor_account_id` | `String(255)` | NOT NULL | Accountable actor, constrained to the owning account |
+| `created_at` | `TIMESTAMP(timezone=True)` | NOT NULL | Immutable transition timestamp; no `updated_at` |
+
+Review tokens are `pending`, `approved`, `rejected`, `disputed`.
+The parent is bound by composite FK
+`(memory_id, user_id) → memory_records(memory_id, user_id)` with
+`ON DELETE CASCADE`, so review history may not outlive
+legitimate permanent erasure of its parent memory.
+`actor_account_id = user_id` keeps accountable actor authority
+inside the owning account boundary for the currently governed
+ordinary-memory model.
+
+**No legal transition graph is encoded.** The database accepts
+any *unequal* pair of valid review tokens and forbids no
+source-to-target combination. `old_review_state <>
+new_review_state` is a historical-transition constraint (a row
+with identical states is not a transition), not a mutation
+policy. Persistence capability is not mutation authorization:
+whether a given transition may be performed is a writer and
+contract concern, and remains unresolved
+(`TRANSITION_GRAPH: NOT EXPLICIT`).
+
+Existing memories receive **zero** synthetic review history;
+the migration never infers history from a current
+`review_state`. `memory_records.review_state` remains the
+canonical present value: history reconciles to it and never
+overrides it. Personal Facts keep `personal_fact_revisions`;
+this family never becomes an alternate Personal Facts history
+path. PostgreSQL does not encode the parent species, so the
+boundary is enforced in export validation, restore preflight,
+and future service authority rather than through a trigger.
+
+Portability: `memory_review_revisions` is the seventh canonical
+family in `account-export.v6`. `account-export.v5` keeps its
+exact six-family meaning and is not redefined.
+
+#### 4.16.5c Lifecycle-transition revision table — `memory_lifecycle_revisions`
+
+Added by UMS-05C10B-P to discharge the §3.3 revision
+requirement that UMS-05C10B-R found unimplemented for ordinary
+lifecycle transitions.
+
+There are now four independent canonical history surfaces, and
+none substitutes for another:
+
+| Surface | History meaning |
+| --- | --- |
+| `memory_revisions` | authored **content** transitions (§4.16.5) |
+| `memory_review_revisions` | **review**-authority transitions (§4.16.5b) |
+| `memory_lifecycle_revisions` | **lifecycle**-authority transitions |
+| `memory_provenance` | intent / source / audit evidence; `extensions` non-authority |
+
+`memory_records.lifecycle_state` remains the sole present
+lifecycle authority. `memory_lifecycle_revisions` records ordered
+transitions with stable identity, a per-memory sequence, typed old
+and new lifecycle tokens, and an immutable transition timestamp. It
+is append-only: there is no `updated_at`.
+
+| Column | Type | Null | Authority meaning |
+|---|---|---|---|
+| `lifecycle_revision_id` | `String(36)` PK | NOT NULL | Stable revision identity |
+| `memory_id` | `String(36)` | NOT NULL | Parent canonical memory |
+| `user_id` | `String(255)` | NOT NULL | Canonical account owner |
+| `revision_number` | `Integer` | NOT NULL | Per-memory sequence within this family, `>= 1`, `UNIQUE (memory_id, revision_number)` |
+| `old_lifecycle_state` | `String(32)` | NOT NULL | Prior typed lifecycle token |
+| `new_lifecycle_state` | `String(32)` | NOT NULL | Resulting typed lifecycle token |
+| `created_at` | `TIMESTAMP(timezone=True)` | NOT NULL | Immutable transition timestamp |
+
+Lifecycle tokens are `active`, `dormant`, `retired`. The parent is
+bound by composite FK `(memory_id, user_id) → memory_records(memory_id,
+user_id)` with `ON DELETE CASCADE`, so lifecycle history may not
+outlive legitimate permanent erasure of its parent memory.
+
+**Pre-retirement posture is preserved in history, not in a parallel
+mutable column.** A transition `old_lifecycle_state → retired`
+carries the pre-retirement governed posture in its old state:
+`active → retired` preserves `active`, and `dormant → retired`
+preserves `dormant`. No `pre_retirement_state` column exists or is
+needed, and the two retirement postures remain distinguishable.
+
+**No legal transition graph is encoded.** The database accepts any
+*unequal* pair of valid lifecycle tokens and forbids no
+source-to-target combination. `old_lifecycle_state <> new_lifecycle_state`
+is a historical transition-shape constraint, not a mutation policy.
+Persistence capability is not mutation authorization. Which
+transitions a writer may legally perform remains **unresolved** and
+is owned by UMS-05C10B-C; the retire / restore writer stays frozen.
+
+**Absent by design.** This family carries no `actor_account_id`,
+`action`, `reason`, `request_ref`, `transition_kind`, `extensions`,
+or generic JSON metadata. Those are intent/source evidence and belong
+to the receipt layer; duplicating them here would make revision
+authority a second evidence store. No actor or source vocabulary is
+introduced by this slice.
+
+Existing memories receive **zero** synthetic lifecycle history. The
+migration never infers history from a current `lifecycle_state`, and
+a legacy `retired` record whose pre-retirement posture was never
+canonically recorded stays zero-history rather than being
+back-filled with a guess. Personal Facts keep
+`personal_fact_revisions`; this family never becomes an alternate
+Personal Facts history path. PostgreSQL does not encode the parent
+species, so the boundary is enforced in export validation, restore
+preflight, and future service authority rather than through a trigger.
+
+Portability: `memory_lifecycle_revisions` is the eighth canonical
+family in `account-export.v7`. `account-export.v6` keeps its exact
+seven-family meaning and is not redefined.
+
+#### 4.16.5c Lifecycle history is a third, distinct authority — not yet persisted
+
+UMS-05C10B-R revalidated ordinary-memory lifecycle mutation
+authority and recorded:
+
+```text
+LIFECYCLE_HISTORY_NEW_CANONICAL_PERSISTENCE_REQUIRED
+LIFECYCLE_TRANSITION_GRAPH: PARTIAL
+```
+
+UMS-05C10B-P closed the persistence half above. The graph
+remainder is still open. The historical record that UMS-05C10B-R
+found missing:
+
+The gap UMS-05C10B-R identified — that no canonical family
+could record a lifecycle transition, and that a retirement from
+`active` and a retirement from `dormant` were indistinguishable —
+is now closed by §4.16.5c. What remains open is the legal
+transition graph, which persistence deliberately does not encode.
+
+`memory_records.lifecycle_state` is the sole present lifecycle
+authority (§3.3), and §3.3 requires a revision and intent receipt
+for every authority-changing transition. That requirement has
+**not** been narrowed to receipt-only for lifecycle, and it is
+not discharged by the existence of the content or review families:
+neither is semantically capable of representing a lifecycle
+transition.
+
+**Contract-ahead-of-implementation gap, not a contradiction.**
+§4.4 states that lifecycle transition timestamps such as
+`dormant_at` and `retired_at` "remain canonical", and §10 requires
+"lifecycle transition timestamps" in the account archive. Neither
+`dormant_at` nor `retired_at` exists as a column, and the
+`account-export.v6` `memory_records` field set carries no lifecycle
+transition timestamp. No two current documents disagree; the
+contract is simply ahead of storage.
+
+**The restore-posture obligation is currently unimplementable.**
+§5.4 requires restore to return a retired record to its
+*pre-retirement governed posture*. No field records that posture, so
+`active → retired → restore` and `dormant → retired → restore` are
+indistinguishable in current storage. The pre-retirement posture is
+therefore part of the historical authority the missing family must
+preserve.
+
+**This section records the gap only.** It does not choose a
+lifecycle revision schema, does not define a restore target, does
+not define any `dormant → active` reactivation edge, and does not
+decide whether governed automatic decay shares the human
+retire/restore history family. Those remain unresolved, and the
+C10B writer stays frozen behind UMS-05C10B-P.
+
 #### 4.16.5 Payload strategy decision
 
 The UMS-03A deferred question "shared typed columns vs.

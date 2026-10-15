@@ -1344,6 +1344,17 @@ class ChatCompletionAttempt(Base):
         index=True,
     )
     turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    completed_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    terminal_event_type: Mapped[str | None] = mapped_column(String(32))
+    terminal_outcome: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    deadline_snapshot: Mapped[dict[str, str] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    turn_lock_token: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1361,6 +1372,31 @@ class ChatCompletionAttempt(Base):
             "(tool_turn_id IS NOT NULL AND tool_command_id IS NOT NULL AND "
             "tool_args_hash IS NOT NULL AND tool_checkpoint_at IS NOT NULL)",
             name="ck_chat_completion_attempt_tool_checkpoint_complete",
+        ),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "terminal_event_type IS NULL OR terminal_event_type IN "
+            "('task.failed', 'task.cancelled')",
+            name="ck_chat_completion_attempts_terminal_event",
+        ),
+        CheckConstraint(
+            "terminal_outcome IS NULL OR COALESCE(("
+            "jsonb_typeof(terminal_outcome) = 'object' "
+            "AND terminal_outcome->>'failure_code' = 'CHAT_ACCEPTED_TASK_ORPHANED' "
+            "AND terminal_event_type = 'task.failed' "
+            "AND completed_message_id IS NULL AND accepted_at IS NOT NULL "
+            "AND deadline_snapshot IS NOT NULL "
+            "AND (terminal_outcome->>'reconciled_at')::timestamptz >= "
+            "(deadline_snapshot->>'terminal_deadline_at')::timestamptz), false)",
+            name="ck_chat_attempt_orphan_outcome",
+        ),
+        CheckConstraint(
+            "(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR "
+            "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
+            "AND length(trim(turn_lock_token)) > 0)",
+            name="ck_chat_attempt_recovery_snapshot_pair",
         ),
     )
 
@@ -2811,6 +2847,121 @@ class OAuthConnection(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class CodingExecutionCredential(Base):
+    """Encrypted API-key credential for Guardian-mediated coding execution.
+
+    This is intentionally limited to exportable API keys. Native subscriptions,
+    brokered access, and secretless runtimes keep their own authority models.
+    """
+
+    __tablename__ = "coding_execution_credentials"
+
+    credential_ref: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    credential_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="api_key"
+    )
+    funding_route: Mapped[str] = mapped_column(String(32), nullable=False)
+    encrypted_secret: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="active"
+    )
+    allowed_account_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    allowed_model_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default="[]",
+    )
+    usage_policy_ref: Mapped[str | None] = mapped_column(String(128))
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "owner_scope IN ('account', 'service', 'operator')",
+            name="ck_coding_execution_credentials_owner_scope",
+        ),
+        CheckConstraint(
+            "credential_type = 'api_key'",
+            name="ck_coding_execution_credentials_type",
+        ),
+        CheckConstraint(
+            "funding_route IN ('user_byok', 'codexify_included', "
+            "'codexify_metered', 'local_self_hosted')",
+            name="ck_coding_execution_credentials_funding_route",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_coding_execution_credentials_status",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND encrypted_secret IS NOT NULL) OR "
+            "(status = 'revoked' AND encrypted_secret IS NULL)",
+            name="ck_coding_execution_credentials_secret_status",
+        ),
+        Index(
+            "ix_coding_execution_credentials_owner_provider",
+            "owner_scope",
+            "owner_id",
+            "provider_id",
+        ),
+    )
+
+
+class CodingExecutionCredentialLease(Base):
+    """Secret-free receipt preventing duplicate lease redemption per attempt."""
+
+    __tablename__ = "coding_execution_credential_leases"
+
+    lease_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    binding_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    attempt_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    credential_ref: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("coding_execution_credentials.credential_ref", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    owner_scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "binding_id",
+            "attempt_index",
+            name="uq_coding_execution_credential_lease_binding_attempt",
+        ),
+        CheckConstraint(
+            "attempt_index > 0",
+            name="ck_coding_execution_credential_leases_attempt_index_positive",
+        ),
+        Index(
+            "ix_coding_execution_credential_leases_credential_ref",
+            "credential_ref",
+        ),
+    )
 
 
 class NotionConnectionCredential(Base):
@@ -6235,9 +6386,7 @@ class CampaignContinuationAuthorityRecord(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
-    approved_by_actor_id: Mapped[str] = mapped_column(
-        String(255), nullable=False
-    )
+    approved_by_actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
     approved_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
@@ -7158,6 +7307,12 @@ class MemoryRecord(Base):
     held: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'dormant'")
+    )
     extensions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -7220,6 +7375,14 @@ class MemoryRecord(Base):
             "(reviewed_at IS NOT NULL "
             "AND activated_at >= reviewed_at)",
             name="memory_records_review_activation_order_check",
+        ),
+        CheckConstraint(
+            "review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_records_review_state_check",
+        ),
+        CheckConstraint(
+            "lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_records_lifecycle_state_check",
         ),
         Index("ix_memory_records_user_id", "user_id"),
         Index("ix_memory_records_user_project", "user_id", "project_id"),

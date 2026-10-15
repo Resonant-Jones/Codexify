@@ -1,8 +1,8 @@
-"""Canonical readiness contract for the Guardian Pi coding-worker lane.
+"""Readiness checks for the invocation-scoped Guardian Pi coding worker.
 
-This module inspects prerequisites and asks the Node wrapper to perform a
-non-executing SDK/model/auth initialization. It never submits a prompt and
-never includes credential values or subprocess error text in its report.
+Worker startup verifies only that the pinned Pi runtime can load. It does not
+select a provider/model or inspect credential material; Guardian resolves and
+authorizes those separately for each invocation.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import stat
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -22,13 +21,6 @@ PI_READINESS_REASONS = frozenset(
         "node_missing",
         "wrapper_missing",
         "pi_sdk_build_missing",
-        "worker_home_unavailable",
-        "worker_home_read_only",
-        "pi_auth_missing",
-        "pi_auth_unreadable",
-        "pi_auth_permissions_open",
-        "provider_unresolved",
-        "provider_credential_missing",
         "adapter_initialization_failed",
     }
 )
@@ -38,8 +30,6 @@ DEFAULT_PI_PACKAGE_ROOT = (
     "/opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent"
 )
 DEFAULT_PI_NODE_MODULES = "/opt/codexify/pi-sdk/node_modules"
-DEFAULT_PI_PROVIDER = "anthropic"
-DEFAULT_PI_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass(frozen=True)
@@ -52,13 +42,13 @@ class PiReadinessCheck:
 @dataclass(frozen=True)
 class PiReadinessReport:
     status: str
-    effective_provider: str
-    effective_model: str
     checks: tuple[PiReadinessCheck, ...]
     reasons: tuple[str, ...]
     warnings: tuple[str, ...]
-    credential_validity: str = "unproven"
-    schema_version: int = 1
+    harness_id: str | None = None
+    harness_version: str | None = None
+    credential_validity: str = "checked_by_guardian_per_invocation"
+    schema_version: int = 2
 
     @property
     def can_consume_tasks(self) -> bool:
@@ -69,8 +59,9 @@ class PiReadinessReport:
             "schema_version": self.schema_version,
             "status": self.status,
             "can_consume_tasks": self.can_consume_tasks,
-            "effective_provider": self.effective_provider,
-            "effective_model": self.effective_model,
+            "harness_id": self.harness_id,
+            "harness_version": self.harness_version,
+            "provider_model_authority": "invocation_scoped_guardian_binding",
             "credential_validity": self.credential_validity,
             "reasons": list(self.reasons),
             "warnings": list(self.warnings),
@@ -83,10 +74,11 @@ class PiReadinessReport:
     def to_human(self) -> str:
         lines = [
             f"Pi coding-worker readiness: {self.status}",
-            f"Effective provider: {self.effective_provider}",
-            f"Effective model: {self.effective_model}",
-            "Credential validity: unproven (presence only)",
+            "Provider/model identity: resolved by Guardian for each invocation",
+            "Credential validity: checked by Guardian at invocation dispatch",
         ]
+        if self.harness_id:
+            lines.append(f"Pi runtime: {self.harness_id} {self.harness_version or ''}".strip())
         for check in self.checks:
             suffix = f" ({check.reason})" if check.reason else ""
             lines.append(f"- {check.name}: {check.state}{suffix}")
@@ -96,6 +88,18 @@ class PiReadinessReport:
 AdapterProbe = Callable[[str, Path, Mapping[str, str]], Mapping[str, object]]
 
 
+def _probe_environment(environment: Mapping[str, str]) -> dict[str, str]:
+    """Pass runtime paths only; never forward model identity or credentials."""
+    allowed = (
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "PI_CODING_AGENT_PACKAGE_ROOT",
+        "PI_CODING_AGENT_NODE_MODULES",
+    )
+    return {key: environment[key] for key in allowed if environment.get(key)}
+
+
 def _default_adapter_probe(
     node_executable: str,
     wrapper_path: Path,
@@ -103,12 +107,12 @@ def _default_adapter_probe(
 ) -> Mapping[str, object]:
     try:
         completed = subprocess.run(
-            [node_executable, str(wrapper_path), "readiness"],
+            [node_executable, str(wrapper_path), "coding-worker-readiness"],
             check=False,
             capture_output=True,
             text=True,
             timeout=20,
-            env=dict(environment),
+            env=_probe_environment(environment),
         )
         if completed.returncode != 0:
             return {"adapter_initialized": False}
@@ -123,40 +127,22 @@ def _default_adapter_probe(
         return {"adapter_initialized": False}
 
 
-def _auth_file_state(path: Path) -> str:
-    if not path.is_file():
-        return "missing"
-    try:
-        with path.open("rb") as handle:
-            handle.read(1)
-    except OSError:
-        return "unreadable"
-    return "present"
-
-
 def evaluate_pi_readiness(
     *,
     environ: Mapping[str, str] | None = None,
     adapter_probe: AdapterProbe | None = None,
 ) -> PiReadinessReport:
-    """Return the complete, secret-free Pi prerequisite posture."""
+    """Verify Pi runtime prerequisites without reading ambient auth state."""
 
     environment = dict(os.environ if environ is None else environ)
     probe_adapter = adapter_probe or _default_adapter_probe
     checks: list[PiReadinessCheck] = []
     reasons: list[str] = []
-    warnings: list[str] = []
 
-    def record(
-        name: str,
-        state: str,
-        reason: str | None = None,
-        *,
-        warning: bool = False,
-    ) -> None:
+    def record(name: str, state: str, reason: str | None = None) -> None:
         checks.append(PiReadinessCheck(name=name, state=state, reason=reason))
         if reason:
-            (warnings if warning else reasons).append(reason)
+            reasons.append(reason)
 
     node_executable = shutil.which("node", path=environment.get("PATH"))
     record(
@@ -188,105 +174,33 @@ def evaluate_pi_readiness(
         None if sdk_available else "pi_sdk_build_missing",
     )
 
-    home_value = environment.get("HOME", "").strip()
-    worker_home = Path(home_value) if home_value else None
-    home_usable = bool(
-        worker_home
-        and worker_home.is_dir()
-        and os.access(worker_home, os.R_OK | os.X_OK)
-    )
-    home_writable = bool(home_usable and os.access(worker_home, os.W_OK))
-    if not home_usable:
-        record("worker_home", "blocked", "worker_home_unavailable")
-    elif not home_writable:
-        record("worker_home", "blocked", "worker_home_read_only")
-    else:
-        record("worker_home", "available")
-
-    auth_path = (
-        worker_home / ".pi/agent/auth.json" if worker_home else Path("/nonexistent")
-    )
-    auth_state = _auth_file_state(auth_path) if home_usable else "missing"
-    if auth_state == "missing":
-        record("pi_auth_material", "blocked", "pi_auth_missing")
-    elif auth_state == "unreadable":
-        record("pi_auth_material", "blocked", "pi_auth_unreadable")
-    else:
-        record("pi_auth_material", "available")
-
-    if auth_state == "present":
-        permissions_open = bool(stat.S_IMODE(auth_path.stat().st_mode) & 0o077)
-        record(
-            "pi_auth_permissions",
-            "degraded" if permissions_open else "restricted",
-            "pi_auth_permissions_open" if permissions_open else None,
-            warning=permissions_open,
-        )
-    else:
-        record("pi_auth_permissions", "not_checked")
-
-    effective_provider = environment.get("PI_PROVIDER", DEFAULT_PI_PROVIDER).strip()
-    effective_model = environment.get("PI_MODEL", DEFAULT_PI_MODEL).strip()
-    provider_configured = bool(effective_provider and effective_model)
-    provider_check_index = len(checks)
-    if not provider_configured:
-        record("effective_provider", "blocked", "provider_unresolved")
-    else:
-        record("effective_provider", "configured")
-
-    can_probe = bool(
-        node_executable
-        and wrapper_available
-        and sdk_available
-        and home_writable
-        and auth_state == "present"
-        and provider_configured
-    )
+    harness_id = None
+    harness_version = None
+    can_probe = bool(node_executable and wrapper_available and sdk_available)
     if can_probe:
-        probe = probe_adapter(node_executable, wrapper_path, environment)
-        adapter_initialized = probe.get("adapter_initialized") is True
-        if not adapter_initialized:
-            record("adapter_initialization", "blocked", "adapter_initialization_failed")
-            record("provider_credential", "not_checked")
-        else:
+        probe = probe_adapter(
+            node_executable,
+            wrapper_path,
+            _probe_environment(environment),
+        )
+        if probe.get("adapter_initialized") is True and probe.get(
+            "credential_authority"
+        ) == "invocation_scoped":
             record("adapter_initialization", "available")
-            provider_resolved = probe.get("provider_resolved") is True
-            if not provider_resolved:
-                if "provider_unresolved" not in reasons:
-                    reasons.append("provider_unresolved")
-                checks[provider_check_index] = PiReadinessCheck(
-                    name="effective_provider",
-                    state="blocked",
-                    reason="provider_unresolved",
-                )
-                record("provider_credential", "not_checked")
-            else:
-                effective_provider = str(
-                    probe.get("effective_provider") or effective_provider
-                )
-                effective_model = str(probe.get("effective_model") or effective_model)
-                credential_available = (
-                    probe.get("provider_credential_available") is True
-                )
-                record(
-                    "provider_credential",
-                    "available" if credential_available else "blocked",
-                    None if credential_available else "provider_credential_missing",
-                )
+            harness_id = str(probe.get("harness_id") or "") or None
+            harness_version = str(probe.get("harness_version") or "") or None
+        else:
+            record("adapter_initialization", "blocked", "adapter_initialization_failed")
     else:
         record("adapter_initialization", "not_checked")
-        record("provider_credential", "not_checked")
 
     unique_reasons = tuple(dict.fromkeys(reasons))
-    unique_warnings = tuple(dict.fromkeys(warnings))
-    status = (
-        "blocked" if unique_reasons else ("degraded" if unique_warnings else "ready")
-    )
+    status = "blocked" if unique_reasons else "ready"
     return PiReadinessReport(
         status=status,
-        effective_provider=effective_provider or "unresolved",
-        effective_model=effective_model or "unresolved",
         checks=tuple(checks),
         reasons=unique_reasons,
-        warnings=unique_warnings,
+        warnings=(),
+        harness_id=harness_id,
+        harness_version=harness_version,
     )
