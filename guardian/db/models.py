@@ -22,6 +22,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -7538,6 +7539,215 @@ class MemoryProvenance(Base):
             "ix_memory_provenance_source_thread_id",
             "source_thread_id",
             postgresql_where=text("source_thread_id IS NOT NULL"),
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryRevision(Base):
+    """Authored content history; MemoryRecord retains current content authority."""
+
+    __tablename__ = "memory_revisions"
+
+    revision_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    new_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint("revision_id", name="pk_memory_revisions"),
+        UniqueConstraint(
+            "memory_id", "revision_number", name="uq_memory_revisions_memory_number"
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_revisions_number_check"
+        ),
+        CheckConstraint(
+            "old_text_content <> new_text_content",
+            name="memory_revisions_change_check",
+        ),
+        Index("ix_memory_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryReviewRevision(Base):
+    """Independent review-state history, without granting transition authority."""
+
+    __tablename__ = "memory_review_revisions"
+
+    review_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_review_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint(
+            "review_revision_id", name="pk_memory_review_revisions"
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_review_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_review_revisions_number_check"
+        ),
+        CheckConstraint(
+            "old_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_new_state_check",
+        ),
+        CheckConstraint(
+            "old_review_state <> new_review_state",
+            name="memory_review_revisions_change_check",
+        ),
+        CheckConstraint(
+            "actor_account_id = user_id",
+            name="memory_review_revisions_actor_account_check",
+        ),
+        Index("ix_memory_review_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryLifecycleRevision(Base):
+    """Independent lifecycle history; the parent retains present-state authority."""
+
+    __tablename__ = "memory_lifecycle_revisions"
+
+    lifecycle_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_lifecycle_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint(
+            "lifecycle_revision_id", name="pk_memory_lifecycle_revisions"
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_lifecycle_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_lifecycle_revisions_number_check"
+        ),
+        CheckConstraint(
+            "old_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_new_state_check",
+        ),
+        CheckConstraint(
+            "old_lifecycle_state <> new_lifecycle_state",
+            name="memory_lifecycle_revisions_change_check",
+        ),
+        Index("ix_memory_lifecycle_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryPurgeTombstone(Base):
+    """Minimum non-content suppression state that survives its memory's erasure."""
+
+    __tablename__ = "memory_purge_tombstones"
+
+    purge_receipt_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    purged_record_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_system: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_entity_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_atom_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    purged_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+    suppress_reimport: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("true"), nullable=False
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="fk_memory_purge_tombstones_user",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint("purge_receipt_id", name="pk_memory_purge_tombstones"),
+        UniqueConstraint(
+            "user_id",
+            "purged_record_fingerprint",
+            name="uq_memory_purge_tombstones_account_record",
+        ),
+        CheckConstraint(
+            "source_system IS NULL OR source_system IN "
+            "('codexify', 'openai', 'anthropic', 'future_registered')",
+            name="memory_purge_tombstones_source_system_check",
+        ),
+        CheckConstraint(
+            "source_entity_kind IS NULL OR source_entity_kind IN "
+            "('chat', 'vault', 'importer', 'classifier', 'future_registered')",
+            name="memory_purge_tombstones_source_entity_kind_check",
+        ),
+        CheckConstraint(
+            "suppress_reimport", name="memory_purge_tombstones_suppress_reimport_check"
+        ),
+        Index("ix_memory_purge_tombstones_user_id", "user_id"),
+        Index(
+            "uq_memory_purge_tombstones_account_source_atom",
+            "user_id",
+            "source_atom_fingerprint",
+            unique=True,
+            postgresql_where=text("source_atom_fingerprint IS NOT NULL"),
         ),
     )
 
