@@ -47,8 +47,17 @@ export const LIBRARY_FILTERS: readonly LibraryFilter[] = [
  */
 export type LibraryResourceType = "image" | "document" | "widget";
 
-/** Provenance — where the authoritative record came from. */
-export type LibraryResourceOrigin = "uploaded" | "generated";
+/**
+ * Provenance — how the record entered the system, as *proven* by authoritative
+ * metadata. Deliberately includes `unknown`: a record sitting in an "uploaded"
+ * source table is not proof of a user upload, and absence of provenance
+ * metadata must never be resolved into a positive claim.
+ */
+export type LibraryResourceOrigin =
+  | "uploaded"
+  | "generated"
+  | "imported"
+  | "unknown";
 
 /**
  * Source families are the authoritative identity namespaces. IDs collide
@@ -119,29 +128,58 @@ export type LibraryRejectedRecord = {
 
 /* ── Completeness ─────────────────────────────────────────────────────── */
 
-export type LibrarySourceStatus = "complete" | "bounded" | "failed";
+/**
+ * Per-source outcome. Only `complete` and `empty` assert that coverage is
+ * proven; everything else is a statement about what we could not establish.
+ */
+export type LibrarySourceStatus =
+  /** Proven exhausted and non-empty. */
+  | "complete"
+  /** Proven exhausted and empty — an authenticated, authoritative zero. */
+  | "empty"
+  /** Reached the request limit, so the source may be truncated. */
+  | "bounded"
+  /**
+   * Response metadata was malformed, missing, or self-inconsistent, or
+   * authoritative records were rejected. The projection cannot claim coverage.
+   */
+  | "uncertain"
+  /** The request itself failed. */
+  | "failed";
 
 export type LibrarySourceOutcome = {
   readonly source: LibrarySourceRequestId;
   readonly families: readonly LibrarySourceFamily[];
-  /**
-   * `bounded` means the returned list reached the request limit and may be
-   * truncated — the source cannot prove it is exhausted.
-   */
   readonly status: LibrarySourceStatus;
   readonly limit: number;
+  /** Records actually projected out of this source. */
   readonly returnedCount: number;
+  /** Authoritative `count` reported by the source, when it was usable. */
+  readonly reportedCount: number | null;
+  /** Authoritative records this source returned that could not be projected. */
+  readonly rejectedCount: number;
+  /** Why this status, when it is not proven coverage. */
+  readonly detail: string | null;
   readonly error: string | null;
 };
 
+/**
+ * `unavailable` means the filter has no authoritative source at all. It is
+ * deliberately *not* expressed as a complete empty result, so "we could not
+ * look" can never be misread as "we looked and there is nothing".
+ */
+export type LibraryCoverage = "known" | "unavailable";
+
 export type LibraryCompleteness = {
   readonly complete: boolean;
-  /** Sources contributing to this filter that were not `complete`. */
+  readonly coverage: LibraryCoverage;
+  /** Human-readable explanation of the overall verdict. */
+  readonly detail: string;
+  /** Sources planned for this filter that did not prove coverage. */
   readonly incompleteSources: readonly LibrarySourceRequestId[];
-  /** Subset that reached the request limit and may be truncated. */
   readonly boundedSources: readonly LibrarySourceRequestId[];
-  /** Subset that failed outright. */
   readonly failedSources: readonly LibrarySourceRequestId[];
+  readonly uncertainSources: readonly LibrarySourceRequestId[];
 };
 
 /* ── Widget discovery ─────────────────────────────────────────────────── */
@@ -274,19 +312,58 @@ export function toPresentationKey(
   return `${family}:${sourceId}`;
 }
 
+/**
+ * Provenance is read only from authoritative `source_tag` metadata.
+ *
+ * The source *family* is deliberately not used: a row living in an uploaded
+ * table proves which table it came from, not that a user uploaded it. The
+ * backend emits `source_tag: "generated"` for generated records of both kinds
+ * and passes uploaded-family rows through with their own (often absent) tag, so
+ * anything unrecognised stays `unknown` rather than being asserted.
+ */
+function readOrigin(raw: Record<string, unknown>): LibraryResourceOrigin {
+  const tag = readOptionalString(raw.source_tag)?.toLowerCase();
+  if (tag === "uploaded") return "uploaded";
+  if (tag === "generated") return "generated";
+  if (tag === "imported") return "imported";
+  return "unknown";
+}
+
 function readListPayload(
   data: unknown,
   key: "images" | "documents"
-): { records: unknown[]; count: number | null } {
+): { ok: true; records: unknown[]; count: number } | { ok: false; reason: string } {
   const body = asRecord(data);
-  if (!body) return { records: [], count: null };
+  if (!body) {
+    return { ok: false, reason: "Response body is not an object." };
+  }
+
   const list = body[key];
-  const records = Array.isArray(list) ? list : [];
-  const reported = body.count;
-  return {
-    records,
-    count: typeof reported === "number" && Number.isFinite(reported) ? reported : null,
-  };
+  if (!Array.isArray(list)) {
+    return {
+      ok: false,
+      reason: `Response field "${key}" is missing or not an array.`,
+    };
+  }
+
+  // Both endpoints report `count` as the post-limit length of the same list.
+  // A missing, non-integer, negative, or disagreeing count means we cannot
+  // establish what the source actually returned.
+  const count = body.count;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+    return {
+      ok: false,
+      reason: `Response "count" is missing or not a non-negative integer (got ${String(count)}).`,
+    };
+  }
+  if (count !== list.length) {
+    return {
+      ok: false,
+      reason: `Response "count" (${count}) disagrees with "${key}" length (${list.length}).`,
+    };
+  }
+
+  return { ok: true, records: list, count };
 }
 
 type NormalizeContext = {
@@ -343,10 +420,8 @@ function normalizeImageRecord(
     };
   }
 
-  // The request itself selected the family, so origin is authoritative here
-  // rather than inferred from `source_tag` (which may be null or arbitrary).
-  const origin: LibraryResourceOrigin =
-    context.family === "generated_image" ? "generated" : "uploaded";
+  // Provenance is proven by metadata, never by which table the row came from.
+  const origin = readOrigin(raw);
 
   return {
     kind: "resource",
@@ -452,7 +527,7 @@ function normalizeDocumentRecord(
       sourceFamily: family,
       sourceId,
       resourceType: "document",
-      origin: family === "generated_document" ? "generated" : "uploaded",
+      origin: readOrigin(raw),
       title: readOptionalString(raw.title) ?? readOptionalString(raw.filename) ?? "Untitled",
       sourceTag: readOptionalString(raw.source_tag),
       srcUrl: readOptionalString(raw.src_url),
@@ -474,16 +549,54 @@ type SourceFetch = {
   rejected: LibraryRejectedRecord[];
 };
 
-function boundedOutcome(
-  records: number,
-  reportedCount: number | null,
-  limit: number
-): "complete" | "bounded" {
-  // `count` is reported after the backend applies `limit`, so a count that
-  // reaches the limit cannot prove the source was exhausted. Treat a
-  // mismatched/absent count conservatively rather than claiming completeness.
-  const observed = Math.max(records, reportedCount ?? 0);
-  return observed >= limit ? "bounded" : "complete";
+/**
+ * Decide what a source actually established. Only two outcomes claim coverage;
+ * everything else reports precisely what could not be proven.
+ */
+function resolveSourceStatus(input: {
+  limit: number;
+  observedCount: number;
+  rejectedCount: number;
+}): { status: LibrarySourceStatus; detail: string | null } {
+  if (input.rejectedCount > 0) {
+    return {
+      status: "uncertain",
+      detail: `${input.rejectedCount} authoritative record(s) could not be projected, so coverage is incomplete.`,
+    };
+  }
+  if (input.observedCount >= input.limit) {
+    return {
+      status: "bounded",
+      detail: `Returned ${input.observedCount} record(s) at the request limit of ${input.limit}; the source may be truncated.`,
+    };
+  }
+  if (input.observedCount === 0) {
+    return { status: "empty", detail: null };
+  }
+  return { status: "complete", detail: null };
+}
+
+function uncertainOutcome(
+  source: LibrarySourceRequestId,
+  families: readonly LibrarySourceFamily[],
+  limit: number,
+  reason: string
+): SourceFetch {
+  return {
+    outcome: {
+      source,
+      families,
+      status: "uncertain",
+      limit,
+      returnedCount: 0,
+      reportedCount: null,
+      rejectedCount: 0,
+      detail: reason,
+      error: null,
+    },
+    resources: [],
+    rejected: [],
+  };
 }
 
 function describeError(error: unknown): string {
@@ -500,48 +613,62 @@ async function fetchImageSource(
   const params: Record<string, unknown> = { ...scopeQuery };
   if (tag) params.tag = tag;
 
+  const family = (
+    tag === "generated" ? "generated_image" : "uploaded_image"
+  ) as LibrarySourceFamily;
+  const request = (
+    tag === "generated" ? "generated_image" : "uploaded_image"
+  ) as LibrarySourceRequestId;
+  const limit = Number(params.limit ?? 0);
+
   try {
     const response = await transport.get(IMAGES_PATH, { params });
-    const limit = Number(params.limit ?? 0);
-    const { records, count } = readListPayload(response?.data, "images");
+    const payload = readListPayload(response?.data, "images");
+    if (!payload.ok) {
+      return uncertainOutcome(request, [family], limit, payload.reason);
+    }
+
     const resources: LibraryResource[] = [];
     const rejected: LibraryRejectedRecord[] = [];
-    const family = (
-      tag === "generated" ? "generated_image" : "uploaded_image"
-    ) as LibrarySourceFamily;
-    const request = (
-      tag === "generated" ? "generated_image" : "uploaded_image"
-    ) as LibrarySourceRequestId;
 
-    for (const record of records) {
+    for (const record of payload.records) {
       const outcome = normalizeImageRecord(record, { source: request, family });
       if (outcome.kind === "resource") resources.push(outcome.resource);
       else rejected.push(outcome.rejected);
     }
 
+    const resolved = resolveSourceStatus({
+      limit,
+      observedCount: payload.count,
+      rejectedCount: rejected.length,
+    });
+
     return {
       outcome: {
         source: request,
         families: [family],
-        status: boundedOutcome(records.length, count, limit),
+        status: resolved.status,
         limit,
         returnedCount: resources.length,
+        reportedCount: payload.count,
+        rejectedCount: rejected.length,
+        detail: resolved.detail,
         error: null,
       },
       resources,
       rejected,
     };
   } catch (error) {
-    const limit = Number(params.limit ?? 0);
     return {
       outcome: {
-        source: (tag === "generated" ? "generated_image" : "uploaded_image") as LibrarySourceRequestId,
-        families: [
-          (tag === "generated" ? "generated_image" : "uploaded_image") as LibrarySourceFamily,
-        ],
+        source: request,
+        families: [family],
         status: "failed",
         limit,
         returnedCount: 0,
+        reportedCount: null,
+        rejectedCount: 0,
+        detail: null,
         error: describeError(error),
       },
       resources: [],
@@ -555,29 +682,42 @@ async function fetchDocumentSource(
   scopeQuery: Record<string, unknown>
 ): Promise<SourceFetch> {
   const params: Record<string, unknown> = { ...scopeQuery };
+  const limit = Number(params.limit ?? 0);
 
   try {
     const response = await transport.get(DOCUMENT_ARTIFACTS_PATH, { params });
-    const limit = Number(params.limit ?? 0);
-    const { records, count } = readListPayload(response?.data, "documents");
+    const payload = readListPayload(response?.data, "documents");
+    if (!payload.ok) {
+      return uncertainOutcome("document_artifact", DOCUMENT_FAMILIES, limit, payload.reason);
+    }
+
     const resources: LibraryResource[] = [];
     const rejected: LibraryRejectedRecord[] = [];
 
-    for (const record of records) {
+    for (const record of payload.records) {
       const outcome = normalizeDocumentRecord(record, "document_artifact");
       if (outcome.kind === "resource") resources.push(outcome.resource);
       else rejected.push(outcome.rejected);
     }
 
+    // One limit governs the merged list, so a saturated merged list is
+    // bounded for the endpoint as a whole.
+    const resolved = resolveSourceStatus({
+      limit,
+      observedCount: payload.count,
+      rejectedCount: rejected.length,
+    });
+
     return {
       outcome: {
         source: "document_artifact",
         families: DOCUMENT_FAMILIES,
-        // One limit governs the merged list, so a saturated merged list is
-        // bounded for the endpoint as a whole.
-        status: boundedOutcome(records.length, count, limit),
+        status: resolved.status,
         limit,
         returnedCount: resources.length,
+        reportedCount: payload.count,
+        rejectedCount: rejected.length,
+        detail: resolved.detail,
         error: null,
       },
       resources,
@@ -589,8 +729,11 @@ async function fetchDocumentSource(
         source: "document_artifact",
         families: DOCUMENT_FAMILIES,
         status: "failed",
-        limit: Number(params.limit ?? 0),
+        limit,
         returnedCount: 0,
+        reportedCount: null,
+        rejectedCount: 0,
+        detail: null,
         error: describeError(error),
       },
       resources: [],
@@ -601,7 +744,11 @@ async function fetchDocumentSource(
 
 /* ── Completeness assembly ────────────────────────────────────────────── */
 
-/** Sources whose results can actually satisfy a given filter. */
+/**
+ * Pure, deterministic source planner. Each filter requests exactly the sources
+ * that can contribute to it — Widgets requests none, because no Widget source
+ * exists. Deliberately a plain switch rather than a general framework.
+ */
 export function sourcesForFilter(
   filter: LibraryFilter
 ): readonly LibrarySourceRequestId[] {
@@ -618,26 +765,47 @@ export function sourcesForFilter(
   }
 }
 
-function buildCompleteness(
-  filter: LibraryFilter,
-  outcomes: readonly LibrarySourceOutcome[]
-): LibraryCompleteness {
+function summarize(filter: LibraryFilter, outcomes: readonly LibrarySourceOutcome[]): LibraryCompleteness {
   const relevant = new Set(sourcesForFilter(filter));
   const considered = outcomes.filter((outcome) => relevant.has(outcome.source));
-  const incomplete = considered.filter((outcome) => outcome.status !== "complete");
+  const incomplete = considered.filter(
+    (outcome) => outcome.status !== "complete" && outcome.status !== "empty"
+  );
 
+  const pick = (status: LibrarySourceStatus) =>
+    considered.filter((outcome) => outcome.status === status).map((o) => o.source);
+
+  // A filter with no planned source has no coverage to report. Saying
+  // "complete" here would assert a Widget listing was checked and came back
+  // empty, which is precisely the claim we cannot make.
+  if (considered.length === 0) {
+    return {
+      complete: false,
+      coverage: "unavailable",
+      detail:
+        filter === "widgets"
+          ? WIDGET_DISCOVERY.reason
+          : "No authoritative source is planned for this filter.",
+      incompleteSources: [],
+      boundedSources: [],
+      failedSources: [],
+      uncertainSources: [],
+    };
+  }
+
+  const complete = incomplete.length === 0;
   return {
-    // For `widgets` there is no contributing source, so the (empty) result is
-    // vacuously complete — the unavailability is carried by widgetDiscovery,
-    // never by pretending a source answered.
-    complete: incomplete.length === 0,
+    complete,
+    coverage: "known",
+    detail: complete
+      ? `All ${considered.length} contributing source(s) reported proven coverage.`
+      : incomplete
+          .map((outcome) => `${outcome.source}: ${outcome.detail ?? outcome.error ?? outcome.status}`)
+          .join(" "),
     incompleteSources: incomplete.map((outcome) => outcome.source),
-    boundedSources: considered
-      .filter((outcome) => outcome.status === "bounded")
-      .map((outcome) => outcome.source),
-    failedSources: considered
-      .filter((outcome) => outcome.status === "failed")
-      .map((outcome) => outcome.source),
+    boundedSources: pick("bounded"),
+    failedSources: pick("failed"),
+    uncertainSources: pick("uncertain"),
   };
 }
 
@@ -672,17 +840,22 @@ export async function buildLibraryResourceProjection(
   const scope = options.scope;
   const transport = options.transport ?? defaultLibraryTransport;
 
-  // One scope query, reused verbatim for every source request.
+  // One scope query, reused verbatim for every source request this filter needs.
   const scopeQuery = getDocumentScopeQuery(scope) as unknown as Record<
     string,
     unknown
   >;
+  const planned = new Set(sourcesForFilter(filter));
 
+  // Only the sources that can actually satisfy the filter are requested. A
+  // Widgets projection issues no GETs at all.
   const fetches = await Promise.all([
-    ...IMAGE_SOURCES.map((source) =>
+    ...IMAGE_SOURCES.filter((source) => planned.has(source.request)).map((source) =>
       fetchImageSource(transport, scopeQuery, source.tag)
     ),
-    fetchDocumentSource(transport, scopeQuery),
+    ...(planned.has("document_artifact")
+      ? [fetchDocumentSource(transport, scopeQuery)]
+      : []),
   ]);
 
   const sources = fetches.map((fetch) => fetch.outcome);
@@ -716,7 +889,7 @@ export async function buildLibraryResourceProjection(
     scope,
     resources: filtered,
     sources,
-    completeness: buildCompleteness(filter, sources),
+    completeness: summarize(filter, sources),
     widgetDiscovery: WIDGET_DISCOVERY,
     rejected,
   };

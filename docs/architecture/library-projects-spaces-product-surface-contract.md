@@ -85,14 +85,22 @@ A visual Gallery remains useful as a Library view. Document-oriented list/editor
 **Resource type** and **origin** are independent axes. Conflating them is the specific failure this taxonomy prevents.
 
 - **Resource type** answers *what kind of resource is this* and is the only thing a Library filter may select on. The approved types are `image`, `document`, and (once authoritative records exist) `widget`.
-- **Origin** answers *where this record came from* and is preserved as provenance. Current origins are `uploaded` and `generated`.
+- **Provenance** answers *how this record entered the system* and is preserved independently of the resource type. The proven values are `uploaded`, `generated`, `imported`, and `unknown`.
 
 Rules:
 
-1. A filter may select on resource type. A filter must not select on origin.
+1. A filter may select on resource type. A filter must not select on provenance.
 2. Classification must follow authoritative source metadata, never presentation heuristics, file extensions, or URLs.
 3. A record whose authoritative metadata cannot establish its resource type is **not** silently coerced into a type. It is surfaced as incomplete rather than misfiled.
 4. Provenance must survive every projection and presentation path unchanged.
+
+**Provenance must be proven, never inferred from storage location.** A row living in an
+"uploaded" source table proves which table it came from; it does not prove a user uploaded it.
+
+5. Provenance is read only from authoritative provenance metadata. Anything absent, blank, or unrecognised stays **`unknown`**.
+6. `imported` is assigned only when authoritative metadata explicitly says so.
+7. Provenance is **never** inferred from a filename, URL, MIME type, or which filter returned the record.
+8. Source family and provenance are separate fields. Family identity is never collapsed into a provenance claim.
 
 ### Resource identity across source families
 
@@ -112,16 +120,43 @@ Library is a read-only projection over authorized sources.
 1. Every source request must carry the **same** selected Project/thread scope. A projection that silently mixes scopes is not an authorized projection.
 2. Account scope comes from the **existing authenticated transport**. Library must not accept, derive, or forward a client-supplied user identity.
 3. Library must reuse existing authenticated transports and must not introduce a parallel or unauthenticated request path.
-4. Project/thread scope continues to be exactly one of: a project, a thread, or unscoped — matching the existing Documents scope contract.
+4. Project/thread scope continues to be exactly one of: a project, a thread, or unscoped — matching the existing Documents scope contract. The Documents endpoint rejects simultaneous `project_id` and `thread_id`, and Library must not work around that contract.
+5. A filter must request **only** the sources that can contribute to it. Borrowing unrelated sources to populate a filter is both wasteful and a disclosure risk.
+6. Library performs **no mutation**. Upload, delete, preview, and Workspace behavior remain owned by their existing surfaces.
 
 ### Completeness
 
 Library must never present an incomplete result as a complete one.
 
-1. Each source request reports its own outcome: complete, **bounded** (the returned list reached the request limit and may be truncated), or **failed**.
-2. **All** is complete only when every source contributing to it is complete. A single bounded or failed source makes the whole projection incomplete.
-3. The projection must carry enough detail to state *which* sources were incomplete and why.
-4. A source failure must degrade that source only. It must not discard the results of other sources, and it must not be absorbed into an apparently complete result.
+Each contributing source reports one of five outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| **complete** | Proven exhausted, non-empty. |
+| **empty** | Proven exhausted, zero records — an authenticated, authoritative zero. |
+| **bounded** | Reached the request limit, so the source may be truncated. |
+| **uncertain** | Response metadata was malformed, missing, or self-inconsistent, **or** authoritative records were rejected. |
+| **failed** | The request itself failed. |
+
+Rules:
+
+1. Only `complete` and `empty` assert coverage. Every other outcome states what could not be established.
+2. A **malformed response is not an empty response.** A missing or non-array result field, a missing/invalid count, or a count that disagrees with the returned list must never be read as a genuine zero.
+3. A **missing count is not a zero count.** Without consistent count metadata a source cannot prove what it returned, so it is `uncertain`.
+4. **Rejected authoritative records make coverage incomplete.** If records cannot be projected, the source is not fully represented even when the response was otherwise well-formed.
+5. A combined filter (`All`) is complete only when every contributing source reports `complete` or `empty`.
+6. The projection must state **which** sources were incomplete and why.
+7. A source failure must degrade that source only. It must not discard the results of other sources, and it must not be absorbed into an apparently complete result.
+
+### Unsupported versus empty
+
+"We could not look" and "we looked and there is nothing" are different claims and must not
+share a representation.
+
+1. A filter with **no authoritative source at all** reports coverage as **unavailable**, and never as complete.
+2. An **authoritative empty** result is a `complete` claim backed by a source that actually answered.
+3. Unavailability must not be expressed as a complete empty result, because a consumer would reasonably read that as "checked, nothing there."
+4. An unavailable filter issues **no** source requests; it must not borrow unrelated sources to produce a list.
 
 ### Widgets remain unavailable
 
@@ -131,7 +166,7 @@ Until one does:
 
 1. Library must not invent a Widget persistence or listing mechanism.
 2. The Widgets filter must report discovery as **explicitly unavailable**, with a stated reason.
-3. Widgets must never be synthesized, inferred, or derived from unrelated records to fill the filter.
+3. Widgets must never be synthesized, inferred, or derived from unrelated records — including GenUI or chat-message artifacts — to fill the filter.
 4. Persisting, versioning, and listing saved Widgets requires a separate approved architecture-impact task.
 
 ### Library invariants
@@ -479,16 +514,24 @@ This contract is actionable, but implementation should remain staged.
 
 - Establish the approved four-filter taxonomy: **All, Images, Documents, Widgets**.
 - Introduce a Library product surface over existing document/media/artifact sources.
-- Classify resource type independently from origin, using authoritative source metadata only.
+- Classify resource type independently from provenance, using authoritative source metadata only.
+- Assign provenance only when authoritative metadata proves it; unknown stays unknown.
 - Use source-family-qualified presentation keys; preserve canonical source IDs unchanged.
+- Request only the sources a filter can consume; an unsupported filter issues no requests.
 - Apply one identical Project/thread scope and one authenticated account scope to every source request.
-- Report per-source completeness so a partial or bounded result is never presented as complete.
+- Report per-source completeness so a partial, malformed, or bounded result is never presented as complete.
+- Distinguish an authoritative empty result from an unavailable one.
 - Preserve existing canonical resource IDs and storage authority.
 - Make Gallery and Documents Library modes before deleting legacy routes.
 - Add migration-safe navigation aliases and explicit compatibility tests.
 - Keep search/index state derived.
 
 **Gate:** existing Documents and Gallery workflows remain reachable and resource identity/provenance is unchanged.
+
+**Evidence boundary:** frontend projection tests prove request shaping, reuse of the
+authenticated GET transport, and classification behavior against controlled responses. They do
+**not** prove server-side authorization, real data completeness, Widget persistence, or UI
+rendering. Those require backend and integration tests.
 
 ### Stage 2: Shared product navigation convergence
 

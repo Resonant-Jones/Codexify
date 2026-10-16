@@ -139,9 +139,14 @@ describe("resource type classification", () => {
     // A generated document is a Document.
     expect(documents.resources.map((r) => r.sourceId).sort()).toEqual(["doc-1", "doc-2"]);
     expect(documents.resources.every((r) => r.resourceType === "document")).toBe(true);
-    // Origin stays orthogonal and preserved.
+    // Origin stays orthogonal to type, and is only claimed when authoritative
+    // metadata proves it. Only the generated records carry source_tag here.
     expect(all.resources.filter((r) => r.origin === "generated")).toHaveLength(2);
-    expect(all.resources.filter((r) => r.origin === "uploaded")).toHaveLength(2);
+    // Records with no authoritative source_tag stay unknown — they are not
+    // silently promoted to "uploaded" just because they came from an uploaded
+    // source table.
+    expect(all.resources.filter((r) => r.origin === "unknown")).toHaveLength(2);
+    expect(all.resources.filter((r) => r.origin === "uploaded")).toHaveLength(0);
   });
 
   it("refuses to classify a document whose authoritative type is missing", async () => {
@@ -282,7 +287,10 @@ describe("provenance preservation", () => {
       transport,
     });
 
-    expect(projection.resources[0].origin).toBe("uploaded");
+    // UPLOADED_IMAGE carries source_tag: null. Provenance is unproven, so it
+    // stays unknown; the source family still says which table it came from.
+    expect(projection.resources[0].origin).toBe("unknown");
+    expect(projection.resources[0].sourceFamily).toBe("uploaded_image");
     expect(projection.resources[0].sourceTag).toBeNull();
   });
 });
@@ -503,5 +511,359 @@ describe("no synthetic resources and no mutation", () => {
 
     expect(projection.resources).toEqual([]);
     expect(projection.rejected.every((r) => r.reason === "missing_source_id")).toBe(true);
+  });
+});
+
+/* ── Issue #878 A: malformed responses must not read as complete ───────── */
+
+describe("malformed responses never assert coverage", () => {
+  it("treats a missing list field as uncertain, not empty", async () => {
+    const { transport } = createTransport((call) =>
+      call.path === "/media/images"
+        ? { data: { count: 0 } }
+        : { data: { documents: [], count: 0 } }
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.completeness.uncertainSources).toEqual([
+      "uploaded_image",
+      "generated_image",
+    ]);
+    expect(projection.sources.every((s) => s.status === "uncertain")).toBe(true);
+  });
+
+  it("treats a non-object response body as uncertain", async () => {
+    const { transport } = createTransport(() => ({ data: "<html>nope</html>" }));
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.sources.every((s) => s.status === "uncertain")).toBe(true);
+  });
+
+  it("refuses to read a missing count as zero", async () => {
+    const { transport } = createTransport((call) =>
+      call.path === "/media/images"
+        ? { data: { images: [] } }
+        : { data: { documents: [], count: 0 } }
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.completeness.uncertainSources).toContain("uploaded_image");
+    expect(
+      projection.sources.find((s) => s.source === "uploaded_image")?.detail
+    ).toMatch(/count/i);
+  });
+
+  it("refuses to read an invalid or disagreeing count as coverage", async () => {
+    const { transport } = createTransport((call) => {
+      if (call.params?.tag === "generated") return { data: { images: [], count: "3" } };
+      if (call.path === "/media/images") return { data: { images: [UPLOADED_IMAGE], count: 9 } };
+      return { data: { documents: [], count: 0 } };
+    });
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    // Non-numeric count on one family, disagreeing count on the other.
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.completeness.uncertainSources).toEqual([
+      "uploaded_image",
+      "generated_image",
+    ]);
+  });
+
+  it("distinguishes an authoritative empty result from an unknown one", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": { images: [], count: 0 },
+        "images:generated": { images: [], count: 0 },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    // Well-formed zero is *proven* coverage, and says so explicitly.
+    expect(projection.completeness.complete).toBe(true);
+    expect(projection.completeness.coverage).toBe("known");
+    expect(projection.sources.map((s) => s.status)).toEqual(["empty", "empty"]);
+  });
+
+  it("marks a source uncertain when authoritative records were rejected", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": {
+          images: [UPLOADED_IMAGE, { filename: "no id" }],
+          count: 2,
+        },
+        "images:generated": { images: [], count: 0 },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    // One good record, one rejected — coverage is still incomplete.
+    expect(projection.resources).toHaveLength(1);
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.completeness.uncertainSources).toEqual(["uploaded_image"]);
+    const source = projection.sources.find((s) => s.source === "uploaded_image");
+    expect(source?.rejectedCount).toBe(1);
+    expect(source?.reportedCount).toBe(2);
+  });
+});
+
+/* ── Issue #878 B: filters request only their own sources ──────────────── */
+
+describe("filter-scoped source requests", () => {
+  it("issues zero GETs for a Widgets projection", async () => {
+    const { transport, calls } = createTransport(defaultHandler({}));
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "widgets",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(projection.sources).toEqual([]);
+    expect(projection.resources).toEqual([]);
+  });
+
+  it("requests only image sources for the Images filter", async () => {
+    const { transport, calls } = createTransport(defaultHandler({}));
+
+    await buildLibraryResourceProjection({ filter: "images", scope: PROJECT_SCOPE, transport });
+
+    expect(calls.map((c) => c.path)).toEqual(["/media/images", "/media/images"]);
+    expect(calls.every((c) => c.params?.tag !== undefined || c.params?.tag === undefined)).toBe(true);
+    expect(calls.map((c) => c.params?.tag)).toEqual([undefined, "generated"]);
+  });
+
+  it("requests only document artifacts for the Documents filter", async () => {
+    const { transport, calls } = createTransport(defaultHandler({}));
+
+    await buildLibraryResourceProjection({
+      filter: "documents",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toBe("/media/document-artifacts");
+  });
+
+  it("requests all three supported sources for All", async () => {
+    const { transport, calls } = createTransport(defaultHandler({}));
+
+    await buildLibraryResourceProjection({ scope: PROJECT_SCOPE, transport });
+
+    expect(calls).toHaveLength(3);
+    expect(calls.filter((c) => c.path === "/media/images")).toHaveLength(2);
+    expect(calls.filter((c) => c.path === "/media/document-artifacts")).toHaveLength(1);
+  });
+});
+
+/* ── Issue #878 C: provenance is proven, never guessed ─────────────────── */
+
+describe("provenance is proven from authoritative metadata", () => {
+  it("recognizes uploaded, imported, and generated tags", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": {
+          images: [
+            { ...UPLOADED_IMAGE, id: "a", source_tag: "uploaded" },
+            { ...UPLOADED_IMAGE, id: "b", source_tag: "imported" },
+            { ...UPLOADED_IMAGE, id: "c", source_tag: "Generated" },
+          ],
+          count: 3,
+        },
+        "images:generated": { images: [], count: 0 },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    const byId = new Map(projection.resources.map((r) => [r.sourceId, r.origin]));
+    expect(byId.get("a")).toBe("uploaded");
+    expect(byId.get("b")).toBe("imported");
+    // Case-normalized.
+    expect(byId.get("c")).toBe("generated");
+  });
+
+  it("keeps unrecognised provenance unknown rather than guessing", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": {
+          images: [
+            { ...UPLOADED_IMAGE, id: "a", source_tag: "mystery" },
+            { ...UPLOADED_IMAGE, id: "b", source_tag: "" },
+            { ...UPLOADED_IMAGE, id: "c" },
+          ],
+          count: 3,
+        },
+        "images:generated": { images: [], count: 0 },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.resources.map((r) => r.origin)).toEqual([
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+    // The raw tag is still preserved untouched.
+    expect(projection.resources.map((r) => r.sourceTag)).toEqual(["mystery", null, null]);
+  });
+
+  it("does not infer provenance from filename or url", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": {
+          images: [
+            {
+              ...UPLOADED_IMAGE,
+              id: "a",
+              filename: "generated-artifact.png",
+              src_url: "/media/generated/from-a-model.png",
+            },
+          ],
+          count: 1,
+        },
+        "images:generated": { images: [], count: 0 },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "images",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.resources[0].origin).toBe("unknown");
+  });
+
+  it("keeps document provenance separate from its artifact_type family", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        documents: {
+          documents: [
+            { ...UPLOADED_DOCUMENT, id: "d1", source_tag: "imported" },
+            { ...UPLOADED_DOCUMENT, id: "d2", source_tag: null },
+            { ...GENERATED_DOCUMENT, id: "d3" },
+          ],
+          count: 3,
+        },
+      })
+    );
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "documents",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    const byId = new Map(projection.resources.map((r) => [r.sourceId, r]));
+    // artifact_type fixes the family; source_tag fixes provenance.
+    expect(byId.get("d1")!.sourceFamily).toBe("uploaded_document");
+    expect(byId.get("d1")!.origin).toBe("imported");
+    expect(byId.get("d2")!.sourceFamily).toBe("uploaded_document");
+    expect(byId.get("d2")!.origin).toBe("unknown");
+    expect(byId.get("d3")!.sourceFamily).toBe("generated_document");
+    expect(byId.get("d3")!.origin).toBe("generated");
+  });
+});
+
+/* ── Issue #878 E: Widgets unavailable is not authoritative-empty ───────── */
+
+describe("Widgets availability semantics", () => {
+  it("marks Widgets coverage unavailable rather than complete-empty", async () => {
+    const { transport } = createTransport(defaultHandler({}));
+
+    const projection = await buildLibraryResourceProjection({
+      filter: "widgets",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+
+    expect(projection.completeness.coverage).toBe("unavailable");
+    expect(projection.completeness.complete).toBe(false);
+    expect(projection.completeness.incompleteSources).toEqual([]);
+    expect(projection.completeness.detail).toMatch(/no authoritative widget backing record/i);
+    expect(projection.widgetDiscovery.available).toBe(false);
+  });
+
+  it("never synthesizes widgets from unrelated records", async () => {
+    const { transport } = createTransport(
+      defaultHandler({
+        "images:uploaded": { images: [UPLOADED_IMAGE], count: 1 },
+        "images:generated": { images: [GENERATED_IMAGE], count: 1 },
+        documents: {
+          documents: [UPLOADED_DOCUMENT, GENERATED_DOCUMENT],
+          count: 2,
+        },
+      })
+    );
+
+    const widgets = await buildLibraryResourceProjection({
+      filter: "widgets",
+      scope: PROJECT_SCOPE,
+      transport,
+    });
+    const all = await buildLibraryResourceProjection({ scope: PROJECT_SCOPE, transport });
+
+    // Real records exist, yet Widgets stays empty and unavailable.
+    expect(all.resources).toHaveLength(4);
+    expect(widgets.resources).toEqual([]);
+    expect(widgets.completeness.coverage).toBe("unavailable");
+    expect(widgets.sources).toEqual([]);
+  });
+
+  it("keeps All complete while reporting Widgets as a known gap", async () => {
+    const { transport } = createTransport(defaultHandler({}));
+
+    const all = await buildLibraryResourceProjection({ scope: PROJECT_SCOPE, transport });
+
+    // All is complete over the sources that exist; it does not pretend to have
+    // checked Widgets, because it never claimed to.
+    expect(all.completeness.complete).toBe(true);
+    expect(all.completeness.coverage).toBe("known");
+    expect(all.widgetDiscovery.available).toBe(false);
+    expect(sourcesForFilter("all")).not.toContain("widgets" as never);
   });
 });
