@@ -12,6 +12,13 @@ export type WorkspaceAffordanceCopy = {
   label: string;
   ariaLabel: string;
   title: string;
+  /**
+   * Action-oriented accessible name for the desktop glyph-only affordance,
+   * where there is no visible word to describe. Deliberately phrased as
+   * Open/Close so it reads correctly alongside `aria-pressed`, rather than
+   * the softer Open/Hide wording used for the tooltip.
+   */
+  actionLabel: string;
 };
 
 export const WORKSPACE_AFFORDANCE = {
@@ -43,11 +50,13 @@ export function getWorkspaceAffordanceCopy(
         label: "Close Workspace",
         ariaLabel: "Close Workspace",
         title: "Hide the Workspace drawer",
+        actionLabel: "Close workspace drawer",
       }
     : {
         label: "Open Workspace",
         ariaLabel: "Open Workspace",
         title: "Open the Workspace drawer",
+        actionLabel: "Open workspace drawer",
       };
 }
 

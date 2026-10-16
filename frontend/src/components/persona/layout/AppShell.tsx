@@ -6,9 +6,11 @@ import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
  * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
-import { ChevronRight, Settings2 } from "lucide-react";
+import { ChevronRight, PanelsTopLeft, Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { toRgba, useBackdropLuminance } from "@/theme/backdropLuminance";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -1149,6 +1151,8 @@ export default function AppShell({
   const bp = useBreakpoint();
   const dockAutoCollapseEnabled = bp !== "sm";
   const topChromeRef = useRef<HTMLDivElement | null>(null);
+  const shellSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const utilityClusterRef = useRef<HTMLDivElement | null>(null);
   const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const dockEngagedRef = useRef(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
@@ -2156,6 +2160,65 @@ export default function AppShell({
       backgroundRepeat: "no-repeat",
     } as React.CSSProperties;
   })();
+
+  /* ────────────────────────────────────────────────────────────────────────────
+     🎨 SECTION: Wallpaper-Facing Chrome Contrast
+
+     The utility cluster renders *outside* the glass dock, directly on the
+     wallpaper. Global --text/--icon are derived from the theme mode alone, so
+     they are correct for opaque material surfaces but wrong here: white text
+     disappears against bright bokeh. Sample the actual backdrop behind this
+     cluster and derive a scoped foreground plus a contrast-safe backing.
+
+     Deliberately scoped. Global tokens and their ~135 consumers are left
+     untouched; only the top-chrome utility cluster consumes these.
+     ──────────────────────────────────────────────────────────────────────────── */
+  const wallpaperWash = useMemo(() => {
+    const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
+    if (!wallpaper || !selectedWallpaperMedia.src) {
+      // No wallpaper: the gradient wash below is the entire backdrop.
+      return {
+        color: { r: 255, g: 255, b: 255 } as const,
+        startAlpha:
+          resolved === "dark" ? clamp(depth) * 0.7 : clamp(fade) * 0.5,
+        endAlpha: resolved === "dark" ? clamp(fade) * 0.35 : clamp(depth) * 0.25,
+      };
+    }
+    return resolved === "dark"
+      ? {
+          color: { r: 0, g: 0, b: 0 } as const,
+          startAlpha: clamp(depth) * 0.7,
+          endAlpha: clamp(fade) * 0.35,
+        }
+      : {
+          color: { r: 255, g: 255, b: 255 } as const,
+          startAlpha: clamp(fade) * 0.5,
+          endAlpha: clamp(depth) * 0.25,
+        };
+  }, [wallpaper, selectedWallpaperMedia.src, resolved, fade, depth]);
+
+  const topChromeContrast = useBackdropLuminance({
+    src: selectedWallpaperMedia.src || null,
+    elementRef: shellSurfaceRef,
+    regionRef: utilityClusterRef,
+    wash: wallpaperWash,
+    mode: resolved,
+  });
+
+  // Scoped tokens. `--top-chrome-scrim` stays opaque while sampling is
+  // unresolved, so a stale or unguarded foreground is never exposed.
+  const topChromeStyleVars = {
+    "--top-chrome-fg": toRgba(topChromeContrast.foreground, 1),
+    "--top-chrome-fg-muted": toRgba(topChromeContrast.foregroundMuted, 0.78),
+    "--top-chrome-scrim": toRgba(
+      topChromeContrast.backing,
+      topChromeContrast.backingAlpha
+    ),
+    "--top-chrome-scrim-active": topChromeContrast.needsBacking
+      ? "1"
+      : "0",
+  } as React.CSSProperties;
+
   const panelSheetBase = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
   const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
   // Surface Depth (affects both themes equally).
@@ -3245,7 +3308,12 @@ export default function AppShell({
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
-      className="pill-tab shrink-0 whitespace-nowrap"
+      className={
+        isPhoneShell
+          ? "pill-tab shrink-0 whitespace-nowrap"
+          : "pill-tab h-9 w-9 shrink-0 p-0"
+      }
+      square={!isPhoneShell}
       style={{
         ...getWorkspaceAffordanceSurfaceStyle(isPhoneShell, workspaceAffordanceState),
         ...mobileWorkspaceSummonFeedbackStyle,
@@ -3257,15 +3325,9 @@ export default function AppShell({
       aria-label={
         isPhoneShell
           ? workspaceSummonCopy.ariaLabel
-          : "Toggle workspace drawer"
+          : workspaceSummonCopy.actionLabel
       }
-      title={
-        isPhoneShell
-          ? workspaceSummonCopy.title
-          : workspaceDrawerOpen
-            ? "Close workspace drawer"
-            : "Open workspace drawer"
-      }
+      title={isPhoneShell ? workspaceSummonCopy.title : "Workspace"}
       onClick={toggleWorkspaceDrawer}
     >
       {isPhoneShell ? (
@@ -3280,7 +3342,10 @@ export default function AppShell({
           <span>{workspaceSummonCopy.label}</span>
         </span>
       ) : (
-        "Workspace"
+        /* Desktop shows the glyph alone. The visible hover tooltip stays
+           "Workspace" while the accessible name carries the action and its
+           state, so screen readers hear "Open/Close workspace drawer". */
+        <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
       )}
     </PhonePressButton>
   ) : null;
@@ -3591,10 +3656,12 @@ export default function AppShell({
         />
       </div>
       <div
+        ref={shellSurfaceRef}
         className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden mx-auto ${isPhoneFrameFirstShell ? "" : "py-[var(--edge-chrome)]"} ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
+          ...topChromeStyleVars,
           borderRadius: "var(--viewport-radius)",
           paddingLeft: isPhoneFrameFirstShell
             ? undefined
@@ -3772,6 +3839,7 @@ export default function AppShell({
           </div>
         </div>
         <div
+          ref={utilityClusterRef}
           data-testid="app-shell-utility-cluster"
           className={`codexify-dock__utility-cluster flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
           style={
