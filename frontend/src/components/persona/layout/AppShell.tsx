@@ -2198,18 +2198,22 @@ export default function AppShell({
   }, [wallpaper, selectedWallpaperMedia.src, resolved, fade, depth]);
 
   const wallpaperUnderlay = useMemo(() => {
-    // The gradient the shell paints when no wallpaper is set. Its midpoint is
-    // what a transparent wallpaper pixel actually reveals.
-    const start = lighten(baseColor, fade * 0.6);
-    const end = darken(baseColor, depth * 0.8);
-    const channel = (hex: string, index: number) => {
-      const value = parseInt(hex.replace("#", "").slice(index * 2, index * 2 + 2), 16);
-      return Number.isFinite(value) ? value : 128;
+    // The vertical gradient the shell paints for this element family when no
+    // wallpaper is set. Passed as endpoints (not a flattened midpoint) because
+    // it varies with vertical position, and the sampler evaluates it per
+    // sample. Approximation: with a wallpaper set, the viewport and the
+    // refractive layer also sit beneath, which this does not model.
+    const toRgb = (hex: string) => {
+      const clean = hex.replace("#", "");
+      const parse = (index: number) => {
+        const value = parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+        return Number.isFinite(value) ? value : 128;
+      };
+      return { r: parse(0), g: parse(1), b: parse(2) };
     };
     return {
-      r: Math.round((channel(start, 0) + channel(end, 0)) / 2),
-      g: Math.round((channel(start, 1) + channel(end, 1)) / 2),
-      b: Math.round((channel(start, 2) + channel(end, 2)) / 2),
+      top: toRgb(lighten(baseColor, fade * 0.6)),
+      bottom: toRgb(darken(baseColor, depth * 0.8)),
     };
   }, [baseColor, fade, depth]);
 
@@ -2218,9 +2222,7 @@ export default function AppShell({
     elementRef: shellSurfaceRef,
     regionRef: utilityClusterRef,
     wash: wallpaperWash,
-    // What a transparent wallpaper pixel reveals. The shell paints its
-    // no-wallpaper gradient there, so use that gradient's midpoint rather
-    // than inventing black.
+    // What a transparent wallpaper pixel reveals.
     underlay: wallpaperUnderlay,
     mode: resolved,
   });

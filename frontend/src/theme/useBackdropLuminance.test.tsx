@@ -2,7 +2,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  contrastRatio,
   FOREGROUND_CANDIDATES,
+  relativeLuminanceOf,
   useBackdropLuminance,
   type Rgb,
 } from "./backdropLuminance";
@@ -119,7 +121,7 @@ function regionRef(left: number, top: number, width: number, height: number) {
 }
 
 const WASH = { color: { r: 0, g: 0, b: 0 }, startAlpha: 0, endAlpha: 0 };
-const UNDERLAY: Rgb = { r: 128, g: 128, b: 128 };
+const UNDERLAY = { top: { r: 40, g: 40, b: 40 }, bottom: { r: 200, g: 200, b: 200 } };
 
 describe("useBackdropLuminance race safety", () => {
   beforeEach(() => {
@@ -343,10 +345,52 @@ describe("useBackdropLuminance race safety", () => {
     });
 
     await waitFor(() => expect(result.current.state).toBe("measured"));
-    // With a mid-grey underlay the measured backdrop is mid-grey, which
-    // resolves to the dark foreground. Treating it as opaque black would
-    // have produced the light foreground instead.
-    expect(result.current.foreground).toEqual(FOREGROUND_CANDIDATES.dark);
+    // A transparent pixel reveals the underlay gradient, evaluated at the
+    // sample's vertical position. The utility cluster sits near the top of the
+    // shell, so it reads close to UNDERLAY.top (dark) rather than opaque
+    // black. Treating the pixel as opaque black would have produced the light
+    // foreground instead.
+    expect(result.current.foreground).toEqual(FOREGROUND_CANDIDATES.light);
+  });
+
+  it("picks a loading backing that opposes the RETAINED foreground", () => {
+    // Regression for review finding P1 on #876. The previous implementation
+    // chose the loading backing from the current mode while keeping the
+    // previously measured foreground. On a dark->light theme change that pairs
+    // a white foreground with a white backing: near-zero contrast until the
+    // resample lands.
+    const { result, rerender } = renderHook(
+      ({ mode }: { mode: "light" | "dark" }) =>
+        useBackdropLuminance({
+          src: "wall.png",
+          elementRef: elementRef(1000, 600),
+          regionRef: regionRef(700, 20, 280, 40),
+          wash: WASH,
+          underlay: UNDERLAY,
+          mode,
+        }),
+      { initialProps: { mode: "dark" as "light" | "dark" } }
+    );
+
+    // Measure a dark wallpaper in dark mode -> light (white) foreground.
+    pixel = { r: 20, g: 22, b: 18 };
+    act(() => {
+      resolveMatching("wall.png");
+    });
+    expect(result.current.foreground).toEqual(FOREGROUND_CANDIDATES.light);
+
+    // Flip the theme. Mode says "light" (white backing), but the retained
+    // foreground is still white, so the backing must be black.
+    rerender({ mode: "light" });
+    expect(result.current.needsBacking).toBe(true);
+
+    // The retained foreground and the loading backing must be opposites.
+    const fgLum = relativeLuminanceOf(result.current.foreground);
+    const backLum = relativeLuminanceOf(result.current.backing);
+    expect(fgLum > 0.5 ? backLum < 0.5 : backLum > 0.5).toBe(true);
+    expect(
+      contrastRatio(result.current.foreground, result.current.backing)
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
   it("resamples when the sampled region geometry changes", async () => {

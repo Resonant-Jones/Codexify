@@ -497,11 +497,19 @@ type UseBackdropLuminanceArgs = {
   regionRef: React.RefObject<HTMLElement | null>;
   wash: WashSpec;
   /**
-   * What shows through a transparent wallpaper pixel — the shell's
-   * no-wallpaper gradient. Required for correctness with PNG wallpapers that
-   * carry alpha.
+   * What shows through a transparent wallpaper pixel. Modelled as the
+   * vertical gradient the shell paints for this element family
+   * (lightened baseColor at the top -> darkened at the bottom), evaluated at
+   * each sample's own vertical position.
+   *
+   * Honest limitation: when a wallpaper IS set, the shell and the viewport
+   * both paint wash + image and a refractive layer sits below them, so the
+   * true underlay is a layer stack this sampler does not reproduce. This is
+   * an approximation of the same gradient the app uses when no wallpaper is
+   * set, evaluated positionally rather than flattened to a constant. It only
+   * matters for wallpapers that carry alpha.
    */
-  underlay: Rgb;
+  underlay: { top: Rgb; bottom: Rgb };
   mode: "light" | "dark";
   enabled?: boolean;
 };
@@ -535,7 +543,7 @@ export function useBackdropLuminance({
   const [geometryKey, setGeometryKey] = React.useState("");
 
   const washKey = `${wash.color.r},${wash.color.g},${wash.color.b},${wash.startAlpha},${wash.endAlpha}`;
-  const underlayKey = `${underlay.r},${underlay.g},${underlay.b}`;
+  const underlayKey = `${underlay.top.r},${underlay.top.g},${underlay.top.b},${underlay.bottom.r},${underlay.bottom.g},${underlay.bottom.b}`;
 
   /* The sampled region moves whenever the viewport resizes, the dock expands
      or collapses, the 850px container query flips the chrome to a column, or
@@ -585,25 +593,31 @@ export function useBackdropLuminance({
 
     const token = (tokenRef.current += 1);
 
-    /* Keep the committed foreground (so polarity does not flicker) but force
-       the contrast-safe backing ON. The new wallpaper is already painted
-       behind the chrome while this decode runs, so carrying a previous
-       backingAlpha of 0 would briefly reproduce the exact illegibility this
-       module exists to prevent. */
-    setResult((previous) =>
-      previous.state === "unavailable"
-        ? previous
-        : {
-            ...previous,
-            state: "loading",
-            backing:
-              mode === "dark"
-                ? { r: 0, g: 0, b: 0 }
-                : { r: 255, g: 255, b: 255 },
-            backingAlpha: 1,
-            needsBacking: true,
-          }
-    );
+    /* Keep the committed foreground (so polarity does not flicker) but force the
+       contrast-safe backing ON. The new wallpaper is already painted behind the
+       chrome while this decode runs, so carrying a previous backingAlpha of 0
+       would briefly reproduce the exact illegibility this module exists to
+       prevent.
+
+       The backing MUST be derived from the retained foreground, never from the
+       current mode: on a theme change the mode flips while the foreground is
+       still the previously measured one. Picking the backing from the mode
+       would pair a white foreground with a white backing on dark-to-light
+       changes (and the inverse), giving near-zero contrast until the resample
+       lands. */
+    setResult((previous) => {
+      if (previous.state === "unavailable") return previous;
+      const retainsLightForeground =
+        relativeLuminanceOf(previous.foreground) > 0.5;
+      return {
+        ...previous,
+        state: "loading",
+        // Contrast backing is the opposite of the foreground, always.
+        backing: retainsLightForeground ? BLACK_BACKING : WHITE_BACKING,
+        backingAlpha: 1,
+        needsBacking: true,
+      };
+    });
 
     const image = new Image();
     image.crossOrigin = "anonymous";
@@ -696,19 +710,24 @@ export function useBackdropLuminance({
           );
 
           // Respect the wallpaper pixel's own alpha. A transparent PNG pixel
-          // does not render as black — the surface underneath shows through,
-          // which is the shell's no-wallpaper gradient. Compositing over it
-          // keeps the measured backdrop faithful instead of inventing black.
+          // does not render as black — the surface underneath shows through.
+          // The underlay is a vertical gradient, so evaluate it at this
+          // sample's own position rather than using one constant.
           const pixelAlpha = data[i + 3] / 255;
           const wallpaper = {
             r: data[i],
             g: data[i + 1],
             b: data[i + 2],
           };
+          const underlayHere = compositeOver(
+            underlay.bottom,
+            Math.max(0, Math.min(1, elementY / elementRect.height)),
+            underlay.top
+          );
           const overUnderlay = compositeOver(
             wallpaper,
             pixelAlpha,
-            underlay
+            underlayHere
           );
           samples.push(compositeOver(wash.color, washAlpha, overUnderlay));
         }
