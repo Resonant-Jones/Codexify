@@ -120,22 +120,58 @@ describe("coverSourceRect", () => {
 
 describe("washAlphaAt", () => {
   it("starts at startAlpha and ends at endAlpha", () => {
-    expect(washAlphaAt(0, 0, 0.4, 0.1)).toBeCloseTo(0.4, 6);
-    expect(washAlphaAt(1, 1, 0.4, 0.1)).toBeCloseTo(0.1, 6);
+    // (0,0) -> progress 0, (W,H) -> progress 1, in element pixel space.
+    expect(washAlphaAt(0, 0, 1000, 600, 0.4, 0.1)).toBeCloseTo(0.4, 6);
+    expect(washAlphaAt(1000, 600, 1000, 600, 0.4, 0.1)).toBeCloseTo(0.1, 6);
+  });
+
+  it("matches the CSS 135deg projection (x + y) / (W + H)", () => {
+    // 135deg direction is (sin135, -cos135) = (0.707, 0.707) and the
+    // gradient line is 0.707 * (W + H), which reduces to (x + y) / (W + H).
+    const w = 1600;
+    const h = 600;
+    // Off-centre point: at the exact midpoint both formulas agree by
+    // symmetry, so the divergence would be invisible there.
+    const x = 1400;
+    const y = 100;
+    const expected = (x + y) / (w + h);
+    const value = washAlphaAt(x, y, w, h, 0, 1);
+    expect(value).toBeCloseTo(expected, 6);
+
+    // The old normalized-average formula disagrees here.
+    const naive = (x / w + y / h) / 2;
+    expect(naive).not.toBeCloseTo(expected, 3);
+  });
+
+  it("differs from a normalized average on a wide element", () => {
+    const w = 1600;
+    const h = 400;
+    const pointX = 1200;
+    const pointY = 100;
+    const correct = washAlphaAt(pointX, pointY, w, h, 0, 1);
+    const naive = (pointX / w + pointY / h) / 2;
+    expect(correct).not.toBeCloseTo(naive, 3);
   });
 
   it("interpolates monotonically", () => {
-    let previous = washAlphaAt(0, 0, 0.4, 0.1);
+    let previous = washAlphaAt(0, 0, 1000, 600, 0.4, 0.1);
     for (let i = 1; i <= 10; i += 1) {
-      const value = washAlphaAt(i / 10, i / 10, 0.4, 0.1);
+      const value = washAlphaAt(
+        (i / 10) * 1000,
+        (i / 10) * 600,
+        1000,
+        600,
+        0.4,
+        0.1
+      );
       expect(value).toBeLessThanOrEqual(previous + 1e-9);
       previous = value;
     }
   });
 
-  it("clamps out-of-range normalized positions", () => {
-    expect(washAlphaAt(-1, -1, 0.4, 0.1)).toBeCloseTo(0.4, 6);
-    expect(washAlphaAt(2, 2, 0.4, 0.1)).toBeCloseTo(0.1, 6);
+  it("clamps out-of-range positions", () => {
+    expect(washAlphaAt(-100, -100, 1000, 600, 0.4, 0.1)).toBeCloseTo(0.4, 6);
+    expect(washAlphaAt(5000, 5000, 1000, 600, 0.4, 0.1)).toBeCloseTo(0.1, 6);
   });
 });
 
@@ -215,18 +251,17 @@ describe("luminanceProfile and chooseBackdropForeground", () => {
     expect(choice.contrast).toBeGreaterThanOrEqual(profile.worst[opposite]);
   });
 
-  it("retains real extreme samples for the backing solver", () => {
-    const profile = luminanceProfile(mixedBokeh());
-    expect(profile.extremes).toHaveLength(3);
-    const luminances = profile.extremes.map(relativeLuminanceOf);
-    expect(Math.min(...luminances)).toBeLessThan(0.01);
-    expect(Math.max(...luminances)).toBeGreaterThan(0.85);
+  it("retains the full sample distribution for the backing solver", () => {
+    const samples = mixedBokeh();
+    const profile = luminanceProfile(samples);
+    expect(profile.samples).toHaveLength(samples.length);
+    expect(profile.samples).toEqual(expect.arrayContaining(samples));
   });
 
   it("handles an empty sample set without throwing", () => {
     const profile = luminanceProfile([]);
     expect(profile.count).toBe(0);
-    expect(profile.extremes).toEqual([]);
+    expect(profile.samples).toEqual([]);
   });
 });
 
@@ -266,7 +301,7 @@ describe("solveBackingAlpha", () => {
     expect(solution.alpha).toBeGreaterThan(0);
     // The alpha is only valid for the tint it was solved against; the pair
     // must be applied together.
-    for (const sample of profile.extremes) {
+    for (const sample of profile.samples) {
       const composited = compositeOver(solution.color, solution.alpha, sample);
       expect(contrastRatio(composited, foreground)).toBeGreaterThanOrEqual(
         AA_CONTRAST_TARGET
@@ -283,7 +318,7 @@ describe("solveBackingAlpha", () => {
       b: expect.any(Number),
     });
     // Applying the pair always satisfies the target for this profile.
-    for (const sample of profile.extremes) {
+    for (const sample of profile.samples) {
       const composited = compositeOver(solution.color, solution.alpha, sample);
       expect(
         contrastRatio(composited, FOREGROUND_CANDIDATES.light)
@@ -303,6 +338,63 @@ describe("solveBackingAlpha", () => {
 
   it("returns 1 for an empty profile", () => {
     expect(solveBackingAlpha(luminanceProfile([]), FOREGROUND_CANDIDATES.light)).toBe(1);
+  });
+
+  it("clears AA for every sample including an interior foreground match", () => {
+    // Contrast against a fixed foreground is V-shaped in luminance, with its
+    // minimum AT the foreground's own luminance. A pixel matching the
+    // foreground therefore scores 1.0 — worse than pure black (1.09) — and
+    // sits strictly interior when the distribution straddles it.
+    //
+    // Note this is a *guarantee* test, not a reproduction of a live bug:
+    // because compositing toward a constant backing is affine and monotone,
+    // the worst sample is provably always at min-L or max-L, which the old
+    // [darkest, median, brightest] subset already contained. The subset was
+    // therefore relying on an unstated argument rather than being wrong, but
+    // the solver now reads the full distribution and no longer depends on it.
+    const samples: Rgb[] = [
+      { r: 0, g: 0, b: 0 },
+      FOREGROUND_CANDIDATES.dark, // contrast 1.00 — interior minimum
+      { r: 60, g: 60, b: 60 },
+      { r: 120, g: 120, b: 120 },
+      { r: 180, g: 180, b: 180 },
+      { r: 255, g: 255, b: 255 },
+    ];
+    const foreground = FOREGROUND_CANDIDATES.dark;
+
+    expect(contrastRatio(FOREGROUND_CANDIDATES.dark, foreground)).toBeCloseTo(1, 3);
+
+    const solution = solveBacking(luminanceProfile(samples), foreground);
+    for (const sample of samples) {
+      const composited = compositeOver(solution.color, solution.alpha, sample);
+      expect(contrastRatio(composited, foreground)).toBeGreaterThanOrEqual(
+        AA_CONTRAST_TARGET
+      );
+    }
+  });
+
+  it("guarantees AA across the whole distribution, not a subset", () => {
+    // A four-point distribution where the limiting sample is strictly
+    // interior: no min/max/median selection would capture it.
+    const samples: Rgb[] = [
+      { r: 5, g: 5, b: 5 },
+      { r: 90, g: 90, b: 90 },
+      { r: 130, g: 130, b: 130 },
+      { r: 250, g: 250, b: 250 },
+    ];
+    const profile = luminanceProfile(samples);
+    for (const foreground of [
+      FOREGROUND_CANDIDATES.light,
+      FOREGROUND_CANDIDATES.dark,
+    ]) {
+      const solution = solveBacking(profile, foreground);
+      for (const sample of samples) {
+        const composited = compositeOver(solution.color, solution.alpha, sample);
+        expect(contrastRatio(composited, foreground)).toBeGreaterThanOrEqual(
+          AA_CONTRAST_TARGET
+        );
+      }
+    }
   });
 });
 
@@ -345,7 +437,7 @@ describe("resolveBackdropPalette", () => {
 
     // The guarantee: foreground over the resolved backing clears AA against
     // every extreme sample.
-    for (const sample of result.profile!.extremes) {
+    for (const sample of result.profile!.samples) {
       const composited = compositeOver(
         result.backing,
         result.backingAlpha,

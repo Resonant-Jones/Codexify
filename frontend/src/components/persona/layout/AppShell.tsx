@@ -2197,11 +2197,31 @@ export default function AppShell({
         };
   }, [wallpaper, selectedWallpaperMedia.src, resolved, fade, depth]);
 
+  const wallpaperUnderlay = useMemo(() => {
+    // The gradient the shell paints when no wallpaper is set. Its midpoint is
+    // what a transparent wallpaper pixel actually reveals.
+    const start = lighten(baseColor, fade * 0.6);
+    const end = darken(baseColor, depth * 0.8);
+    const channel = (hex: string, index: number) => {
+      const value = parseInt(hex.replace("#", "").slice(index * 2, index * 2 + 2), 16);
+      return Number.isFinite(value) ? value : 128;
+    };
+    return {
+      r: Math.round((channel(start, 0) + channel(end, 0)) / 2),
+      g: Math.round((channel(start, 1) + channel(end, 1)) / 2),
+      b: Math.round((channel(start, 2) + channel(end, 2)) / 2),
+    };
+  }, [baseColor, fade, depth]);
+
   const topChromeContrast = useBackdropLuminance({
     src: selectedWallpaperMedia.src || null,
     elementRef: shellSurfaceRef,
     regionRef: utilityClusterRef,
     wash: wallpaperWash,
+    // What a transparent wallpaper pixel reveals. The shell paints its
+    // no-wallpaper gradient there, so use that gradient's midpoint rather
+    // than inventing black.
+    underlay: wallpaperUnderlay,
     mode: resolved,
   });
 
