@@ -145,6 +145,68 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Wallpaper-facing chrome contrast.
+
+   The utility cluster renders outside the glass dock, directly on the
+   wallpaper, so `--text` / `--icon` (derived from the theme mode alone) are
+   wrong here: white text vanishes against bright bokeh. AppShell measures the
+   actual backdrop behind this cluster and publishes --top-chrome-fg plus a
+   contrast-safe --top-chrome-scrim.
+
+   The global tokens and their consumers are deliberately untouched. Only this
+   cluster adopts the sampled foreground.
+--------------------------------------------------------------------------- */
+
+.codexify-dock__utility-cluster {
+  position: relative;
+  isolation: isolate;
+  /* Blur accompanies the backing for material consistency; the contrast
+     guarantee itself comes from --top-chrome-scrim's solved alpha. */
+  border-radius: 999px;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+/* The backing sits behind the controls, never intercepting pointer events. */
+.codexify-dock__utility-cluster::before {
+  content: "";
+  position: absolute;
+  inset: -6px -8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--top-chrome-scrim, transparent);
+  pointer-events: none;
+}
+
+/* Override completeness: `.pill-tab` and `.icon-inline` each declare their own
+   color in index.css, so an ancestor-scoped variable would never reach them.
+   Every selector below is required, not decorative. */
+.codexify-dock__utility-cluster .pill-tab,
+.codexify-dock__utility-cluster .pill-tab:hover,
+.codexify-dock__utility-cluster .icon-inline,
+.codexify-dock__utility-cluster .icon-inline:hover,
+.codexify-dock__utility-cluster button[aria-label^="TTS"],
+.codexify-dock__utility-cluster button[aria-label="People"] {
+  color: var(--top-chrome-fg, var(--text));
+}
+
+/* The active pill keeps its accent treatment; only the foreground follows the
+   backdrop, and only when that foreground is dark enough to read on accent. */
+.codexify-dock__utility-cluster .pill-tab[data-state="active"] {
+  color: var(--pill-active-text, var(--top-chrome-fg, var(--text)));
+}
+
+/* System status dot carries a deliberate status hue (healthy/attention/
+   critical) — that semantic color must survive backdrop adaptation. Its
+   legibility comes from the backing, not from being recoloured. */
+.codexify-dock__utility-cluster [data-testid="system-status-toggle"] {
+  color: var(--top-chrome-fg, var(--text));
+}
+
 /* Material Controls sliders — touch-friendly, single-column control stack.
    Resets the default <Input> wrapper visuals (border, background, padding)
    and supplies a chunkier track + thumb suitable for iPad/iPhone targets. */
