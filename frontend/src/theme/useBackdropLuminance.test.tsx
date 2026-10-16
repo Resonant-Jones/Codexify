@@ -2,7 +2,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  contrastRatio,
   FOREGROUND_CANDIDATES,
+  relativeLuminanceOf,
   useBackdropLuminance,
   type Rgb,
 } from "./backdropLuminance";
@@ -26,6 +28,7 @@ type FakeImage = {
 
 const pending: FakeImage[] = [];
 let pixel: Rgb = { r: 0, g: 0, b: 0 };
+let pixelAlpha = 255;
 
 function installStubs() {
   class FakeImageCtor {
@@ -64,7 +67,7 @@ function installStubs() {
               data[i] = pixel.r;
               data[i + 1] = pixel.g;
               data[i + 2] = pixel.b;
-              data[i + 3] = 255;
+              data[i + 3] = pixelAlpha;
             }
             return { data };
           },
@@ -118,11 +121,13 @@ function regionRef(left: number, top: number, width: number, height: number) {
 }
 
 const WASH = { color: { r: 0, g: 0, b: 0 }, startAlpha: 0, endAlpha: 0 };
+const UNDERLAY = { top: { r: 40, g: 40, b: 40 }, bottom: { r: 200, g: 200, b: 200 } };
 
 describe("useBackdropLuminance race safety", () => {
   beforeEach(() => {
     pending.length = 0;
     pixel = { r: 0, g: 0, b: 0 };
+    pixelAlpha = 255;
     installStubs();
   });
 
@@ -139,6 +144,7 @@ describe("useBackdropLuminance race safety", () => {
         elementRef: elementRef(1000, 600),
         regionRef: regionRef(700, 20, 280, 40),
         wash: WASH,
+        underlay: UNDERLAY,
         mode: "dark",
       })
     );
@@ -160,6 +166,7 @@ describe("useBackdropLuminance race safety", () => {
         elementRef: elementRef(1000, 600),
         regionRef: regionRef(700, 20, 280, 40),
         wash: WASH,
+        underlay: UNDERLAY,
         mode: "dark",
       })
     );
@@ -180,6 +187,7 @@ describe("useBackdropLuminance race safety", () => {
           elementRef: elementRef(1000, 600),
           regionRef: regionRef(700, 20, 280, 40),
           wash: WASH,
+          underlay: UNDERLAY,
           mode: "dark",
         }),
       { initialProps: { src: "wall-first.png" } }
@@ -223,6 +231,7 @@ describe("useBackdropLuminance race safety", () => {
         elementRef: elementRef(1000, 600),
         regionRef: regionRef(700, 20, 280, 40),
         wash: WASH,
+        underlay: UNDERLAY,
         mode: "dark",
       })
     );
@@ -245,6 +254,7 @@ describe("useBackdropLuminance race safety", () => {
         elementRef: elementRef(1000, 600),
         regionRef: regionRef(700, 20, 280, 40),
         wash: WASH,
+        underlay: UNDERLAY,
         mode: "dark",
       })
     );
@@ -262,6 +272,7 @@ describe("useBackdropLuminance race safety", () => {
           elementRef: elementRef(1000, 600),
           regionRef: regionRef(700, 20, 280, 40),
           wash: WASH,
+          underlay: UNDERLAY,
           mode: "dark",
         }),
       { initialProps: { src: "wall.png" as string | null } }
@@ -270,6 +281,194 @@ describe("useBackdropLuminance race safety", () => {
     rerender({ src: null });
 
     await waitFor(() => expect(result.current.state).toBe("unavailable"));
+    expect(result.current.needsBacking).toBe(true);
+  });
+
+  it("re-engages backing while RESAMPLING after a successful measurement", async () => {
+    // Regression for review finding P1. Previously the loading state carried
+    // the previous palette forward verbatim. After a clean sample that has
+    // backingAlpha 0, swapping wallpapers briefly painted the new backdrop
+    // with the old foreground and no scrim — reproducing the exact
+    // illegibility this module exists to prevent.
+    const { result, rerender } = renderHook(
+      ({ src }: { src: string }) =>
+        useBackdropLuminance({
+          src,
+          elementRef: elementRef(1000, 600),
+          regionRef: regionRef(700, 20, 280, 40),
+          wash: WASH,
+          underlay: UNDERLAY,
+          mode: "dark",
+        }),
+      { initialProps: { src: "wall-a.png" } }
+    );
+
+    pixel = { r: 20, g: 22, b: 18 };
+    await act(async () => {
+      resolveMatching("wall-a.png");
+    });
+    await waitFor(() => expect(result.current.state).toBe("measured"));
+    expect(result.current.backingAlpha).toBe(0);
+    expect(result.current.needsBacking).toBe(false);
+
+    // Swap wallpapers and inspect the state BEFORE the new decode resolves.
+    rerender({ src: "wall-b.png" });
+
+    expect(result.current.state).toBe("loading");
+    expect(
+      result.current.needsBacking,
+      "resampling must never expose an unguarded foreground"
+    ).toBe(true);
+    expect(result.current.backingAlpha).toBeGreaterThan(0);
+  });
+
+  it("composites transparent wallpaper pixels over the underlay", async () => {
+    // Regression for review finding P2. The sampler ignored the alpha
+    // channel, so a fully transparent PNG pixel was read as opaque black
+    // instead of revealing the surface beneath.
+    pixel = { r: 0, g: 0, b: 0 };
+    pixelAlpha = 0; // fully transparent: black RGB, zero alpha
+
+    const { result } = renderHook(() =>
+      useBackdropLuminance({
+        src: "wall-transparent.png",
+        elementRef: elementRef(1000, 600),
+        regionRef: regionRef(700, 20, 280, 40),
+        wash: WASH,
+        underlay: UNDERLAY, // mid grey — what actually shows through
+        mode: "dark",
+      })
+    );
+
+    await act(async () => {
+      resolveMatching("wall-transparent.png");
+    });
+
+    await waitFor(() => expect(result.current.state).toBe("measured"));
+    // A transparent pixel reveals the underlay gradient, evaluated at the
+    // sample's vertical position. The utility cluster sits near the top of the
+    // shell, so it reads close to UNDERLAY.top (dark) rather than opaque
+    // black. Treating the pixel as opaque black would have produced the light
+    // foreground instead.
+    expect(result.current.foreground).toEqual(FOREGROUND_CANDIDATES.light);
+  });
+
+  it("picks a loading backing that opposes the RETAINED foreground", () => {
+    // Regression for review finding P1 on #876. The previous implementation
+    // chose the loading backing from the current mode while keeping the
+    // previously measured foreground. On a dark->light theme change that pairs
+    // a white foreground with a white backing: near-zero contrast until the
+    // resample lands.
+    const { result, rerender } = renderHook(
+      ({ mode }: { mode: "light" | "dark" }) =>
+        useBackdropLuminance({
+          src: "wall.png",
+          elementRef: elementRef(1000, 600),
+          regionRef: regionRef(700, 20, 280, 40),
+          wash: WASH,
+          underlay: UNDERLAY,
+          mode,
+        }),
+      { initialProps: { mode: "dark" as "light" | "dark" } }
+    );
+
+    // Measure a dark wallpaper in dark mode -> light (white) foreground.
+    pixel = { r: 20, g: 22, b: 18 };
+    act(() => {
+      resolveMatching("wall.png");
+    });
+    expect(result.current.foreground).toEqual(FOREGROUND_CANDIDATES.light);
+
+    // Flip the theme. Mode says "light" (white backing), but the retained
+    // foreground is still white, so the backing must be black.
+    rerender({ mode: "light" });
+    expect(result.current.needsBacking).toBe(true);
+
+    // The retained foreground and the loading backing must be opposites.
+    const fgLum = relativeLuminanceOf(result.current.foreground);
+    const backLum = relativeLuminanceOf(result.current.backing);
+    expect(fgLum > 0.5 ? backLum < 0.5 : backLum > 0.5).toBe(true);
+    expect(
+      contrastRatio(result.current.foreground, result.current.backing)
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("resamples when the sampled region geometry changes", async () => {
+    // Regression for review finding P1: without an observer, resizing across
+    // the 850px container query or toggling utility controls left the old
+    // palette over wallpaper pixels it was never measured against.
+    const element = {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: 600,
+        right: 1000,
+        bottom: 600,
+      }),
+    } as unknown as HTMLElement;
+
+    let regionWidth = 280;
+    const region = {
+      getBoundingClientRect: () => ({
+        left: 1000 - regionWidth - 20,
+        top: 20,
+        width: regionWidth,
+        height: 40,
+        right: 1000 - 20,
+        bottom: 60,
+      }),
+    } as unknown as HTMLElement;
+
+    const elementRef = { current: element };
+    const regionRef = { current: region };
+
+    const observers: Array<{
+      callback: () => void;
+      targets: Element[];
+    }> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push({ callback, targets: [] });
+        }
+        observe(target: Element) {
+          observers.at(-1)!.targets.push(target);
+        }
+        disconnect() {}
+      }
+    );
+
+    const { result } = renderHook(() =>
+      useBackdropLuminance({
+        src: "wall.png",
+        elementRef: elementRef as never,
+        regionRef: regionRef as never,
+        wash: WASH,
+        underlay: UNDERLAY,
+        mode: "dark",
+      })
+    );
+
+    pixel = { r: 20, g: 22, b: 18 };
+    await act(async () => {
+      resolveMatching("wall.png");
+    });
+    await waitFor(() => expect(result.current.state).toBe("measured"));
+
+    const requestsBefore = pending.length;
+    expect(observers.length).toBeGreaterThan(0);
+
+    // Simulate the cluster narrowing (e.g. the workspace glyph swap or a
+    // control disappearing on navigation).
+    regionWidth = 120;
+    await act(async () => {
+      observers.at(-1)!.callback();
+    });
+
+    await waitFor(() => expect(pending.length).toBeGreaterThan(requestsBefore));
+    // The resample must run through the guarded loading state.
     expect(result.current.needsBacking).toBe(true);
   });
 });

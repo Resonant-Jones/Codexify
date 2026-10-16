@@ -2197,11 +2197,33 @@ export default function AppShell({
         };
   }, [wallpaper, selectedWallpaperMedia.src, resolved, fade, depth]);
 
+  const wallpaperUnderlay = useMemo(() => {
+    // The vertical gradient the shell paints for this element family when no
+    // wallpaper is set. Passed as endpoints (not a flattened midpoint) because
+    // it varies with vertical position, and the sampler evaluates it per
+    // sample. Approximation: with a wallpaper set, the viewport and the
+    // refractive layer also sit beneath, which this does not model.
+    const toRgb = (hex: string) => {
+      const clean = hex.replace("#", "");
+      const parse = (index: number) => {
+        const value = parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+        return Number.isFinite(value) ? value : 128;
+      };
+      return { r: parse(0), g: parse(1), b: parse(2) };
+    };
+    return {
+      top: toRgb(lighten(baseColor, fade * 0.6)),
+      bottom: toRgb(darken(baseColor, depth * 0.8)),
+    };
+  }, [baseColor, fade, depth]);
+
   const topChromeContrast = useBackdropLuminance({
     src: selectedWallpaperMedia.src || null,
     elementRef: shellSurfaceRef,
     regionRef: utilityClusterRef,
     wash: wallpaperWash,
+    // What a transparent wallpaper pixel reveals.
+    underlay: wallpaperUnderlay,
     mode: resolved,
   });
 

@@ -50,12 +50,16 @@ export type LuminanceProfile = {
   /** Median luminance, for diagnostics only. Never used for contrast. */
   median: number;
   /**
-   * The actual samples that bound this region's distribution (darkest,
-   * median, brightest by luminance). Retained as colors — not luminances —
-   * so the backing solver can composite real pixels instead of
-   * reconstructing an out-of-gamut gray.
+   * Every sampled color, retained so contrast solving is exact.
+   *
+   * A small "extremes" subset is NOT sufficient: the limiting sample for a
+   * given foreground is whichever pixel has the lowest contrast *against
+   * that foreground*, which need not be the darkest, brightest, or median
+   * pixel. Solving against a subset can pass those few samples while failing
+   * an omitted one. The canvas is capped at 48x48, so retaining the whole
+   * distribution costs a few kilobytes and removes the class of bug.
    */
-  extremes: Rgb[];
+  samples: Rgb[];
   /**
    * Worst-case contrast ratio available in this region for each candidate
    * polarity, computed across the whole sample set rather than on a mean.
@@ -208,14 +212,32 @@ export function coverSourceRect(
  * projection onto the gradient axis. `startAlpha` applies at the start corner,
  * `endAlpha` at the opposite corner.
  */
+/**
+ * Alpha of a 135deg CSS gradient at a point, in **element pixel space**.
+ *
+ * CSS sizes the gradient line to the element, so on a non-square shell the
+ * progress is NOT the unweighted average of the normalized coordinates. For
+ * 135deg the direction vector is (sin135, -cos135) = (0.707, 0.707) and the
+ * gradient line length is 0.707 * (W + H), which reduces exactly to:
+ *
+ *     progress = (x + y) / (W + H)
+ *
+ * Measured from the top-left corner, that yields 0 at (0,0) and 1 at (W,H).
+ * Using `(normalizedX + normalizedY) / 2` instead is wrong on any non-square
+ * element, and on a wide desktop shell it misestimates the wash across the
+ * whole utility region.
+ */
 export function washAlphaAt(
-  normalizedX: number,
-  normalizedY: number,
+  pointX: number,
+  pointY: number,
+  elementWidth: number,
+  elementHeight: number,
   startAlpha: number,
   endAlpha: number
 ): number {
-  // 135deg points down-right, so progress increases with x and y together.
-  const progress = Math.max(0, Math.min(1, (normalizedX + normalizedY) / 2));
+  const w = Math.max(1, elementWidth);
+  const h = Math.max(1, elementHeight);
+  const progress = Math.max(0, Math.min(1, (pointX + pointY) / (w + h)));
   return startAlpha + (endAlpha - startAlpha) * progress;
 }
 
@@ -254,15 +276,12 @@ export function luminanceProfile(samples: Rgb[]): LuminanceProfile {
       dark: 0,
       light: 0,
       median: 0,
-      extremes: [],
+      samples: [],
       worst: { light: 1, dark: 1 },
     };
   }
 
-  const ordered = [...samples].sort(
-    (a, b) => relativeLuminanceOf(a) - relativeLuminanceOf(b)
-  );
-  const luminances = ordered.map(relativeLuminanceOf);
+  const luminances = samples.map(relativeLuminanceOf).sort((a, b) => a - b);
 
   // Worst case for each polarity is evaluated across the *entire* sample
   // distribution, so a single blown-out or near-black pixel caps the score.
@@ -286,11 +305,7 @@ export function luminanceProfile(samples: Rgb[]): LuminanceProfile {
     dark: percentile(luminances, 0.1),
     light: percentile(luminances, 0.9),
     median: percentile(luminances, 0.5),
-    extremes: [
-      ordered[0],
-      ordered[Math.floor(ordered.length / 2)],
-      ordered[ordered.length - 1],
-    ],
+    samples: [...samples],
     worst,
   };
 }
@@ -350,7 +365,7 @@ export function solveBacking(
   foreground: Rgb,
   target: number = AA_CONTRAST_TARGET
 ): BackingSolution {
-  const extremes = profile.extremes;
+  const extremes = profile.samples;
   if (profile.count === 0 || extremes.length === 0) {
     return { color: BLACK_BACKING, alpha: 1 };
   }
@@ -481,6 +496,20 @@ type UseBackdropLuminanceArgs = {
   /** Region whose backdrop matters (the utility cluster). */
   regionRef: React.RefObject<HTMLElement | null>;
   wash: WashSpec;
+  /**
+   * What shows through a transparent wallpaper pixel. Modelled as the
+   * vertical gradient the shell paints for this element family
+   * (lightened baseColor at the top -> darkened at the bottom), evaluated at
+   * each sample's own vertical position.
+   *
+   * Honest limitation: when a wallpaper IS set, the shell and the viewport
+   * both paint wash + image and a refractive layer sits below them, so the
+   * true underlay is a layer stack this sampler does not reproduce. This is
+   * an approximation of the same gradient the app uses when no wallpaper is
+   * set, evaluated positionally rather than flattened to a constant. It only
+   * matters for wallpapers that carry alpha.
+   */
+  underlay: { top: Rgb; bottom: Rgb };
   mode: "light" | "dark";
   enabled?: boolean;
 };
@@ -503,6 +532,7 @@ export function useBackdropLuminance({
   elementRef,
   regionRef,
   wash,
+  underlay,
   mode,
   enabled = true,
 }: UseBackdropLuminanceArgs): BackdropLuminanceResult {
@@ -510,8 +540,44 @@ export function useBackdropLuminance({
   const [result, setResult] = React.useState<BackdropLuminanceResult>(fallback);
   const tokenRef = React.useRef(0);
   const committedSrcRef = React.useRef<string | null>(null);
+  const [geometryKey, setGeometryKey] = React.useState("");
 
   const washKey = `${wash.color.r},${wash.color.g},${wash.color.b},${wash.startAlpha},${wash.endAlpha}`;
+  const underlayKey = `${underlay.top.r},${underlay.top.g},${underlay.top.b},${underlay.bottom.r},${underlay.bottom.g},${underlay.bottom.b}`;
+
+  /* The sampled region moves whenever the viewport resizes, the dock expands
+     or collapses, the 850px container query flips the chrome to a column, or
+     navigation adds/removes utility controls. Without this the old palette
+     would persist indefinitely over wallpaper pixels it was never measured
+     against — and because a successful sample usually disables the backing,
+     that stale foreground would be unguarded. */
+  React.useEffect(() => {
+    if (!enabled || typeof ResizeObserver === "undefined") return;
+    const element = elementRef.current;
+    const region = regionRef.current;
+    if (!element || !region) return;
+
+    const read = () => {
+      const e = element.getBoundingClientRect();
+      const r = region.getBoundingClientRect();
+      // Region position relative to the element: the same wallpaper pixels
+      // require a different sample when the cluster moves within the shell.
+      setGeometryKey(
+        [
+          Math.round(r.left - e.left),
+          Math.round(r.top - e.top),
+          Math.round(r.width),
+          Math.round(r.height),
+        ].join(":")
+      );
+    };
+
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(element);
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, [enabled, elementRef, regionRef]);
 
   React.useEffect(() => {
     if (!enabled) {
@@ -526,9 +592,32 @@ export function useBackdropLuminance({
     }
 
     const token = (tokenRef.current += 1);
-    setResult((previous) =>
-      previous.state === "unavailable" ? previous : { ...previous, state: "loading" }
-    );
+
+    /* Keep the committed foreground (so polarity does not flicker) but force the
+       contrast-safe backing ON. The new wallpaper is already painted behind the
+       chrome while this decode runs, so carrying a previous backingAlpha of 0
+       would briefly reproduce the exact illegibility this module exists to
+       prevent.
+
+       The backing MUST be derived from the retained foreground, never from the
+       current mode: on a theme change the mode flips while the foreground is
+       still the previously measured one. Picking the backing from the mode
+       would pair a white foreground with a white backing on dark-to-light
+       changes (and the inverse), giving near-zero contrast until the resample
+       lands. */
+    setResult((previous) => {
+      if (previous.state === "unavailable") return previous;
+      const retainsLightForeground =
+        relativeLuminanceOf(previous.foreground) > 0.5;
+      return {
+        ...previous,
+        state: "loading",
+        // Contrast backing is the opposite of the foreground, always.
+        backing: retainsLightForeground ? BLACK_BACKING : WHITE_BACKING,
+        backingAlpha: 1,
+        needsBacking: true,
+      };
+    });
 
     const image = new Image();
     image.crossOrigin = "anonymous";
@@ -604,19 +693,43 @@ export function useBackdropLuminance({
         const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
         const samples: Rgb[] = [];
         for (let i = 0; i < data.length; i += 4) {
-          // Position of this sample inside the element, for the wash.
+          // Position of this sample inside the element, in element pixels, for
+          // the wash. CSS gradient progress is measured in pixels, not in
+          // normalized coordinates.
           const px = (i / 4) % canvas.width;
           const py = Math.floor(i / 4 / canvas.width);
-          const nx = (relative.left + (px / canvas.width) * relative.width) / elementRect.width;
-          const ny = (relative.top + (py / canvas.height) * relative.height) / elementRect.height;
-          const alpha = washAlphaAt(nx, ny, wash.startAlpha, wash.endAlpha);
-          samples.push(
-            compositeOver(
-              wash.color,
-              alpha,
-              { r: data[i], g: data[i + 1], b: data[i + 2] }
-            )
+          const elementX = relative.left + (px / canvas.width) * relative.width;
+          const elementY = relative.top + (py / canvas.height) * relative.height;
+          const washAlpha = washAlphaAt(
+            elementX,
+            elementY,
+            elementRect.width,
+            elementRect.height,
+            wash.startAlpha,
+            wash.endAlpha
           );
+
+          // Respect the wallpaper pixel's own alpha. A transparent PNG pixel
+          // does not render as black — the surface underneath shows through.
+          // The underlay is a vertical gradient, so evaluate it at this
+          // sample's own position rather than using one constant.
+          const pixelAlpha = data[i + 3] / 255;
+          const wallpaper = {
+            r: data[i],
+            g: data[i + 1],
+            b: data[i + 2],
+          };
+          const underlayHere = compositeOver(
+            underlay.bottom,
+            Math.max(0, Math.min(1, elementY / elementRect.height)),
+            underlay.top
+          );
+          const overUnderlay = compositeOver(
+            wallpaper,
+            pixelAlpha,
+            underlayHere
+          );
+          samples.push(compositeOver(wash.color, washAlpha, overUnderlay));
         }
 
         commit(
@@ -644,7 +757,7 @@ export function useBackdropLuminance({
     // them at sample time is what we want. Including them would re-run this
     // effect on every render for any caller that builds them inline.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, washKey, mode, enabled]);
+  }, [src, washKey, underlayKey, mode, enabled, geometryKey]);
 
   return result;
 }
