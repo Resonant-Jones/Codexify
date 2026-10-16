@@ -471,4 +471,74 @@ describe("useBackdropLuminance race safety", () => {
     // The resample must run through the guarded loading state.
     expect(result.current.needsBacking).toBe(true);
   });
+
+  it("resamples when the SHELL height changes but the cluster does not move", async () => {
+    // Regression for review finding P1: the geometry key originally tracked
+    // only the cluster's rectangle relative to the shell. A vertical resize
+    // can leave that rectangle identical while changing both the cover scale
+    // and the 135deg wash denominator, so no resample was scheduled and a
+    // previously backing-free palette stayed live.
+    let shellHeight = 600;
+    const element = {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 1000,
+        height: shellHeight,
+        right: 1000,
+        bottom: shellHeight,
+      }),
+    } as unknown as HTMLElement;
+
+    const region = {
+      getBoundingClientRect: () => ({
+        left: 700,
+        top: 20,
+        width: 280,
+        height: 40,
+        right: 980,
+        bottom: 60,
+      }),
+    } as unknown as HTMLElement;
+
+    const observers: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      }
+    );
+
+    const { result } = renderHook(() =>
+      useBackdropLuminance({
+        src: "wall.png",
+        elementRef: { current: element } as never,
+        regionRef: { current: region } as never,
+        wash: WASH,
+        underlay: UNDERLAY,
+        mode: "dark",
+      })
+    );
+
+    pixel = { r: 20, g: 22, b: 18 };
+    act(() => {
+      resolveMatching("wall.png");
+    });
+    await waitFor(() => expect(result.current.state).toBe("measured"));
+
+    const before = pending.length;
+
+    // Only the SHELL height changes; the cluster's relative rect is identical.
+    shellHeight = 900;
+    act(() => {
+      observers.at(-1)!();
+    });
+
+    await waitFor(() => expect(pending.length).toBeGreaterThan(before));
+    expect(result.current.needsBacking).toBe(true);
+  });
 });

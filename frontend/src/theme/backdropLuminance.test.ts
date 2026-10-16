@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AA_CONTRAST_TARGET,
+  boundingSamples,
   chooseBackdropForeground,
   compositeOver,
   contrastRatio,
@@ -262,6 +263,113 @@ describe("luminanceProfile and chooseBackdropForeground", () => {
     const profile = luminanceProfile([]);
     expect(profile.count).toBe(0);
     expect(profile.samples).toEqual([]);
+  });
+
+  it("precomputes only the darkest and brightest bounding samples", () => {
+    // Regression for review finding P2: the solver bisects ~50 times per
+    // backing, so scanning up to 2304 samples each step meant ~100k contrast
+    // evaluations with repeated gamma conversion, on the main thread, on a
+    // path the geometry observer retriggers during resize.
+    //
+    // Compositing a constant backing is affine and monotone in the sample,
+    // and contrast is monotone in luminance, so the post-composite worst case
+    // is always at one of these two — the optimization is exact, not an
+    // approximation.
+    const samples: Rgb[] = [
+      { r: 0, g: 0, b: 0 },
+      FOREGROUND_CANDIDATES.dark,
+      { r: 60, g: 60, b: 60 },
+      { r: 120, g: 120, b: 120 },
+      { r: 255, g: 255, b: 255 },
+    ];
+    const profile = luminanceProfile(samples);
+
+    expect(profile.extremes).toHaveLength(2);
+    expect(profile.extremes[0]).toEqual({ r: 0, g: 0, b: 0 });
+    expect(profile.extremes[1]).toEqual({ r: 255, g: 255, b: 255 });
+
+    // Solving against just those two must still clear AA across every sample.
+    for (const polarity of ["light", "dark"] as const) {
+      const foreground = FOREGROUND_CANDIDATES[polarity];
+      const solution = solveBacking(profile, foreground);
+      for (const sample of samples) {
+        const composited = compositeOver(
+          solution.color,
+          solution.alpha,
+          sample
+        );
+        expect(contrastRatio(composited, foreground)).toBeGreaterThanOrEqual(
+          AA_CONTRAST_TARGET
+        );
+      }
+    }
+  });
+
+  it("stays exact when solved against only the limiting samples", () => {
+    // The optimization must not weaken the guarantee: solving against the
+    // single precomputed limiter has to equal solving against all samples.
+    const samples: Rgb[] = [
+      { r: 0, g: 0, b: 0 },
+      { r: 40, g: 40, b: 40 },
+      { r: 130, g: 130, b: 130 },
+      { r: 200, g: 200, b: 200 },
+      { r: 255, g: 255, b: 255 },
+    ];
+    const profile = luminanceProfile(samples);
+
+    for (const polarity of ["light", "dark"] as const) {
+      const foreground = FOREGROUND_CANDIDATES[polarity];
+      const solution = solveBacking(profile, foreground);
+      for (const sample of samples) {
+        const composited = compositeOver(
+          solution.color,
+          solution.alpha,
+          sample
+        );
+        expect(contrastRatio(composited, foreground)).toBeGreaterThanOrEqual(
+          AA_CONTRAST_TARGET
+        );
+      }
+    }
+  });
+
+  it("bounds the solver to two samples regardless of profile size", () => {
+    // Asserted structurally rather than by wall-clock, which would be flaky.
+    // With the full distribution the solver performs ~100k contrast
+    // evaluations per call on the main thread.
+    const samples = Array.from({ length: 48 * 48 }, (_, i) =>
+      i % 3 === 0
+        ? { r: 8, g: 10, b: 6 }
+        : i % 3 === 1
+          ? { r: 250, g: 248, b: 220 }
+          : { r: 120, g: 120, b: 120 }
+    );
+    const profile = luminanceProfile(samples);
+    expect(profile.samples.length).toBe(2304);
+    expect(boundingSamples(profile)).toHaveLength(2);
+  });
+
+  it("keeps the contrast guarantee on a full-size sample set", () => {
+    const samples = Array.from({ length: 48 * 48 }, (_, i) =>
+      i % 3 === 0
+        ? { r: 8, g: 10, b: 6 }
+        : i % 3 === 1
+          ? { r: 250, g: 248, b: 220 }
+          : { r: 120, g: 120, b: 120 }
+    );
+    const profile = luminanceProfile(samples);
+    const solution = solveBacking(profile, FOREGROUND_CANDIDATES.light);
+    expect(solution.alpha).toBeGreaterThan(0);
+    for (const sample of profile.samples) {
+      const composited = compositeOver(
+        solution.color,
+        solution.alpha,
+        sample
+      );
+      expect(
+        contrastRatio(composited, FOREGROUND_CANDIDATES.light)
+      ).toBeGreaterThanOrEqual(AA_CONTRAST_TARGET);
+    }
   });
 });
 
