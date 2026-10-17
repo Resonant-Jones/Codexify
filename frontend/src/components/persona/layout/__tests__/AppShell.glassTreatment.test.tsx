@@ -128,6 +128,30 @@ describe("Glass Treatment shell integration", () => {
     }
   });
 
+  it.each(["light", "dark"] as const)(
+    "keeps collapsed solid dock transparent in %s mode",
+    async (themeMode) => {
+      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, "solid");
+      localStorage.setItem("cfy.themeMode", themeMode);
+      render(<AppShell />);
+      await waitFor(() =>
+        expect(dock()).toHaveAttribute("data-glass-treatment", "solid")
+      );
+      await waitFor(() =>
+        expect(document.documentElement.classList.contains("dark")).toBe(
+          themeMode === "dark"
+        )
+      );
+
+      const shell = document.querySelector(".codexify-shell") as HTMLElement;
+      shell.classList.add("codexify-shell--dock-collapsed");
+
+      expect(window.getComputedStyle(dock()).backgroundColor).toBe(
+        "rgba(0, 0, 0, 0)"
+      );
+    }
+  );
+
   it.each(["refractive", "frosted", "solid"] as const)(
     "keeps global text/icon tokens mode-derived and unchanged under %s",
     async (treatment) => {
