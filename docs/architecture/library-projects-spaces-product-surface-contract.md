@@ -2,7 +2,7 @@
 
 > Classification: architecture contract / product-surface ontology  
 > Status: user-approved product direction; runtime implementation remains unproven  
-> Last updated: 2026-10-05
+> Last updated: 2026-10-16 — Library four-filter taxonomy (All, Images, Documents, Widgets) approved
 
 ## Purpose
 
@@ -60,23 +60,114 @@ A Library entry is therefore a view/reference over an authoritative resource, no
 
 The current **Documents** and **Gallery** application surfaces should converge into Library presentation modes rather than remain permanent peer application destinations.
 
-Conceptually:
+The **approved Library taxonomy is four filters**:
 
-```text
-Library
-  All
-  Documents
-  Images
-  Video
-  Audio
-  Generated / Artifacts
-  Collections
-  Imports
-```
+| Filter | Contents |
+|---|---|
+| **All** | The combined authorized resource projection across every supported resource type. |
+| **Images** | Uploaded or generated image resources. |
+| **Documents** | Uploaded, imported, or generated documents, when supported by authoritative metadata. |
+| **Widgets** | Saved interactive resources that have durable, authoritative backing records. |
 
-This list is product-direction vocabulary, not a canonical runtime token registry. Exact filters, routes, tabs, and storage mappings remain implementation work.
+This four-filter taxonomy supersedes the earlier aspirational list of `Video`, `Audio`, `Generated / Artifacts`, `Collections`, and `Imports` as *filters*. That earlier vocabulary remains useful product direction, but it is not the approved taxonomy and several of those entries were not resource types at all.
+
+Two consequences follow directly from the approved taxonomy:
+
+- **`Generated / Artifacts` is not a filter.** Origin is provenance, not a resource type. A generated image is an **Image**; a generated document is a **Document**. See [Resource type and origin](#resource-type-and-origin).
+- **Widgets is a real filter with an honest empty state.** It is approved as product direction, but no authoritative Widget backing record or listing mechanism exists yet. It must render as *unavailable*, not as a fabricated or synthesized list. See [Widgets remain unavailable](#widgets-remain-unavailable).
+
+Future expansion toward video and audio is deferred until those classes have authoritative source records; it is not authorized by this taxonomy.
 
 A visual Gallery remains useful as a Library view. Document-oriented list/editor experiences remain useful as Library views. The contract removes the need for each media class to become its own top-level application.
+
+### Resource type and origin
+
+**Resource type** and **origin** are independent axes. Conflating them is the specific failure this taxonomy prevents.
+
+- **Resource type** answers *what kind of resource is this* and is the only thing a Library filter may select on. The approved types are `image`, `document`, and (once authoritative records exist) `widget`.
+- **Provenance** answers *how this record entered the system* and is preserved independently of the resource type. The proven values are `uploaded`, `generated`, `imported`, and `unknown`.
+
+Rules:
+
+1. A filter may select on resource type. A filter must not select on provenance.
+2. Classification must follow authoritative source metadata, never presentation heuristics, file extensions, or URLs.
+3. A record whose authoritative metadata cannot establish its resource type is **not** silently coerced into a type. It is surfaced as incomplete rather than misfiled.
+4. Provenance must survive every projection and presentation path unchanged.
+
+**Provenance must be proven, never inferred from storage location.** A row living in an
+"uploaded" source table proves which table it came from; it does not prove a user uploaded it.
+
+5. Provenance is read only from authoritative provenance metadata. Anything absent, blank, or unrecognised stays **`unknown`**.
+6. `imported` is assigned only when authoritative metadata explicitly says so.
+7. Provenance is **never** inferred from a filename, URL, MIME type, or which filter returned the record.
+8. Source family and provenance are separate fields. Family identity is never collapsed into a provenance claim.
+
+### Resource identity across source families
+
+Canonical resource IDs originate from **separate source tables** and are only unique within their own source family. The same raw ID can legitimately exist in an uploaded table and a generated table simultaneously, and the backend already carries legacy records in that state.
+
+Therefore:
+
+1. A presentation key must be **source-family qualified**. A raw ID alone is never a presentation identity.
+2. The **canonical source ID must be preserved separately and unchanged** from its authoritative source. Qualification is a presentation concern and must not rewrite, renumber, or replace canonical identity.
+3. **Cross-source deduplication by raw ID alone is prohibited.** Two records that share a raw ID from different families are two distinct resources.
+4. Deduplication is permitted only within one source family, and only against an identical qualified key.
+
+### Authorized scope
+
+Library is a read-only projection over authorized sources.
+
+1. Every source request must carry the **same** selected Project/thread scope. A projection that silently mixes scopes is not an authorized projection.
+2. Account scope comes from the **existing authenticated transport**. Library must not accept, derive, or forward a client-supplied user identity.
+3. Library must reuse existing authenticated transports and must not introduce a parallel or unauthenticated request path.
+4. Project/thread scope continues to be exactly one of: a project, a thread, or unscoped — matching the existing Documents scope contract. The Documents endpoint rejects simultaneous `project_id` and `thread_id`, and Library must not work around that contract.
+5. A filter must request **only** the sources that can contribute to it. Borrowing unrelated sources to populate a filter is both wasteful and a disclosure risk.
+6. Library performs **no mutation**. Upload, delete, preview, and Workspace behavior remain owned by their existing surfaces.
+
+### Completeness
+
+Library must never present an incomplete result as a complete one.
+
+Each contributing source reports one of five outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| **complete** | Proven exhausted, non-empty. |
+| **empty** | Proven exhausted, zero records — an authenticated, authoritative zero. |
+| **bounded** | Reached the request limit, so the source may be truncated. |
+| **uncertain** | Response metadata was malformed, missing, or self-inconsistent, **or** authoritative records were rejected. |
+| **failed** | The request itself failed. |
+
+Rules:
+
+1. Only `complete` and `empty` assert coverage. Every other outcome states what could not be established.
+2. A **malformed response is not an empty response.** A missing or non-array result field, a missing/invalid count, or a count that disagrees with the returned list must never be read as a genuine zero.
+3. A **missing count is not a zero count.** Without consistent count metadata a source cannot prove what it returned, so it is `uncertain`.
+4. **Rejected authoritative records make coverage incomplete.** If records cannot be projected, the source is not fully represented even when the response was otherwise well-formed.
+5. A combined filter (`All`) is complete only when every contributing source reports `complete` or `empty`.
+6. The projection must state **which** sources were incomplete and why.
+7. A source failure must degrade that source only. It must not discard the results of other sources, and it must not be absorbed into an apparently complete result.
+
+### Unsupported versus empty
+
+"We could not look" and "we looked and there is nothing" are different claims and must not
+share a representation.
+
+1. A filter with **no authoritative source at all** reports coverage as **unavailable**, and never as complete.
+2. An **authoritative empty** result is a `complete` claim backed by a source that actually answered.
+3. Unavailability must not be expressed as a complete empty result, because a consumer would reasonably read that as "checked, nothing there."
+4. An unavailable filter issues **no** source requests; it must not borrow unrelated sources to produce a list.
+
+### Widgets remain unavailable
+
+**Widgets** is an approved filter, but its capability is **unproven**. No authoritative Widget backing record, persistence mechanism, or versioned listing endpoint exists.
+
+Until one does:
+
+1. Library must not invent a Widget persistence or listing mechanism.
+2. The Widgets filter must report discovery as **explicitly unavailable**, with a stated reason.
+3. Widgets must never be synthesized, inferred, or derived from unrelated records — including GenUI or chat-message artifacts — to fill the filter.
+4. Persisting, versioning, and listing saved Widgets requires a separate approved architecture-impact task.
 
 ### Library invariants
 
@@ -86,6 +177,11 @@ A visual Gallery remains useful as a Library view. Document-oriented list/editor
 - Linking one resource into multiple Projects or Spaces must preserve one authoritative identity where the underlying resource model supports it.
 - Presentation type does not imply disclosure. An image being visible in the owner's Library does not make it visible in a Space.
 - Provenance must survive transitions between Library, Project, and Space surfaces.
+- Presentation identity must be source-family qualified; canonical source IDs are preserved unchanged.
+- Cross-source deduplication by raw ID alone is prohibited.
+- Every source request carries the same selected Project/thread scope and the same authenticated account scope.
+- An incomplete projection must never be presented as complete; see [Completeness](#completeness).
+- Library performs no mutation. Upload, delete, preview, and Workspace behavior remain owned by their existing surfaces.
 
 ## Project contract
 
@@ -416,13 +512,26 @@ This contract is actionable, but implementation should remain staged.
 
 ### Stage 1: Library presentation convergence
 
+- Establish the approved four-filter taxonomy: **All, Images, Documents, Widgets**.
 - Introduce a Library product surface over existing document/media/artifact sources.
+- Classify resource type independently from provenance, using authoritative source metadata only.
+- Assign provenance only when authoritative metadata proves it; unknown stays unknown.
+- Use source-family-qualified presentation keys; preserve canonical source IDs unchanged.
+- Request only the sources a filter can consume; an unsupported filter issues no requests.
+- Apply one identical Project/thread scope and one authenticated account scope to every source request.
+- Report per-source completeness so a partial, malformed, or bounded result is never presented as complete.
+- Distinguish an authoritative empty result from an unavailable one.
 - Preserve existing canonical resource IDs and storage authority.
 - Make Gallery and Documents Library modes before deleting legacy routes.
 - Add migration-safe navigation aliases and explicit compatibility tests.
 - Keep search/index state derived.
 
 **Gate:** existing Documents and Gallery workflows remain reachable and resource identity/provenance is unchanged.
+
+**Evidence boundary:** frontend projection tests prove request shaping, reuse of the
+authenticated GET transport, and classification behavior against controlled responses. They do
+**not** prove server-side authorization, real data completeness, Widget persistence, or UI
+rendering. Those require backend and integration tests.
 
 ### Stage 2: Shared product navigation convergence
 
