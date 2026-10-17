@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-16
+2026-10-17
 
 ## Interpretation rule
 
@@ -18,24 +18,24 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first Beta hardening with a separately gated Private Preview lane. Recent merges changed product and bounded-preview surfaces, but no fresh supported-Compose qualification landed. The current release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-16 refresh, only a dated mainline accounting record landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
-- PR #870 simplified Persona Studio into the Lens editor, removed retired guidance and diagnostics surfaces, and restored the frontend typecheck command; this is implementation evidence, not release qualification.
+- PR #870 simplified Persona Studio into the Lens editor, retired obsolete guidance and diagnostics surfaces, and restored the frontend typecheck command; this is implementation evidence, not release qualification.
 - PR #869 merged a bounded authenticated, local-only, ephemeral Chronicle preview and removed the persistent Coding Loop composer toggle; neither widens default Beta support.
 - PR #868 merged the Unified Memory Store foundation integration; it does not establish a new supported runtime or qualification result.
-- Imported-history inspection/authorization and synthetic import qualification remain bounded evidence; they do not prove a complete natural import-to-recall path.
-- The 2026-10-16 mainline log recorded no new implementation commit; active-checkout work remains outside `main` truth, and local `main` remains divergent from the stored remote-tracking ref.
+- Imported-history inspection and synthetic import qualification remain bounded evidence; they do not prove a complete natural import-to-recall path.
+- The 2026-10-17 mainline log records no same-day implementation commit. Detached active-checkout work remains excluded, and local `main` remains divergent from the stored remote-tracking snapshot.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose profile `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The Beta Supported envelope covers local inference, ordinary chat, durable threads/messages/tasks, supported document ingestion and retrieval, account ownership, migrations, and operator diagnostics; qualification is a separate gate.
-- Recorded mainline evidence covers topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior at evaluated tips.
+- Mainline has bounded evidence for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior at evaluated tips.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
-- Account import is bounded to the implemented staging, materialization, ownership/readback, and vector-observation paths; complete recall is not established.
-- Same-node human messaging is opt-in Private Preview only and does not grant project, Guardian, federation, attachment, or realtime authority.
+- Account import is bounded to staging, materialization, ownership/readback, and vector-observation paths; complete recall is not established.
+- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and same-node human messaging is not default Beta support.
 
 ## Not yet true / do not assume
 
@@ -49,14 +49,14 @@ This file is authoritative for:
 
 ## Active blockers
 
-- A fresh current-tip supported-Compose qualification is still missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
+- A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Migration-route collection is blocked by missing UMS revision models; the disposable evidence-reader migration is blocked by multiple Alembic heads.
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
-- The new-thread authored-message projection gap must be repaired and re-proven through the browser and durable-readback path.
+- The new-thread authored-message projection gap must be repaired and re-proven through browser and durable-readback paths.
 - Natural import-to-recall still needs provider-context, answer-persistence, and negative-scope proof on one isolated run.
-- Current release metadata freshness and local-main publication state must be explicitly reconciled before relying on them as shared release evidence.
+- Release metadata freshness and local-main publication state must be reconciled before relying on them as shared release evidence.
 
-## This week's priorities
+## This week’s priorities
 
 1. Freeze current `main` and run the complete supported-Compose proof bundle.
 2. Repair the migration baseline and rerun blocked Chronicle HTTP regression coverage.
