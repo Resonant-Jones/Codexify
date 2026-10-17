@@ -1,6 +1,11 @@
 /** Bounded OpenUI Lang component library for the existing Codexify native artifact lane. */
 import { createLibrary, createParser, defineComponent, Renderer } from "@openuidev/react-lang";
 import { z } from "zod/v4";
+import {
+  OPENUI_FOUNDATION_LIBRARY_VERSION,
+  codexifyOpenUiFoundationLibrary,
+} from "./openuiFoundationLibrary";
+import { admitOpenUiFoundationProgram } from "./openuiProgramAdmission";
 
 export const OPENUI_LIBRARY_VERSION = 1;
 export const OPENUI_MAX_PROGRAM_CHARS = 2048;
@@ -74,14 +79,37 @@ export function validateOpenUiProgram(props: Record<string, unknown>): string | 
 
 /** Untrusted persisted props are validated before reaching OpenUI's renderer. */
 export function OpenUiNative(props: Record<string, unknown>) {
-  const program = validateOpenUiProgram(props);
-  if (!program) return null;
+  const admitted = admitOpenUiProgram(props);
+  if (!admitted) return null;
   return (
     <Renderer
-      response={program}
-      library={codexifyOpenUiLibrary}
+      response={admitted.program}
+      library={admitted.version === 1 ? codexifyOpenUiLibrary : codexifyOpenUiFoundationLibrary}
       isStreaming={false}
       /* No toolProvider or onAction: actions and network remain unavailable. */
     />
   );
+}
+
+/**
+ * Version-aware, fail-closed admission across both library versions.
+ *
+ * Version 1 keeps its original single-literal-metric validator verbatim, so
+ * existing persisted artifacts restore exactly as before. Version 2 routes
+ * through the structural admission walk, which re-derives the resolved tree
+ * rather than trusting permissive parser output.
+ */
+export function admitOpenUiProgram(
+  props: Record<string, unknown>,
+): { version: 1 | 2; program: string } | null {
+  const declared = props?.libraryVersion;
+  if (declared === OPENUI_LIBRARY_VERSION) {
+    const program = validateOpenUiProgram(props);
+    return program ? { version: 1, program } : null;
+  }
+  if (declared === OPENUI_FOUNDATION_LIBRARY_VERSION) {
+    const admitted = admitOpenUiFoundationProgram(props);
+    return admitted.ok ? { version: 2, program: admitted.program } : null;
+  }
+  return null;
 }
