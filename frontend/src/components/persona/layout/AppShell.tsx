@@ -11,6 +11,14 @@ import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useS
 import { createPortal } from "react-dom";
 
 import { toRgba, useBackdropLuminance } from "@/theme/backdropLuminance";
+import {
+  onReducedTransparencyChange,
+  prefersReducedTransparency,
+  readGlassTreatment,
+  resolveGlassMaterial,
+  writeGlassTreatment,
+  type GlassTreatment,
+} from "@/theme/glassTreatment";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -2028,6 +2036,27 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 0;
     return normalizeSurfaceWarmth(raw);
   });
+
+  // Glass Treatment — a material axis orthogonal to every other appearance
+  // axis per ADR-064. Stored under its own key and never derived from the
+  // theme mode, Surface Depth, Surface Warmth, Paper Tone, or Accent.
+  // The saved preference is held separately from the effective treatment so
+  // an accessibility override never rewrites the user's choice.
+  const [glassTreatment, setGlassTreatmentState] = useState<GlassTreatment>(
+    () => readGlassTreatment()
+  );
+  const [reducedTransparency, setReducedTransparency] = useState<boolean>(
+    () => prefersReducedTransparency()
+  );
+  useEffect(() => onReducedTransparencyChange(setReducedTransparency), []);
+  const glassMaterial = useMemo(
+    () => resolveGlassMaterial(glassTreatment, { reducedTransparency }),
+    [glassTreatment, reducedTransparency]
+  );
+  const setGlassTreatment = useCallback((next: GlassTreatment) => {
+    writeGlassTreatment(next);
+    setGlassTreatmentState(next);
+  }, []);
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("cfy.baseColor", baseColor);
@@ -3756,6 +3785,9 @@ export default function AppShell({
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
             }
+            data-glass-treatment={glassMaterial.effective}
+            data-glass-preference={glassMaterial.preference}
+            data-glass-overridden={glassMaterial.overriddenForAccessibility}
             style={mobileTopNavDockStyle}
           >
             {/* glass backdrop */}
@@ -3766,6 +3798,7 @@ export default function AppShell({
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
                 aberration={0.006}
+                treatment={glassMaterial.effective}
               />
             </div>
 
@@ -4334,6 +4367,10 @@ export default function AppShell({
                     setSurfaceDepth={setSurfaceDepth}
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
+                    glassTreatment={glassMaterial.preference}
+                    setGlassTreatment={setGlassTreatment}
+                    glassTreatmentEffective={glassMaterial.effective}
+                    glassTreatmentOverridden={glassMaterial.overriddenForAccessibility}
                     onStartFeedbackConversation={openFeedbackConversation}
                     onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}
