@@ -65,6 +65,11 @@ import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRout
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
+import {
+  GLASS_TREATMENTS,
+  DEFAULT_GLASS_TREATMENT,
+  type GlassTreatment,
+} from "@/theme/glassTreatment";
 
 type ImportRuntimeStatus =
   | "idle"
@@ -336,6 +341,10 @@ export function SettingsView({
   setSurfaceDepth,
   surfaceWarmth,
   setSurfaceWarmth,
+  glassTreatment,
+  setGlassTreatment,
+  glassTreatmentEffective,
+  glassTreatmentOverridden,
   onStartFeedbackConversation,
   onOpenConfigurationInspector,
 }: {
@@ -368,6 +377,12 @@ export function SettingsView({
   setSurfaceDepth: (n: number) => void;
   surfaceWarmth: number;
   setSurfaceWarmth: (n: number) => void;
+  /** Saved Glass Treatment preference (ADR-064 material axis). */
+  glassTreatment?: GlassTreatment;
+  setGlassTreatment?: (treatment: GlassTreatment) => void;
+  /** What actually renders — differs when an accessibility override applies. */
+  glassTreatmentEffective?: GlassTreatment;
+  glassTreatmentOverridden?: boolean;
   onStartFeedbackConversation?: () => void;
   onOpenConfigurationInspector?: () => void;
 }) {
@@ -1192,6 +1207,100 @@ export function SettingsView({
               <p className="text-xs" style={{ color: "var(--muted)" }}>
                 Tune the shared frame, panel, and chip material.
               </p>
+              {setGlassTreatment ? (
+                <div
+                  className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]"
+                  data-testid="glass-treatment-control"
+                >
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]"
+                  >
+                    <span
+                      id="glass-treatment-label"
+                      className="text-sm font-medium"
+                      style={SETTINGS_DENSITY.sectionTitle}
+                    >
+                      Glass Treatment
+                    </span>
+                    <span
+                      aria-live="polite"
+                      className="text-xs font-semibold"
+                      style={{ color: "var(--text)" }}
+                    >
+                      {GLASS_TREATMENTS.find(
+                        (option) => option.id === glassTreatment
+                      )?.label ?? "Refractive"}
+                    </span>
+                  </div>
+                  {/*
+                    A radio group rather than a row of toggles: arrow-key
+                    navigation and a single tab stop are the correct semantics
+                    for "pick exactly one of three".
+                  */}
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="glass-treatment-label"
+                    className="flex flex-wrap gap-[var(--radius-micro)]"
+                  >
+                    {GLASS_TREATMENTS.map((option) => {
+                      const selected = option.id === glassTreatment;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          tabIndex={selected ? 0 : -1}
+                          data-testid={`glass-treatment-option-${option.id}`}
+                          title={option.description}
+                          onClick={() => setGlassTreatment(option.id)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+                              return;
+                            }
+                            event.preventDefault();
+                            const step = event.key === "ArrowRight" ? 1 : -1;
+                            const index = GLASS_TREATMENTS.findIndex(
+                              (entry) => entry.id === glassTreatment
+                            );
+                            const next =
+                              GLASS_TREATMENTS[
+                                (index + step + GLASS_TREATMENTS.length) %
+                                  GLASS_TREATMENTS.length
+                              ];
+                            setGlassTreatment(next.id);
+                            document
+                              .querySelector(
+                                `[data-testid="glass-treatment-option-${next.id}"]`
+                              )
+                              ?.focus();
+                          }}
+                          className="pill-tab h-9 shrink-0"
+                          style={
+                            selected
+                              ? {
+                                  background:
+                                    "color-mix(in oklab, var(--accent-strong) 70%, rgba(15,23,42,0.4))",
+                                  color: "var(--pill-active-text, #fff)",
+                                }
+                              : undefined
+                          }
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>
+                    {GLASS_TREATMENTS.find(
+                      (option) => option.id === glassTreatment
+                    )?.description}
+                    {glassTreatmentOverridden && glassTreatmentEffective
+                      ? ` Rendering as ${glassTreatmentEffective} for reduced transparency; your choice is kept.`
+                      : ""}
+                  </p>
+                </div>
+              ) : null}
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
                 <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
                   <label

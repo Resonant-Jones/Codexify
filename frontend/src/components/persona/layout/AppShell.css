@@ -398,6 +398,49 @@
   color: var(--text);
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass Treatment — dock material specialization (ADR-064 material axis).
+
+   The refractive canvas is mounted at `-z-10` inside `.glass-pill`, which
+   paints opaque displaced wallpaper pixels. That canvas therefore covers the
+   `.glass-pill` backdrop-filter declared in index.css, which is why the
+   existing dock reads as refractive rather than as CSS blur.
+
+   For Frosted and Solid the canvas is not mounted at all (see
+   RefractiveGlassCard), so the `.glass-pill` gradient and backdrop-filter
+   become the visible material and must carry the treatment on their own.
+   These rules are scoped to `[data-glass-treatment]` so no other
+   `.glass-pill` consumer — including the Settings nav rail — is affected.
+--------------------------------------------------------------------------- */
+
+.codexify-dock[data-glass-treatment="frosted"] {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0.08)
+  );
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.codexify-dock[data-glass-treatment="solid"] {
+  /* Opaque: no backdrop blur may remain, or the treatment would not be solid. */
+  background: rgb(28, 28, 30);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* In light mode the opaque Solid surface needs a readable pane. */
+:root:not(.dark) .codexify-dock[data-glass-treatment="solid"] {
+  background: rgb(243, 242, 238);
+}
+
+.codexify-dock[data-glass-treatment="solid"] .pill-tab {
+  /* `--muted` / `--text` are mode-derived and stay correct here: Solid pins the
+     surface, so the wallpaper no longer participates in contrast. */
+  border-color: color-mix(in oklab, var(--panel-border) 40%, transparent);
+}
+
 .unified-desktop[data-browser-state="focused"] .unified-desktop__browser {
   position: absolute;
   z-index: 10;

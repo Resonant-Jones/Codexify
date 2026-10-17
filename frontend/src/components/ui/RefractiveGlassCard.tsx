@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { DEFAULT_GLASS_TREATMENT, type GlassTreatment } from "@/theme/glassTreatment";
+
 type Props = {
   children?: React.ReactNode;
   wallpaperUrl: string | null;
@@ -8,6 +10,13 @@ type Props = {
   aberration?: number;
   className?: string;
   style?: React.CSSProperties;
+  /**
+   * Material treatment. "refractive" is the default and preserves the
+   * original WebGL displacement renderer exactly. "frosted" and "solid" do
+   * not mount a canvas and never create a WebGL context — cheaper by
+   * construction, not merely visually different.
+   */
+  treatment?: GlassTreatment;
 };
 
 function fallbackStyle(): React.CSSProperties {
@@ -22,6 +31,35 @@ function fallbackStyle(): React.CSSProperties {
   };
 }
 
+/**
+ * Frosted: uniform translucent blur with no distortion. Deliberately distinct
+ * from the no-wallpaper `fallbackStyle()` path — this is a selected treatment
+ * that renders the same way whether or not a wallpaper is present.
+ */
+function frostedStyle(): React.CSSProperties {
+  return {
+    background:
+      "linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07))",
+    backdropFilter: "blur(22px) saturate(135%)",
+    WebkitBackdropFilter: "blur(22px) saturate(135%)",
+    borderColor: "rgba(255,255,255,0.18)",
+    boxShadow:
+      "inset 0 1px rgba(255,255,255,0.22), inset 0 -1px rgba(0,0,0,0.28), 0 10px 22px rgba(0,0,0,0.25)",
+  };
+}
+
+/** Solid: opaque, no blur, no refraction. Also the reduced-transparency fallback. */
+function solidStyle(): React.CSSProperties {
+  return {
+    background: "rgb(28, 28, 30)",
+    backdropFilter: "none",
+    WebkitBackdropFilter: "none",
+    borderColor: "rgba(255,255,255,0.14)",
+    boxShadow:
+      "inset 0 1px rgba(255,255,255,0.12), 0 10px 22px rgba(0,0,0,0.25)",
+  };
+}
+
 export const FrameCard: React.FC<Props> = ({
   children,
   wallpaperUrl,
@@ -30,22 +68,39 @@ export const FrameCard: React.FC<Props> = ({
   aberration = 0.35,
   className,
   style,
+  treatment = DEFAULT_GLASS_TREATMENT,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  /**
+   * Only the refractive treatment builds the image element and the WebGL
+   * context. Frosted and solid render from CSS alone, so switching to them
+   * releases the GPU work entirely rather than merely hiding its output.
+   */
+  const wantsRefraction = treatment === "refractive";
+
   const img = useMemo(() => {
-    if (!wallpaperUrl) return null;
+    if (!wantsRefraction || !wallpaperUrl) return null;
     const i = new Image();
     i.crossOrigin = "anonymous";
     (i as any).decoding = "async";
     i.src = wallpaperUrl;
     return i;
-  }, [wallpaperUrl]);
+  }, [wallpaperUrl, wantsRefraction]);
+
+  // Leaving the refractive treatment must clear the ready/failed state so a
+  // later return to it re-runs the effect from a clean slate.
+  useEffect(() => {
+    if (wantsRefraction) return;
+    setReady(false);
+    setFailed(false);
+  }, [wantsRefraction]);
 
   useEffect(() => {
+    if (!wantsRefraction) return;
     if (!wallpaperUrl) { setFailed(true); return; }
     if (!img) return;
     const onload = () => setReady(true);
@@ -57,7 +112,7 @@ export const FrameCard: React.FC<Props> = ({
       img.removeEventListener("load", onload);
       img.removeEventListener("error", onerr);
     };
-  }, [img, wallpaperUrl]);
+  }, [img, wallpaperUrl, wantsRefraction]);
 
   useEffect(() => {
     if (!ready || failed) return;
@@ -196,7 +251,23 @@ export const FrameCard: React.FC<Props> = ({
       window.removeEventListener("scroll", onScroll as any);
       window.removeEventListener("resize", onResize as any);
     };
-  }, [ready, failed, img, radius, intensity, aberration]);
+  }, [ready, failed, img, radius, intensity, aberration, wantsRefraction]);
+
+  // Frosted and solid never mount a canvas and never touch WebGL. They are
+  // reached before every refraction code path below.
+  if (treatment === "frosted" || treatment === "solid") {
+    const surface = treatment === "frosted" ? frostedStyle() : solidStyle();
+    return (
+      <div
+        ref={containerRef}
+        data-glass-treatment={treatment}
+        className={`rounded-2xl border shadow-xl overflow-hidden ${className || ""}`}
+        style={{ ...surface, ...style }}
+      >
+        {children}
+      </div>
+    );
+  }
 
   if (!wallpaperUrl || failed) {
     return (
