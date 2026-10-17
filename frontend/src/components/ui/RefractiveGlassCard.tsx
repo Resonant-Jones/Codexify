@@ -115,7 +115,7 @@ export const FrameCard: React.FC<Props> = ({
   }, [img, wallpaperUrl, wantsRefraction]);
 
   useEffect(() => {
-    if (!ready || failed) return;
+    if (!wantsRefraction || !ready || failed) return;
     const canvas = canvasRef.current;
     const el = containerRef.current;
     if (!canvas || !el) { setFailed(true); return; }
