@@ -57,6 +57,9 @@ importers:
       '@heroicons/react':
         specifier: 2.2.0
         version: 2.2.0(react@19.2.0)
+      '@openuidev/react-lang':
+        specifier: 1.0.1
+        version: 1.0.1(@modelcontextprotocol/sdk@1.32.1(zod@4.1.12))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.12)
       '@radix-ui/react-visually-hidden':
         specifier: ^1.2.3
         version: 1.2.13(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -99,6 +102,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.11
         version: 4.1.14
+      zod:
+        specifier: ^4.1.12
+        version: 4.1.12
     devDependencies:
       '@eslint/js':
         specifier: ^9.32.0
@@ -106,9 +112,6 @@ importers:
       '@google/gemini-cli':
         specifier: ^0.1.11
         version: 0.1.22(@types/react@19.3.0)
-      '@openuidev/react-lang':
-        specifier: 1.0.1
-        version: 1.0.1(@modelcontextprotocol/sdk@1.32.1(zod@4.1.12))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(zod@4.1.12)
       '@tailwindcss/cli':
         specifier: ^4.1.14
         version: 4.3.3
@@ -184,9 +187,6 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.12)(@types/node@25.5.0)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(terser@5.44.0)
-      zod:
-        specifier: ^4.0.0
-        version: 4.1.12
 
   frontend/src:
     dependencies:

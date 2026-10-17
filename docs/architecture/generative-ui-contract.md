@@ -5,7 +5,7 @@ interfaces inside ordinary Codexify chat, including the artifact channel,
 rendering authority, sandbox containment, host bridge, persistence association,
 and security invariants.
 
-Last updated: 2026-10-10
+Last updated: 2026-10-16
 
 Source anchors:
 
@@ -17,6 +17,7 @@ Source anchors:
 - `guardian/core/chat_attachments.py`
 - `guardian/workers/chat_worker.py`
 - upstream `CopilotKit/OpenIntelligentUI` @ `f6e4388b26a64b9a0714943b08a1ce622b924eec`
+- `@openuidev/react-lang` 1.0.1 (bounded, Codexify-native integration)
 
 ## Scope
 
@@ -210,6 +211,61 @@ validated props. A sandbox artifact executes **model-authored untrusted code**
 under containment. Only registered components may be rendered as native;
 there is no arbitrary component resolution.
 
+### Bounded OpenUI native program (first integration slice)
+
+`openui.program` is registered alongside `chart.bar` and `table.rows` as a
+first-party renderer that uses `@openuidev/react-lang` and Codexify's own
+component library. It does not replace the existing native/sandbox dispatch,
+Guardian, AG-UI, the message codec, or the sandbox iframe.
+The OpenUI module is loaded lazily when that registered component is selected,
+not included in the initial ordinary-chat bundle.
+
+An OpenUI program remains inside the **existing** version-1 `native` artifact:
+
+```json
+{
+  "version": 1,
+  "kind": "native",
+  "component": "openui.program",
+  "props": {
+    "libraryVersion": 1,
+    "program": "root = CodexifyMetric(\"Tasks\", \"12\", \"Read-only\")"
+  }
+}
+```
+
+Only library version 1 is admitted. The current first-party library contains
+one read-only component, `CodexifyMetric`, with string fields `title`,
+`value`, and optional `detail`. Its colors, background, border, spacing,
+and radius derive from inherited Codexify shell tokens; it does not install an
+independent theme or accept model-supplied CSS.
+
+The **host-tree admission gate** validates before any OpenUI render:
+
+- Exact `libraryVersion` and `program` props, no other keys.
+- Program string no longer than 2,048 characters.
+- Exactly one `root = CodexifyMetric(...)` statement, containing two or
+  three JSON string literals, length-bounded to 100, 40, and 180 characters.
+- The admitted literal values are normalized and then checked by the OpenUI
+  parser; any parse error or unresolved reference rejects the whole program.
+- No expressions, variables, custom functions, dynamic component references,
+  nested statements, `Query`, `Mutation`, or `Action` syntax can pass.
+- A rejected program renders nothing in the native artifact slot, without
+  granting a fallback to privileged rendering. Surrounding prose stays intact.
+
+The renderer receives no tool provider or action callback. There is no host
+network, credential, filesystem, command-bus, or direct-send permission for an
+OpenUI program. These are defense-in-depth restrictions: simply omitting an
+action callback is **not** considered authorization. Future interactive
+component packs, multi-statement programs, or tool-backed data fetching require
+a separately approved architecture-impact change and explicit Guardian policy.
+
+The existing `VITE_GENERATIVE_UI` gate still controls rendering (default
+off). The Guardian emission prompt is unchanged in this slice; support for
+models to generate the new program format and native streaming behavior is
+**not proven** by this component registration. No new persistence or release
+qualification is implied.
+
 ## Sandbox containment
 
 Sandbox artifacts are untrusted. The containment boundary is the iframe
@@ -358,7 +414,8 @@ Beta Supported. Implementation presence does not promote it.
   Upstream allows four public CDNs; Codexify ships no importmap.
 - No cross-artifact control synchronization; each artifact is an independent
   snapshot, matching upstream's documented behavior.
-- The native registry is intentionally small (`chart.bar`, `table.rows`);
+- The native registry is intentionally small (`chart.bar`, `table.rows`,
+  `openui.program` with only `CodexifyMetric` version 1);
   unknown components degrade to text rather than resolving dynamically.
 - The gate is build-time only, not operator-configurable at runtime.
 - The artifact payload rides message content, so a large HTML/CSS/JS artifact

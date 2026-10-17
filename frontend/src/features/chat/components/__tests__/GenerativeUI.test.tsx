@@ -386,7 +386,7 @@ describe("registered native components", () => {
   });
 
   it("exposes only explicitly registered ids", () => {
-    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "table.rows"]);
+    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "openui.program", "table.rows"]);
   });
 
   it("degrades a chart with unusable data instead of throwing", () => {
