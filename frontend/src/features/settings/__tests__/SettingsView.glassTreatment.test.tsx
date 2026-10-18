@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
@@ -133,47 +133,72 @@ describe("Glass Treatment picker", () => {
         screen.getByTestId(`glass-treatment-option-${treatment}`)
       );
       expect(setGlassTreatment).toHaveBeenCalledWith(treatment);
+      const selected = screen.getByTestId(`glass-treatment-option-${treatment}`);
+      expect(selected).toHaveAttribute("aria-checked", "true");
+      expect(selected).toHaveFocus();
+      expect(screen.getAllByRole("radio").filter((radio) => radio.tabIndex === 0))
+        .toEqual([selected]);
     }
   );
 
-  it("is keyboard operable with arrow keys", async () => {
+  it.each([
+    { key: "ArrowRight", selections: ["frosted", "solid", "refractive"] },
+    { key: "ArrowDown", selections: ["frosted", "solid", "refractive"] },
+    { key: "ArrowLeft", selections: ["solid", "frosted", "refractive"] },
+    { key: "ArrowUp", selections: ["solid", "frosted", "refractive"] },
+  ] as const)("cycles selection and focus with $key, including wrapping", async ({ key, selections }) => {
     const { setGlassTreatment } = renderPicker();
-    await screen.findByTestId("glass-treatment-control");
-    const refractive = screen.getByTestId("glass-treatment-option-refractive");
+    const group = await screen.findByRole("radiogroup", { name: "Glass Treatment" });
+    const radios = within(group).getAllByRole("radio");
+    const expectSelection = (treatment: GlassTreatment) => {
+      const selected = screen.getByTestId(`glass-treatment-option-${treatment}`);
+      expect(within(group).getAllByRole("radio", { checked: true })).toEqual([selected]);
+      expect(radios.filter((radio) => radio.tabIndex === 0)).toEqual([selected]);
+      for (const radio of radios) {
+        expect(radio).toHaveAttribute("aria-checked", String(radio === selected));
+        expect(radio).toHaveAttribute("tabindex", radio === selected ? "0" : "-1");
+      }
+      expect(selected).toHaveFocus();
+    };
 
-    fireEvent.keyDown(refractive, { key: "ArrowRight" });
-    await waitFor(() => expect(setGlassTreatment).toHaveBeenCalledWith("frosted"));
-
-    fireEvent.keyDown(
-      screen.getByTestId("glass-treatment-option-frosted"),
-      { key: "ArrowRight" }
-    );
-    await waitFor(() => expect(setGlassTreatment).toHaveBeenCalledWith("solid"));
-
-    fireEvent.keyDown(screen.getByTestId("glass-treatment-option-solid"), {
-      key: "ArrowRight",
-    });
-    await waitFor(() =>
-      expect(setGlassTreatment).toHaveBeenCalledWith("refractive")
-    );
+    screen.getByTestId("glass-treatment-option-refractive").focus();
+    expectSelection("refractive");
+    for (const [index, treatment] of selections.entries()) {
+      const focused = document.activeElement as HTMLElement;
+      const event = createEvent.keyDown(focused, { key, cancelable: true });
+      fireEvent(focused, event);
+      expectSelection(treatment);
+      expect(event.defaultPrevented).toBe(true);
+      expect(setGlassTreatment).toHaveBeenCalledTimes(index + 1);
+      expect(setGlassTreatment).toHaveBeenLastCalledWith(treatment);
+    }
   });
 
-  it("wraps backwards from the first option", async () => {
-    const { setGlassTreatment } = renderPicker();
+  it.each(["{Enter}", " "])("preserves native button selection with %s", async (key) => {
+    renderPicker();
     await screen.findByTestId("glass-treatment-control");
-    fireEvent.keyDown(screen.getByTestId("glass-treatment-option-refractive"), {
-      key: "ArrowLeft",
-    });
-    await waitFor(() => expect(setGlassTreatment).toHaveBeenCalledWith("solid"));
+    const frosted = screen.getByTestId("glass-treatment-option-frosted");
+    frosted.focus();
+    await userEvent.keyboard(key);
+    expect(frosted).toHaveAttribute("aria-checked", "true");
+    expect(frosted).toHaveFocus();
+    expect(screen.getAllByRole("radio").filter((radio) => radio.tabIndex === 0))
+      .toEqual([frosted]);
   });
 
   it("ignores unrelated keys", async () => {
     const { setGlassTreatment } = renderPicker();
     await screen.findByTestId("glass-treatment-control");
+    const refractive = screen.getByTestId("glass-treatment-option-refractive");
+    refractive.focus();
     for (const key of ["Enter", " ", "a", "Tab", "Escape"]) {
-      fireEvent.keyDown(screen.getByTestId("glass-treatment-option-refractive"), {
-        key,
-      });
+      const event = createEvent.keyDown(refractive, { key, cancelable: true });
+      fireEvent(refractive, event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(refractive).toHaveAttribute("aria-checked", "true");
+      expect(refractive).toHaveFocus();
+      expect(screen.getAllByRole("radio").filter((radio) => radio.tabIndex === 0))
+        .toEqual([refractive]);
     }
     expect(setGlassTreatment).not.toHaveBeenCalled();
   });

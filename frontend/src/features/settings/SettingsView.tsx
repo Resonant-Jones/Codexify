@@ -1255,11 +1255,19 @@ export function SettingsView({
                           title={option.description}
                           onClick={() => setGlassTreatment(option.id)}
                           onKeyDown={(event) => {
-                            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+                            if (
+                              event.key !== "ArrowRight" &&
+                              event.key !== "ArrowDown" &&
+                              event.key !== "ArrowLeft" &&
+                              event.key !== "ArrowUp"
+                            ) {
                               return;
                             }
                             event.preventDefault();
-                            const step = event.key === "ArrowRight" ? 1 : -1;
+                            const step =
+                              event.key === "ArrowRight" || event.key === "ArrowDown"
+                                ? 1
+                                : -1;
                             const index = GLASS_TREATMENTS.findIndex(
                               (entry) => entry.id === glassTreatment
                             );
