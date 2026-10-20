@@ -1413,6 +1413,149 @@ class GuardianDelegationService:
         except Exception:  # pragma: no cover - defensive branch
             return False
 
+    def dispatch_delegated_task(
+        self,
+        *,
+        intent_id: str,
+        deployment_id: str,
+        run_id: str,
+        attempt_id: str,
+        coding_task_id: str,
+        instructions: str,
+        repo_root: str | None,
+        thread_id: int,
+        source_message_id: int,
+        user_id: str,
+        project_id: int | None,
+    ) -> dict[str, Any]:
+        """Dispatch one delegated coding task under the four-layer contract.
+
+        The order is deliberate and is the whole point of the contract:
+
+        1. Mint the execution binding from trusted account context (Slice 2).
+        2. Resolve the enforceable permission posture (Slice 4).
+        3. Persist the binding into the deployment spec, so the
+           credential-lease authority and the coding worker read the same
+           authorization.
+        4. Assert the attempt is authorized and fully specified.
+        5. Enqueue exactly one coding-execution task whose binding is
+           byte-identical to the persisted one.
+
+        The binding is persisted *before* the enqueue, so a crash between the
+        two leaves a durable, inspectable attempt rather than an orphaned
+        task. Nothing here claims exactly-once execution: the queue is
+        at-most-once, attempt execution is unguaranteed, and execution
+        effects are not idempotent. See
+        ``guardian/core/guardian_dispatch.py``.
+        """
+        from guardian.core.guardian_dispatch import (
+            GuardianDispatchError,
+            assert_dispatch_ready,
+            build_dispatch_record,
+            mark_dispatched,
+        )
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+        )
+        from guardian.queue.redis_queue import enqueue_coding_execution
+        from guardian.tasks.types import CodingExecutionTask
+
+        db = self._require_db()
+        record = build_dispatch_record(
+            intent_id=intent_id,
+            deployment_id=deployment_id,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            coding_task_id=coding_task_id,
+        )
+
+        # Authorization failures are dispatch failures. They are surfaced as
+        # such so the intent axis records them; the acceptance axis is never
+        # touched by an execution fact.
+        try:
+            binding = self._resolve_execution_binding(
+                db=db,
+                intent_id=intent_id,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+                user_id=user_id,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+            )
+            posture = self._resolve_permission_posture(
+                db=db,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+                user_id=user_id,
+                provider_id=str(binding.get("provider_id") or ""),
+                model_id=str(binding.get("model_id") or ""),
+                repo_root=repo_root,
+            )
+        except GuardianExecutionBindingError as exc:
+            raise GuardianDelegationDispatchError() from exc
+        permission_policy = dict(posture.get("permission_policy") or {})
+
+        # Persist the binding before anything is queued. The credential-lease
+        # authority re-reads it from the deployment spec, and the coding
+        # worker requires the task payload binding to equal the persisted one
+        # byte-for-byte.
+        self.persist_execution_binding(
+            deployment_id=deployment_id,
+            execution_binding=binding,
+        )
+
+        try:
+            assert_dispatch_ready(
+                record,
+                execution_binding=binding,
+                permission_policy=permission_policy,
+            )
+        except GuardianDispatchError as exc:
+            raise GuardianDelegationDispatchError() from exc
+
+        task_payload = {
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "instructions": instructions,
+            "cwd": repo_root,
+            "repo_root": repo_root,
+            "timeout_seconds": permission_policy.get("max_runtime_seconds", 300),
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "thread_id": int(thread_id) if thread_id else None,
+            "source_message_id": int(source_message_id)
+            if source_message_id
+            else None,
+            "source_thread_id": int(thread_id) if thread_id else None,
+            "user_id": user_id,
+            "project_id": binding.get("project_id"),
+            "execution_binding": binding,
+            "permission_policy": permission_policy,
+            "origin": "guardian_delegation_intent",
+        }
+
+        # The task payload must round-trip through the task contract without
+        # dropping a required field, so a malformed payload fails here rather
+        # than at dequeue.
+        CodingExecutionTask.from_dict(task_payload)
+
+        try:
+            task_id = enqueue_coding_execution(task_payload)
+        except Exception as exc:  # pragma: no cover - defensive branch
+            # A queue failure is a dispatch failure. The intent axis records
+            # it; the acceptance axis is untouched.
+            raise GuardianDelegationDispatchError() from exc
+
+        dispatched = mark_dispatched(record, task_id=task_id)
+        return {
+            "dispatch": dispatched.to_dict(),
+            "execution_binding_id": str(binding.get("binding_id") or ""),
+            "permission_posture": dict(posture),
+            "task_id": task_id,
+        }
+
     def _resolve_execution_binding(
         self,
         *,
@@ -1506,6 +1649,7 @@ class GuardianDelegationService:
         user_id: str,
         provider_id: str,
         model_id: str,
+        repo_root: str | None = None,
     ) -> dict[str, Any]:
         """Resolve the enforceable permission posture for one delegated task.
 
@@ -1521,17 +1665,19 @@ class GuardianDelegationService:
             resolve_guardian_permission_posture,
         )
 
-        repo_root = self._resolve_project_repo_root(
-            db=db,
-            project_id=project_id,
-            user_id=user_id,
+        resolved_root = str(repo_root or "").strip() or (
+            self._resolve_project_repo_root(
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+            )
         )
         try:
             posture = resolve_guardian_permission_posture(
                 account_id=user_id,
                 provider_id=provider_id,
                 model_id=model_id,
-                repo_root=repo_root,
+                repo_root=resolved_root,
                 # The delegated task is scoped to the bound working tree. The
                 # mutation guard compares changed paths against this scope.
                 allowed_paths=("",),
