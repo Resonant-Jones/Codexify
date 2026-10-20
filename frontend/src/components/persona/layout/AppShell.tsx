@@ -43,6 +43,7 @@ import { usePeopleMessagingState } from "@/features/contacts/usePeopleMessagingS
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
+import LibraryView from "@/components/library/LibraryView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
@@ -173,6 +174,7 @@ type LayoutMode = "focus" | "zen";
 type AppShellView =
   | "dashboard"
   | "documents"
+  | "library"
   | "gallery"
   | "guardian"
   | "flowBuilder"
@@ -270,6 +272,7 @@ function useMobileNavFeedbackContext(
 const APP_SHELL_VIEWS = [
   "dashboard",
   "documents",
+  "library",
   "gallery",
   "guardian",
   "flowBuilder",
@@ -280,6 +283,7 @@ const APP_SHELL_VIEWS = [
 
 const PHONE_NAVIGATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
+  { view: "library", label: "Library", priority: "primary" },
   { view: "documents", label: "Documents", priority: "primary" },
   { view: "gallery", label: "Gallery", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
@@ -305,6 +309,7 @@ function isPrimaryMobileApplicationView(
   return (
     view === "guardian" ||
     view === "documents" ||
+    view === "library" ||
     view === "gallery" ||
     view === "dashboard" ||
     view === "settings"
@@ -325,6 +330,7 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
+  if (pathname.startsWith("/library")) return "library";
   if (pathname.startsWith("/documents")) return "documents";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   if (pathname.startsWith("/chat")) return "guardian";
@@ -339,6 +345,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
       return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
       return "/documents";
+    case "library":
+      return "/library";
     case "gallery":
       return "/gallery";
     case "settings":
@@ -1415,9 +1423,11 @@ export default function AppShell({
     return parseHostedRoomRoute(window.location.pathname)?.roomId ?? null;
   });
   const workspaceShellEnabled =
-    activeRoomId == null && isWorkspaceShellView(view);
+    activeRoomId == null && (isWorkspaceShellView(view) || view === "library");
   const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
-    ? view
+    ? view === "library"
+      ? "documents"
+      : view
     : "dashboard";
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
@@ -1679,7 +1689,7 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    if (view !== "documents") {
+    if (view !== "documents" && view !== "library") {
       documentsEntrySeededRef.current = false;
       setDocumentsScopeReady(false);
       return;
@@ -1698,8 +1708,9 @@ export default function AppShell({
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
       if (
-        nextView === "documents" &&
+        (nextView === "documents" || nextView === "library") &&
         view !== "documents" &&
+        view !== "library" &&
         !documentsEntrySeededRef.current
       ) {
         if (seedDocumentsScopeFromGuardian()) {
@@ -3067,7 +3078,9 @@ export default function AppShell({
     workspaceShellEnabled &&
     (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
   const workspaceProjectId =
-    view === "documents" ? documentsScope.projectId : guardianProjectFallbackId;
+    view === "documents" || view === "library"
+      ? documentsScope.projectId
+      : guardianProjectFallbackId;
   const workspaceDrawerMotionState = isPhoneShell
     ? getMobileWorkspaceMotionState(
         isPhoneShell,
@@ -3447,7 +3460,7 @@ export default function AppShell({
     />
   ) : null;
   const documentsSidebarToggle =
-    activeRoomId == null && view === "documents" && !isPhoneShell ? (
+    activeRoomId == null && (view === "documents" || view === "library") && !isPhoneShell ? (
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
@@ -3528,7 +3541,7 @@ export default function AppShell({
     </header>
   ) : null;
   const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
-    view === "documents" ? (
+    view === "documents" || view === "library" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
         activeId={
@@ -4097,6 +4110,148 @@ export default function AppShell({
                           loading={documentsLoading}
                           error={documentsLoadError}
                         />
+                      </div>
+                    </FrameCard>
+                  </div>
+                </div>
+                {sharedWorkspaceDrawer}
+              </div>
+            </div>
+          )}
+          {!startupLocked && activeRoomId == null && view === "library" && (
+            <div
+              className="h-full w-full isolate"
+              data-active-view="library"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="library"
+              style={{
+                "--radius": "var(--card-radius)",
+                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
+                "--gutter": "var(--shell-gap)",
+                "--min-h": shellViewportProfile.contentMinHeight,
+                borderRadius: "var(--card-radius)",
+              } as React.CSSProperties}
+            >
+              <div
+                className={workspaceShellLaneClassName}
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
+                  data-pane-min-width={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
+                  }
+                  className="min-h-0 min-w-0 relative"
+                  style={workspacePrimaryPaneStyle}
+                >
+                  <div
+                    className={
+                      isPhoneShell
+                        ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                        : documentsSidebarVisible
+                          ? "grid h-full w-full min-h-0 overflow-hidden"
+                          : "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                    }
+                    data-testid="library-shared-shell"
+                    data-documents-shared-shell="sidebar-center"
+                    style={
+                      isPhoneShell
+                        ? undefined
+                        : documentsSidebarVisible
+                          ? {
+                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+                              gap: "var(--gutter)",
+                            }
+                          : undefined
+                    }
+                  >
+                    {!isPhoneShell && documentsSidebarVisible && (
+                      <div
+                        className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
+                        data-testid="documents-shared-sidebar-pane"
+                        data-shared-sidebar="true"
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                        <SidebarRoot
+                            threads={documentsSidebarThreadsForRender}
+                            activeId={
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
+                            }
+                            onSelect={handleDocumentsSidebarThreadSelect}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              documentsScope.projectId == null
+                                ? null
+                                : String(documentsScope.projectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
+                          />
+                        </FrameCard>
+                      </div>
+                    )}
+                    {!isPhoneShell && !documentsSidebarVisible && (
+                      <button
+                        type="button"
+                        className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
+                        data-testid="documents-sidebar-edge-affordance"
+                        aria-label="Show sidebar"
+                        title="Show sidebar"
+                        onClick={toggleDocumentsSidebar}
+                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
+                      >
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
+                      </button>
+                    )}
+                    <FrameCard
+                      fill
+                      refractiveFallback
+                      shimmerMode="subtle"
+                      className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                      data-testid="library-primary-frame"
+                    >
+                      {phonePrimaryFrameHeader}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                        {documentsScopeReady ? (
+                          <LibraryView
+                            scope={documentsScope}
+                            extColors={extColors}
+                            onOpenInThread={openDocInThread}
+                            onDeleteDocument={deleteDocument}
+                            onImageSelect={openChatWithPrompt}
+                          />
+                        ) : (
+                          <div
+                            className="flex h-full items-center justify-center text-sm"
+                            role="status"
+                            aria-live="polite"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            Loading Library scope…
+                          </div>
+                        )}
                       </div>
                     </FrameCard>
                   </div>
