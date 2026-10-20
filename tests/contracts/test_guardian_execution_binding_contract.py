@@ -1,0 +1,584 @@
+"""Guardian execution binding authority contract (Slice 2).
+
+The Guardian Delegation Loop needs a Guardian-owned execution binding before
+anything can be dispatched to a coding worker. These cases prove the binding
+is minted from *trusted account context*, that a caller cannot widen it, that
+the model is pinned rather than substituted, and that the persisted deployment
+spec carries a binding the coding worker will accept byte-for-byte.
+
+See ``guardian/core/guardian_execution_binding.py``,
+``docs/architecture/guardian-delegation-loop-contract.md``, ADR-094, and
+ADR-077.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+import os
+from typing import Any
+from uuid import uuid4
+
+import psycopg
+from psycopg import sql
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.orm import sessionmaker
+
+from guardian.agents.coding_agent_contracts import CodingExecutionBinding
+from guardian.agents.execution_credentials import store_api_key
+from guardian.agents.store import AgentStore
+from guardian.core.guardian_execution_binding import (
+    GUARDIAN_CODING_HARNESS_ID,
+    GuardianExecutionBindingError,
+    GuardianExecutionBindingRequest,
+    resolve_guardian_execution_binding,
+    validate_guardian_execution_binding,
+)
+from guardian.db.models import (
+    AgentDeployment,
+    AgentRun,
+    Base,
+    ChatMessage,
+    ChatThread,
+    Project,
+    User,
+)
+
+
+@contextmanager
+def _disposable_postgres_engine() -> Iterator[Engine]:
+    """Use the existing TEST_DATABASE_URL authority to isolate each case."""
+    base_url = os.getenv("TEST_DATABASE_URL")
+    if not base_url:
+        raise RuntimeError("TEST_DATABASE_URL must point to disposable PostgreSQL")
+    database_name = f"codexify_guardian_binding_{uuid4().hex[:12]}"
+    admin_url = make_url(base_url).set(
+        drivername="postgresql", database="postgres"
+    ).render_as_string(hide_password=False)
+    database_url = make_url(base_url).set(
+        drivername="postgresql+psycopg", database=database_name
+    ).render_as_string(hide_password=False)
+    with psycopg.connect(admin_url, autocommit=True) as connection:
+        connection.execute(
+            sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name))
+        )
+    engine = create_engine(database_url, future=True)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        with psycopg.connect(admin_url, autocommit=True) as connection:
+            connection.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (database_name,),
+            )
+            connection.execute(
+                sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name))
+            )
+
+
+class _TestDB:
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+        self._session_factory = sessionmaker(
+            bind=self._engine,
+            autoflush=False,
+            autocommit=False,
+            future=True,
+        )
+
+    def get_session(self):  # noqa: ANN201
+        return self._session_factory()
+
+
+def _clear_disposable_tables(engine: Engine) -> None:
+    preparer = engine.dialect.identifier_preparer
+    names = ", ".join(preparer.quote(name) for name in Base.metadata.tables)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture(scope="module")
+def _postgres_engine() -> Iterator[Engine]:
+    with _disposable_postgres_engine() as engine:
+        Base.metadata.create_all(bind=engine)
+        yield engine
+
+
+@pytest.fixture
+def db(_postgres_engine: Engine) -> _TestDB:
+    _clear_disposable_tables(_postgres_engine)
+    return _TestDB(_postgres_engine)
+
+
+@pytest.fixture(autouse=True)
+def _credential_encryption_key() -> Iterator[None]:
+    """Credential storage needs an encryption key to be present."""
+    previous = os.environ.get("GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY")
+    os.environ["GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY"] = (
+        "T7xQ9v2Kc4mB8nR3wY6zA1sD5fG0hJ7kL2pX9uV4eC8="
+    )
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY", None)
+        else:
+            os.environ["GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY"] = previous
+
+
+def _seed_account(db: _TestDB, *, user_id: str = "account-1") -> dict[str, Any]:
+    with db.get_session() as session:
+        session.add(
+            User(
+                id=user_id,
+                username=f"{user_id}-username",
+                password_hash="hash",
+            )
+        )
+        project = Project(
+            user_id=user_id,
+            name=f"project-{user_id}",
+            description=None,
+            icon=None,
+        )
+        session.add(project)
+        session.flush()
+        thread = ChatThread(
+            user_id=user_id,
+            title="Source thread",
+            summary="",
+            project_id=project.id,
+        )
+        session.add(thread)
+        session.flush()
+        message = ChatMessage(
+            thread_id=thread.id,
+            user_id=user_id,
+            role="user",
+            content="Please patch the return path.",
+            kind="chat",
+            extra_meta={},
+        )
+        session.add(message)
+        session.commit()
+        return {
+            "user_id": user_id,
+            "project_id": project.id,
+            "thread_id": thread.id,
+            "source_message_id": message.id,
+        }
+
+
+def _seed_credential(
+    db: _TestDB,
+    *,
+    user_id: str = "account-1",
+    provider_id: str = "openai",
+) -> str:
+    """Register one account-scoped credential and return its reference."""
+    record = store_api_key(
+        db,
+        owner_scope="account",
+        owner_id=user_id,
+        provider_id=provider_id,
+        api_key="sk-test-guardian-binding",
+        funding_route="user_byok",
+    )
+    return str(record["credential_ref"])
+
+
+def _request(
+    seeded: dict[str, Any],
+    *,
+    credential_ref: str,
+    provider_id: str = "openai",
+    model_id: str = "gpt-4o",
+    max_attempts: int = 1,
+) -> GuardianExecutionBindingRequest:
+    return GuardianExecutionBindingRequest(
+        account_id=seeded["user_id"],
+        thread_id=str(seeded["thread_id"]),
+        source_message_id=str(seeded["source_message_id"]),
+        project_id=str(seeded["project_id"]),
+        coding_task_id="gct-test-1",
+        attempt_id="gat-test-1",
+        credential_ref=credential_ref,
+        provider_id=provider_id,
+        model_id=model_id,
+        max_attempts=max_attempts,
+    )
+
+
+def test_binding_mints_from_trusted_account_context(db: _TestDB) -> None:
+    """A binding resolves from the account's own registered credential."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    assert binding["harness_id"] == GUARDIAN_CODING_HARNESS_ID
+    assert binding["harness_selection_mode"] == "default"
+    assert binding["credential_type"] == "api_key"
+    assert binding["user_id"] == seeded["user_id"]
+    assert binding["thread_id"] == str(seeded["thread_id"])
+    assert binding["source_message_id"] == str(seeded["source_message_id"])
+    assert binding["project_id"] == str(seeded["project_id"])
+    assert binding["coding_task_id"] == "gct-test-1"
+    assert binding["attempt_id"] == "gat-test-1"
+    assert binding["max_attempts"] == 1
+
+
+def test_binding_is_secret_free(db: _TestDB) -> None:
+    """A binding carries a credential reference, never key material."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    assert binding["credential_ref"]
+    assert "api_key" not in binding
+    assert "sk-test-guardian-binding" not in str(binding)
+    serialized = str(binding)
+    assert "encrypted_secret" not in serialized
+
+
+def test_binding_validates_against_the_worker_gate(db: _TestDB) -> None:
+    """The binding satisfies every field the coding worker requires."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    # The worker re-derives the binding with from_dict and compares lineage.
+    reparsed = CodingExecutionBinding.from_dict(binding)
+    assert reparsed.harness_id == "pi"
+    assert reparsed.credential_type == "api_key"
+    assert reparsed.harness_selection_mode in {"default", "explicit"}
+    assert 1 <= reparsed.max_attempts <= 3
+    assert reparsed.coding_task_id == "gct-test-1"
+    assert reparsed.attempt_id == "gat-test-1"
+
+
+def test_binding_rejects_a_credential_from_another_account(db: _TestDB) -> None:
+    """A credential the account does not own cannot authorize its binding."""
+    seeded = _seed_account(db, user_id="account-1")
+    # The credential belongs to a different account.
+    other_ref = _seed_credential(db, user_id="account-2")
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db, _request(seeded, credential_ref=other_ref)
+        )
+
+    assert excinfo.value.code == "guardian_binding_credential_unauthorized"
+
+
+def test_binding_rejects_a_provider_the_credential_does_not_carry(
+    db: _TestDB,
+) -> None:
+    """A caller cannot bind a provider the stored credential does not carry."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(
+        db, user_id=seeded["user_id"], provider_id="openai"
+    )
+
+    # The request proposes a different provider than the stored credential.
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db,
+            _request(
+                seeded,
+                credential_ref=credential_ref,
+                provider_id="deepseek",
+            ),
+        )
+
+    assert excinfo.value.code == "guardian_binding_credential_unauthorized"
+
+
+def test_binding_fails_closed_without_an_account_credential(db: _TestDB) -> None:
+    """No registered credential means no binding, and an explicit reason."""
+    seeded = _seed_account(db)
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db, _request(seeded, credential_ref="ccr_absent")
+        )
+
+    assert excinfo.value.code == "guardian_binding_credential_unauthorized"
+
+
+def test_binding_fails_closed_on_missing_identity(db: _TestDB) -> None:
+    """Missing lineage fails closed rather than producing a partial binding."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    request = _request(seeded, credential_ref=credential_ref)
+    object.__setattr__(request, "account_id", "")
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(db, request)
+
+    assert excinfo.value.code == "guardian_binding_account_missing"
+
+
+def test_binding_fails_closed_on_attempt_limit_out_of_range(db: _TestDB) -> None:
+    """The attempt budget stays inside the range the worker accepts."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db,
+            _request(seeded, credential_ref=credential_ref, max_attempts=9),
+        )
+
+    assert excinfo.value.code == "guardian_binding_attempt_limit_invalid"
+
+
+def test_binding_pins_exactly_one_model(db: _TestDB) -> None:
+    """The model is named explicitly, so substitution is detectable."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref, model_id="gpt-4o-mini")
+    )
+
+    assert binding["model_id"] == "gpt-4o-mini"
+    # No alternative model may ride along in the binding.
+    assert "actual_model_id" not in binding
+    assert "model_id" in binding
+
+
+def test_lineage_validation_rejects_a_redirected_binding(db: _TestDB) -> None:
+    """A binding that claims a different attempt is refused."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        validate_guardian_execution_binding(
+            binding,
+            expected_thread_id=str(seeded["thread_id"]),
+            expected_source_message_id=str(seeded["source_message_id"]),
+            expected_coding_task_id="gct-test-1",
+            expected_attempt_id="gat-other",
+        )
+
+    assert excinfo.value.code == "guardian_binding_attempt_id_mismatch"
+
+
+def test_lineage_validation_accepts_the_minted_binding(db: _TestDB) -> None:
+    """The minted binding satisfies the lineage it claims."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    validate_guardian_execution_binding(
+        binding,
+        expected_thread_id=str(seeded["thread_id"]),
+        expected_source_message_id=str(seeded["source_message_id"]),
+        expected_coding_task_id="gct-test-1",
+        expected_attempt_id="gat-test-1",
+    )
+
+
+def test_intent_creation_does_not_require_a_credential(
+    db: _TestDB,
+) -> None:
+    """Creating a delegation intent must not depend on credential state.
+
+    The execution binding is a dispatch-time authorization: it names the
+    provider, model, and credential one concrete attempt will use. Minting it
+    during intent creation would make intent creation depend on the account
+    having a usable credential, and would bind an attempt that may never be
+    dispatched.
+    """
+    from guardian.core.guardian_delegation_service import (
+        GuardianDelegationService,
+    )
+
+    seeded = _seed_account(db)
+    # Deliberately no credential is registered for this account.
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+
+    run = service._create_agent_run_link(
+        intent_id="gdi-no-credential",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+    assert deployment is not None
+    spec = dict(deployment.spec_json or {})
+
+    # No binding is claimed, because none was established.
+    assert "execution_binding" not in spec
+    # The dispatch identifiers the binding will be minted against are present.
+    assert spec["coding_task_id"] == run["coding_task_id"]
+    assert spec["attempt_id"] == run["attempt_id"]
+
+
+def test_dispatch_persists_a_worker_acceptable_binding(db: _TestDB) -> None:
+    """The persisted deployment spec carries the binding the worker reads.
+
+    The coding worker compares the task payload binding to the persisted
+    deployment spec binding byte-for-byte, so the two must be identical.
+    """
+    from guardian.core.guardian_delegation_service import (
+        GuardianDelegationService,
+    )
+
+    seeded = _seed_account(db)
+    _seed_credential(db, user_id=seeded["user_id"])
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+
+    run = service._create_agent_run_link(
+        intent_id="gdi-test-1",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    binding = service._resolve_execution_binding(
+        db=db,
+        intent_id="gdi-test-1",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        coding_task_id=run["coding_task_id"],
+        attempt_id=run["attempt_id"],
+    )
+    service.persist_execution_binding(
+        deployment_id=run["deployment_id"],
+        execution_binding=binding,
+    )
+
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+        persisted_run = (
+            session.query(AgentRun).filter_by(run_id=run["run_id"]).one_or_none()
+        )
+
+    assert deployment is not None
+    assert persisted_run is not None
+    spec = dict(deployment.spec_json or {})
+
+    # The binding is persisted in the deployment spec.
+    persisted_binding = spec.get("execution_binding")
+    assert isinstance(persisted_binding, dict)
+    assert persisted_binding == binding
+
+    # It satisfies the worker's binding gate.
+    reparsed = CodingExecutionBinding.from_dict(persisted_binding)
+    assert reparsed.harness_id == "pi"
+    assert reparsed.credential_type == "api_key"
+    assert reparsed.thread_id == str(seeded["thread_id"])
+    assert reparsed.source_message_id == str(seeded["source_message_id"])
+    assert reparsed.user_id == seeded["user_id"]
+    assert 1 <= reparsed.max_attempts <= 3
+
+    # The binding is minted against the dispatch identifiers recorded in the
+    # spec, so a later task payload can mirror the persisted binding exactly.
+    assert spec["coding_task_id"] == run["coding_task_id"]
+    assert spec["attempt_id"] == run["attempt_id"]
+    assert reparsed.coding_task_id == run["coding_task_id"]
+    assert reparsed.attempt_id == run["attempt_id"]
+
+
+def test_persisted_binding_cannot_be_rewritten(db: _TestDB) -> None:
+    """An established attempt authorization is immutable.
+
+    A retry must mint a new attempt rather than rewrite an existing one, or
+    the credential-lease authority and the coding worker could disagree
+    about which authorization an attempt is running under.
+    """
+    from guardian.core.guardian_delegation_service import (
+        GuardianDelegationService,
+        GuardianDelegationValidationError,
+    )
+
+    seeded = _seed_account(db)
+    _seed_credential(db, user_id=seeded["user_id"])
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+
+    run = service._create_agent_run_link(
+        intent_id="gdi-immutable",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    binding = service._resolve_execution_binding(
+        db=db,
+        intent_id="gdi-immutable",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        coding_task_id=run["coding_task_id"],
+        attempt_id=run["attempt_id"],
+    )
+    service.persist_execution_binding(
+        deployment_id=run["deployment_id"],
+        execution_binding=binding,
+    )
+
+    # Writing the identical binding again is idempotent.
+    service.persist_execution_binding(
+        deployment_id=run["deployment_id"],
+        execution_binding=binding,
+    )
+
+    # Writing a *different* binding for the same attempt is refused.
+    redirected = {**binding, "model_id": "some-other-model"}
+    with pytest.raises(GuardianDelegationValidationError) as excinfo:
+        service.persist_execution_binding(
+            deployment_id=run["deployment_id"],
+            execution_binding=redirected,
+        )
+    assert (
+        excinfo.value.detail
+        == "guardian_delegation_execution_binding_already_established"
+    )

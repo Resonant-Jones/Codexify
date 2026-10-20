@@ -1412,6 +1412,89 @@ class GuardianDelegationService:
         except Exception:  # pragma: no cover - defensive branch
             return False
 
+    def _resolve_execution_binding(
+        self,
+        *,
+        db: Any,
+        intent_id: str,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+        user_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+    ) -> dict[str, Any]:
+        """Mint the Guardian-owned execution binding for one delegated task.
+
+        The provider, model, and credential are resolved from the account's
+        own durable state — never from the request. A caller proposal may
+        narrow the result but can never widen it. See
+        ``guardian/core/guardian_execution_binding.py``.
+        """
+        from guardian.agents.execution_credentials import list_account_credentials
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+            GuardianExecutionBindingRequest,
+            resolve_guardian_execution_binding,
+        )
+
+        credentials = list_account_credentials(db, account_id=user_id)
+        if not credentials:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_no_account_credential"
+            )
+
+        # Prefer the most recently registered account credential that the
+        # account is allowed to use. `list_account_credentials` already
+        # returns account-scoped credentials newest-first.
+        selected = credentials[0]
+        credential_ref = str(selected.get("credential_ref") or "").strip()
+        provider_id = str(selected.get("provider_id") or "").strip()
+        # The stored credential pins the provider; Guardian pins the model
+        # from the runtime's own configuration for that provider. An
+        # account-scoped credential does not restrict models, so the model
+        # must come from a trusted authority rather than the request.
+        model_id = self._resolve_account_model_id(provider_id)
+        if not model_id:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+
+        return resolve_guardian_execution_binding(
+            db,
+            GuardianExecutionBindingRequest(
+                account_id=user_id,
+                thread_id=str(thread_id),
+                source_message_id=str(source_message_id),
+                project_id=str(project_id) if project_id is not None else None,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                credential_ref=credential_ref,
+                provider_id=provider_id,
+                model_id=model_id,
+            ),
+        )
+
+    def _resolve_account_model_id(self, provider_id: str) -> str:
+        """Resolve the account's configured model for a provider.
+
+        The model is pinned rather than discovered: the runtime's configured
+        model for the provider is authoritative — the same authority the chat
+        path uses — and the Pi wrapper independently refuses an identity
+        mismatch, so a substituted model fails closed instead of silently
+        succeeding.
+        """
+        if not str(provider_id or "").strip():
+            return ""
+        try:
+            from guardian.core.provider_registry import default_model_for_provider
+            from guardian.core.config import get_settings
+
+            resolved = default_model_for_provider(provider_id, get_settings())
+        except Exception:  # pragma: no cover - defensive branch
+            return ""
+        return str(resolved or "").strip()
+
     def _create_agent_run_link(
         self,
         *,
@@ -1423,6 +1506,21 @@ class GuardianDelegationService:
         plan_summary: dict[str, Any],
         context_basis: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        # The execution binding is a *dispatch-time* authorization: it names
+        # the provider, model, and credential that one concrete attempt will
+        # use. Minting it here would make intent creation depend on the
+        # account having a usable credential, and would bind an attempt that
+        # may never be dispatched.
+        #
+        # Instead the run link records the deterministic dispatch identifiers
+        # and the lineage the binding must be minted against. The dispatch
+        # layer (Slice 3) mints the binding from trusted account context and
+        # persists it into this deployment spec before enqueueing, because the
+        # credential-lease authority re-reads the binding from the spec and
+        # the coding worker requires the task payload binding to equal the
+        # persisted one byte-for-byte.
+        coding_task_id = _new_external_id("gct")
+        attempt_id = _new_external_id("gat")
         deployment_spec = {
             "guardian_delegation": {
                 "ownership": "guardian_delegation_intent",
@@ -1439,6 +1537,8 @@ class GuardianDelegationService:
             "instructions": plan_summary["standardized_task_prompt"],
             "plan_summary": plan_summary,
             "context_basis": context_basis,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
         }
         deployment = self.agent_store.create_deployment(
             flow_id=f"guardian_delegation_{intent_id}",
@@ -1450,13 +1550,69 @@ class GuardianDelegationService:
         # Guardian Delegation Loop v1 Phase 3 still uses a direct Guardian-owned
         # route. Intent-spine unification remains deferred even though
         # source-thread result delivery is now proven for Guardian-owned runs.
-        return self.agent_store.create_run(
+        run = self.agent_store.create_run(
             deployment_id=str(deployment["deployment_id"]),
             thread_id=thread_id,
             runtime_target="container",
             rollback_mode="auto",
             status="queued",
         )
+        # Carry the dispatch identifiers alongside the run so the dispatch
+        # layer can mint a binding against them and build a task payload
+        # whose binding is byte-identical to the persisted deployment spec.
+        return {
+            **run,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "deployment_id": str(deployment["deployment_id"]),
+        }
+
+    def persist_execution_binding(
+        self,
+        *,
+        deployment_id: str,
+        execution_binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist a minted execution binding into a deployment spec.
+
+        The credential-lease authority re-reads the binding from the persisted
+        deployment spec, and the coding worker requires the task payload
+        binding to equal the persisted one byte-for-byte. Writing it here —
+        once, before dispatch — is what makes those two checks agree.
+
+        The binding is written only once. A second write with a different
+        binding is refused: an attempt's authorization is immutable once
+        established, so a retry must mint a new attempt rather than rewrite
+        this one.
+        """
+        deployment = self.agent_store.get_deployment(deployment_id)
+        if deployment is None:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_deployment_missing"
+            )
+        spec = dict(deployment.get("spec_json") or {})
+        existing = spec.get("execution_binding")
+        if isinstance(existing, dict) and existing:
+            if existing != execution_binding:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_execution_binding_already_established"
+                )
+            return dict(existing)
+        spec["execution_binding"] = execution_binding
+        with self._require_db().get_session() as session:
+            row = (
+                session.query(AgentDeployment)
+                .filter_by(deployment_id=deployment_id)
+                .one_or_none()
+            )
+            if row is None:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_deployment_missing"
+                )
+            row.spec_json = spec
+            row.spec_hash = _stable_hash(spec)
+            session.commit()
+        return dict(execution_binding)
 
     def _build_phase2b_plan(
         self,
