@@ -15,6 +15,7 @@ import {
 
 export type MobileApplicationView =
   | "guardian"
+  | "library"
   | "documents"
   | "gallery"
   | "dashboard"
