@@ -3878,6 +3878,16 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={activeRoomId == null && view === "library" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "library" ? "page" : undefined}
+                onClick={() => navigateToView("library")}
+                style={getMobileNavPillStyle("library")}
+              >
+                Library
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={activeRoomId == null && view === "documents" ? "active" : "inactive"}
                 aria-current={activeRoomId == null && view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
