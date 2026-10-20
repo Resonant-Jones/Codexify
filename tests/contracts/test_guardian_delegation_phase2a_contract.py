@@ -191,6 +191,14 @@ def _fetch_intent(db: _TestDB, intent_id: str) -> GuardianDelegationIntent | Non
         )
 
 
+def _find_only_intent_id(db: _TestDB) -> str:
+    """Return the single persisted intent id, for post-failure assertions."""
+    with db.get_session() as session:
+        rows = session.query(GuardianDelegationIntent).all()
+    assert len(rows) == 1, f"expected exactly one intent, found {len(rows)}"
+    return str(rows[0].intent_id)
+
+
 def _fetch_run(db: _TestDB, run_id: str) -> AgentRun | None:
     with db.get_session() as session:
         return session.query(AgentRun).filter_by(run_id=run_id).first()
@@ -964,3 +972,204 @@ def test_guardian_api_route_is_flagged_off_by_default() -> None:
     }
     assert "/api/guardian/delegations" not in paths
     assert "/api/guardian/delegations/{intent_id}/transcript" not in paths
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Acceptance-axis semantics (Task Spec 1)
+#
+# The acceptance axis is admission-scoped: it records whether the request was
+# admitted and whether the task-created start event was visible. A dispatch
+# failure is an *execution* fact and belongs on the intent axis. Run status is
+# a projection derived from the linked AgentRun; it is never stored on the
+# intent. See docs/architecture/guardian-delegation-loop-contract.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _force_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the AgentRun link step fail, as a downstream dispatch error would."""
+    service = guardian_delegations.get_service()
+
+    def _boom(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("simulated_agent_run_link_failure")
+
+    monkeypatch.setattr(service, "_create_agent_run_link", _boom)
+
+
+def test_dispatch_failure_keeps_acceptance_axis_at_admission_value(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dispatch failure must not overwrite acceptance with a degraded token."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    # The dispatch failure surfaces as a dispatch error (503), not as a 201.
+    assert response.status_code == 503
+    assert response.json()["detail"] == "guardian_delegation_dispatch_failed"
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # The acceptance axis keeps its admission value. It is NOT downgraded to
+    # `accepted_degraded`, which means "admitted with degraded start-event
+    # visibility" and would assert an admission that never happened.
+    assert row.acceptance_status == "accepted"
+
+    # The execution fact lives on the intent axis.
+    assert row.intent_status == "failed"
+
+    # The user never saw a start event, so visibility stays truthful.
+    assert row.visibility_status == "not_posted"
+
+
+def test_dispatch_failure_leaves_run_status_projection_at_not_enqueued(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run status is a projection, not a stored field on the intent."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # No AgentRun was linked, so the intent stores no run_id...
+    assert row.run_id is None
+    # ...and the run-status projection derives `not_enqueued` from that.
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"
+
+    # The intent model has no stored run_status column: the status is always
+    # derived, never persisted alongside the intent.
+    assert not hasattr(row, "run_status")
+
+
+def test_dispatch_failure_keeps_axes_independently_queryable(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance, intent, run, and visibility stay separate axes."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # Each axis carries only its own fact.
+    assert row.acceptance_status == "accepted"  # admission
+    assert row.intent_status == "failed"  # execution outcome
+    assert row.visibility_status == "not_posted"  # user-visible projection
+    assert row.approval_state == "approved"  # approval decision
+
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"
+
+
+def test_acceptance_status_enum_is_unchanged_by_dispatch_failure(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global acceptance vocabulary is admission-scoped and untouched."""
+    from guardian.protocol_tokens import AcceptanceStatus
+
+    # The enum still carries exactly its two admission-scoped values.
+    assert [status.value for status in AcceptanceStatus] == [
+        "accepted",
+        "accepted_degraded",
+    ]
+
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    row = _fetch_intent(db, _find_only_intent_id(db))
+    assert row is not None
+    # A dispatch failure never yields the degraded-visibility token.
+    assert row.acceptance_status != AcceptanceStatus.ACCEPTED_DEGRADED.value
+
+
+def test_approved_intent_dispatch_failure_keeps_acceptance_axis(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The approve path also keeps acceptance at its admission value."""
+    seeded = _seed_source_context(db)
+
+    created = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+            "approval_mode": "human_required",
+        },
+    )
+    assert created.status_code == 201
+    intent_id = created.json()["intent_id"]
+
+    _force_dispatch_failure(monkeypatch)
+
+    approved = delegation_client.post(
+        f"/api/guardian/delegations/{intent_id}/approve",
+        headers=auth_headers,
+    )
+    assert approved.status_code == 503
+    assert approved.json()["detail"] == "guardian_delegation_dispatch_failed"
+
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+    assert row.acceptance_status == "accepted"
+    assert row.intent_status == "failed"
+    assert row.visibility_status == "not_posted"
+    assert row.run_id is None
+
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"

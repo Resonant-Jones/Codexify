@@ -131,6 +131,17 @@ These axes are separate truths. This contract does not claim that every value be
 - `run_status`: `not_enqueued`, `queued`, `running`, `completed`, `failed`, `cancelled`
 - `visibility_status`: `not_posted`, `interrupt_posted`, `result_posted`, `stale_suppressed`, `delivery_degraded`
 
+### Axis Ownership of Facts
+
+Which axis owns which fact. Writing a fact onto the wrong axis is a category error, and the axes are not interchangeable.
+
+- **`acceptance_status` is admission-scoped.** It records whether the request was admitted and whether the `task.created` start event was visible. `accepted` means admitted with a visible start event; `accepted_degraded` means admitted with degraded start-event visibility (publish failed, or the published event carried no event id). It is derived from the publish outcome in `guardian/core/chat_completion_service.py` and logged beside `task_created_visibility_scope` in `guardian/routes/chat.py`. **It never carries an execution fact.**
+- **`intent_status` owns the execution outcome.** A dispatch failure sets `intent_status` to `failed`. It does not alter `acceptance_status`: the request was admitted, and admitting it did not fail.
+- **`run_status` is a projection, not a stored field.** `GuardianDelegationIntent` has no `run_status` column. `_resolve_row_run_status` derives it from the linked `AgentRun`, returning `not_enqueued` when no run is linked. Adding a stored `run_status` would require a schema migration and is not authorized here.
+- **`visibility_status` owns what the user actually saw.** A dispatch failure leaves it `not_posted`, because the user was never shown a start event.
+
+Consequently, a Guardian dispatch failure must not be recorded as `accepted_degraded`: that token would assert an acceptance-and-visibility state that did not occur. No new protocol token is added for this; the existing axes already carry every fact.
+
 ## Coding Delegation Context Policy
 
 Guardian-to-coding-agent delegation is work-scoped by default.

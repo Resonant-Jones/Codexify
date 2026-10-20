@@ -552,11 +552,15 @@ class GuardianDelegationService:
                     .first()
                 )
                 if row is not None:
+                    # A dispatch failure is an execution fact and belongs on
+                    # the intent axis. The acceptance axis records request
+                    # admission plus task-created visibility only, so it keeps
+                    # the admission value it already carries. Leaving run_id
+                    # unset keeps the run-status projection at `not_enqueued`,
+                    # and visibility_status stays `not_posted` because the
+                    # user was never shown a start event.
                     row.intent_status = (
                         GuardianDelegationIntentStatus.FAILED.value
-                    )
-                    row.acceptance_status = (
-                        AcceptanceStatus.ACCEPTED_DEGRADED.value
                     )
                     session.commit()
             raise GuardianDelegationDispatchError() from exc
@@ -676,10 +680,11 @@ class GuardianDelegationService:
                     context_basis=list(row.context_basis or []),
                 )
             except Exception as exc:  # pragma: no cover - defensive branch
+                # A dispatch failure is an execution fact and belongs on the
+                # intent axis; the acceptance axis keeps its admission value.
+                # run_id stays unset, so the run-status projection remains
+                # `not_enqueued`, and visibility_status stays `not_posted`.
                 row.intent_status = GuardianDelegationIntentStatus.FAILED.value
-                row.acceptance_status = (
-                    AcceptanceStatus.ACCEPTED_DEGRADED.value
-                )
                 session.commit()
                 raise GuardianDelegationDispatchError() from exc
 
