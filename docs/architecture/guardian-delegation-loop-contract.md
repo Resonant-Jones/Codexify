@@ -69,14 +69,19 @@ What is true now:
 - Coding results return through Guardian into the source thread on the supported path.
 - Existing runtime docs distinguish acceptance, execution, task-event visibility, and completion.
 - Existing bounded tool/coding-agent contracts avoid claims of recursive autonomous execution.
+- The Guardian delegation path can mint an execution binding from trusted account context, resolve an enforceable permission posture, persist both against the deployment, and enqueue exactly one coding-execution task. This is **code-path presence with contract tests, not live-runtime proof**: it has not been driven from a chat turn and has not been qualified on the supported Compose path.
 
 What is not yet true:
 
-- The Guardian Delegation Loop v1 is not implemented.
+- The Guardian Delegation Loop v1 is **not** implemented end to end. The delegation *authorization* and *dispatch* path now exists in code — a Guardian-owned execution binding, an enforceable permission posture, and a durable dispatch that enqueues one coding-execution task with a binding byte-identical to the persisted one — but it is **not yet driven from a chat turn**, and it is **not yet proven on the supported Compose path**.
+- Guardian delegation is therefore still **non-executable from a user's conversation**. Nothing in this slice makes a chat turn produce a delegated task.
+- The delegation route remains **flagged off by default** and quarantined by the supported profile, and no supported-profile or release-surface change has been made or authorized.
+- The dispatch recovery contract is **quarantine-and-escalate**: automated re-dispatch is refused because no fencing token exists in this runtime.
 - Broad "answer as me" authority does not exist.
 - No new public release surface is implied by this contract.
 - Intent-spine unification does not exist.
 - No Command Center mirror implementation is claimed unless separately proven by current code and runtime docs.
+- The current release gate is unchanged: the latest complete supported-Compose qualification remains `HOLD`, and autonomous coding-worker work is not promoted to default Beta support.
 
 What this contract may assume:
 
@@ -141,6 +146,28 @@ Which axis owns which fact. Writing a fact onto the wrong axis is a category err
 - **`visibility_status` owns what the user actually saw.** A dispatch failure leaves it `not_posted`, because the user was never shown a start event.
 
 Consequently, a Guardian dispatch failure must not be recorded as `accepted_degraded`: that token would assert an acceptance-and-visibility state that did not occur. No new protocol token is added for this; the existing axes already carry every fact.
+
+### Dispatch authorization
+
+Dispatching a delegated coding task requires two Guardian-owned authorizations, both resolved from trusted account, project, and workspace context — never from the request.
+
+- **The execution binding** (`guardian/core/guardian_execution_binding.py`) names the provider, model, harness, credential reference, owner scope, and lineage for one attempt. It is secret-free, attempt-scoped, and immutable once established. The provider and credential come from the account's own registered credentials; the model is pinned from the runtime's configuration for that provider. A caller proposal may narrow a grant, never widen one. The binding is persisted into the deployment spec **before** the task is queued, because the credential-lease authority re-reads it from the spec and the coding worker requires the task payload binding to equal the persisted one byte-for-byte.
+- **The permission posture** (`guardian/core/guardian_permission_posture.py`) states which surfaces actually enforce the grant and which do not. Per ADR-077 rule 6, denied filesystem mutation is enforced below the model/tool layer; per rule 7, tool allowlists and prompt instructions are defense in depth, not filesystem, network, or process isolation. The git mutation guard **detects** an out-of-scope mutation and fails the attempt — it does not prevent the write. `allow_network` is a request, not an egress guarantee, because no sandbox provider is wired into the coding worker. The posture is therefore advisory for network egress and process isolation, and says so rather than claiming enforcement it cannot evidence.
+
+### Dispatch recovery
+
+The queue is `LPUSH` + destructive `BRPOP`/`RPOP` with no ack, no pending list, and no requeue. Four layers must therefore be kept distinct, because a guarantee on one says nothing about another:
+
+| Layer | Guarantee | Mechanism |
+|---|---|---|
+| Task delivery | **At-most-once, and lossy** | `guardian/queue/redis_queue.py` |
+| Attempt execution | **Unguaranteed** | a dequeued task may still be executing |
+| Execution effects | **Not idempotent** | the adapter runs a subprocess with write access and may commit |
+| Result delivery | **Idempotent** per (intent, run) | `build_guardian_delegation_result_delivery_key` |
+
+**No exactly-once execution claim is made.** A missing heartbeat is *uncertain*, not lost: the worker may be between phases, blocked on a subprocess, or in a long validation loop. Recovery is therefore **quarantine-and-escalate**. Automated re-dispatch is refused while no fencing token exists, because without fencing a superseded attempt's writes cannot be rejected, and isolation alone bounds cross-contamination but not duplicate logical effects. A recovery attempt must mint a new attempt id, a new binding, and a freshly issued credential lease. This mirrors the existing chat recovery idiom, which also refuses to execute during recovery.
+
+Dispatch state lives in `guardian/core/guardian_dispatch.py` and is durable and queryable: `prepared`, `dispatched`, `executing`, `completed`, `failed`, `uncertain`, `quarantined`, `cancelled`. Recovery reads that state; it never infers from absence.
 
 ## Coding Delegation Context Policy
 
