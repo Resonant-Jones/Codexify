@@ -1427,7 +1427,9 @@ export default function AppShell({
   const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
     ? view === "library"
       ? "documents"
-      : view
+      : isWorkspaceShellView(view)
+        ? view
+        : "dashboard"
     : "dashboard";
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
