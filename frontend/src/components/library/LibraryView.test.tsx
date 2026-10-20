@@ -29,6 +29,18 @@ vi.mock("@/components/gallery/GalleryGrid", () => ({
   ),
 }));
 
+const extColors = {
+  pdf: "#ef4444",
+  doc: "#0ea5e9",
+  md: "#6366f1",
+  png: "#06b6d4",
+  sketch: "#f59e0b",
+  txt: "#06b6d4",
+  docx: "#2563eb",
+  jpeg: "#d946ef",
+  codex: "#22c55e",
+};
+
 const scope = { kind: "project" as const, projectId: 7, threadId: null };
 const image = {
   presentationKey: "uploaded_image:img-1",
@@ -102,7 +114,7 @@ describe("LibraryView", () => {
   });
 
   it("renders the approved four filters as accessible tabs", async () => {
-    render(<LibraryView scope={scope} extColors={{}} />);
+    render(<LibraryView scope={scope} extColors={extColors} />);
     await waitFor(() => expect(screen.getByTestId("library-filter-all")).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByRole("tab", { name: "All" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Images" })).toBeInTheDocument();
@@ -111,7 +123,7 @@ describe("LibraryView", () => {
   });
 
   it("changes the projection filter and renders the matching presentation surface", async () => {
-    render(<LibraryView scope={scope} extColors={{}} />);
+    render(<LibraryView scope={scope} extColors={extColors} />);
     await waitFor(() => expect(screen.getByTestId("gallery-grid-mock")).toHaveTextContent("1 images"));
     fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
     await waitFor(() => expect(buildProjection).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "documents" })));
@@ -119,7 +131,7 @@ describe("LibraryView", () => {
   });
 
   it("states that Widgets are unavailable without creating records", async () => {
-    render(<LibraryView scope={scope} extColors={{}} />);
+    render(<LibraryView scope={scope} extColors={extColors} />);
     await waitFor(() => screen.getByRole("tab", { name: "Widgets" }));
     fireEvent.click(screen.getByRole("tab", { name: "Widgets" }));
     await waitFor(() => expect(screen.getByTestId("library-widgets-unavailable")).toBeInTheDocument());
