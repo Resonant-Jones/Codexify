@@ -23,6 +23,7 @@ from guardian.db.models import (
     ProjectDocumentLink,
     UploadedDocument,
 )
+from guardian.core.guardian_execution_binding import GuardianExecutionBindingError
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
     AcceptanceStatus,
@@ -1494,6 +1495,92 @@ class GuardianDelegationService:
         except Exception:  # pragma: no cover - defensive branch
             return ""
         return str(resolved or "").strip()
+
+    def _resolve_permission_posture(
+        self,
+        *,
+        db: Any,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> dict[str, Any]:
+        """Resolve the enforceable permission posture for one delegated task.
+
+        The posture is derived from trusted account, project, and workspace
+        context, and it records which surfaces actually enforce it. A
+        permission flag is a request, not a guarantee: ADR-077 rule 7 states
+        that tool allowlists and prompt instructions are defense in depth, not
+        filesystem, network, or process isolation. See
+        ``guardian/core/guardian_permission_posture.py``.
+        """
+        from guardian.core.guardian_permission_posture import (
+            GuardianPermissionPostureError,
+            resolve_guardian_permission_posture,
+        )
+
+        repo_root = self._resolve_project_repo_root(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+        )
+        try:
+            posture = resolve_guardian_permission_posture(
+                account_id=user_id,
+                provider_id=provider_id,
+                model_id=model_id,
+                repo_root=repo_root,
+                # The delegated task is scoped to the bound working tree. The
+                # mutation guard compares changed paths against this scope.
+                allowed_paths=("",),
+                allow_write=True,
+                # A delegated coding task needs a shell for tests, builds, and
+                # git. It is authorized explicitly here rather than inherited.
+                allow_shell=True,
+                # No sandbox provider is wired into the coding worker, so
+                # network egress is not authorizable as enforced.
+                allow_network=False,
+            )
+        except GuardianPermissionPostureError as exc:
+            raise GuardianExecutionBindingError(
+                "guardian_posture_unresolved", exc.code
+            ) from None
+        return posture.to_dict()
+
+    def _resolve_project_repo_root(
+        self,
+        *,
+        db: Any,
+        project_id: int | None,
+        user_id: str,
+    ) -> str | None:
+        """Resolve the project's bound working-tree root, fail closed.
+
+        The repository binding is the durable Project-to-working-tree
+        authority (ADR-065). A project without an active binding has no
+        authorizable workspace, so no root is returned.
+        """
+        if project_id is None:
+            return None
+        try:
+            from guardian.core.repository_authority import (
+                RepositoryAuthorityError,
+                resolve_project_repository_binding,
+            )
+
+            with db.get_session() as session:
+                binding = resolve_project_repository_binding(
+                    session,
+                    authenticated_account_id=user_id,
+                    project_id=int(project_id),
+                )
+            return str(binding.canonical_root)
+        except Exception:
+            # No active binding, an account mismatch, or an invalid root all
+            # mean the same thing here: there is no authorizable workspace.
+            return None
 
     def _create_agent_run_link(
         self,
