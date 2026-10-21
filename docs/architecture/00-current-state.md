@@ -31,6 +31,8 @@ This file is authoritative for:
 - Integrated the merged shell geometry repairs, selectable glass treatments and radio navigation, Library projection/navigation, task cancellation ownership authorization, and narrow-Guardian session-rail contract through PR #884. Generative UI remains behind its existing opt-in gates; implementation presence does not widen Beta support.
 - Historical PR #865 proof records remain limited to their recorded revisions and runtime paths; this reconciliation does not establish fresh integrated-tip Compose qualification or candidate-adoption authority.
 
+- The approved 2026-10-21 private-preview restart integrated reconciled main plus the UMS ORM restoration. Canonical missing-table repair retained the migration head and user/thread/message counts; bounded UI/core/chat health checks passed. See [restart receipt](proofs/runtime/2026-10-21-main-reconciliation-private-preview-restart.md). This does not change the supported-Compose HOLD.
+
 ## Current supported reality
 
 - The named supported install path is local Docker Compose profile `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
@@ -57,7 +59,7 @@ This file is authoritative for:
 ## Active blockers
 
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
-- Migration-route collection is blocked by missing UMS revision models; the disposable evidence-reader migration is blocked by multiple Alembic heads.
+- The four missing UMS ORM mappings are restored. Focused validation records 124 passes and one inherited stale migration-head assertion; blocked Chronicle HTTP coverage and complete supported-Compose qualification still require separate proof.
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap must be repaired and re-proven through browser and durable-readback paths.
