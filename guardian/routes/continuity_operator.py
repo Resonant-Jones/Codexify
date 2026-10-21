@@ -30,7 +30,13 @@ from guardian.continuity.write_actions import (
     ContinuityWriteReceipt,
     RealityStampInput,
 )
-from guardian.core.dependencies import get_database_dsn, require_operator_auth
+from guardian.core.dependencies import (
+    _auth_mode,
+    _multi_user_mode_enabled,
+    get_database_dsn,
+    is_private_preview,
+    require_operator_auth,
+)
 from guardian.db.models import (
     ContinuityContextPacket,
     ContinuityRealityCommit,
@@ -41,6 +47,21 @@ from guardian.db.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/operator/continuity", tags=["continuity-operator"])
+
+
+def _require_single_user_operator_boundary() -> None:
+    """Contain the legacy operator surface to local single-user execution.
+
+    Operator credentials do not establish account authority. Remote, Preview,
+    and multiuser execution must remain unavailable until an independently
+    authenticated account boundary is defined for this surface. Payload IDs,
+    project claims, and operator token subjects cannot supply that authority.
+    """
+    if is_private_preview() or _auth_mode() != "local" or _multi_user_mode_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Continuity operator routes require independently established account authority",
+        )
 
 
 # ── Pydantic models ─────────────────────────────────────────────────────────
@@ -139,6 +160,7 @@ def create_reality_stamp(
     explicit — no ambient chat context, retrieval, model inference,
     browser capture, or graph enrichment is used.
     """
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -260,6 +282,7 @@ def read_context_packet(
     """
     from datetime import datetime, timezone
 
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -381,6 +404,7 @@ def operator_diagnostics(
 
     from sqlalchemy import func
 
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -516,6 +540,7 @@ def read_reality_state(
     """
     from datetime import datetime, timezone
 
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -616,6 +641,7 @@ def read_reality_commit(
     """
     from datetime import datetime, timezone
 
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -714,6 +740,7 @@ def read_state_packet_link(
     """
     from datetime import datetime, timezone
 
+    _require_single_user_operator_boundary()
     dsn = get_database_dsn()
     if not dsn:
         raise HTTPException(status_code=503, detail="Database unavailable")
