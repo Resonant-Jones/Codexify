@@ -1121,45 +1121,194 @@ def _changed_paths_since_preflight(
     return changed
 
 
-def _path_allowed(path: str, allowed_paths: list[str]) -> bool:
-    candidate = str(path or "").replace("\\", "/").strip()
+#: The explicit scope token that authorizes the whole bound repository. A
+#: Guardian-resolved posture must name it; an empty or omitted scope never
+#: implies it.
+_AUTHORIZED_SCOPE_ROOT_TOKEN = "."
+
+#: Characters that mark a scope entry as an explicitly authorized pattern.
+_AUTHORIZED_SCOPE_PATTERN_CHARACTERS = ("*", "?", "[")
+
+
+@dataclass(frozen=True)
+class AuthorizedWriteScope:
+    """One normalized Guardian-authorized write scope.
+
+    ``entries`` holds ``(kind, value)`` pairs where kind is ``"root"``,
+    ``"prefix"`` or ``"pattern"``. An empty ``entries`` tuple means the scope
+    could not be resolved: it authorizes nothing, and the caller must fail
+    closed rather than treat the repository as unrestricted.
+    """
+
+    entries: tuple[tuple[str, str], ...] = ()
+    rejected: tuple[str, ...] = ()
+    reason: str | None = None
+
+    @property
+    def resolved(self) -> bool:
+        return bool(self.entries)
+
+    @property
+    def root_authorized(self) -> bool:
+        return any(kind == "root" for kind, _value in self.entries)
+
+    def authorized_paths(self) -> list[str]:
+        """The normalized scope entries, for diagnostic metadata."""
+        return [value for _kind, value in self.entries]
+
+
+def _scope_entry_text(raw: Any) -> str:
+    return str(raw or "").replace("\\", "/").strip()
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    if not path or not root:
+        return False
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
+def _resolve_authorized_write_scope(
+    *,
+    allowed_paths: Any,
+    repo_root: str | None,
+) -> AuthorizedWriteScope:
+    """Normalize one Guardian-authorized write scope.
+
+    This is the single interpretation of ``permission_policy["allowed_paths"]``
+    that every mutation check in this worker consumes. A scope entry is one of:
+
+    * ``"."`` — explicit repository-root authorization;
+    * a repository-relative path prefix — an exact file, or a directory and
+      everything beneath it. Prefixes are matched on a path boundary, so a
+      scope of ``src`` never authorizes the sibling ``src-other``;
+    * an explicitly authorized glob pattern.
+
+    An empty string, an absolute path outside the bound repository, and a
+    parent-directory traversal are rejected. A scope that resolves to no valid
+    entry authorizes nothing at all, so the caller fails closed instead of
+    treating the repository as unrestricted.
+    """
+    if not isinstance(allowed_paths, (list, tuple, set)):
+        return AuthorizedWriteScope(reason="allowed_paths_missing")
+
+    root = (
+        os.path.realpath(str(repo_root).strip())
+        if str(repo_root or "").strip()
+        else None
+    )
+    entries: list[tuple[str, str]] = []
+    rejected: list[str] = []
+
+    for item in allowed_paths:
+        entry = _scope_entry_text(item)
+        if not entry:
+            rejected.append("<empty>")
+            continue
+        if ".." in entry.split("/"):
+            rejected.append(entry)
+            continue
+        relative = entry
+        if os.path.isabs(entry):
+            if not root:
+                rejected.append(entry)
+                continue
+            absolute = os.path.realpath(entry)
+            if not _path_is_within(absolute, root):
+                rejected.append(entry)
+                continue
+            relative = os.path.relpath(absolute, root).replace("\\", "/")
+        while relative.startswith("./"):
+            relative = relative[2:]
+        if relative in {"", "."}:
+            entries.append(("root", _AUTHORIZED_SCOPE_ROOT_TOKEN))
+            continue
+        if any(char in relative for char in _AUTHORIZED_SCOPE_PATTERN_CHARACTERS):
+            entries.append(("pattern", relative))
+            continue
+        entries.append(("prefix", relative.rstrip("/")))
+
+    if not entries:
+        return AuthorizedWriteScope(
+            rejected=tuple(rejected),
+            reason="allowed_paths_unresolved",
+        )
+    return AuthorizedWriteScope(
+        entries=tuple(entries),
+        rejected=tuple(rejected),
+    )
+
+
+def _authorized_scope_allows_path(
+    scope: AuthorizedWriteScope,
+    path: str,
+    *,
+    repo_root: str | None = None,
+) -> bool:
+    """Return True when one changed path is inside the authorized scope.
+
+    The changed path is repository-relative, as reported by git. An absolute
+    path, a parent-directory traversal, and a path that resolves outside the
+    bound repository are rejected before the scope is consulted.
+    """
+    candidate = _scope_entry_text(path)
     if not candidate:
         return False
-    for raw_pattern in allowed_paths:
-        pattern = str(raw_pattern or "").replace("\\", "/").strip()
-        if not pattern:
-            continue
-        if os.path.isabs(pattern) or ".." in pattern.split("/"):
-            continue
-        if pattern.endswith("/"):
-            prefix = pattern.rstrip("/")
-            if candidate == prefix or candidate.startswith(pattern):
+    if os.path.isabs(candidate):
+        return False
+    if ".." in candidate.split("/"):
+        return False
+    while candidate.startswith("./"):
+        candidate = candidate[2:]
+    if not candidate or candidate == ".":
+        return False
+
+    root = (
+        os.path.realpath(str(repo_root).strip())
+        if str(repo_root or "").strip()
+        else None
+    )
+    if root:
+        absolute = os.path.join(root, candidate)
+        if os.path.exists(absolute) and not _path_is_within(
+            os.path.realpath(absolute), root
+        ):
+            return False
+
+    for kind, value in scope.entries:
+        if kind == "root":
+            return True
+        if kind == "prefix":
+            if candidate == value or candidate.startswith(f"{value}/"):
                 return True
             continue
-        if candidate == pattern or fnmatchcase(candidate, pattern):
-            return True
+        if kind == "pattern":
+            if fnmatchcase(candidate, value):
+                return True
     return False
 
 
 def _normalize_allowed_paths(raw_allowed_paths: Any) -> list[str]:
-    if not isinstance(raw_allowed_paths, (list, tuple, set)):
-        return []
-    normalized: list[str] = []
-    for item in raw_allowed_paths:
-        pattern = str(item or "").replace("\\", "/").strip()
-        if not pattern:
-            continue
-        if os.path.isabs(pattern) or ".." in pattern.split("/"):
-            continue
-        if pattern not in normalized:
-            normalized.append(pattern)
-    return normalized
+    """The normalized scope entries, for diagnostic metadata only.
+
+    Authorization decisions are made by
+    ``_resolve_authorized_write_scope`` and ``_authorized_scope_allows_path``.
+    """
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=raw_allowed_paths,
+        repo_root=None,
+    )
+    return scope.authorized_paths()
 
 
 def _bound_paths(
     paths: list[str],
     limit: int = _MUTATION_GUARD_PATH_LIMIT,
 ) -> tuple[list[str], int, bool]:
+    if not isinstance(paths, (list, tuple, set)):
+        return [], 0, False
     bounded: list[str] = []
     for path in paths:
         normalized = str(path or "").replace("\\", "/").strip()
@@ -1201,38 +1350,6 @@ def _collect_dirty_worktree_paths(
     return dirty_paths, None
 
 
-def _resolve_allowed_scope_prefixes(
-    permission_policy: dict[str, Any],
-    *,
-    repo_root: str,
-) -> list[str]:
-    raw_allowed_paths = permission_policy.get("allowed_paths")
-    if not isinstance(raw_allowed_paths, list):
-        return []
-
-    prefixes: list[str] = []
-    for item in raw_allowed_paths:
-        raw_path = _coerce_optional_text(item)
-        if not raw_path:
-            continue
-        absolute = (
-            raw_path
-            if os.path.isabs(raw_path)
-            else os.path.abspath(os.path.join(repo_root, raw_path))
-        )
-        try:
-            if os.path.commonpath([repo_root, absolute]) != repo_root:
-                continue
-            rel = os.path.relpath(absolute, repo_root)
-        except Exception:
-            continue
-        if rel in {".", ""}:
-            prefixes.append("")
-            continue
-        prefixes.append(rel.rstrip("/"))
-    return sorted(set(prefixes))
-
-
 def _enforce_isolated_dirty_preflight(
     worktree_path: str,
 ) -> tuple[bool, str | None, str | None]:
@@ -1254,31 +1371,43 @@ def _enforce_isolated_mutation_scope(
     repo_root: str,
     permission_policy: dict[str, Any],
 ) -> tuple[bool, str | None, str | None]:
+    """Check every dirty path in the isolated worktree against the grant.
+
+    This uses the same normalized scope semantics as
+    ``_evaluate_mutation_guard``: both consume one Guardian-authorized scope
+    and decide with the same predicate. An unresolvable scope fails closed
+    rather than leaving the repository unrestricted.
+    """
     dirty_paths, error = _collect_dirty_worktree_paths(worktree_path)
     if error:
         return False, _error_value("MUTATION_SCOPE_UNVERIFIED"), error
 
+    allow_write = bool(permission_policy.get("allow_write"))
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=permission_policy.get("allowed_paths"),
+        repo_root=repo_root,
+    )
+    if not scope.resolved:
+        if allow_write:
+            return (
+                False,
+                _error_value("MUTATION_SCOPE_VIOLATION"),
+                _bounded_text(
+                    "authorized write scope could not be resolved "
+                    f"({scope.reason}; rejected={list(scope.rejected)})"
+                ),
+            )
+        # Without a write grant there is no scope to enforce here. The
+        # mutation guard owns the ``allow_write`` grant.
+        return True, None, None
+
     if not dirty_paths:
         return True, None, None
 
-    allowed_prefixes = _resolve_allowed_scope_prefixes(
-        permission_policy,
-        repo_root=repo_root,
-    )
-    if not allowed_prefixes:
-        return True, None, None
-
     for dirty_path in dirty_paths:
-        normalized = dirty_path.strip("/")
-        allowed = False
-        for prefix in allowed_prefixes:
-            if not prefix:
-                allowed = True
-                break
-            if normalized == prefix or normalized.startswith(f"{prefix}/"):
-                allowed = True
-                break
-        if not allowed:
+        if not _authorized_scope_allows_path(
+            scope, dirty_path, repo_root=repo_root
+        ):
             return (
                 False,
                 _error_value("MUTATION_SCOPE_VIOLATION"),
@@ -1582,9 +1711,16 @@ def _evaluate_mutation_guard(
     before_ok: bool,
     after_paths: list[str],
     after_ok: bool,
-    allowed_paths: list[str],
+    allowed_paths: Any,
     allow_write: bool,
 ) -> dict[str, Any]:
+    """Check every changed path against the Guardian-authorized write scope.
+
+    This consumes the same normalized scope semantics as
+    ``_enforce_isolated_mutation_scope``: one scope, one predicate, one
+    decision. An unresolvable scope fails closed rather than leaving the
+    repository unrestricted.
+    """
     if repo_root is None or not before_ok or not after_ok:
         return _mutation_guard_metadata(
             enabled=bool(repo_root),
@@ -1596,6 +1732,24 @@ def _evaluate_mutation_guard(
             warning="mutation_scope_cannot_be_proven_without_git_porcelain",
         )
 
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=allowed_paths,
+        repo_root=repo_root,
+    )
+    if allow_write and not scope.resolved:
+        return _mutation_guard_metadata(
+            enabled=True,
+            status="mutation_scope_violation",
+            allowed_paths=scope.authorized_paths(),
+            changed_paths=[],
+            disallowed_paths=[],
+            error_code=_error_value("MUTATION_SCOPE_VIOLATION"),
+            warning=_bounded_text(
+                "authorized write scope could not be resolved "
+                f"({scope.reason}; rejected={list(scope.rejected)})"
+            ),
+        )
+
     changed_paths = _changed_paths_since_preflight(
         repo_root,
         before_paths,
@@ -1605,7 +1759,7 @@ def _evaluate_mutation_guard(
         return _mutation_guard_metadata(
             enabled=True,
             status="clean",
-            allowed_paths=allowed_paths,
+            allowed_paths=scope.authorized_paths(),
             changed_paths=[],
             disallowed_paths=[],
         )
@@ -1615,14 +1769,16 @@ def _evaluate_mutation_guard(
         disallowed_paths = list(changed_paths)
     else:
         for path in changed_paths:
-            if not _path_allowed(path, allowed_paths):
+            if not _authorized_scope_allows_path(
+                scope, path, repo_root=repo_root
+            ):
                 disallowed_paths.append(path)
 
     if disallowed_paths:
         return _mutation_guard_metadata(
             enabled=True,
             status="mutation_scope_violation",
-            allowed_paths=allowed_paths,
+            allowed_paths=scope.authorized_paths(),
             changed_paths=changed_paths,
             disallowed_paths=disallowed_paths,
             error_code=_error_value("MUTATION_SCOPE_VIOLATION"),
@@ -1631,7 +1787,7 @@ def _evaluate_mutation_guard(
     return _mutation_guard_metadata(
         enabled=True,
         status="within_allowed_paths",
-        allowed_paths=allowed_paths,
+        allowed_paths=scope.authorized_paths(),
         changed_paths=changed_paths,
         disallowed_paths=[],
     )
@@ -2066,9 +2222,8 @@ class CodingWorker:
             return
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
-        allowed_paths = _normalize_allowed_paths(
-            permission_policy.get("allowed_paths")
-        )
+        raw_allowed_paths = permission_policy.get("allowed_paths")
+        allowed_paths = _normalize_allowed_paths(raw_allowed_paths)
 
         task_workdir = str(task.cwd or "").strip() or None
         guard_snapshot = _git_mutation_guard_snapshot(
@@ -2290,7 +2445,7 @@ class CodingWorker:
                 before_ok=before_ok,
                 after_paths=after_paths,
                 after_ok=after_ok,
-                allowed_paths=allowed_paths,
+                allowed_paths=raw_allowed_paths,
                 allow_write=bool(permission_policy.get("allow_write")),
             )
 

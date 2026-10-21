@@ -128,6 +128,41 @@ wrapper file on disk does not override the gate.
 
 ## Mutation Scope Guard
 
+The worker has two mutation checks: the git mutation guard and the isolated
+worktree scope check. Both read the same Guardian-authorized write scope, and
+both now interpret it with **one** normalized rule set.
+
+**One scope interpretation.** `permission_policy.allowed_paths` entries are
+repository-relative. Each entry is one of:
+
+- `.` — explicit repository-root authorization.
+- A path prefix — an exact file, or a directory and everything beneath it.
+  Prefixes are matched on a path boundary, so a scope of `src` never
+  authorizes the sibling `src-other`. A trailing `/` is accepted and
+  equivalent.
+- An explicitly authorized glob pattern (`*`, `?`, `[`).
+
+**Rejected entries.** An empty string is *not* whole-repository access. An
+absolute path outside the bound repository, and any entry containing a `..`
+segment, are rejected. A scope that resolves to no valid entry authorizes
+nothing at all: with `allow_write=true` the attempt fails closed with
+`MUTATION_SCOPE_VIOLATION` rather than treating the repository as
+unrestricted.
+
+**Known Guardian-emitter incompatibility.** The delegated-task posture still
+emits `allowed_paths=("",)`, and `GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE` in
+`guardian/core/guardian_permission_posture.py` still declares `("",)` as the
+whole-repository default. Under the normalized scope those are rejected, so a
+delegated task will now fail closed until the emitter migrates to the
+explicit root token `(".",)`. That migration is upstream work in
+`guardian/core/guardian_delegation_service.py` and
+`guardian/core/guardian_permission_posture.py`; it was deliberately not made
+here.
+
+**Changed paths.** A changed path that is absolute, contains a `..` segment, or
+resolves outside the bound repository is rejected before the scope is
+consulted.
+
 - Every attempted coding-worker run captures Git porcelain state before the
   adapter executes when the cwd resolves to a Git repository.
 - If the worktree is already dirty before execution, the worker fails closed
@@ -136,15 +171,32 @@ wrapper file on disk does not override the gate.
   compares it to the preflight snapshot.
 - When `allow_write=false`, any new repository mutation fails closed with
   `MUTATION_SCOPE_VIOLATION`.
-- When `allow_write=true`, changed paths must match `permission_policy.allowed_paths`.
-- Allowed paths support exact repo-relative paths, directory prefixes ending in
-  `/`, and simple glob patterns via `fnmatch`.
-- Absolute paths and `..` segments in `allowed_paths` are ignored safely.
+- When `allow_write=true`, changed paths must match the normalized scope.
+- There is no implicit wildcard: a narrow scope never widens.
 - If the cwd is not a Git repository, the worker emits explicit unverified
   evidence and continues without claiming scope proof.
 - Scope violations stop the retry loop immediately.
 - Validation failures may retry only when mutation scope is clean or within the
   allowed path set.
+
+**Remaining enforcement limitations.**
+
+- Both checks are **detective, not preventive**. The write has already landed
+  when the guard fires (ADR-077 rules 7-8). No sandbox provider is wired into
+  the coding worker, so no filesystem, process, or network isolation is
+  claimed here.
+- The two checks observe different trees. The isolated scope check reads the
+  isolated worktree; the git mutation guard reads the task's repository. A
+  mutation that lands only in the isolated worktree is visible to the guard
+  only when the guard observes that tree.
+- A scope entry is a path prefix. A path authorized as a file also authorizes
+  a subtree of that name, so replacing an authorized file with a directory of
+  the same name stays inside the prefix.
+- With `allow_write=false` the guard denies every mutation, while the isolated
+  scope check evaluates the declared scope only. This difference is unchanged
+  by the scope unification.
+- An absolute scope entry is resolved against the bound root of the check that
+  consumes it.
 
 ## Mutation Scope Guard
 
@@ -161,13 +213,19 @@ wrapper file on disk does not override the gate.
   closed with `DIRTY_WORKTREE_PRECHECK_FAILED` before calling the adapter.
 - If `allow_write=false`, any new porcelain changes fail closed with
   `MUTATION_SCOPE_VIOLATION`.
-- If `allow_write=true`, every changed path must match a sanitized
-  `allowed_paths` entry. Supported matches are:
-  - exact repo-relative paths
-  - directory prefixes ending in `/`
-  - simple `fnmatch` glob patterns
-- Absolute policy paths and paths containing `..` are ignored safely and do
-  not widen the allowed scope.
+- If `allow_write=true`, every changed path must match a normalized
+  `allowed_paths` entry. The supported entries are:
+  - `.` for explicit repository-root authorization
+  - repository-relative path prefixes, matched on a path boundary
+  - explicit `fnmatch` glob patterns
+- An empty `allowed_paths` entry, an absolute path outside the bound
+  repository, and any `..` segment are rejected. They never widen the allowed
+  scope, and they never imply whole-repository access.
+- A scope that resolves to no valid entry authorizes nothing: with
+  `allow_write=true` the attempt fails closed with `MUTATION_SCOPE_VIOLATION`.
+- The git mutation guard and the isolated worktree scope check share this one
+  interpretation, so they reach the same decision for the same scope and the
+  same changed path.
 - Mutation guard metadata is emitted on task events and stored result artifacts
   using bounded lists and totals:
   - `mutation_guard_enabled`
@@ -457,15 +515,28 @@ the task cwd resolves to a Git repository.
   preflight snapshot.
 - When `allow_write=false`, any new repository mutation fails closed with
   `MUTATION_SCOPE_VIOLATION`.
-- When `allow_write=true`, changed paths must match `permission_policy.allowed_paths`.
-- Allowed paths are repo-relative only. Exact paths, directory prefixes ending
-  in `/`, and simple `fnmatch` globs are accepted.
-- Absolute paths and `..` segments in `allowed_paths` are ignored safely.
+- When `allow_write=true`, changed paths must match the normalized
+  `permission_policy.allowed_paths` scope.
+- The scope entries are repo-relative. `.` is the explicit repository-root
+  token; a path prefix covers an exact file or a directory and everything
+  beneath it, matched on a path boundary; an explicit `fnmatch` glob is
+  accepted as written.
+- An empty entry, an absolute path outside the bound repository, and any `..`
+  segment are rejected. None of them widens the allowed scope, and none of
+  them implies whole-repository access.
+- A scope that resolves to no valid entry authorizes nothing: with
+  `allow_write=true` the attempt fails closed with `MUTATION_SCOPE_VIOLATION`.
+- The git mutation guard and the isolated worktree scope check share this one
+  interpretation and reach the same decision for the same scope and the same
+  changed path.
 - If the cwd is not a Git repository, the worker emits explicit unverified
   evidence and continues without claiming scope proof.
 - Scope violations stop the retry loop immediately.
 - Validation failures may retry only when the mutation scope is clean or
   within the allowed path set.
+- These checks remain detective rather than preventive: the write has already
+  landed when the guard fires, and no sandbox provider backs them.
+
 The coding worker can run one optional validation command after the adapter
 returns, as long as the task permits shell execution and a working directory
 is available. Validation evidence is normalized before it is stored or
@@ -675,6 +746,8 @@ and is not made Pi-ready by this source-Compose change.
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |
 | Tasks stuck in queue | Worker not running | Start worker or check logs |
 | Idempotency not working | Old run_id in retry | Each attempt should have unique `attempt_id` |
+| `MUTATION_SCOPE_VIOLATION` with a `mutation_guard_warning` naming an unresolved scope | The task's `allowed_paths` resolved to no valid entry — an empty string, an absolute path outside the bound repository, a `..` segment, or a missing list | Name the scope explicitly: `.` for the whole bound repository, a repository-relative path prefix, or a glob. An empty scope is no longer whole-repository access |
+| `MUTATION_SCOPE_VIOLATION` on a delegated task that used to succeed | The delegated-task posture still emits `allowed_paths=("",)` | The upstream Guardian emitter must migrate the delegated scope to `(".",)`. This worker no longer treats an empty scope as the whole repository |
 
 ## Environment Variables
 

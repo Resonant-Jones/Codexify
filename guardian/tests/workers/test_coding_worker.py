@@ -6002,3 +6002,279 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
         artifacts[0]["content_json"]["delivery_reason_code"]
         == "delivery_database_unavailable"
     )
+
+
+# ---------------------------------------------------------------------------
+# Authorized mutation scope: one interpretation across both worker checks
+#
+# The coding worker has two mutation checks. Before this repair they read the
+# same Guardian policy through two different policy languages: one resolved
+# ``allowed_paths`` into repository-relative directory prefixes, the other
+# matched raw paths as exact names, trailing-slash directories, and globs.
+# They disagreed on "", ".", and "*", and the prefix resolver returned success
+# whenever its prefix list came out empty, so an invalid scope silently
+# authorized the whole repository.
+#
+# These tests pin one interpretation and assert that BOTH mechanisms reach the
+# same decision for the same scope and the same changed path.
+# ---------------------------------------------------------------------------
+
+
+def _scope_decision(
+    repo: Path,
+    *,
+    allowed_paths: Any,
+    changed_path: str,
+    allow_write: bool = True,
+) -> dict[str, Any]:
+    """Decide one changed path with BOTH worker mutation checks.
+
+    ``_enforce_isolated_mutation_scope`` reads the dirty paths out of the
+    worktree, so the changed path is materialised as an untracked file first.
+    ``_evaluate_mutation_guard`` is handed the same path directly.
+    """
+    permission_policy: dict[str, Any] = {
+        "allow_write": allow_write,
+        "allowed_paths": allowed_paths,
+    }
+    _mutate_file(repo, changed_path, "changed\n")
+    isolated_ok, isolated_code, _isolated_message = (
+        coding_worker._enforce_isolated_mutation_scope(
+            worktree_path=str(repo),
+            repo_root=str(repo),
+            permission_policy=permission_policy,
+        )
+    )
+    guard = coding_worker._evaluate_mutation_guard(
+        repo_root=str(repo),
+        before_paths=[],
+        before_ok=True,
+        after_paths=[changed_path],
+        after_ok=True,
+        allowed_paths=allowed_paths,
+        allow_write=allow_write,
+    )
+    return {
+        "isolated_allowed": bool(isolated_ok),
+        "isolated_error_code": isolated_code,
+        "guard_status": guard.get("mutation_guard_status"),
+        "guard_allowed": guard.get("mutation_guard_status")
+        == "within_allowed_paths",
+        "guard_error_code": guard.get("mutation_guard_error_code"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("label", "allowed_paths", "changed_path", "expected_allowed"),
+    [
+        ("exact file", ["app.py"], "app.py", True),
+        ("unauthorized sibling file", ["app.py"], "other.py", False),
+        ("authorized directory", ["src"], "src/app.py", True),
+        ("unauthorized sibling directory", ["src"], "src_other/app.py", False),
+        ("explicit root scope", ["."], "anything/at/all.txt", True),
+        ("empty scope entry", [""], "app.py", False),
+        ("empty scope list", [], "app.py", False),
+        ("missing scope", None, "app.py", False),
+        ("absolute scope outside the repository", ["/etc"], "app.py", False),
+        ("parent traversal in scope", ["../outside"], "app.py", False),
+        ("glob matches", ["*.py"], "app.py", True),
+        ("glob does not match", ["*.py"], "notes.md", False),
+    ],
+)
+def test_both_mutation_checks_agree_on_the_authorized_scope(
+    tmp_path,
+    label,
+    allowed_paths,
+    changed_path,
+    expected_allowed,
+) -> None:
+    """Both checks must read one scope the same way under a write grant.
+
+    The grant itself (``allow_write``) is owned by the mutation guard; this
+    pins the *scope* interpretation, which both checks share.
+    """
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=allowed_paths,
+        changed_path=changed_path,
+    )
+
+    assert decision["isolated_allowed"] is expected_allowed, (
+        f"{label}: the isolated mutation check reached a different decision"
+    )
+    assert decision["guard_allowed"] is expected_allowed, (
+        f"{label}: the mutation guard reached a different decision"
+    )
+    assert decision["isolated_allowed"] == decision["guard_allowed"], (
+        f"{label}: the two mutation checks disagreed with each other"
+    )
+
+
+@pytest.mark.parametrize("allowed_paths", [[""], [], None])
+def test_unresolvable_write_scope_fails_closed(
+    tmp_path,
+    allowed_paths,
+) -> None:
+    """An unresolvable scope authorizes nothing and fails the attempt.
+
+    Before the repair, an empty resolved prefix list meant "no restriction",
+    so an empty or malformed scope silently authorized the whole repository.
+    """
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=allowed_paths,
+        changed_path="app.py",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+    assert decision["isolated_error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert decision["guard_status"] == "mutation_scope_violation"
+    assert decision["guard_error_code"] == "MUTATION_SCOPE_VIOLATION"
+
+
+def test_empty_scope_does_not_imply_unrestricted_write(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=[""],
+        changed_path="deeply/nested/anything.txt",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+
+
+def test_a_narrow_scope_never_widens_into_an_implicit_wildcard(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=["app.py"],
+        changed_path="notes.md",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+
+
+def test_escape_attempts_are_rejected_even_under_explicit_root(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+    assert scope.root_authorized is True
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "/etc/passwd", repo_root=str(repo)
+        )
+        is False
+    )
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "../outside.txt", repo_root=str(repo)
+        )
+        is False
+    )
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "src/../../outside.txt", repo_root=str(repo)
+        )
+        is False
+    )
+
+
+def test_symlink_resolving_outside_the_repository_is_rejected(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    (repo / "link.txt").symlink_to(outside)
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "link.txt", repo_root=str(repo)
+        )
+        is False
+    )
+
+
+def test_symlink_resolving_inside_the_repository_is_authorized(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    (repo / "inside.txt").write_text("inside\n", encoding="utf-8")
+    (repo / "link.txt").symlink_to(repo / "inside.txt")
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "link.txt", repo_root=str(repo)
+        )
+        is True
+    )
+
+
+def test_worker_fails_closed_when_the_authorized_scope_is_empty(
+    tmp_path,
+    db,
+    monkeypatch,
+) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    seeded = _seed_source_context(db)
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_mutating_adapter(
+        monkeypatch,
+        lambda request: _mutate_file(repo, "canary_marker.txt", "changed\n"),
+        SimpleNamespace(status="ok", summary="Empty scope was authorized."),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-empty-scope",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": [""],
+            "max_runtime_seconds": 60,
+        },
+        cwd=str(repo),
+    )
+
+    worker._process_task(task)
+
+    assert published[-1][1] == "task.failed"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert terminal_payload["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_VIOLATION"
+    )
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
