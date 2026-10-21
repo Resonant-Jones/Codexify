@@ -23,7 +23,7 @@ It is not a public portal and it is not a standalone room server. It is the UI c
 
 - mounts the chat surface inside the AppShell
 - renders the sidebar thread list
-- shows the thread rail for tabs
+- shows the thread rail for tabs at desktop and tablet widths
 - hosts the message history and composer
 - composes the shared phone sidebar drawer as a React portal
 - keeps the chat surface, workspace preview, and diagnostics in sync
@@ -37,7 +37,7 @@ The current portal is a single-user browser surface around a thread timeline. It
 | AppShell portal root | runtime-active | `AppShell` renders `#cfy-portal-root` inside the themed shell wrapper so portaled UI inherits the same CSS variables. |
 | Guardian chat shell | runtime-active | `GuardianChatWithSidebar` coordinates Guardian sidebar data, the chat pane, workspace preview, and use of the shared mobile drawer. |
 | Thread list sidebar | runtime-active | `SidebarRoot` renders thread navigation and thread actions. |
-| Session rail | runtime-active | `SessionRail` renders tabs for session/thread switching and a new-tab control. |
+| Session rail | runtime-active | `SessionRail` renders tabs for session/thread switching and a new-tab control at desktop and tablet widths. Narrow Guardian does not surface the rail in the ChatUI. |
 | Message timeline | runtime-active | `ChatView` renders history and older-message loading, but does not own fetch loops. |
 | Composer and controls | runtime-active | The composer exposes provider, model, inference mode, source mode, depth, and voice controls. |
 | Mobile overlay portal | runtime-active | `MobileAppSidebarDrawer` supplies the shared portal, scrim, frame, disclosure, focus, and Escape presentation used by Guardian and primary non-Guardian phone views. |
@@ -83,7 +83,7 @@ The portal wiring follows this path:
 4. On mobile, the shared drawer is rendered into the portal root as a fixed
    overlay with a scrim. AppShell uses the same presentation for Documents,
    Gallery, Dashboard, and Settings.
-5. `GuardianChat` renders the chat body, provider/request banners, session rail, and composer.
+5. `GuardianChat` renders the chat body, provider/request banners, session rail (desktop and tablet widths), and composer.
 6. `ChatView` renders the message list and older-message pagination.
 
 ## Layout Modes
@@ -123,7 +123,7 @@ The current portal gives you these controls:
   - Shows or hides the thread list.
   - On desktop, this changes the split layout.
   - On mobile, this opens or closes the overlay drawer.
-- Session rail
+- Session rail (desktop and tablet widths; not surfaced in narrow Guardian)
   - Switch between open session tabs.
   - Open a new tab.
   - Close the active tab.
@@ -197,9 +197,12 @@ These are not all the same failure class:
 Use this sequence when you are learning or debugging the portal:
 
 1. Open `/chat` or `/chat/<threadId>`.
-2. Confirm the sidebar lists threads and the session rail is present.
+2. Confirm the sidebar lists threads and the session rail is present at
+   desktop or tablet width. Narrow Guardian does not surface the rail in the
+   ChatUI — its compact two-control header owns navigation instead.
 3. Toggle the sidebar closed and reopened.
-4. Open a different session tab, then return to the active one.
+4. At desktop or tablet width, open a different session tab, then return to
+   the active one.
 5. Send a simple message and watch the request banner/state update.
 6. Switch provider or model only after you know the current runtime posture.
 7. Change source mode if you want the thread to read from project context or personal knowledge.
@@ -230,7 +233,7 @@ If you want to change how the portal behaves, these are the first seams to inspe
 - `frontend/src/features/chat/GuardianChat.tsx`
   - thread actions
   - provider/model controls
-  - request banners and session rail
+  - request banners and session rail (desktop and tablet widths)
 - `frontend/src/features/chat/ChatView.tsx`
   - message rendering and older-message loading
 - `frontend/src/components/SessionRail/SessionRail.tsx`

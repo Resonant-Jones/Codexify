@@ -4392,7 +4392,9 @@ export function GuardianChat({
           : undefined
       }
     >
-      {/* Single header rail */}
+      {/* Standard header rail. The phone frame-first shell renders its own
+          navigation header, so the compact mobile branch intentionally has no
+          session rail here — mobile tabs are not surfaced in the ChatUI. */}
       {!compactMobileHeader && (
       <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
       <div
@@ -4451,23 +4453,6 @@ export function GuardianChat({
 
           <div className="flex items-center gap-2 shrink-0">
             {headerActions}
-          </div>
-        </div>
-      </header>
-      )}
-      {compactMobileHeader && (
-      <header className={`shrink-0 z-20 py-2 ${CHAT_LANE_GUTTER_CLASS}`}>
-        <div className="relative flex items-center gap-2 px-4 py-2 flex-nowrap w-full">
-          <div className="flex-1 min-w-0">
-            <SessionRail
-              tabs={sessionTabs}
-              activeTabId={activeSessionTabId}
-              isCloud={resolvedProfile.mode === "cloud" ? true : resolvedProfile.mode === "local" ? false : undefined}
-              showTabs={sessionTabs.length > 1}
-              onActivateTab={handleSessionTabActivateRequest}
-              onCloseTab={(tabId) => onSessionTabClose?.(tabId)}
-              onOpenTab={handleSessionTabOpenRequest}
-            />
           </div>
         </div>
       </header>
