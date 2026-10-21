@@ -80,7 +80,9 @@ from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
+    RequestUserScope,
     allowed_origins,
+    get_account_user_scope,
     get_single_user_id,
     get_vector_store,
     init_database,
@@ -110,7 +112,10 @@ from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
-from guardian.core.task_event_access import authorize_task_event_read
+from guardian.core.task_event_access import (
+    authorize_task_event_read,
+    cancel_account_task,
+)
 from guardian.core.user_manager import get_or_create_default_user
 from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
@@ -1661,10 +1666,17 @@ async def stream_task_events(
     - Resumes from `last_id` query param or `Last-Event-ID` header.
     - Emits a `retry: 3000` hint on connect.
     - Stops streaming on task completion, failure, or cancellation.
+
+    Authorization (ADR-091 + ADR-092) completes before any transport side
+    effect: the caller must authenticate as exactly one principal lane, the
+    task must resolve through its durable `ChatCompletionAttempt` to a
+    canonical thread, and that thread must pass the shared thread-read policy.
+    `task_id` is an identifier, never authority. A denied request performs
+    zero Redis event reads.
     """
     from starlette.responses import StreamingResponse
 
-    # Authenticate, resolve the durable backend-task mapping, and authorize
+# Authenticate, resolve the durable backend-task mapping, and authorize
     # its canonical thread before constructing a response or reaching Redis.
     await asyncio.to_thread(
         authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
@@ -1730,10 +1742,13 @@ async def stream_task_events(
 async def request_task_cancel(
     task_id: str,
     api_key: str = Depends(require_account_session),
+    principal: RequestUserScope = Depends(get_account_user_scope),
 ):
-    """Mark a queued or running task as cancelled."""
+    """Mark an account-owned queued or running task as cancelled."""
     _ = api_key
-    cancel_task(task_id)
+    cancel_account_task(
+        task_id, principal, chatlog_db=chatlog_db, cancel_task=cancel_task
+    )
     return {
         "ok": True,
         "task_id": task_id,

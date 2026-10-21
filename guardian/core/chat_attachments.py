@@ -19,6 +19,28 @@ _DOC_CONTENT_BLOCK_RE = re.compile(
     r"<!--\s*cfy-doc-content:start:([^>]*?)\s*-->\s*([\s\S]*?)\s*<!--\s*cfy-doc-content:end:\1\s*-->",
     flags=re.IGNORECASE,
 )
+# Generative UI artifacts are model-authored HTML/CSS/JS carried as an encoded
+# payload. They are a render concern, never an inference concern: stripping them
+# keeps a multi-kilobyte blob out of every subsequent provider turn in the thread
+# and keeps untrusted script out of the prompt. See
+# docs/architecture/generative-ui-contract.md.
+#
+# This MUST stay identical to MARKER_RE in
+# frontend/src/features/chat/components/generativeUi/artifactCodec.ts. Both
+# delimit on the closing "-->" rather than the first ">", so a payload that
+# legitimately contains ">" (an unencoded artifact holding HTML) is still
+# removed. Stopping at ">" here while the renderer matched "-->" would leak
+# generated HTML/JS into every later provider turn for the thread.
+_UI_ARTIFACT_MARKER_RE = re.compile(
+    r"<!--\s*cfy-ui:.*?-->",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+# A marker that never received its terminator. Stripped to the end of its own
+# line so surrounding prose survives, matching the frontend parser.
+_UI_ARTIFACT_UNTERMINATED_RE = re.compile(
+    r"<!--\s*cfy-ui:[^\n]*$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
 _EXCESSIVE_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 
@@ -121,6 +143,8 @@ def render_content_for_inference(content: Any) -> str:
         return ""
 
     tiles, blocks, stripped = _extract_document_context(content)
+    stripped = _UI_ARTIFACT_MARKER_RE.sub("", stripped)
+    stripped = _UI_ARTIFACT_UNTERMINATED_RE.sub("", stripped)
     attachments, text = extract_attachments_and_text(stripped)
     attachment_lines: list[str] = []
     block_by_id = {block["id"]: block["content"] for block in blocks}

@@ -27,9 +27,24 @@ authority, and the shared thread-read policy accepts an already-authenticated
 account `RequestUserScope` or `HostedRoomGuestPrincipal`. The task-event SSE
 route now composes those authorities: it resolves the task through the durable
 attempt, applies the thread-read policy, and only then consumes Redis events.
-The route accepts only account/local request-user or purpose-scoped guest
-principals; remote operator credentials do not resolve thread authority. This
-bounded code/test result does not claim the public-ingress boundary is closed.
+Principal resolution for that surface is centralized in the shared
+`require_task_event_read_principal` dependency in
+`guardian/core/dependencies.py` instead of the generic `require_api_key` seam.
+Mixed lanes are rejected with HTTP 400 `mixed_principal_credentials` before
+verification or any protected-resource lookup, the ordering recorded for the
+public task-event ingress surface in
+[ADR-098](./098-public-task-event-ingress-as-chat-completion-readback.md);
+a missing durable attempt fails closed and a denied request performs zero Redis
+reads. The route accepts only account/local request-user or purpose-scoped
+guest principals; remote operator credentials do not resolve thread authority.
+This bounded code/test result does not claim the public-ingress boundary is
+closed. Evidence:
+[`2026-10-07-task-event-sse-authorization-proof.md`](../proofs/runtime/2026-10-07-task-event-sse-authorization-proof.md).
+
+This qualifies **only** that route. Global account-purpose strictness, the
+`auth_dependencies.py` resolver bypass, legacy account-token rejection, and the
+public-ingress requalification remain not runtime-enforced, and
+`PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains accurate.
 
 ## Decision
 
@@ -312,13 +327,13 @@ gate checks exact `account_session` purpose, the approved session, and the
 persisted admin account before capability validation. Strict generic
 account-purpose validation, `auth_dependencies.py` bypass closure, legacy
 account-token rejection, and public-ingress qualification remain deferred.
-Task-event SSE object authorization is implemented at its route-specific
-principal boundary and remains subject to the focused proof receipt. Remote HTTP mixed-principal
-rejection is now implemented at the generic and strict account dependencies,
-the explicit operator-auth dependency, the account-observability human gate,
-and authenticated Hosted Room guest session-inspection, message, and invoke
-routes. It does not change local/single-user handling or establish task-event
-ownership.
+Task-event SSE object authorization is implemented at the shared
+`require_task_event_read_principal` seam and remains subject to the focused
+proof receipt. Remote HTTP mixed-principal rejection is now implemented at the
+generic and strict account dependencies, the explicit operator-auth dependency,
+the account-observability human gate, and authenticated Hosted Room guest
+session-inspection, message, and invoke routes. It does not change
+local/single-user handling or establish task-event ownership.
 
 The shared WebSocket account handshake in `guardian/ws/auth.py` now checks an
 exact signed `purpose=account_session` before consulting the approved session
@@ -464,7 +479,9 @@ path; a guest cookie resolves only to its guest principal. The explicit
 operator-session seam, qualified Continuity operator consumer, and frozen
 operator-only route migration are implemented and test-qualified on their
 bounded surfaces. Global account-purpose strictness and three-lane mixed
-rejection remain accepted contracts that are **not yet globally runtime-enforced**.
-The task-event route enforces its own mixed-credential boundary without changing
-global credential defaults. Full public-ingress requalification remains
-pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains the accurate status.
+rejection remain accepted contracts that are **not yet globally
+runtime-enforced**. The task-event route enforces its own mixed-credential
+boundary without changing global credential defaults. This document itself
+changes no token, SSE, Cloudflare, or release behavior. Full public-ingress
+requalification remains pending; `PUBLIC_INGRESS_AUTH_BOUNDARY=HOLD` remains
+the accurate status. Cloudflare Access remains enabled and unchanged.

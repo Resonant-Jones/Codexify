@@ -48,6 +48,23 @@ def worker(monkeypatch):
 
     monkeypatch.setattr(chat_worker, "datetime", Clock)
     monkeypatch.setattr(chat_worker._chat_completion_service, "datetime", Clock)
+    # This fixture exercises provider rescue, not durable checkpoint storage, and
+    # it runs without a chat database handle. Stub the checkpoint seams the same
+    # way the bounded tool-loop suites do.
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **_values: None,
+    )
+    monkeypatch.setattr(
+        chat_worker._chat_completion_service,
+        "freeze_chat_tool_decision",
+        lambda _db, **values: {
+            "tool_turn_id": f"tool-turn-{values['request_id']}",
+            "command_id": values["command_id"],
+            "args_hash": values["args_hash"],
+        },
+    )
     monkeypatch.setattr(
         chat_worker, "schedule_post_completion_eval", lambda *args, **kwargs: None
     )

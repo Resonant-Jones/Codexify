@@ -862,6 +862,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(latestProps?.activeApplicationView).toBe("guardian");
     expect(latestProps?.applicationDestinations).toEqual([
       { view: "guardian", label: "Guardian", priority: "primary" },
+      { view: "library", label: "Library", priority: "primary" },
       { view: "documents", label: "Documents", priority: "primary" },
       { view: "gallery", label: "Gallery", priority: "primary" },
       { view: "dashboard", label: "Dashboard", priority: "secondary" },
@@ -1232,6 +1233,84 @@ describe("AppShell settings utility trigger", () => {
     await user.click(screen.getByTestId("settings-utility-toggle"));
 
     expect(await screen.findByTestId("settings-view-mock")).toBeInTheDocument();
+  });
+
+  it("renders the desktop Workspace affordance as a glyph with a Workspace tooltip", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    render(<AppShell />);
+
+    const toggle = await screen.findByTestId("workspace-drawer-toggle");
+
+    // Icon-only at rest: no visible "Workspace" word in the button.
+    expect(toggle).toHaveClass("pill-tab", "h-9", "w-9", "p-0");
+    expect(toggle.textContent?.trim()).toBe("");
+
+    // The visible hover tooltip stays "Workspace".
+    expect(toggle).toHaveAttribute("title", "Workspace");
+
+    // The accessible name is action-oriented, state-aware, and not doubled
+    // by the icon (which is aria-hidden).
+    const collapsedName = toggle.getAttribute("aria-label") ?? "";
+    expect(collapsedName.toLowerCase()).toContain("workspace");
+    expect(collapsedName.toLowerCase()).toContain("open");
+    expect(toggle.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("flips the Workspace accessible label with drawer state and keeps toggling", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("cfy.lastView", "dashboard");
+    render(<AppShell />);
+
+    const toggle = await screen.findByTestId("workspace-drawer-toggle");
+    expect(toggle.getAttribute("aria-label")?.toLowerCase()).toContain("open");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(toggle);
+    expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(toggle.getAttribute("aria-label")?.toLowerCase()).toContain("close");
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    // Tooltip stays the plain noun while open, too.
+    expect(toggle).toHaveAttribute("title", "Workspace");
+  });
+
+  it("publishes scoped top-chrome contrast tokens without altering global tokens", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    render(<AppShell />);
+
+    await screen.findByTestId("app-shell-utility-cluster");
+    const shell = document.querySelector(".codexify-shell") as HTMLElement;
+    const style = shell.getAttribute("style") ?? "";
+
+    // Scoped, additive tokens are present...
+    expect(style).toContain("--top-chrome-fg");
+    expect(style).toContain("--top-chrome-scrim");
+
+    // ...while the global contract is untouched. These repeat the literals
+    // asserted by the theme-token test above, tying the scoped work to the
+    // absence of a global rewrite.
+    expect(style).toContain("--text: #111827");
+    expect(style).toContain("--text-on-accent: #111827");
+  });
+
+  it("keeps the contrast-safe backing active while sampling is unresolved", async () => {
+    localStorage.setItem("cfy.lastView", "dashboard");
+    render(<AppShell />);
+
+    await screen.findByTestId("app-shell-utility-cluster");
+    const shell = document.querySelector(".codexify-shell") as HTMLElement;
+    const style = shell.getAttribute("style") ?? "";
+
+    // jsdom cannot decode images or allocate a 2D context, so the sampler
+    // reports "unavailable". That path must never expose an unguarded
+    // foreground: backing stays fully opaque.
+    expect(style).toContain("--top-chrome-scrim-active: 1");
+    const scrim = style.match(/--top-chrome-scrim:\s*([^;]+);/)?.[1] ?? "";
+    expect(scrim).not.toBe("transparent");
+    const alpha = Number(scrim.match(/([0-9.]+)\s*\)/)?.[1] ?? "0");
+    expect(alpha).toBeGreaterThan(0);
   });
 
   it("collapses the engaged Dock after cooldown and expands it on focus", () => {

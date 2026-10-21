@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -35,6 +36,7 @@ from guardian.command_bus.contracts import (
     InvokeRequest,
 )
 from guardian.command_bus.invoke import execute_invoke
+from guardian.command_bus.redaction_policy import compute_args_hash
 from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
@@ -68,12 +70,17 @@ from guardian.context.retrieval_router_policy import (
 )
 from guardian.core import dependencies, event_bus
 from guardian.core.db import (
+    ChatToolCheckpointError,
     create_chat_completion_attempt,
+    create_chat_message_with_metadata,
+    freeze_chat_tool_decision,
     get_chat_completion_attempt_by_task_id,
+    get_chat_tool_checkpoint,
     mark_chat_completion_attempt_accepted,
     reconcile_chat_completion_attempt_after_deadline,
 )
 from guardian.core.ai_router import (
+    observe_provider_requests,
     _encode_image_url_to_base64,
     _image_turn_vision_unsupported_detail,
     build_openai_vision_content,
@@ -112,6 +119,7 @@ from guardian.core.request_correlation import (
     correlation_metadata,
     generate_attempt_id,
     normalize_request_id,
+    is_safe_identifier,
 )
 from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
 from guardian.core.chat_attachments import (
@@ -154,6 +162,7 @@ from guardian.protocol_tokens import (
 )
 from guardian.tasks.chat_deadline import (
     ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+    AcceptedChatTaskDeadline,
     AcceptedChatTaskDeadlineExceeded,
     accepted_chat_deadline_for_task,
     build_accepted_chat_task_deadline,
@@ -239,6 +248,256 @@ _ACTIVE_OBSIDIAN_CONTEXT_INSTRUCTION = (
     "If no relevant workspace context is available, say that no relevant local context was found.\n"
     "This directive does not grant arbitrary external tool access."
 )
+
+
+# Sensitive, non-authoritative diagnostics. No raw data enters task/event stores.
+PROVIDER_CAPTURE_TTL_SECONDS = 300
+PROVIDER_CAPTURE_MAX_BYTES = 2 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+PROVIDER_CAPTURE_MAX_REQUESTS = 64
+PROVIDER_CAPTURE_MAX_DISPATCHES = 16
+PROVIDER_CAPTURE_ORIGIN_MARKER = "provider_request_inspection=enabled"
+_PROVIDER_CAPTURE_LOCK = threading.RLock()
+_PROVIDER_CAPTURE_REQUESTS: dict[str, dict[str, Any]] = {}
+
+
+def _expire_provider_capture(task_id: str, expires_at: float) -> None:
+    with _PROVIDER_CAPTURE_LOCK:
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry and entry["expires_at"] == expires_at:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def _purge_provider_captures() -> None:
+    now = time.monotonic()
+    for task_id, entry in list(_PROVIDER_CAPTURE_REQUESTS.items()):
+        if now >= entry["expires_at"]:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+
+
+def enable_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    account_id: str,
+    thread_id: int,
+    project_id: int | None,
+) -> bool:
+    """Called only after account, thread and Project authorization by the route."""
+    if not (is_safe_identifier(task_id) and is_safe_identifier(request_id)):
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        if task_id in _PROVIDER_CAPTURE_REQUESTS:
+            return False  # Never reuse consent or captures for another request.
+        if len(_PROVIDER_CAPTURE_REQUESTS) >= PROVIDER_CAPTURE_MAX_REQUESTS:
+            return False
+        expires_at = time.monotonic() + PROVIDER_CAPTURE_TTL_SECONDS
+        _PROVIDER_CAPTURE_REQUESTS[task_id] = {
+            "request_id": request_id,
+            "account_id": account_id,
+            "thread_id": thread_id,
+            "project_id": project_id,
+            "expires_at": expires_at,
+            "captures": {},
+        }
+        timer = threading.Timer(
+            PROVIDER_CAPTURE_TTL_SECONDS,
+            _expire_provider_capture,
+            args=(task_id, expires_at),
+        )
+        timer.daemon = True
+        try:
+            timer.start()
+        except Exception:
+            del _PROVIDER_CAPTURE_REQUESTS[task_id]
+            return False
+        return True
+
+
+def provider_capture_scope(task_id: str) -> dict[str, Any] | None:
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None:
+            return None
+        return {
+            key: entry[key]
+            for key in (
+                "request_id",
+                "account_id",
+                "thread_id",
+                "project_id",
+            )
+        }
+
+
+def store_provider_request_capture(
+    *,
+    task_id: str,
+    request_id: str,
+    attempt_id: str,
+    dispatch_index: int,
+    provider: str,
+    logical_model: str,
+    body: bytes,
+    byte_size: int,
+) -> bool:
+    """Accept an exact body under existing consent; never truncate or overwrite."""
+    if not is_safe_identifier(attempt_id) or dispatch_index < 1:
+        return False
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        if entry is None or entry["request_id"] != request_id:
+            return False
+        key = (attempt_id, dispatch_index)
+        captures = entry["captures"]
+        if key in captures:
+            return False
+        if len(captures) >= PROVIDER_CAPTURE_MAX_DISPATCHES:
+            entry["dispatch_limit_exceeded"] = True
+            return False
+        total = sum(
+            len(item["body"] or b"")
+            for request in _PROVIDER_CAPTURE_REQUESTS.values()
+            for item in request["captures"].values()
+        )
+        reason = None
+        if byte_size > PROVIDER_CAPTURE_MAX_BYTES:
+            reason = "capture_size_exceeded"
+        elif byte_size != len(body):
+            reason = "capture_body_size_mismatch"
+        elif total + byte_size > PROVIDER_CAPTURE_MAX_TOTAL_BYTES:
+            reason = "capture_memory_budget_exceeded"
+        else:
+            try:
+                if not isinstance(json.loads(body.decode("utf-8")), dict):
+                    reason = "invalid_request_json"
+            except (ValueError, UnicodeError, RecursionError):
+                reason = "invalid_request_json"
+        captures[key] = {
+            "body": body if reason is None else None,
+            "byte_size": byte_size,
+            "capture_timestamp": datetime.now(UTC).isoformat(),
+            "request_id": request_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "dispatch_index": dispatch_index,
+            "provider": provider,
+            "logical_model": logical_model,
+            "completeness": "COMPLETE" if reason is None else "CAPTURE_UNAVAILABLE",
+            "omission_reasons": [reason] if reason else [],
+        }
+        return True
+
+
+def read_provider_request_captures(task_id: str) -> dict[str, Any]:
+    """Route must reauthorize canonical ownership before invoking this reader."""
+    with _PROVIDER_CAPTURE_LOCK:
+        _purge_provider_captures()
+        entry = _PROVIDER_CAPTURE_REQUESTS.get(task_id)
+        items = []
+        for capture in (entry or {}).get("captures", {}).values():
+            item = {key: value for key, value in capture.items() if key != "body"}
+            body = capture["body"]
+            item["raw_json"] = body.decode("utf-8") if body is not None else None
+            item["request_json"] = json.loads(body) if body is not None else None
+            item["model_visible_fields"] = [
+                key
+                for key in ("messages", "system", "prompt", "tools", "response_format")
+                if key in (item["request_json"] or {})
+            ]
+            item["effective_model"] = (item["request_json"] or {}).get("model")
+            item["parameter_fields"] = [
+                key
+                for key in (item["request_json"] or {})
+                if key not in item["model_visible_fields"]
+            ]
+            item["limitations"] = [
+                "Guardian HTTP body only; provider-side templates, tokenization and framing are unobserved",
+                "Transport authentication and headers are excluded",
+            ]
+            item["max_bytes"] = PROVIDER_CAPTURE_MAX_BYTES
+            items.append(item)
+        return {
+            "availability": (
+                "CAPTURED"
+                if any(item["completeness"] == "COMPLETE" for item in items)
+                else "CAPTURE_UNAVAILABLE"
+            ),
+            "dispatch_limit_exceeded": bool((entry or {}).get("dispatch_limit_exceeded")),
+            "omission_reasons": (
+                ["capture_dispatch_limit_exceeded"]
+                if (entry or {}).get("dispatch_limit_exceeded")
+                else ([] if items else ["no_process_local_capture"])
+            ),
+            "retention_seconds": PROVIDER_CAPTURE_TTL_SECONDS,
+            "captures": items,
+        }
+
+
+def _provider_request_capture_observer(task, *, provider: str, model: str):
+    """Relay only opted-in captures to the API's bounded process-local store.
+
+    The service key grants delivery capability, never account read authority.
+    Consent lives in API memory, not in the task's advisory opt-in marker.
+    """
+    if PROVIDER_CAPTURE_ORIGIN_MARKER not in str(task.origin).split("|"):
+        return None
+    try:
+        from guardian.command_bus.loopback_http_adapter import resolve_loopback_base
+        import requests
+
+        request_id = task.request_id
+        task_id = task.task_id
+        attempt_id = task.attempt_id
+        if not all(
+            is_safe_identifier(value) for value in (request_id, task_id, attempt_id)
+        ):
+            return None
+        settings = get_settings()
+        service_key = str(getattr(settings, "GUARDIAN_API_KEY", None) or "").strip()
+        if not service_key:
+            return None
+        url = f"{resolve_loopback_base()}/api/chat/internal/provider-request-captures/{task_id}"
+        headers = {"X-API-Key": service_key}
+        permit = requests.get(url, headers=headers, timeout=1, allow_redirects=False)
+        if permit.status_code != 200 or permit.json().get("enabled") is not True:
+            return None
+    except Exception:
+        return None
+    dispatch_index = 0
+
+    def capture(body):
+        nonlocal dispatch_index
+        dispatch_index += 1
+        if dispatch_index > PROVIDER_CAPTURE_MAX_DISPATCHES + 1:
+            return
+        size = len(body)
+        # No raw content is sent for an oversized request.
+        requests.post(
+            url,
+            data=(
+                body
+                if size <= PROVIDER_CAPTURE_MAX_BYTES
+                and dispatch_index <= PROVIDER_CAPTURE_MAX_DISPATCHES
+                else b""
+            ),
+            params={
+                "request_id": request_id,
+                "attempt_id": attempt_id,
+                "dispatch_index": dispatch_index,
+                "provider": provider,
+                "logical_model": model,
+                "byte_size": size,
+            },
+            headers={**headers, "Content-Type": "application/octet-stream"},
+            timeout=1,
+            allow_redirects=False,
+        )
+
+    return capture
 
 
 class ChatCompletionEnqueueError(RuntimeError):
@@ -1057,6 +1316,20 @@ def _extract_latest_turn_message_id(task: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _canonical_task_turn_id(task: Any) -> str | None:
+    """Resolve the server-carried turn identity, with legacy origin fallback."""
+    explicit = str(getattr(task, "turn_id", "") or "").strip()
+    if explicit:
+        return explicit
+    origin = str(getattr(task, "origin", "") or "")
+    match = re.search(
+        r"(?:^|\|)turn_id=(?P<turn_id>[a-f0-9-]{36})(?:\||$)",
+        origin,
+        flags=re.IGNORECASE,
+    )
+    return match.group("turn_id").lower() if match else None
+
+
 # webui stores the latest user turn as "[username]: <message>" and the
 # "@guardian" mention is appended inline. Both tokens are noise to the embedder
 # and dominate the cosine match against the knowledge base, so strip them from
@@ -1455,8 +1728,36 @@ def _execute_completion_attempt(
         raise AcceptedChatTaskDeadlineExceeded()
     request_id, _ = normalize_request_id(getattr(task, "request_id", None))
     task.request_id = request_id
-    attempt_id = generate_attempt_id()
-    task.attempt_id = attempt_id
+    task.attempt_id = generate_attempt_id()
+    try:
+        observer = _provider_request_capture_observer(task, provider=provider, model=model)
+    except Exception:
+        observer = None
+    with observe_provider_requests(observer):
+        return _dispatch_completion_attempt(
+            task=task, messages_for_llm=messages_for_llm, provider=provider,
+            model=model, bundle=bundle, accepted_deadline=accepted_deadline,
+            token_callback=token_callback,
+            chunk_callback=chunk_callback, cancel_check=cancel_check,
+            tool_exposure=tool_exposure,
+        )
+
+
+def _dispatch_completion_attempt(
+    *,
+    task: ChatCompletionTask,
+    messages_for_llm: list[dict[str, Any]],
+    provider: str,
+    model: str,
+    bundle: dict[str, Any] | None,
+    accepted_deadline: AcceptedChatTaskDeadline | None = None,
+    token_callback: Callable[[str], None] | None = None,
+    chunk_callback: Callable[[str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    tool_exposure: dict[str, Any] | None = None,
+) -> CompletionAttemptResult:
+    request_id = task.request_id
+    attempt_id = task.attempt_id
     if callable(cancel_check) and cancel_check():
         raise ChatTaskCancelled(provider=provider, model=model)
 
@@ -5780,6 +6081,38 @@ def _tool_exposure_payload(tool_exposure: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _claims_accepted_chat_attempt(task: ChatCompletionTask) -> bool:
+    """Whether this task carries the accepted-chat acceptance snapshot.
+
+    Only `enqueue_chat_completion` mints the accepted deadline and persists the
+    durable `ChatCompletionAttempt` row together. Direct completion producers
+    (for example the voice worker) call `run_chat_completion_task` without
+    either, so they hold no accepted-attempt authority to reconcile against.
+
+    This deliberately keys off the task's own acceptance *claim* rather than
+    the presence of a request id: `ChatCompletionTask.__post_init__` synthesizes
+    a `req_...` id for every task, so request-id presence cannot distinguish an
+    accepted attempt from an unbound direct completion. Using the claim also
+    keeps the fail-closed direction intact: a task that claims acceptance must
+    still present a matching durable row, and any mismatch is an error rather
+    than a silent downgrade to the unchecked path.
+
+    A present-but-invalid snapshot still counts as a claim so that a corrupted
+    acceptance envelope fails closed instead of quietly becoming unbound.
+    """
+
+    snapshot = {
+        name: getattr(task, name, None)
+        for name in ("accepted_at", "work_deadline_at", "terminal_deadline_at")
+    }
+    if all(value is None for value in snapshot.values()):
+        return False
+    try:
+        return accepted_chat_deadline_for_task(task) is not None
+    except (TypeError, ValueError):
+        return True
+
+
 def _authorized_tool_command_ids(task: ChatCompletionTask) -> frozenset[str]:
     tools = getattr(task, "tools", None)
     if not isinstance(tools, list):
@@ -6201,6 +6534,43 @@ def _execute_bounded_tool_turn_completion(
     )
     normalized_first_output = normalize_completion_output(first_attempt.output)
     if normalized_first_output.kind != "tool_decision":
+        # Checkpoint reconciliation only applies to tasks that claim the
+        # accepted-chat lifecycle, because only that lifecycle owns a durable
+        # `ChatCompletionAttempt` to reconcile against. Unbound direct
+        # completions (voice) have no accepted attempt, so they must not be
+        # rejected for lacking a checkpoint they were never able to create.
+        if _claims_accepted_chat_attempt(task):
+            try:
+                frozen = get_chat_tool_checkpoint(
+                    dependencies.chatlog_db,
+                    request_id=request_id or "",
+                    backend_task_id=str(getattr(task, "task_id", "") or ""),
+                    thread_id=task.thread_id,
+                    turn_id=str(getattr(task, "turn_id", "") or ""),
+                    account_id=str(getattr(task, "user_id", "") or ""),
+                )
+            except Exception as exc:
+                raise ToolLoopExecutionError(
+                    "tool_checkpoint_unavailable",
+                    metadata=_tool_loop_identity_fields(
+                        task=task,
+                        tool_turn_id=None,
+                        tool_turn_state=ToolTurnState.FAILED.value,
+                        loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                        command_run_id=None,
+                    ),
+                ) from exc
+            if frozen is not None:
+                raise ToolLoopExecutionError(
+                    "tool_decision_conflict",
+                    metadata=_tool_loop_identity_fields(
+                        task=task,
+                        tool_turn_id=frozen["tool_turn_id"],
+                        tool_turn_state=ToolTurnState.FAILED.value,
+                        loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                        command_run_id=None,
+                    ),
+                )
         assistant_text = normalized_first_output.text or ""
         if not assistant_text.strip():
             assistant_text = "No assistant response was generated."
@@ -6231,6 +6601,22 @@ def _execute_bounded_tool_turn_completion(
 
     _require_tool_work_budget()
     tool_turn_id = str(uuid.uuid4())
+    # A replay-protected tool decision must be frozen against a durable accepted
+    # attempt before dispatch. An unbound direct completion has no such record,
+    # so it must never reach Command Bus dispatch, even if tool ids were
+    # somehow advertised to it.
+    if not _claims_accepted_chat_attempt(task):
+        raise ToolLoopExecutionError(
+            ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            )
+            | {"command_id": normalized_first_output.command_id},
+        )
     if provider == "deepseek" and normalized_first_output.tool_call_count != 1:
         raise ToolLoopExecutionError(
             "tool_turn_limit_reached",
@@ -6333,6 +6719,37 @@ def _execute_bounded_tool_turn_completion(
         auth_subject = task.user_id
         inbound_headers = {"X-API-Key": local_api_key}
 
+    try:
+        checkpoint = freeze_chat_tool_decision(
+            dependencies.chatlog_db,
+            request_id=request_id or "",
+            backend_task_id=str(getattr(task, "task_id", "") or ""),
+            thread_id=task.thread_id,
+            turn_id=str(getattr(task, "turn_id", "") or ""),
+            account_id=str(getattr(task, "user_id", "") or ""),
+            command_id=command_id,
+            args_hash=compute_args_hash(
+                arguments.model_dump(mode="json", exclude_none=False)
+            ),
+        )
+    except Exception as exc:
+        reason = (
+            str(exc)
+            if isinstance(exc, ChatToolCheckpointError)
+            else "tool_checkpoint_unavailable"
+        )
+        raise ToolLoopExecutionError(
+            reason,
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.FAILED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+                command_run_id=None,
+            ),
+        ) from exc
+    tool_turn_id = checkpoint["tool_turn_id"]
+    actor = actor.model_copy(update={"session_id": tool_turn_id})
     invocation = BoundedToolTurnInvocation(
         tool_turn_id=tool_turn_id,
         request_id=request_id or tool_turn_id,
@@ -6403,6 +6820,23 @@ def _execute_bounded_tool_turn_completion(
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
+# A queued or running Command Bus run is not a completed tool result, and a
+    # "completed" status carrying no inline result has nothing to reinject.
+    if (
+        not command_run_id
+        or command_status not in {"completed", "failed", "blocked"}
+        or (command_status == "completed" and "inline_result" not in command_result)
+    ):
+        raise ToolLoopExecutionError(
+            "tool_command_incomplete",
+            metadata=_tool_loop_identity_fields(
+                task=task,
+                tool_turn_id=tool_turn_id,
+                tool_turn_state=ToolTurnState.COMMAND_DISPATCHED.value,
+                loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_FAILED.value,
+                command_run_id=command_run_id,
+            ),
+        )
     if command_status in {"failed", "blocked"}:
         loop_stop_reason = (
             ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value
@@ -6415,7 +6849,7 @@ def _execute_bounded_tool_turn_completion(
             )[:1024],
         }
         raise ToolLoopExecutionError(
-            loop_stop_reason,
+            "tool_command_terminal_failure",
             metadata=_tool_loop_identity_fields(
                 task=task,
                 tool_turn_id=tool_turn_id,
@@ -7161,31 +7595,44 @@ def run_chat_completion_task(
     if not persist_assistant_message:
         return result
 
-    message_id = dependencies.chatlog_db.create_message(
+    assistant_turn_id = _canonical_task_turn_id(task)
+    assistant_message_meta = {
+        **(
+            {"provider_replay_state": provider_replay_state}
+            if provider == "deepseek" and isinstance(provider_replay_state, dict)
+            else {}
+        ),
+        **(
+            {"whooshd_runtime_provenance": completion_runtime_provenance}
+            if completion_runtime_provenance is not None
+            else {}
+        ),
+        **(
+            {"request_correlation": completion_request_correlation}
+            if completion_request_correlation is not None
+            else {}
+        ),
+        "requestId": request_id,
+        "turn_id": assistant_turn_id,
+        "turnId": assistant_turn_id,
+        "toolTurnId": result.get("toolTurnId"),
+        "toolTurnState": result.get("toolTurnState"),
+        "loopStopReason": result.get("loopStopReason"),
+        "commandRunId": result.get("commandRunId"),
+        "commandStatus": (
+            result.get("command_status")
+            or payload_summary.get("command_status")
+        ),
+        "provider": provider,
+        "model": model,
+        "terminalEvidence": terminal_evidence.as_dict(),
+    }
+    message_id = create_chat_message_with_metadata(
+        dependencies.chatlog_db,
         task.thread_id,
         "assistant",
         assistant_text,
-        extra_meta=(
-            {
-                **(
-                    {"provider_replay_state": provider_replay_state}
-                    if provider == "deepseek"
-                    and isinstance(provider_replay_state, dict)
-                    else {}
-                ),
-                **(
-                    {"whooshd_runtime_provenance": completion_runtime_provenance}
-                    if completion_runtime_provenance is not None
-                    else {}
-                ),
-                **(
-                    {"request_correlation": completion_request_correlation}
-                    if completion_request_correlation is not None
-                    else {}
-                ),
-            }
-            or None
-        ),
+        extra_meta=assistant_message_meta,
     )
     result["message_id"] = message_id
     result["persistence_outcome"] = "persisted"

@@ -6,9 +6,19 @@ import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
  * Static desktop geometry is injected by the canonical theme registry.
  */
 import api, { buildChatThreadsPath } from "@/lib/api";
-import { ChevronRight, Settings2 } from "lucide-react";
+import { ChevronRight, PanelsTopLeft, Settings2 } from "lucide-react";
 import React, { PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { toRgba, useBackdropLuminance } from "@/theme/backdropLuminance";
+import {
+  onReducedTransparencyChange,
+  prefersReducedTransparency,
+  readGlassTreatment,
+  resolveGlassMaterial,
+  writeGlassTreatment,
+  type GlassTreatment,
+} from "@/theme/glassTreatment";
 
 // Global font injection for Apple system font
 if (typeof window !== "undefined") {
@@ -33,6 +43,7 @@ import { usePeopleMessagingState } from "@/features/contacts/usePeopleMessagingS
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
+import LibraryView from "@/components/library/LibraryView";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
@@ -163,6 +174,7 @@ type LayoutMode = "focus" | "zen";
 type AppShellView =
   | "dashboard"
   | "documents"
+  | "library"
   | "gallery"
   | "guardian"
   | "flowBuilder"
@@ -260,6 +272,7 @@ function useMobileNavFeedbackContext(
 const APP_SHELL_VIEWS = [
   "dashboard",
   "documents",
+  "library",
   "gallery",
   "guardian",
   "flowBuilder",
@@ -270,6 +283,7 @@ const APP_SHELL_VIEWS = [
 
 const PHONE_NAVIGATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
+  { view: "library", label: "Library", priority: "primary" },
   { view: "documents", label: "Documents", priority: "primary" },
   { view: "gallery", label: "Gallery", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
@@ -295,6 +309,7 @@ function isPrimaryMobileApplicationView(
   return (
     view === "guardian" ||
     view === "documents" ||
+    view === "library" ||
     view === "gallery" ||
     view === "dashboard" ||
     view === "settings"
@@ -315,6 +330,7 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
   if (pathname.startsWith("/persona-studio")) return "personaStudio";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
+  if (pathname.startsWith("/library")) return "library";
   if (pathname.startsWith("/documents")) return "documents";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   if (pathname.startsWith("/chat")) return "guardian";
@@ -329,6 +345,8 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
       return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
       return "/documents";
+    case "library":
+      return "/library";
     case "gallery":
       return "/gallery";
     case "settings":
@@ -1149,6 +1167,8 @@ export default function AppShell({
   const bp = useBreakpoint();
   const dockAutoCollapseEnabled = bp !== "sm";
   const topChromeRef = useRef<HTMLDivElement | null>(null);
+  const shellSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const utilityClusterRef = useRef<HTMLDivElement | null>(null);
   const dockCollapseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const dockEngagedRef = useRef(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
@@ -1403,9 +1423,13 @@ export default function AppShell({
     return parseHostedRoomRoute(window.location.pathname)?.roomId ?? null;
   });
   const workspaceShellEnabled =
-    activeRoomId == null && isWorkspaceShellView(view);
+    activeRoomId == null && (isWorkspaceShellView(view) || view === "library");
   const workspaceRouteContext: WorkspaceShellView = workspaceShellEnabled
-    ? view
+    ? view === "library"
+      ? "documents"
+      : isWorkspaceShellView(view)
+        ? view
+        : "dashboard"
     : "dashboard";
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectModalSaving, setProjectModalSaving] = useState(false);
@@ -1667,7 +1691,7 @@ export default function AppShell({
     };
   }, []);
   useEffect(() => {
-    if (view !== "documents") {
+    if (view !== "documents" && view !== "library") {
       documentsEntrySeededRef.current = false;
       setDocumentsScopeReady(false);
       return;
@@ -1686,8 +1710,9 @@ export default function AppShell({
   const navigateToView = useCallback(
     (nextView: AppShellView) => {
       if (
-        nextView === "documents" &&
+        (nextView === "documents" || nextView === "library") &&
         view !== "documents" &&
+        view !== "library" &&
         !documentsEntrySeededRef.current
       ) {
         if (seedDocumentsScopeFromGuardian()) {
@@ -2024,6 +2049,27 @@ export default function AppShell({
     if (!Number.isFinite(raw)) return 0;
     return normalizeSurfaceWarmth(raw);
   });
+
+  // Glass Treatment — a material axis orthogonal to every other appearance
+  // axis per ADR-064. Stored under its own key and never derived from the
+  // theme mode, Surface Depth, Surface Warmth, Paper Tone, or Accent.
+  // The saved preference is held separately from the effective treatment so
+  // an accessibility override never rewrites the user's choice.
+  const [glassTreatment, setGlassTreatmentState] = useState<GlassTreatment>(
+    () => readGlassTreatment()
+  );
+  const [reducedTransparency, setReducedTransparency] = useState<boolean>(
+    () => prefersReducedTransparency()
+  );
+  useEffect(() => onReducedTransparencyChange(setReducedTransparency), []);
+  const glassMaterial = useMemo(
+    () => resolveGlassMaterial(glassTreatment, { reducedTransparency }),
+    [glassTreatment, reducedTransparency]
+  );
+  const setGlassTreatment = useCallback((next: GlassTreatment) => {
+    writeGlassTreatment(next);
+    setGlassTreatmentState(next);
+  }, []);
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("cfy.baseColor", baseColor);
@@ -2156,6 +2202,87 @@ export default function AppShell({
       backgroundRepeat: "no-repeat",
     } as React.CSSProperties;
   })();
+
+  /* ────────────────────────────────────────────────────────────────────────────
+     🎨 SECTION: Wallpaper-Facing Chrome Contrast
+
+     The utility cluster renders *outside* the glass dock, directly on the
+     wallpaper. Global --text/--icon are derived from the theme mode alone, so
+     they are correct for opaque material surfaces but wrong here: white text
+     disappears against bright bokeh. Sample the actual backdrop behind this
+     cluster and derive a scoped foreground plus a contrast-safe backing.
+
+     Deliberately scoped. Global tokens and their ~135 consumers are left
+     untouched; only the top-chrome utility cluster consumes these.
+     ──────────────────────────────────────────────────────────────────────────── */
+  const wallpaperWash = useMemo(() => {
+    const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
+    if (!wallpaper || !selectedWallpaperMedia.src) {
+      // No wallpaper: the gradient wash below is the entire backdrop.
+      return {
+        color: { r: 255, g: 255, b: 255 } as const,
+        startAlpha:
+          resolved === "dark" ? clamp(depth) * 0.7 : clamp(fade) * 0.5,
+        endAlpha: resolved === "dark" ? clamp(fade) * 0.35 : clamp(depth) * 0.25,
+      };
+    }
+    return resolved === "dark"
+      ? {
+          color: { r: 0, g: 0, b: 0 } as const,
+          startAlpha: clamp(depth) * 0.7,
+          endAlpha: clamp(fade) * 0.35,
+        }
+      : {
+          color: { r: 255, g: 255, b: 255 } as const,
+          startAlpha: clamp(fade) * 0.5,
+          endAlpha: clamp(depth) * 0.25,
+        };
+  }, [wallpaper, selectedWallpaperMedia.src, resolved, fade, depth]);
+
+  const wallpaperUnderlay = useMemo(() => {
+    // The vertical gradient the shell paints for this element family when no
+    // wallpaper is set. Passed as endpoints (not a flattened midpoint) because
+    // it varies with vertical position, and the sampler evaluates it per
+    // sample. Approximation: with a wallpaper set, the viewport and the
+    // refractive layer also sit beneath, which this does not model.
+    const toRgb = (hex: string) => {
+      const clean = hex.replace("#", "");
+      const parse = (index: number) => {
+        const value = parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+        return Number.isFinite(value) ? value : 128;
+      };
+      return { r: parse(0), g: parse(1), b: parse(2) };
+    };
+    return {
+      top: toRgb(lighten(baseColor, fade * 0.6)),
+      bottom: toRgb(darken(baseColor, depth * 0.8)),
+    };
+  }, [baseColor, fade, depth]);
+
+  const topChromeContrast = useBackdropLuminance({
+    src: selectedWallpaperMedia.src || null,
+    elementRef: shellSurfaceRef,
+    regionRef: utilityClusterRef,
+    wash: wallpaperWash,
+    // What a transparent wallpaper pixel reveals.
+    underlay: wallpaperUnderlay,
+    mode: resolved,
+  });
+
+  // Scoped tokens. `--top-chrome-scrim` stays opaque while sampling is
+  // unresolved, so a stale or unguarded foreground is never exposed.
+  const topChromeStyleVars = {
+    "--top-chrome-fg": toRgba(topChromeContrast.foreground, 1),
+    "--top-chrome-fg-muted": toRgba(topChromeContrast.foregroundMuted, 0.78),
+    "--top-chrome-scrim": toRgba(
+      topChromeContrast.backing,
+      topChromeContrast.backingAlpha
+    ),
+    "--top-chrome-scrim-active": topChromeContrast.needsBacking
+      ? "1"
+      : "0",
+  } as React.CSSProperties;
+
   const panelSheetBase = resolved === "dark" ? "#1b1b1d" : "#f1ede8";
   const chipBgBase = resolved === "dark" ? "#262629" : "#e9e4dc";
   // Surface Depth (affects both themes equally).
@@ -2953,7 +3080,9 @@ export default function AppShell({
     workspaceShellEnabled &&
     (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
   const workspaceProjectId =
-    view === "documents" ? documentsScope.projectId : guardianProjectFallbackId;
+    view === "documents" || view === "library"
+      ? documentsScope.projectId
+      : guardianProjectFallbackId;
   const workspaceDrawerMotionState = isPhoneShell
     ? getMobileWorkspaceMotionState(
         isPhoneShell,
@@ -3245,7 +3374,12 @@ export default function AppShell({
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
-      className="pill-tab shrink-0 whitespace-nowrap"
+      className={
+        isPhoneShell
+          ? "pill-tab shrink-0 whitespace-nowrap"
+          : "pill-tab h-9 w-9 shrink-0 p-0"
+      }
+      square={!isPhoneShell}
       style={{
         ...getWorkspaceAffordanceSurfaceStyle(isPhoneShell, workspaceAffordanceState),
         ...mobileWorkspaceSummonFeedbackStyle,
@@ -3257,15 +3391,9 @@ export default function AppShell({
       aria-label={
         isPhoneShell
           ? workspaceSummonCopy.ariaLabel
-          : "Toggle workspace drawer"
+          : workspaceSummonCopy.actionLabel
       }
-      title={
-        isPhoneShell
-          ? workspaceSummonCopy.title
-          : workspaceDrawerOpen
-            ? "Close workspace drawer"
-            : "Open workspace drawer"
-      }
+      title={isPhoneShell ? workspaceSummonCopy.title : "Workspace"}
       onClick={toggleWorkspaceDrawer}
     >
       {isPhoneShell ? (
@@ -3280,7 +3408,10 @@ export default function AppShell({
           <span>{workspaceSummonCopy.label}</span>
         </span>
       ) : (
-        "Workspace"
+        /* Desktop shows the glyph alone. The visible hover tooltip stays
+           "Workspace" while the accessible name carries the action and its
+           state, so screen readers hear "Open/Close workspace drawer". */
+        <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
       )}
     </PhonePressButton>
   ) : null;
@@ -3331,7 +3462,7 @@ export default function AppShell({
     />
   ) : null;
   const documentsSidebarToggle =
-    activeRoomId == null && view === "documents" && !isPhoneShell ? (
+    activeRoomId == null && (view === "documents" || view === "library") && !isPhoneShell ? (
     <PhonePressButton
       type="button"
       isPhoneShell={isPhoneShell}
@@ -3412,7 +3543,7 @@ export default function AppShell({
     </header>
   ) : null;
   const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
-    view === "documents" ? (
+    view === "documents" || view === "library" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
         activeId={
@@ -3591,10 +3722,12 @@ export default function AppShell({
         />
       </div>
       <div
+        ref={shellSurfaceRef}
         className={`codexify-shell relative h-full w-full isolate flex flex-col flex-1 min-h-0 overflow-hidden mx-auto ${isPhoneFrameFirstShell ? "" : "py-[var(--edge-chrome)]"} ${resolved === "dark" ? "dark" : ""} ${dockCollapsed ? "codexify-shell--dock-collapsed" : ""}`}
         style={{
           ...backgroundStyle,
           ...styleVars,
+          ...topChromeStyleVars,
           borderRadius: "var(--viewport-radius)",
           paddingLeft: isPhoneFrameFirstShell
             ? undefined
@@ -3667,6 +3800,9 @@ export default function AppShell({
             data-shell-nav-mode={
               mobileShellProfile.topNav.scrollable ? "scroll_rail" : "docked"
             }
+            data-glass-treatment={glassMaterial.effective}
+            data-glass-preference={glassMaterial.preference}
+            data-glass-overridden={glassMaterial.overriddenForAccessibility}
             style={mobileTopNavDockStyle}
           >
             {/* glass backdrop */}
@@ -3677,6 +3813,7 @@ export default function AppShell({
                 style={{ background: "transparent", border: "none" }}
                 intensity={0.006}
                 aberration={0.006}
+                treatment={glassMaterial.effective}
               />
             </div>
 
@@ -3741,6 +3878,16 @@ export default function AppShell({
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
                 className="pill-tab shrink-0 whitespace-nowrap"
+                data-state={activeRoomId == null && view === "library" ? "active" : "inactive"}
+                aria-current={activeRoomId == null && view === "library" ? "page" : undefined}
+                onClick={() => navigateToView("library")}
+                style={getMobileNavPillStyle("library")}
+              >
+                Library
+              </PhonePressButton>
+              <PhonePressButton
+                isPhoneShell={isPhoneShell}
+                className="pill-tab shrink-0 whitespace-nowrap"
                 data-state={activeRoomId == null && view === "documents" ? "active" : "inactive"}
                 aria-current={activeRoomId == null && view === "documents" ? "page" : undefined}
                 onClick={() => navigateToView("documents")}
@@ -3772,6 +3919,7 @@ export default function AppShell({
           </div>
         </div>
         <div
+          ref={utilityClusterRef}
           data-testid="app-shell-utility-cluster"
           className={`codexify-dock__utility-cluster flex shrink-0 items-center ${isPhoneShell ? "gap-[var(--pill-gap)]" : "gap-2"}`}
           style={
@@ -3973,6 +4121,137 @@ export default function AppShell({
                           threadId={documentsUploadScope.threadId}
                           loading={documentsLoading}
                           error={documentsLoadError}
+                        />
+                      </div>
+                    </FrameCard>
+                  </div>
+                </div>
+                {sharedWorkspaceDrawer}
+              </div>
+            </div>
+          )}
+          {!startupLocked && activeRoomId == null && view === "library" && (
+            <div
+              className="h-full w-full isolate"
+              data-active-view="library"
+              data-active-view-contract="left-center-right"
+              data-thread-rail="present"
+              data-view-family="library"
+              style={{
+                "--radius": "var(--card-radius)",
+                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
+                "--gutter": "var(--shell-gap)",
+                "--min-h": shellViewportProfile.contentMinHeight,
+                borderRadius: "var(--card-radius)",
+              } as React.CSSProperties}
+            >
+              <div
+                className={workspaceShellLaneClassName}
+                {...workspaceSplitSurfaceProps}
+              >
+                <div
+                  data-testid="workspace-primary-pane"
+                  data-pane-basis={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneBasis
+                      : "100.00%"
+                  }
+                  data-pane-min-width={
+                    showWorkspaceDrawer && !isPhoneShell
+                      ? primaryPaneMinWidth
+                      : "0px"
+                  }
+                  className="min-h-0 min-w-0 relative"
+                  style={workspacePrimaryPaneStyle}
+                >
+                  <div
+                    className={
+                      isPhoneShell
+                        ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                        : documentsSidebarVisible
+                          ? "grid h-full w-full min-h-0 overflow-hidden"
+                          : "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                    }
+                    data-testid="library-shared-shell"
+                    data-documents-shared-shell="sidebar-center"
+                    style={
+                      isPhoneShell
+                        ? undefined
+                        : documentsSidebarVisible
+                          ? {
+                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
+                              gap: "var(--gutter)",
+                            }
+                          : undefined
+                    }
+                  >
+                    {!isPhoneShell && documentsSidebarVisible && (
+                      <div
+                        className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
+                        data-testid="documents-shared-sidebar-pane"
+                        data-shared-sidebar="true"
+                      >
+                        <FrameCard
+                          fill
+                          refractiveFallback
+                          shimmerMode="subtle"
+                          liquidBezelWidth={3}
+                          className="flex h-full w-full min-h-0 flex-col box-border"
+                          style={{
+                            borderRadius: "var(--card-radius)",
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "var(--panel-border)",
+                          }}
+                        >
+                        <SidebarRoot
+                            threads={documentsSidebarThreadsForRender}
+                            activeId={
+                              documentsScope.kind === "thread"
+                                ? String(documentsScope.threadId)
+                                : null
+                            }
+                            onSelect={handleDocumentsSidebarThreadSelect}
+                            onNewChat={() => navigateToThread(null)}
+                            projectId={
+                              documentsScope.projectId == null
+                                ? null
+                                : String(documentsScope.projectId)
+                            }
+                            onProjectChange={handleDocumentsSidebarProjectChange}
+                            persistence={documentsSidebarPersistence}
+                          />
+                        </FrameCard>
+                      </div>
+                    )}
+                    {!isPhoneShell && !documentsSidebarVisible && (
+                      <button
+                        type="button"
+                        className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
+                        data-testid="documents-sidebar-edge-affordance"
+                        aria-label="Show sidebar"
+                        title="Show sidebar"
+                        onClick={toggleDocumentsSidebar}
+                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
+                      >
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
+                      </button>
+                    )}
+                    <FrameCard
+                      fill
+                      refractiveFallback
+                      shimmerMode="subtle"
+                      className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+                      data-testid="library-primary-frame"
+                    >
+                      {phonePrimaryFrameHeader}
+                      <div className="min-h-0 flex-1 overflow-hidden">
+                        <LibraryView
+                          scope={documentsScope}
+                          extColors={extColors}
+                          onOpenInThread={openDocInThread}
+                          onDeleteDocument={deleteDocument}
+                          onImageSelect={openChatWithPrompt}
                         />
                       </div>
                     </FrameCard>
@@ -4244,6 +4523,10 @@ export default function AppShell({
                     setSurfaceDepth={setSurfaceDepth}
                     surfaceWarmth={surfaceWarmth}
                     setSurfaceWarmth={setSurfaceWarmth}
+                    glassTreatment={glassMaterial.preference}
+                    setGlassTreatment={setGlassTreatment}
+                    glassTreatmentEffective={glassMaterial.effective}
+                    glassTreatmentOverridden={glassMaterial.overriddenForAccessibility}
                     onStartFeedbackConversation={openFeedbackConversation}
                     onOpenConfigurationInspector={() => navigateToView("configurationInspector")}
                     ingestionEnabled={ingestionEnabled}

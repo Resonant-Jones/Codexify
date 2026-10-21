@@ -145,6 +145,68 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Wallpaper-facing chrome contrast.
+
+   The utility cluster renders outside the glass dock, directly on the
+   wallpaper, so `--text` / `--icon` (derived from the theme mode alone) are
+   wrong here: white text vanishes against bright bokeh. AppShell measures the
+   actual backdrop behind this cluster and publishes --top-chrome-fg plus a
+   contrast-safe --top-chrome-scrim.
+
+   The global tokens and their consumers are deliberately untouched. Only this
+   cluster adopts the sampled foreground.
+--------------------------------------------------------------------------- */
+
+.codexify-dock__utility-cluster {
+  position: relative;
+  isolation: isolate;
+  /* Blur accompanies the backing for material consistency; the contrast
+     guarantee itself comes from --top-chrome-scrim's solved alpha. */
+  border-radius: 999px;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+/* The backing sits behind the controls, never intercepting pointer events. */
+.codexify-dock__utility-cluster::before {
+  content: "";
+  position: absolute;
+  inset: -6px -8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--top-chrome-scrim, transparent);
+  pointer-events: none;
+}
+
+/* Override completeness: `.pill-tab` and `.icon-inline` each declare their own
+   color in index.css, so an ancestor-scoped variable would never reach them.
+   Every selector below is required, not decorative. */
+.codexify-dock__utility-cluster .pill-tab,
+.codexify-dock__utility-cluster .pill-tab:hover,
+.codexify-dock__utility-cluster .icon-inline,
+.codexify-dock__utility-cluster .icon-inline:hover,
+.codexify-dock__utility-cluster button[aria-label^="TTS"],
+.codexify-dock__utility-cluster button[aria-label="People"] {
+  color: var(--top-chrome-fg, var(--text));
+}
+
+/* The active pill keeps its accent treatment; only the foreground follows the
+   backdrop, and only when that foreground is dark enough to read on accent. */
+.codexify-dock__utility-cluster .pill-tab[data-state="active"] {
+  color: var(--pill-active-text, var(--top-chrome-fg, var(--text)));
+}
+
+/* System status dot carries a deliberate status hue (healthy/attention/
+   critical) — that semantic color must survive backdrop adaptation. Its
+   legibility comes from the backing, not from being recoloured. */
+.codexify-dock__utility-cluster [data-testid="system-status-toggle"] {
+  color: var(--top-chrome-fg, var(--text));
+}
+
 /* Material Controls sliders — touch-friendly, single-column control stack.
    Resets the default <Input> wrapper visuals (border, background, padding)
    and supplies a chunkier track + thumb suitable for iPad/iPhone targets. */
@@ -334,6 +396,60 @@
   border-radius: var(--viewport-radius);
   background: var(--surface-sheet);
   color: var(--text);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass Treatment — dock material specialization (ADR-064 material axis).
+
+   The refractive canvas is mounted at `-z-10` inside `.glass-pill`, which
+   paints opaque displaced wallpaper pixels. That canvas therefore covers the
+   `.glass-pill` backdrop-filter declared in index.css, which is why the
+   existing dock reads as refractive rather than as CSS blur.
+
+   For Frosted and Solid the canvas is not mounted at all (see
+   RefractiveGlassCard), so the `.glass-pill` gradient and backdrop-filter
+   become the visible material and must carry the treatment on their own.
+   These rules are scoped to `[data-glass-treatment]` so no other
+   `.glass-pill` consumer — including the Settings nav rail — is affected.
+--------------------------------------------------------------------------- */
+
+.codexify-dock[data-glass-treatment="frosted"] {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0.08)
+  );
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+.codexify-dock[data-glass-treatment="solid"] {
+  /* Opaque: no backdrop blur may remain, or the treatment would not be solid. */
+  background: rgb(28, 28, 30);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* In light mode the opaque Solid surface needs a readable pane. */
+:root:not(.dark) .codexify-dock[data-glass-treatment="solid"] {
+  background: rgb(243, 242, 238);
+}
+
+.codexify-dock[data-glass-treatment="solid"] .pill-tab {
+  /* `--muted` / `--text` are mode-derived and stay correct here: Solid pins the
+     surface, so the wallpaper no longer participates in contrast. */
+  border-color: color-mix(in oklab, var(--panel-border) 40%, transparent);
+}
+
+/* The selected material must not defeat the collapsed dock's transparent
+   posture. The light Solid rule above has higher specificity than the base
+   collapsed rule, so its light-mode override needs an equally scoped reset. */
+.codexify-shell--dock-collapsed .codexify-dock[data-glass-treatment="frosted"],
+.codexify-shell--dock-collapsed .codexify-dock[data-glass-treatment="solid"],
+:root:not(.dark) .codexify-shell--dock-collapsed .codexify-dock[data-glass-treatment="solid"] {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .unified-desktop[data-browser-state="focused"] .unified-desktop__browser {

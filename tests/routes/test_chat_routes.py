@@ -1987,3 +1987,340 @@ class TestApiChatAlias:
         resp = test_client.post("/api/chat/1/complete", json={})
         assert resp.status_code == 200
         assert isinstance(resp.json().get("task_id"), str)
+
+
+@pytest.fixture
+def provider_inspection_client(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from guardian.core import chat_completion_service as service
+
+    monkeypatch.setattr(service, "_PROVIDER_CAPTURE_REQUESTS", {})
+    monkeypatch.setattr(service.threading, "Timer", MagicMock())
+    db = MagicMock()
+    db.get_chat_thread.return_value = {"id": 1, "user_id": "owner", "project_id": 10}
+    db.list_projects.return_value = [
+        {"id": 10, "user_id": "owner"},
+        {"id": 20, "user_id": "other"},
+    ]
+    monkeypatch.setattr(chat_routes, "chatlog_db", db)
+    monkeypatch.setattr(
+        chat_routes,
+        "get_chat_completion_attempt_by_task_id",
+        lambda db, task: {
+            "request_id": "req-one",
+            "thread_id": 1,
+            "backend_task_id": task,
+        }
+        if task == "task-one"
+        else None,
+    )
+    app = FastAPI()
+    app.include_router(chat_routes.api_chat_router)
+    principal = RequestUserScope(
+        user_id="owner", subject_id="owner", account_id="owner"
+    )
+    app.dependency_overrides[chat_routes.get_request_user_scope] = lambda: principal
+    client = TestClient(app)
+    client.headers.pop("X-API-Key", None)
+    return client, app, db, service
+
+
+def _enable_inspection(service):
+    assert service.enable_provider_request_capture(
+        task_id="task-one",
+        request_id="req-one",
+        account_id="owner",
+        thread_id=1,
+        project_id=10,
+    )
+
+
+def _deliver_inspection(
+    client,
+    body=b'{ "model":"effective", "messages":[{"role":"user","content":"  IV?\\n"}] }',
+    **overrides,
+):
+    params = dict(
+        request_id="req-one",
+        attempt_id="attempt-one",
+        dispatch_index=1,
+        provider="local",
+        logical_model="logical",
+        byte_size=len(body),
+    )
+    params.update(overrides)
+    return client.post(
+        "/api/chat/internal/provider-request-captures/task-one",
+        params=params,
+        content=body,
+        headers={"X-API-Key": "test-api-key"},
+    )
+
+
+def test_inspection_authorized_exact_readback_no_persistent_writes(
+    provider_inspection_client,
+):
+    import json
+
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    body = b'{ "model":"effective", "messages":[{"role":"user","content":"  IV?\\n"}] }'
+    assert _deliver_inspection(client, body).json() == {"stored": True}
+    response = client.get("/api/chat/1/debug/provider-requests/task-one")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    capture = response.json()["captures"][0]
+    assert capture["raw_json"].encode() == body
+    assert capture["request_json"] == json.loads(body)
+    assert capture["attempt_id"] == "attempt-one"
+    assert capture["provider"] == "local" and capture["logical_model"] == "logical"
+    assert capture["completeness"] == "COMPLETE"
+    assert capture["capture_timestamp"]
+    assert set(call[0] for call in db.method_calls) <= {
+        "get_chat_thread",
+        "list_projects",
+    }
+
+
+def test_inspection_no_actual_capture_is_unavailable(provider_inspection_client):
+    client, app, db, service = provider_inspection_client
+    response = client.get("/api/chat/1/debug/provider-requests/task-one")
+    assert response.status_code == 200
+    assert response.json()["availability"] == "CAPTURE_UNAVAILABLE"
+    assert response.json()["captures"] == []
+    assert _deliver_inspection(client).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "principal",
+    [
+        RequestUserScope(user_id="owner"),  # service/local hint is not a principal
+        RequestUserScope(user_id="other", account_id="other", subject_id="other"),
+    ],
+)
+def test_inspection_rejects_missing_and_cross_account_principals(
+    provider_inspection_client, principal
+):
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    assert _deliver_inspection(client).status_code == 200
+    app.dependency_overrides[chat_routes.get_request_user_scope] = lambda: principal
+    response = client.get("/api/chat/1/debug/provider-requests/task-one")
+    assert response.status_code in {401, 403}
+    assert "raw_json" not in response.text
+
+
+def test_inspection_rejects_cross_project_and_thread_reads(provider_inspection_client):
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    assert _deliver_inspection(client).status_code == 200
+    assert client.get("/api/chat/2/debug/provider-requests/task-one").status_code == 404
+    db.get_chat_thread.return_value["project_id"] = 20
+    response = client.get("/api/chat/1/debug/provider-requests/task-one")
+    assert response.status_code == 403
+    assert _deliver_inspection(client).status_code == 404
+    db.list_projects.return_value[1]["user_id"] = "owner"
+    assert client.get("/api/chat/1/debug/provider-requests/task-one").status_code == 403
+
+
+def test_inspection_delivery_requires_service_capability(provider_inspection_client):
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    url = "/api/chat/internal/provider-request-captures/task-one"
+    assert client.get(url).status_code == 401
+    assert client.post(url, content=b"{}").status_code == 401
+    response = client.get(url, headers={"X-API-Key": "test-api-key"})
+    assert response.json() == {"enabled": True}
+    assert "raw_json" not in response.text
+
+
+def test_inspection_worker_relay_and_provider_dispatch_share_bytes(
+    provider_inspection_client, monkeypatch
+):
+    import json
+    import requests
+    from guardian.core.ai_router import (
+        observe_provider_requests,
+        _post_provider_request,
+    )
+
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    monkeypatch.setenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://internal")
+    task = SimpleNamespace(
+        origin="api:chat.complete|provider_request_inspection=enabled",
+        task_id="task-one",
+        request_id="req-one",
+        attempt_id="attempt-one",
+    )
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: SimpleNamespace(GUARDIAN_API_KEY="test-api-key"),
+    )
+    sent = []
+
+    def get(url, **kwargs):
+        return client.get(
+            "/api/chat/internal/provider-request-captures/task-one",
+            headers=kwargs["headers"],
+        )
+
+    def post(url, **kwargs):
+        if url.startswith("http://internal/"):
+            return client.post(
+                "/api/chat/internal/provider-request-captures/task-one",
+                params=kwargs["params"],
+                content=kwargs["data"],
+                headers=kwargs["headers"],
+            )
+        sent.append(kwargs["data"])
+        return "reply"
+
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(requests, "post", post)
+    observer = service._provider_request_capture_observer(
+        task, provider="local", model="logical"
+    )
+    assert callable(observer)
+    with observe_provider_requests(observer):
+        assert (
+            _post_provider_request(
+                "https://provider.invalid",
+                json={
+                    "messages": [{"role": "user", "content": "  Exact\n"}],
+                    "model": "effective",
+                },
+            )
+            == "reply"
+        )
+    capture = client.get("/api/chat/1/debug/provider-requests/task-one").json()[
+        "captures"
+    ][0]
+    assert len(sent) == 1
+    assert capture["raw_json"].encode() == sent[0]
+    assert capture["request_json"] == json.loads(sent[0])
+
+
+def test_complete_opt_in_registers_owner_consent_before_enqueue(
+    test_client, mock_db, monkeypatch
+):
+    from guardian.core import chat_completion_service as service
+
+    monkeypatch.setattr(service, "_PROVIDER_CAPTURE_REQUESTS", {})
+    monkeypatch.setattr(service.threading, "Timer", MagicMock())
+    owner = get_test_user_id()
+    mock_db.get_chat_thread.return_value = {
+        "id": 1,
+        "user_id": owner,
+        "project_id": 10,
+        "active_profile_id": None,
+        "active_profile_revision": None,
+    }
+    mock_db.list_projects.return_value = [{"id": 10, "user_id": owner}]
+    mock_db.list_messages.return_value = [{"role": "user", "content": "Synthetic IV?"}]
+    monkeypatch.setattr(
+        service, "acquire_turn_lock", lambda *a, **k: _acquired_turn_lock(*a, **k)
+    )
+    tasks = []
+
+    def enqueue(task, queue_name):
+        assert service.provider_capture_scope(task.task_id)["account_id"] == owner
+        tasks.append(task)
+
+    monkeypatch.setattr(service, "enqueue", enqueue)
+    response = test_client.post(
+        "/api/chat/1/complete",
+        json={},
+        headers={"X-Provider-Request-Inspection": "true"},
+    )
+    assert response.status_code == 200, response.text
+    assert len(tasks) == 1
+    assert service.PROVIDER_CAPTURE_ORIGIN_MARKER in tasks[0].origin.split("|")
+    assert (
+        service.read_provider_request_captures(tasks[0].task_id)["availability"]
+        == "CAPTURE_UNAVAILABLE"
+    )
+
+
+def test_inspection_real_scope_rejects_service_key_without_account_session(
+    provider_inspection_client,
+):
+    client, app, db, service = provider_inspection_client
+    app.dependency_overrides.pop(chat_routes.get_request_user_scope)
+    response = client.get(
+        "/api/chat/1/debug/provider-requests/task-one",
+        headers={"X-API-Key": "test-api-key", "X-User-ID": "owner"},
+    )
+    assert response.status_code == 401
+    assert "raw_json" not in response.text
+
+
+def test_inspection_overflow_readback_is_explicit(provider_inspection_client):
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    response = _deliver_inspection(
+        client, body=b"", byte_size=service.PROVIDER_CAPTURE_MAX_BYTES + 1
+    )
+    assert response.status_code == 200
+    payload = client.get("/api/chat/1/debug/provider-requests/task-one").json()
+    assert payload["availability"] == "CAPTURE_UNAVAILABLE"
+    capture = payload["captures"][0]
+    assert capture["completeness"] == "CAPTURE_UNAVAILABLE"
+    assert capture["raw_json"] is None
+    assert capture["omission_reasons"] == ["capture_size_exceeded"]
+
+
+def test_shared_completion_attempt_captures_real_adapter_request(provider_inspection_client, monkeypatch):
+    import requests
+    from guardian.core import ai_router
+    from guardian.core.config import Settings
+
+    client, app, db, service = provider_inspection_client
+    _enable_inspection(service)
+    monkeypatch.setenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://internal")
+    settings = Settings(
+        LLM_PROVIDER="groq", GUARDIAN_API_KEY="test-api-key",
+        CODEXIFY_LOCAL_ONLY_MODE=False, ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_EGRESS_ALLOWLIST="groq", GROQ_API_KEY="synthetic-provider-key",
+        GROQ_BASE_URL="https://synthetic.invalid",
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(service, "chat_with_ai", ai_router.chat_with_ai)
+    # Synthetic discovery authority avoids network inventory calls in this
+    # request-byte/attempt-correlation proof. Provider egress remains checked.
+    monkeypatch.setattr(ai_router, "validate_provider_model_selection",
+                        lambda **kwargs: (True, None))
+    task = SimpleNamespace(
+        task_id="task-one", request_id="req-one",
+        origin="api:chat.complete|provider_request_inspection=enabled",
+    )
+    sent = []
+    monkeypatch.setattr(requests, "get", lambda url, **kwargs: client.get(
+        "/api/chat/internal/provider-request-captures/task-one", headers=kwargs["headers"],
+    ))
+    def post(url, **kwargs):
+        if url.startswith("http://internal/"):
+            return client.post(
+                "/api/chat/internal/provider-request-captures/task-one",
+                params=kwargs["params"], content=kwargs["data"], headers=kwargs["headers"],
+            )
+        sent.append(kwargs["data"])
+        return SimpleNamespace(status_code=200, json=lambda: {
+            "choices": [{"message": {"content": "Synthetic reply"}, "finish_reason": "stop"}],
+        })
+    monkeypatch.setattr(requests, "post", post)
+    messages = [{"role": "system", "content": "  Synthetic system\n"},
+                {"role": "user", "content": "  IV?\n"}]
+    result = service._execute_completion_attempt(
+        task=task, provider="groq", model="moonshotai-kimi-k2-instruct-9050",
+        messages_for_llm=messages, bundle=None,
+    )
+    assert result.output == "Synthetic reply" and result.terminal.successful
+    assert len(sent) == 1
+    capture = client.get("/api/chat/1/debug/provider-requests/task-one").json()["captures"][0]
+    assert capture["attempt_id"] == result.attempt_id == task.attempt_id
+    assert capture["raw_json"].encode() == sent[0]
+    assert capture["request_json"]["messages"] == messages
+    assert b"synthetic-provider-key" not in sent[0]

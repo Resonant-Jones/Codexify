@@ -23,6 +23,7 @@ correlation or runtime evidence but never as command authority.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -45,6 +46,7 @@ from guardian.providers.whooshd_qualification import (
     STAGE_2D_GEMMA_4_12B_IT_QAT_4BIT_RECORD,
 )
 from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 
 # ── Canonical fixture shared by both transport paths ────────────────────────
@@ -110,6 +112,10 @@ def _build_task(
         model=model,
         origin="api:chat.complete|turn_id=22222222-2222-4222-8222-222222222222",
     )
+    for _name, _value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, _name, _value)
     task.latest_turn_message_id = 2
     task.turn_id = "22222222-2222-4222-8222-222222222222"
     task.tools = tools
@@ -121,7 +127,7 @@ def _seed_service(
     *,
     provider: str,
     model: str,
-) -> None:
+) -> dict[str, dict[str, Any]]:
     monkeypatch.setattr(
         chat_completion_service,
         "get_settings",
@@ -175,6 +181,33 @@ def _seed_service(
         "build_messages_for_llm",
         _build_messages,
     )
+    checkpoints: dict[str, dict[str, Any]] = {}
+
+    def _freeze(_db, **values):
+        request_id = values["request_id"]
+        existing = checkpoints.get(request_id)
+        if existing is None:
+            existing = {
+                "tool_turn_id": f"tool-turn-{request_id}",
+                "command_id": values["command_id"],
+                "args_hash": values["args_hash"],
+            }
+            checkpoints[request_id] = existing
+        elif (existing["command_id"], existing["args_hash"]) != (
+            values["command_id"], values["args_hash"]
+        ):
+            raise chat_completion_service.ChatToolCheckpointError(
+                "tool_decision_conflict"
+            )
+        return existing
+
+    monkeypatch.setattr(chat_completion_service, "freeze_chat_tool_decision", _freeze)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **values: checkpoints.get(values["request_id"]),
+    )
+    return checkpoints
 
 
 # ── DeepSeek native wire-shape helpers ──────────────────────────────────────
@@ -1298,6 +1331,88 @@ def test_whooshd_plain_assistant_completion_keeps_stream_path(
 
 
 # ── J. Provider-private state isolation ────────────────────────────────────
+
+
+def test_deepseek_reentry_uses_current_tool_call_correlation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retried provider call supplies its own valid wire correlation id."""
+    tools = [_canonical_tool_spec()]
+    _definitions, aliases = _deepseek_aliases(tools)
+    alias = next(iter(aliases))
+    first_decision, _ = _deepseek_response(
+        alias_to_command=aliases,
+        alias=alias,
+        arguments=dict(CANONICAL_ARGUMENTS),
+        tool_call_id="call-before-interruption",
+    )
+    replay_decision, _ = _deepseek_response(
+        alias_to_command=aliases,
+        alias=alias,
+        arguments=dict(CANONICAL_ARGUMENTS),
+        tool_call_id="call-after-reentry",
+    )
+    final_response = DeepSeekResponse(
+        content=CANONICAL_FINAL_ANSWER,
+        reasoning_content=None,
+        tool_calls=[],
+        raw_assistant_message={"role": "assistant", "content": CANONICAL_FINAL_ANSWER},
+        raw_payload={},
+    )
+    task = _build_task(
+        task_id="task-deepseek-tool-reentry",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        tools=tools,
+    )
+    checkpoints = _seed_service(
+        monkeypatch, provider="deepseek", model="deepseek-v4-flash"
+    )
+    invoke_calls: list[Any] = []
+    actual_runs: set[str] = set()
+
+    def execute_invoke(*, payload, **_kwargs):
+        invoke_calls.append(payload)
+        if payload.idempotency_key not in actual_runs:
+            actual_runs.add(payload.idempotency_key)
+        return dict(MOCKED_COMMAND_RESULT)
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", execute_invoke)
+    provider_calls: list[list[dict[str, Any]]] = []
+    phase = {"reentry": False, "calls": 0}
+
+    def provider(messages, **_kwargs):
+        provider_calls.append([dict(message) for message in messages])
+        phase["calls"] += 1
+        if not phase["reentry"]:
+            if phase["calls"] == 1:
+                return first_decision
+            raise RuntimeError("injected_after_command_before_finalization")
+        if phase["calls"] % 2 == 1:
+            return replay_decision
+        return final_response
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
+    with pytest.raises(RuntimeError, match="injected_after_command"):
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    first_tool_turn_id = next(iter(checkpoints.values()))["tool_turn_id"]
+    phase.update(reentry=True, calls=0)
+    result = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+
+    continuation = provider_calls[-1]
+    assert continuation[-2]["tool_calls"][0]["id"] == "call-after-reentry"
+    assert continuation[-1]["tool_call_id"] == "call-after-reentry"
+    assert continuation[-1]["tool_call_id"] != "call-before-interruption"
+    assert result["assistant_text"] == CANONICAL_FINAL_ANSWER
+    assert result["toolTurnId"] == first_tool_turn_id
+    assert result["commandRunId"] == MOCKED_COMMAND_RESULT["run_id"]
+    assert len(invoke_calls) == 2
+    assert invoke_calls[0].idempotency_key == invoke_calls[1].idempotency_key
+    assert len(actual_runs) == 1
 
 
 def test_deepseek_tool_call_id_does_not_grant_command_authority(

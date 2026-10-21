@@ -6,6 +6,8 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.parse import unquote, urlparse, urlunparse
@@ -90,6 +92,132 @@ WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON = (
     "configured_model_not_advertised_by_whooshd"
 )
 _SAFE_WHOOSHD_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+# Context-local observation survives provider wrappers and streaming iteration,
+# without monkey-patching requests or sharing an observer across concurrent turns.
+_PROVIDER_REQUEST_OBSERVER = ContextVar("provider_request_observer", default=None)
+
+
+@contextmanager
+def observe_provider_requests(observer):
+    token = _PROVIDER_REQUEST_OBSERVER.set(observer)
+    try:
+        yield
+    finally:
+        _PROVIDER_REQUEST_OBSERVER.reset(token)
+
+
+def _observe_provider_payload(json: Any) -> None:
+    """Report the canonical serialized payload to an opted-in observer.
+
+    Only the JSON payload is serialized. Headers are never folded into the
+    body, so an Authorization value or cookie can never reach a capture.
+    """
+    observer = _PROVIDER_REQUEST_OBSERVER.get()
+    if observer is None:
+        return
+    prepared = requests.PreparedRequest()
+    prepared.prepare_headers({})
+    prepared.prepare_body(data=None, files=None, json=json)
+    try:
+        observer(prepared.body)
+    except Exception:
+        # Never log raw bodies, observer exceptions, or credentials.
+        pass
+
+
+def _observed_request_kwargs(
+    json: Any, kwargs: Dict[str, Any], *, serializes_json: bool = False
+) -> Dict[str, Any]:
+    """Build Requests kwargs for one outbound provider dispatch.
+
+    Without an observer the transport keeps its ordinary ``json=`` form. With
+    one, the payload is serialized once and those exact bytes are both observed
+    and dispatched, so a capture cannot drift from what was sent.
+
+    ``serializes_json=True`` serves transports that serialize ``json=``
+    themselves and cannot accept pre-serialized ``data=`` bytes; those observe
+    the canonical payload but keep the transport's own serialization.
+    """
+    request_kwargs = dict(kwargs)
+    observer = _PROVIDER_REQUEST_OBSERVER.get()
+    if observer is None:
+        return {"json": json, **request_kwargs}
+    if serializes_json:
+        _observe_provider_payload(json)
+        return {"json": json, **request_kwargs}
+    prepared = requests.PreparedRequest()
+    prepared.prepare_headers({})
+    prepared.prepare_body(data=None, files=None, json=json)
+    body = prepared.body
+    headers = dict(request_kwargs.pop("headers", None) or {})
+    if not any(key.lower() == "content-type" for key in headers):
+        headers["Content-Type"] = "application/json"
+    try:
+        observer(body)
+    except Exception:
+        # Never log raw bodies, observer exceptions, or credentials.
+        pass
+    return {"data": body, **request_kwargs, "headers": headers}
+
+
+def _deadline_timeout_pair(timeout: Any) -> tuple[float, float]:
+    """Normalize a Requests timeout into the deadline transport's pair."""
+    if isinstance(timeout, (tuple, list)):
+        return float(timeout[0]), float(timeout[1])
+    seconds = float(timeout)
+    return seconds, seconds
+
+
+def _post_provider_request(
+    url,
+    *,
+    json: Any,
+    headers: Optional[Dict[str, Any]] = None,
+    timeout: Any = None,
+    accepted_deadline: Optional[AcceptedChatTaskDeadline] = None,
+    **kwargs,
+):
+    """The single outbound provider-request choke point.
+
+    Two independent concerns meet here and neither authorizes the other: opt-in
+    request observation (``observe_provider_requests``) and accepted-deadline
+    enforcement for a durable completion attempt (ADR-091). Observation is
+    evidence only — it never selects a provider, model, or credential.
+    """
+    request_kwargs = dict(kwargs)
+    if headers is not None:
+        request_kwargs["headers"] = headers
+    if timeout is not None:
+        request_kwargs["timeout"] = timeout
+
+    if accepted_deadline is None:
+        return requests.post(url, **_observed_request_kwargs(json, request_kwargs))
+
+    # The deadline transport owns native async I/O and serializes ``json=``
+    # itself, so observation reports the canonical payload without redirecting
+    # the dispatched bytes.
+    _observe_provider_payload(json)
+    transport = AcceptedDeadlineTransport(accepted_deadline)
+    try:
+        response = transport.post(
+            url,
+            json=json,
+            headers=request_kwargs.get("headers") or {},
+            stream=False,
+            timeout=_deadline_timeout_pair(request_kwargs.get("timeout")),
+        )
+        # Detach only after the full body arrives under the immutable deadline.
+        # Provider parsers then retain the ordinary Requests response interface.
+        detached = requests.Response()
+        detached.status_code = response.status_code
+        detached.headers.update(response.headers)
+        detached._content = response.content
+        detached.encoding = response.response.encoding
+        return detached
+    finally:
+        transport.close()
 
 
 class _WhooshdCancellationMonitor:
@@ -2738,15 +2866,19 @@ def call_local(
         nonlocal response
         if deadline_transport is None:
             return requests.post(
-                url, json=payload_obj, headers=headers, timeout=request_timeout
+                url,
+                **_observed_request_kwargs(
+                    payload_obj, {"headers": headers, "timeout": request_timeout}
+                ),
             )
         response = None
         response = deadline_transport.post(
             url,
-            json=payload_obj,
-            headers=headers,
-            stream=True,
-            timeout=request_timeout,
+            **_observed_request_kwargs(
+                payload_obj,
+                {"headers": headers, "stream": True, "timeout": request_timeout},
+                serializes_json=True,
+            ),
         )
         try:
             # Headers and the entire body share the same non-sliding deadline.
@@ -3219,10 +3351,15 @@ def stream_local(
                     if kind == "openai":
                         resp = post_stream(
                             url,
-                            json=payload,
-                            headers=headers,
-                            stream=True,
-                            timeout=timeout,
+                            **_observed_request_kwargs(
+                                payload,
+                                {
+                                    "headers": headers,
+                                    "stream": True,
+                                    "timeout": timeout,
+                                },
+                                serializes_json=deadline_transport is not None,
+                            ),
                         )
                     else:
                         ollama_messages = adapted_messages
@@ -3244,10 +3381,15 @@ def stream_local(
                         }
                         resp = post_stream(
                             url,
-                            json=payload_ollama,
-                            headers=headers,
-                            stream=True,
-                            timeout=timeout,
+                            **_observed_request_kwargs(
+                                payload_ollama,
+                                {
+                                    "headers": headers,
+                                    "stream": True,
+                                    "timeout": timeout,
+                                },
+                                serializes_json=deadline_transport is not None,
+                            ),
                         )
                 except req_exc.RequestException as exc:
                     if candidate_cancel_monitor is not None:
@@ -3684,27 +3826,6 @@ def stream_local(
             deadline_transport.close()
 
 
-def _post_provider_request(url, *, json, headers, timeout, accepted_deadline=None):
-    if accepted_deadline is None:
-        return requests.post(url, json=json, headers=headers, timeout=timeout)
-    transport = AcceptedDeadlineTransport(accepted_deadline)
-    try:
-        response = transport.post(
-            url, json=json, headers=headers, stream=False,
-            timeout=(float(timeout), float(timeout)),
-        )
-        # Detach only after the full body arrives under the immutable deadline.
-        # Provider parsers then retain the ordinary Requests response interface.
-        detached = requests.Response()
-        detached.status_code = response.status_code
-        detached.headers.update(response.headers)
-        detached._content = response.content
-        detached.encoding = response.response.encoding
-        return detached
-    finally:
-        transport.close()
-
-
 def call_groq(
     messages,
     model: str,
@@ -3742,7 +3863,11 @@ def call_groq(
 
     try:
         response = _post_provider_request(
-            url, json=payload, headers=headers, timeout=30, accepted_deadline=accepted_deadline,
+            url,
+            json=payload,
+            headers=headers,
+            timeout=30,
+            accepted_deadline=accepted_deadline,
         )
     except req_exc.RequestException as exc:
         detail = _sanitize_provider_error(str(exc), secret=api_key)

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 
+from guardian.command_bus import invoke as command_invoke
+from guardian.command_bus.store import CommandBusStore
 from guardian.core import chat_completion_service
+from guardian.routes import command_bus as command_bus_routes
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
@@ -23,6 +29,7 @@ from guardian.providers.whooshd_tool_adapter import (
     WhooshdStructuredTransportError,
 )
 from guardian.tasks.types import ChatCompletionTask
+from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 
 
 def _build_task(
@@ -38,6 +45,10 @@ def _build_task(
         model="mock-model",
         origin="api:chat.complete|turn_id=11111111-1111-4111-8111-111111111111",
     )
+    for name, value in build_accepted_chat_task_deadline(
+        datetime.now(timezone.utc)
+    ).to_dict().items():
+        setattr(task, name, value)
     task.latest_turn_message_id = 2
     task.turn_id = "11111111-1111-4111-8111-111111111111"
     return task
@@ -100,6 +111,33 @@ def _seed_service(
         "build_messages_for_llm",
         _build_messages,
     )
+    checkpoints: dict[str, dict[str, Any]] = {}
+
+    def _freeze(_db, **values):
+        request_id = values["request_id"]
+        existing = checkpoints.get(request_id)
+        if existing is None:
+            existing = {
+                "tool_turn_id": f"tool-turn-{request_id}",
+                "command_id": values["command_id"],
+                "args_hash": values["args_hash"],
+            }
+            checkpoints[request_id] = existing
+        elif (existing["command_id"], existing["args_hash"]) != (
+            values["command_id"], values["args_hash"]
+        ):
+            raise chat_completion_service.ChatToolCheckpointError(
+                "tool_decision_conflict"
+            )
+        return existing
+
+    monkeypatch.setattr(chat_completion_service, "freeze_chat_tool_decision", _freeze)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "get_chat_tool_checkpoint",
+        lambda _db, **values: checkpoints.get(values["request_id"]),
+    )
+    return checkpoints
 
 
 def _whooshd_stage_2e_response(
@@ -474,7 +512,10 @@ def test_whooshd_structured_second_tool_decision_keeps_one_turn_hard_stop(
         chat_completion_service,
         "execute_invoke",
         lambda *, payload, **_kwargs: command_calls.append(payload)
-        or {"run_id": "run-whooshd-limit", "status": "completed"},
+        or {
+            "run_id": "run-whooshd-limit", "status": "completed",
+            "inline_result": {"ok": True},
+        },
     )
     monkeypatch.setattr(
         chat_completion_service,
@@ -684,6 +725,7 @@ def test_second_tool_decision_hard_stops_after_one_bounded_turn(
             "invoke_version": "1.0",
             "manifest_version": "1.0",
             "events_url": "/api/guardian/commands/runs/run-456/events?after_seq=0",
+            "inline_result": {"ok": True},
         },
     )
 
@@ -709,6 +751,211 @@ def test_second_tool_decision_hard_stops_after_one_bounded_turn(
     assert exc.value.metadata["loopStopReason"] == "tool_turn_limit_reached"
     assert exc.value.metadata["toolTurnState"] == "limit_reached"
     assert exc.value.metadata["commandRunId"] == "run-456"
+
+
+def test_frozen_decision_precedes_dispatch_and_matching_retry_reuses_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoints = _seed_service(monkeypatch)
+    task = _build_task(task_id="task-frozen-retry")
+    task.tools = [{"command_id": "op::echo"}, {"command_id": "op::other"}]
+    decision = {"command_id": "op::echo", "arguments": {"body": {"value": "alpha"}}}
+    order: list[str] = []
+    original_freeze = chat_completion_service.freeze_chat_tool_decision
+
+    def freeze(*args, **kwargs):
+        result = original_freeze(*args, **kwargs)
+        order.append("checkpoint_committed")
+        return result
+
+    monkeypatch.setattr(chat_completion_service, "freeze_chat_tool_decision", freeze)
+    dispatched: list[Any] = []
+    underlying_executions = 0
+
+    def invoke(*, payload, **_kwargs):
+        nonlocal underlying_executions
+        order.append("command_dispatched")
+        dispatched.append(payload)
+        if len(dispatched) == 1:
+            underlying_executions += 1
+        return {
+            "run_id": "run-frozen", "status": "completed",
+            "inline_result": {"value": "ok"},
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", invoke)
+
+    def provider(messages, **_kwargs):
+        if any(
+            str(message.get("content") or "").startswith("Tool result injection:\n")
+            for message in messages
+        ):
+            return "final answer"
+        return (
+            '{"type":"tool_decision","command_id":"%s","arguments":%s}'
+            % (decision["command_id"], json.dumps(decision["arguments"]))
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
+    first = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+    second = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+    assert order == [
+        "checkpoint_committed", "command_dispatched",
+        "checkpoint_committed", "command_dispatched",
+    ]
+    assert first["payload_summary"]["toolTurnId"] == second["payload_summary"]["toolTurnId"]
+    assert dispatched[0].idempotency_key == dispatched[1].idempotency_key
+    assert checkpoints[task.request_id]["command_id"] == "op::echo"
+    assert underlying_executions == 1
+
+    decision["arguments"] = {"body": {"value": "changed"}}
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as changed_args:
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    assert str(changed_args.value) == "tool_decision_conflict"
+    assert len(dispatched) == 2
+
+    decision["command_id"] = "op::other"
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as changed_command:
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    assert str(changed_command.value) == "tool_decision_conflict"
+    assert len(dispatched) == 2
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", lambda *_a, **_k: "plain divergence")
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as plain:
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    assert str(plain.value) == "tool_decision_conflict"
+    assert len(dispatched) == 2
+
+
+def test_matching_retry_reuses_actual_command_run_without_second_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_service(monkeypatch)
+    monkeypatch.setenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999")
+    task = _build_task(task_id="task-command-run-replay")
+    task.tools = [{"command_id": "op::health_check"}]
+    app = FastAPI()
+
+    @app.get("/health", operation_id="health_check")
+    def health() -> dict[str, bool]:
+        return {"ok": True}
+
+    monkeypatch.setattr(chat_completion_service, "_command_bus_app", lambda: app)
+    monkeypatch.setattr(command_bus_routes, "_store", CommandBusStore())
+    executions = 0
+
+    async def loopback(**_kwargs):
+        nonlocal executions
+        executions += 1
+        return {"status_code": 200, "body": {"ok": True}}
+
+    monkeypatch.setattr(command_invoke, "execute_loopback_request", loopback)
+
+    def provider(messages, **_kwargs):
+        if any(
+            str(message.get("content") or "").startswith("Tool result injection:\n")
+            for message in messages
+        ):
+            return "final answer"
+        return (
+            '{"type":"tool_decision","command_id":"op::health_check",'
+            '"arguments":{}}'
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
+    first = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+    second = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+    assert first["payload_summary"]["toolTurnId"] == second["payload_summary"]["toolTurnId"]
+    assert first["payload_summary"]["commandRunId"] == second["payload_summary"]["commandRunId"]
+    assert executions == 1
+
+
+@pytest.mark.parametrize(
+    "status,expected_error,expected_stop",
+    [
+        ("queued", "tool_command_incomplete", "tool_command_failed"),
+        ("running", "tool_command_incomplete", "tool_command_failed"),
+        ("completed", "tool_command_incomplete", "tool_command_failed"),
+        ("failed", "tool_command_terminal_failure", "tool_command_failed"),
+        ("blocked", "tool_command_terminal_failure", "tool_command_blocked"),
+    ],
+)
+def test_incomplete_or_failed_command_run_is_not_reinjected(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    expected_error: str,
+    expected_stop: str,
+) -> None:
+    _seed_service(monkeypatch)
+    task = _build_task(task_id="task-incomplete-run")
+    task.tools = [{"command_id": "op::echo"}]
+    provider_calls = 0
+
+    def provider(*_args, **_kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        return '{"type":"tool_decision","command_id":"op::echo","arguments":{}}'
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda **_kwargs: {"run_id": "run-incomplete", "status": status},
+    )
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    assert str(exc.value) == expected_error
+    assert exc.value.metadata["commandRunId"] == "run-incomplete"
+    assert exc.value.metadata["loopStopReason"] == expected_stop
+    assert provider_calls == 1
+
+
+def test_unavailable_checkpoint_fails_before_command_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_service(monkeypatch)
+    task = _build_task(task_id="task-checkpoint-unavailable")
+    task.tools = [{"command_id": "op::echo"}]
+    monkeypatch.setattr(
+        chat_completion_service,
+        "freeze_chat_tool_decision",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *_args, **_kwargs: (
+            '{"type":"tool_decision","command_id":"op::echo","arguments":{}}'
+        ),
+    )
+    dispatched: list[Any] = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "execute_invoke",
+        lambda **kwargs: dispatched.append(kwargs),
+    )
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as exc:
+        chat_completion_service.run_chat_completion_task(
+            task, persist_assistant_message=False
+        )
+    assert str(exc.value) == "tool_checkpoint_unavailable"
+    assert dispatched == []
 
 
 def test_deepseek_native_tool_call_replays_losslessly_and_runs_once(

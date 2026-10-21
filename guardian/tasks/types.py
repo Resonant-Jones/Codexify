@@ -809,6 +809,9 @@ class ChatCompletionTask(BaseTask):
     type: str = "chat_completion"
     user_id: str
     thread_id: int = 0
+    # Guardian-assigned authored-turn identity. Accepted chat enqueue replaces
+    # any preexisting value with the server-resolved turn before serialization.
+    turn_id: str | None = None
     latest_turn_message_id: int | None = None
     latest_turn_messages: list[dict[str, Any]] | None = None  # structured multimodal content for latest turn
     model: str | None = None
@@ -884,6 +887,11 @@ class ChatCompletionTask(BaseTask):
         return cls(
             user_id=user_id,
             thread_id=int(payload.get("thread_id") or 0),
+            turn_id=_coerce_optional_text(
+                payload.get("turn_id")
+                if "turn_id" in payload
+                else payload.get("turnId")
+            ),
             latest_turn_message_id=_coerce_optional_positive_int(
                 payload.get("latest_turn_message_id")
             ),
@@ -1091,6 +1099,7 @@ class CodingExecutionTask(BaseTask):
     timeout_seconds: int = 300
     coding_task_id: str = ""
     attempt_id: str = ""
+    execution_binding: dict[str, Any] | None = None
     campaign_id: str | None = None
     work_order_id: str | None = None
     thread_id: int | None = None
@@ -1121,6 +1130,13 @@ class CodingExecutionTask(BaseTask):
             timeout_seconds=int(payload.get("timeout_seconds") or 300),
             coding_task_id=str(payload.get("coding_task_id") or "").strip(),
             attempt_id=str(payload.get("attempt_id") or "").strip(),
+            execution_binding=(
+                _coerce_mapping(
+                    payload.get("execution_binding")
+                    or payload.get("executionBinding")
+                )
+                or None
+            ),
             campaign_id=_coerce_optional_text(
                 payload.get("campaign_id") or payload.get("campaignId")
             ),

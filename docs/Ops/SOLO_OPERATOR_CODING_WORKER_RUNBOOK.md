@@ -4,7 +4,7 @@ Purpose: give a solo operator the current truth surface for Guardian-mediated
 coding-worker work without implying autonomous convergence, commit behavior,
 or unbounded retry loops.
 
-Last updated: 2026-08-03
+Last updated: 2026-09-29
 
 Source anchors:
 - `docs/architecture/00-current-state.md`
@@ -27,19 +27,26 @@ Source anchors:
 
 ## Pi Runtime Readiness Gate
 
-The supported source-Compose lane uses a dedicated
+The source-Compose coding worker uses a dedicated
 `codexify-worker-coding-runtime:latest` image. The image installs the exact
 `@earendil-works/pi-coding-agent` version declared in
 `codex_runner/pi-runtime/package-lock.json`; it does not depend on a host-local
-SDK build. Authentication stays outside the image in the named-volume mount
-`codexify_pi_auth:/home/codexify/.pi`.
+SDK build. The worker does not mount a shared Pi auth volume or receive a
+deployment-wide provider, model, or provider API key.
 
 Wrapper presence is not execution readiness. Before starting the Redis
-consumer, the worker checks Node, the Guardian wrapper, the Pi SDK artifacts,
-worker-home usability, `~/.pi/agent/auth.json`, provider/model resolution, a
-matching provider credential, and non-executing adapter initialization. A
-`blocked` result exits with status 78 before the localhost model bridge starts
-and before `guardian.workers.coding_worker` can dequeue a task.
+consumer, the worker checks Node, the Guardian wrapper, the pinned Pi SDK
+artifacts, and non-executing adapter initialization. Startup does not resolve
+provider/model identity or inspect credential state. Guardian authorizes those
+for each invocation. Before each attempt, the worker requests a sealed,
+attempt-bound credential lease; the initial account-scoped implementation
+accepts encrypted account credentials or service-owned credentials covered by
+explicit Guardian policy. Operator-owned credentials are not an account
+fallback. The Pi process receives any required plaintext only for that
+invocation through its trusted runtime path. Queue and durable execution
+records contain references and identity metadata, never key material. A
+`blocked` readiness result exits with status 78 before the worker can dequeue
+a task.
 
 From the repository root, validate Compose without rendering secret-bearing
 values, build the exact image, and inspect readiness:
@@ -57,41 +64,30 @@ an apostrophe in `LOCAL_PROVIDER_DISPLAY_NAME` remains valid and unchanged.
 Use `docker compose config --quiet`, rather than printing the full resolved
 configuration, when the goal is validation only.
 
-### Authentication and provider setup
+### Credential and provider setup
 
-The canonical persistent auth file is
-`/home/codexify/.pi/agent/auth.json` inside `worker-coding`. Populate the named
-volume interactively; never copy credentials into the Dockerfile, repository,
-command output, or documentation:
+Account provider API keys are registered through the account-authenticated
+`POST /api/agents/coding/credentials` endpoint. The response contains an opaque
+credential reference, not the key. Coding requests choose a provider, model,
+and credential reference independently; Guardian verifies that the account
+owns the credential and that its provider matches the requested binding.
+Service-owned credentials require explicit Guardian policy for the account,
+provider/model, funding route, and usage policy. Operator credentials are not
+an account fallback. The current API-key path does not implement a credential
+management UI or non-exportable subscription/brokered entitlements.
 
-```bash
-docker compose run --rm --no-deps --entrypoint /opt/codexify/pi-sdk/node_modules/.bin/pi worker-coding /login
-```
-
-The current source image has no `USER` override, so its effective runtime user
-is root. Running Pi through this same Compose service keeps named-volume file
-ownership consistent with the worker. Do not populate the volume from an
-unrelated host user and do not loosen auth-file permissions to compensate.
-
-The effective provider and model are selected with `PI_PROVIDER` and
-`PI_MODEL`. Their source-Compose defaults are `anthropic` and
-`claude-sonnet-4-6`. The exact model identifier must resolve from the pinned
-Pi runtime registry. For the default provider, Pi may resolve a
-credential from the mounted auth file or from `ANTHROPIC_API_KEY` in the
-worker's Compose environment. Other Pi-supported providers should be selected
-explicitly and authenticated through the same mounted Pi auth store. General
-Guardian chat-provider routing is separate and unchanged.
-
-Readiness proves only credential presence as resolved by Pi. It does not prove
-that a token is valid, that the provider is reachable, or that a coding prompt
-can complete.
+Do not put provider keys in `.env`, `PI_PROVIDER`, `PI_MODEL`, a shared Pi auth
+volume, task payloads, command-line arguments, logs, or documentation. Do not
+use Pi `/login` to authorize account-scoped coding work. The default harness is
+configurable with `CODEXIFY_DEFAULT_HARNESS` in the Guardian runtime
+environment; its initial value is `pi`. Provider and model are resolved from
+each invocation binding and cannot be selected by worker environment.
 
 ### Readiness states
 
 | State | Meaning | Queue behavior |
 |---|---|---|
-| `ready` | Every required prerequisite and the non-executing adapter probe passed. | Worker may start consuming tasks. |
-| `degraded` | Required checks passed, but auth-file permissions are broader than the intended private mode. | Worker may start, with an explicit permissions warning. |
+| `ready` | Node, wrapper, pinned SDK artifacts, and the non-executing adapter probe passed. | Worker may start consuming tasks. |
 | `blocked` | One or more required prerequisites failed. | Startup exits before queue consumption. |
 
 Stable reasons and recovery:
@@ -101,17 +97,9 @@ Stable reasons and recovery:
 | `node_missing` | Rebuild `worker-coding`; do not substitute an arbitrary host Node binary. |
 | `wrapper_missing` | Restore the tracked `codex_runner/src/agent-wrapper.js` mount and rerun readiness. |
 | `pi_sdk_build_missing` | Run `docker compose build --no-cache worker-coding`, then rerun readiness. |
-| `worker_home_unavailable` | Verify the `/home/codexify` directory and the `codexify_pi_auth` mount. |
-| `worker_home_read_only` | Repair named-volume ownership/permissions before relying on token refresh or settings persistence. |
-| `pi_auth_missing` | Run the containerized Pi `/login` command above. |
-| `pi_auth_unreadable` | Repair auth-file ownership and permissions without printing its contents. |
-| `pi_auth_permissions_open` | Restrict the auth file to its effective worker user (normally mode `0600`); do not print the file. |
-| `provider_unresolved` | Set a Pi-supported `PI_PROVIDER` and matching `PI_MODEL`. |
-| `provider_credential_missing` | Authenticate that provider in Pi; for the current Anthropic default, provide an authenticated Pi session or the worker-only `ANTHROPIC_API_KEY` input. |
 | `adapter_initialization_failed` | Rebuild the image and inspect the secret-free readiness JSON plus worker logs for packaging drift. |
 
-After readiness reports `ready` or an intentionally accepted `degraded`
-posture, start and inspect the service:
+After readiness reports `ready`, start and inspect the service:
 
 ```bash
 docker compose up -d worker-coding
@@ -695,24 +683,23 @@ and is not made Pi-ready by this source-Compose change.
 | `REDIS_URL` | Yes | `redis://redis:6379/0` | Redis connection |
 | `DATABASE_URL` | For thread injection | None | Postgres for result injection |
 | `GUARDIAN_DB_URL` | For thread injection | None | Alternative DB URL |
+| `GUARDIAN_API_KEY` | Yes | None | Worker-to-Guardian service authentication for invocation-bound credential lease requests; not a provider credential |
 | `CODING_WORKER_POLL_INTERVAL_SECONDS` | No | `0.5` | Poll frequency |
 | `CODEXIFY_SINGLE_USER_ID` | For local dev | `local` | User context |
 | `CAMPAIGN_RUNNER_PROVIDER_ADAPTER` | No | `pi` | Declares the preferred Campaign Runner adapter seam |
 | `CAMPAIGN_RUNNER_PI_ROUTE` | No | `default` | Declares the requested Pi route label |
 | `CAMPAIGN_RUNNER_REQUIRE_BACKEND_RECEIPT` | No | `true` | Documents that brokered execution should preserve backend receipts |
-| `PI_PROVIDER` | No | `anthropic` | Effective provider resolved by the Pi wrapper |
-| `PI_MODEL` | No | `claude-sonnet-4-6` | Effective model resolved for the selected provider; must resolve from the pinned Pi runtime registry |
-| `ANTHROPIC_API_KEY` | Required only for env-based default-provider auth | None | Worker-only Compose credential alternative; never print or commit it |
+| `CODEXIFY_DEFAULT_HARNESS` | No | `pi` | Set in the Guardian runtime environment; provider/model and credential authority remain invocation-scoped |
 
 ## Pi Broker Operational Note
 
-Downstream providers such as MiniMax should be selected behind the Pi broker
-adapter rather than through direct Guardian-owned Codex/Claude binaries.
-Guardian should receive coding requests with `adapter_kind="pi"` or
-`adapter_kind="pi_sdk"`/`"pi_codex_runner"` and preserve the explicit backend
-receipt metadata that Pi returns when that runtime path is implemented. The
-supported local Compose proof path should not depend on `CODEX_ADAPTER_COMMAND`
-or direct Codex/Claude CLI availability.
+Guardian accepts the initial Pi adapter kinds `pi`, `pi_sdk`, and
+`pi_codex_runner`. The latter remains a legacy-compatible name for the Pi
+broker lane; it does not select a provider or model. Each account invocation
+must carry its own authorized provider/model binding and credential reference.
+This branch-local implementation does not widen the repository's release
+support claims or make every Pi provider/model combination a proven runtime
+path.
 
 This runbook does not describe an autonomous retry-until-tests-pass loop. The
 current coding worker executes a single adapter attempt, returns the result

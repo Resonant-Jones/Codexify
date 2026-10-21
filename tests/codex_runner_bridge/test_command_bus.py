@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from guardian.command_bus import invoke as invoke_module
 from guardian.command_bus.contracts import InvokeArguments
+from guardian.command_bus.store import IdempotencyConflictError
 from guardian.codex_runner_bridge import command_bus as bridge_command_bus
 from guardian.codex_runner_bridge import adapter as bridge_adapter
 from guardian.codex_runner_bridge import contracts as bridge_contracts
@@ -503,6 +504,118 @@ def test_command_bus_invoke_preserves_idempotency_for_internal_bridge_commands(
         "run.started",
         "run.completed",
     ]
+
+
+def test_command_bus_replay_requires_matching_canonical_arguments(monkeypatch) -> None:
+    client = _build_client(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    async def fake_loopback(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {"status_code": 200, "body": {"secret": "prior-result"}}
+
+    monkeypatch.setattr(invoke_module, "execute_loopback_request", fake_loopback)
+
+    def invoke(query: dict[str, str], subject: str = "operator"):
+        return client.post(
+            "/api/guardian/commands/invoke",
+            headers={"X-API-Key": "test-key", "X-User-Id": subject},
+            json={
+                "invoke_version": "1.0",
+                "command_id": "op::health_check",
+                "actor": {"kind": "human", "id": subject},
+                "arguments": {"query": query},
+                "idempotency_key": "replay-identity",
+            },
+        )
+
+    first = invoke({"a": "1", "b": "2"})
+    assert first.status_code == 200
+    reordered = invoke({"b": "2", "a": "1"})
+    assert reordered.status_code == 200
+    assert reordered.json()["run_id"] == first.json()["run_id"]
+    assert len(calls) == 1
+
+    conflict = invoke({"a": "different", "password": "private-value"})
+    assert conflict.status_code == 409
+    assert conflict.json() == {"detail": {"error": "command_bus_idempotency_conflict"}}
+    assert "prior-result" not in conflict.text
+    assert "private-value" not in conflict.text
+    assert len(calls) == 1
+
+    cross_subject = invoke({"a": "1", "b": "2"}, subject="another-user")
+    assert cross_subject.status_code == 403
+    assert cross_subject.json() == {"detail": {"error": "idempotency_key_not_permitted"}}
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("corruption", ["args_hash", "command_id", "idempotency_key"])
+def test_command_bus_replay_fails_closed_on_invalid_stored_identity(
+    monkeypatch, corruption: str,
+) -> None:
+    client = _build_client(monkeypatch)
+    calls = 0
+
+    async def fake_loopback(**kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {"status_code": 200, "body": {"ok": True}}
+
+    monkeypatch.setattr(invoke_module, "execute_loopback_request", fake_loopback)
+    payload = {
+        "invoke_version": "1.0", "command_id": "op::health_check",
+        "actor": {"kind": "human", "id": "operator"},
+        "arguments": {"query": {"a": "1"}},
+        "idempotency_key": "corrupt-replay",
+    }
+    headers = {"X-API-Key": "test-key", "X-User-Id": "operator"}
+    first = client.post("/api/guardian/commands/invoke", headers=headers, json=payload)
+    assert first.status_code == 200
+    command_bus_routes._store._mem_runs[first.json()["run_id"]][corruption] = None
+
+    replay = client.post("/api/guardian/commands/invoke", headers=headers, json=payload)
+    assert replay.status_code == 409
+    assert replay.json() == {"detail": {"error": "command_bus_idempotency_conflict"}}
+    assert calls == 1
+
+
+@pytest.mark.parametrize("same_arguments", [True, False])
+def test_command_bus_uniqueness_race_validates_replay_identity(
+    monkeypatch, same_arguments: bool,
+) -> None:
+    client = _build_client(monkeypatch)
+    calls = 0
+
+    async def fake_loopback(**kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {"status_code": 200, "body": {"ok": True}}
+
+    monkeypatch.setattr(invoke_module, "execute_loopback_request", fake_loopback)
+    headers = {"X-API-Key": "test-key", "X-User-Id": "operator"}
+    payload = {
+        "invoke_version": "1.0", "command_id": "op::health_check",
+        "actor": {"kind": "human", "id": "operator"},
+        "arguments": {"query": {"a": "1"}},
+        "idempotency_key": "race-replay",
+    }
+    first = client.post("/api/guardian/commands/invoke", headers=headers, json=payload)
+    assert first.status_code == 200
+    store = command_bus_routes._store
+    existing = store.get_run(first.json()["run_id"])
+    assert existing is not None
+    monkeypatch.setattr(store, "get_run_by_idempotency_key", lambda *_: None)
+    monkeypatch.setattr(store, "create_run", lambda **_: (_ for _ in ()).throw(IdempotencyConflictError(existing)))
+    if not same_arguments:
+        payload["arguments"] = {"query": {"a": "changed"}}
+
+    replay = client.post("/api/guardian/commands/invoke", headers=headers, json=payload)
+    assert replay.status_code == (200 if same_arguments else 409)
+    if same_arguments:
+        assert replay.json()["run_id"] == first.json()["run_id"]
+    else:
+        assert replay.json() == {"detail": {"error": "command_bus_idempotency_conflict"}}
+    assert calls == 1
 
 
 def test_bridge_command_bus_module_does_not_import_routes_frontend_or_runtime_modules():
