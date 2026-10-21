@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-20
+2026-10-21
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-19 audit, only the 2026-10-20 mainline accounting record landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the 2026-10-20 audit, only the 2026-10-21 mainline accounting record landed; no implementation or supported-path qualification changed. The latest complete supported-Compose qualification remains `HOLD`.
 
 ## What changed recently
 
@@ -26,7 +26,7 @@ This file is authoritative for:
 - PR #869 merged a bounded authenticated, local-only, ephemeral Chronicle preview and removed the persistent Coding Loop composer toggle; neither widens default Beta support.
 - PR #868 merged the Unified Memory Store foundation integration; it does not establish a new supported runtime or qualification result.
 - Imported-history inspection and synthetic import qualification remain bounded evidence; they do not prove a complete natural import-to-recall path.
-- The 2026-10-20 mainline log records no same-day implementation commit. Active-checkout work remains excluded, and local `main` is 12 commits ahead and 61 behind the stored remote-tracking snapshot; no fetch or reconciliation was performed.
+- The 2026-10-21 mainline log records feature-branch connector, chat/session, shell-geometry, and delegation work as unmerged; none changes `main` support. Local `main` is 13 commits ahead and 61 behind the stored remote-tracking snapshot; no fetch or reconciliation was performed.
 
 ## Current supported reality
 
@@ -43,7 +43,10 @@ This file is authoritative for:
 - Focused tests, docs, routes, disposable databases, or Chronicle preview proof do not establish current live-runtime or public-ingress qualification.
 - Do not infer current-tip restart/shutdown recovery, browser transcript projection coherence, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection: the complete Compose proof recorded accepted work with model substitution and no assistant fallback flag.
+- Do not treat the 2026-10-21 delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` contract mismatch before a provider request and remains `HOLD`.
+- Do not treat `allow_network=false` in that canary as network isolation; outbound worker connectivity was observed.
 - Do not promote direct messaging, activation, browser host/import, connectors, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
+- The account-owned connector, chat/session rail, top-chrome geometry, and delegation changes described in the 2026-10-21 log are feature-branch work, not shipped `main` state.
 - The current-state knowledge-graph node parses but its freshness is stale; validity is not current release proof.
 - Uncommitted checkout work and local-only commits are not synchronized public-main state.
 
@@ -52,6 +55,7 @@ This file is authoritative for:
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - Migration-route collection is blocked by missing UMS revision models; the disposable evidence-reader migration is blocked by multiple Alembic heads.
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
+- The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap must be repaired and re-proven through browser and durable-readback paths.
 - Natural import-to-recall still needs provider-context, answer-persistence, and negative-scope proof on one isolated run.
 - Release metadata freshness and local-main publication state must be reconciled before relying on them as shared release evidence.
@@ -61,7 +65,7 @@ This file is authoritative for:
 1. Freeze current `main` and run the complete supported-Compose proof bundle.
 2. Repair the migration baseline and rerun blocked Chronicle HTTP regression coverage.
 3. Close the explicit-model rejection contradiction before provider execution.
-4. Repair and reprove new-thread projection, restart recovery, and browser/event coherence.
+4. Repair and reprove new-thread projection, restart recovery, and browser/event coherence; keep delegation execution at HOLD.
 5. Complete import-to-recall scope proof, refresh release metadata, and reconcile publication state.
 
 ## Release definition right now
@@ -71,6 +75,7 @@ This file is authoritative for:
 - [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery.
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
 - [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, import-recall, and scope-isolation gates are green on one evaluated tip.
+- [ ] Any delegated execution claim has a passing worker-to-adapter reasoning-effort contract and live proof; the current canary does not satisfy this.
 - [ ] Each claimed Preview or public-ingress path has current live evidence; focused tests alone do not qualify it.
 - [ ] Changed release metadata parses cleanly and its freshness points to the evaluated mainline.
 
