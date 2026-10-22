@@ -67,28 +67,41 @@ no credential may be registered and no work may be dispatched.
 
 This preflight also fails, independently of the credential.
 
-At HEAD `7f77c6d41`, `guardian/db/models.py` defines **none** of
-`MemoryRevision`, `MemoryReviewRevision`, or `MemoryLifecycleRevision`. The
-committed application code imports all three:
+At HEAD `7f77c6d41`, `guardian/db/models.py` defines **none** of the four
+`MemoryRevision`, `MemoryReviewRevision`, `MemoryLifecycleRevision`, or
+`MemoryPurgeTombstone`. The committed application code imports all four:
 
 ```
-guardian/services/memory_purge.py
+guardian/services/memory_purge.py:89
     from guardian.db.models import (
         MemoryLifecycleRevision,   # <-- absent on this branch
         MemoryPersonaLink,
         MemoryProvenance,
-        MemoryPurgeTombstone,
+        MemoryPurgeTombstone,      # <-- absent on this branch
         MemoryRecord,
         MemoryReviewRevision,      # <-- absent on this branch
         MemoryRevision,            # <-- absent on this branch
     )
 ```
 
-`guardian/routes/memory_vault.py` imports that service, and the backend
-entrypoint registers that route. The import was run against the **exact
-committed source**, mounted read-only with no overlay and no patched
-application file, using only the already-built runtime environment for its
-Python dependencies:
+This is an **import-time** failure on the backend entrypoint's import graph —
+not a route-registration or runtime-ordering question. The chain is:
+
+```
+guardian/guardian_api.py:519                    from guardian.routes import (..., memory_vault, ...)
+  -> guardian/routes/memory_vault.py:72            from guardian.services.memory_vault_mutation import (...)
+    -> guardian/services/memory_vault_mutation.py:41   from guardian.db.models import (MemoryLifecycleRevision,
+                                                                                      MemoryReviewRevision,
+                                                                                      MemoryRevision, ...)
+    -> guardian/services/memory_purge.py:89               from guardian.db.models import (..., MemoryPurgeTombstone, ...)
+```
+
+`guardian/guardian_api.py` imports `memory_vault` at **module level**, so the
+missing names break `import codexify.guardian_api` before any route is
+registered and before any credential, queue, or dispatch path is reached. The
+import was run against the **exact committed source**, mounted read-only with
+no overlay and no patched application file, using only the already-built
+runtime environment for its Python dependencies:
 
 ```
 $ docker run --rm \
@@ -129,12 +142,15 @@ import cleanly from the committed source alone.
 **Scope of this prerequisite.** A symbol-level sweep of 1,184 application
 modules against the committed source found exactly **four** names missing from
 `guardian.db.models` — the four above — and no other missing import from that
-module. Restricting the sweep to *module-level* imports (the ones that run at
-import time) leaves those four plus one unrelated, pre-existing defect:
-`guardian/chat/cli/main.py` imports `ImprintZero` from
-`guardian/cli/imprint_zero_cli.py`, which defines `ImprintZeroCommand`. That
-module is **not** in the backend entrypoint's import graph, so it does not
-block boot; it is recorded here so the next task does not conflate the two.
+module. The sweep was re-run against HEAD during receipt finalization and
+reproduced the same four-name set. Restricting the sweep to *module-level*
+imports (the ones that run at import time) leaves those four plus one
+unrelated, pre-existing defect:
+`guardian/chat/cli/main.py:22` imports `ImprintZero` from
+`guardian/cli/imprint_zero_cli.py`, which defines `ImprintZeroCommand` at line
+32. That module is referenced only by `guardian/tests/benchmark_startup.py` and
+is **not** in the backend entrypoint's import graph, so it does not block boot;
+it is recorded here so the next task does not conflate the two.
 
 ## Image identities and digests
 
@@ -227,6 +243,7 @@ run, and no such claim is made here.
 | `import guardian.routes.memory_vault` against the committed source | **ImportError: `MemoryLifecycleRevision`** |
 | `from guardian.db.models import MemoryLifecycleRevision` | **ImportError** |
 | `python -m alembic -c backend/alembic.ini heads` | single head `f0d7c4b2a198` |
+| re-run symbol sweep of 1,184 application modules against HEAD | same four missing names; no other missing `guardian.db.models` import |
 | `git diff --check` / `git diff --name-only` | clean; only this receipt |
 
 The repository-wide backend validation default (`pytest -v`) was **not run**:
@@ -254,13 +271,24 @@ was dispatched.
    revocation disposition — or an explicit ADR-094 operator grant plus matching
    runtime authority.
 2. **The missing ORM mappings** (code change on this branch): `MemoryRevision`,
-   `MemoryReviewRevision`, and `MemoryLifecycleRevision` must exist in
-   `guardian/db/models.py`, with the migration/table alignment they require,
-   so the backend imports from the committed source alone.
+   `MemoryReviewRevision`, `MemoryLifecycleRevision`, and
+   `MemoryPurgeTombstone` must exist in `guardian/db/models.py`, with the
+   migration/table alignment they require, so the backend imports from the
+   committed source alone.
 
 Both are outside this proof's authorized write surface, which is this report
-alone. The smallest prerequisite established by this run is the credential:
-without it, a green boot would still not authorize a dispatch.
+alone, and **neither alone authorizes a dispatch**: a green boot without an
+authorized credential still cannot run a task, and an authorized credential
+against an unbootable backend still cannot reach one. They are independent and
+can be pursued in parallel.
+
+They are not equally hard. The credential is the harder of the two, because it
+is an external operator grant that no in-repo change can supply. The ORM
+mappings are a self-contained branch change that can be verified **on its own**
+— a clean `import codexify.guardian_api` against the committed source proves
+it, with no credential, no provider call, and no dispatch required — which makes
+the mapping repair the independently verifiable first step, and the credential
+the one that must be in hand before any live qualification can start.
 
 **Confirmed:** source-exact Guardian delegation execution is **not proven**.
 Conversational intake remains unavailable. Restart recovery remains unproven.
