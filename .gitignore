@@ -104,6 +104,9 @@ __DISABLE_SQLITE__
 # Embedded repos; do not track
 /groq-code-cli/
 
+# Independent website repo: https://github.com/Resonant-Jones/Codexify.Space
+/Codexify.Space/
+
 # Publishing Portal — independent local/public-facing repo; must not be tracked
 # by the parent Codexify repo. The portal owns its own .git history.
 /Publishing_Portal/
