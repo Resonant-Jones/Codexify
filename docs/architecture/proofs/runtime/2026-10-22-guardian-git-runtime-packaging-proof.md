@@ -155,6 +155,30 @@ used instead, with its activity file written inside the session's writable
 runtime directory. This is a build-harness detail of the proof environment, not
 a property of the images.
 
+## Targeted and full-suite validation
+
+| Suite | Baseline (HEAD) | After this change |
+|---|---|---|
+| `guardian/tests/agents/test_pi_readiness.py`, `tests/ops/test_worker_coding_startup_gate.py`, `tests/ops/test_backend_runtime_dependency_contract.py`, `tests/ops/test_worker_coding_pi_runtime_contract.py` | 7 failures | 7 failures — **identical set** |
+| `tests/ops/test_webui_runtime_compose_contract.py` | 2 failures | 2 failures — **identical set** |
+| Full `tests/` tree, chunked per top-level directory | 670 failure lines | 670 failure lines |
+
+The seven and two failures above are pre-existing environmental gaps in this
+image (the vendored Pi runtime closure and the webui bundle build); they fail
+identically before and after. The full suite is **not green** and is not
+described as green.
+
+**Red-then-green.** With only the production change reverted and the new tests
+kept, 15 new or updated assertions fail: the readiness check is absent, the
+Dockerfile installs no Git, and the worker stage would carry no inherited Git.
+They pass after the change. The red baseline was produced from a scratch tree,
+not a whole-worktree stash.
+
+Every file in `tests/` that depends on the changed code is one of the three
+`tests/ops` contract files above, and each was compared exactly. No file
+outside those three imports `guardian.agents.pi_readiness` or reads
+`backend/Dockerfile`.
+
 ## Known limitations
 
 - **This is a packaging qualification, not an execution qualification.** No
