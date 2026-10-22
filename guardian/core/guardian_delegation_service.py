@@ -1661,6 +1661,7 @@ class GuardianDelegationService:
         ``guardian/core/guardian_permission_posture.py``.
         """
         from guardian.core.guardian_permission_posture import (
+            GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
             GuardianPermissionPostureError,
             resolve_guardian_permission_posture,
         )
@@ -1680,7 +1681,12 @@ class GuardianDelegationService:
                 repo_root=resolved_root,
                 # The delegated task is scoped to the bound working tree. The
                 # mutation guard compares changed paths against this scope.
-                allowed_paths=("",),
+                # The scope is the explicit repository-root token the worker's
+                # canonical resolver accepts; an empty entry would name
+                # nothing the guard could authorize. The grant itself still
+                # requires a resolved working-tree root above, so the scope
+                # never stands in for the missing repository binding.
+                allowed_paths=GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
                 allow_write=True,
                 # A delegated coding task needs a shell for tests, builds, and
                 # git. It is authorized explicitly here rather than inherited.

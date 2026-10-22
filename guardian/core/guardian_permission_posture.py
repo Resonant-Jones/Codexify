@@ -56,10 +56,17 @@ from typing import Any
 #: Maximum runtime for one delegated attempt, in seconds.
 GUARDIAN_CODING_MAX_RUNTIME_SECONDS = 300
 
-#: Default read/write scope for a delegated task: the whole bound repository.
-#: The mutation guard compares changed paths against these prefixes; a path
-#: outside them fails the attempt.
-GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE = ("",)
+#: Canonical write scope for a delegated task: the whole bound repository.
+#: The mutation guard compares changed paths against this scope; a path outside
+#: it fails the attempt.
+#:
+#: ``"."`` is the explicit repository-root token. It is the *representation* of
+#: an already-authorized bound-repository grant, never a fallback: a write
+#: posture still requires a resolved repository root and an explicit write
+#: grant (see ``resolve_guardian_permission_posture``). The worker is the
+#: canonical interpreter of this scope, so Guardian emits the token and does
+#: not restate the path policy.
+GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE = (".",)
 
 
 class GuardianPermissionPostureError(RuntimeError):
@@ -96,6 +103,20 @@ class GuardianPermissionPosture:
             "advisory_surfaces": list(self.advisory_surfaces),
             "notes": list(self.notes),
         }
+
+
+def _scope_has_usable_entry(scope: Any) -> bool:
+    """Return True when a scope names at least one usable path entry.
+
+    This is a shape check, not a path policy. Guardian does not decide which
+    paths are authorized — the worker is the canonical interpreter of the
+    scope, and it rejects any entry it cannot resolve. All Guardian asserts
+    here is that a scope is not empty in substance, so a blank scope can never
+    be produced as a write grant.
+    """
+    if not isinstance(scope, (list, tuple, set)):
+        return False
+    return any(str(entry or "").strip() for entry in scope)
 
 
 def resolve_guardian_permission_posture(
@@ -143,9 +164,11 @@ def resolve_guardian_permission_posture(
         )
 
     scope = tuple(allowed_paths) if allowed_paths is not None else ()
-    if allow_write and not scope:
-        # A write request with no scope would authorize the whole tree. Fail
-        # closed rather than defaulting to unrestricted write.
+    if allow_write and not _scope_has_usable_entry(scope):
+        # A write request with no usable scope would authorize the whole tree.
+        # Fail closed rather than defaulting to unrestricted write. A scope of
+        # blank entries is no scope at all: it names nothing the worker could
+        # authorize, so it must not be emitted as a grant.
         raise GuardianPermissionPostureError(
             "guardian_posture_write_scope_missing"
         )
@@ -250,7 +273,9 @@ def validate_guardian_permission_posture(
         raise GuardianPermissionPostureError(
             "guardian_posture_network_grant_missing"
         )
-    if bool(policy.get("allow_write")) and not policy.get("allowed_paths"):
+    if bool(policy.get("allow_write")) and not _scope_has_usable_entry(
+        policy.get("allowed_paths")
+    ):
         raise GuardianPermissionPostureError(
             "guardian_posture_write_scope_missing"
         )

@@ -20,6 +20,7 @@ import pytest
 
 from guardian.core.guardian_permission_posture import (
     GUARDIAN_CODING_MAX_RUNTIME_SECONDS,
+    GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
     GuardianPermissionPostureError,
     resolve_guardian_permission_posture,
     validate_guardian_permission_posture,
@@ -32,7 +33,7 @@ def _posture(**overrides: Any):  # noqa: ANN201
         "provider_id": "openai",
         "model_id": "gpt-4o",
         "repo_root": "/workspace/project",
-        "allowed_paths": ("",),
+        "allowed_paths": (".",),
         "allow_write": True,
         "allow_shell": True,
         "allow_network": False,
@@ -49,7 +50,7 @@ def test_posture_carries_the_resolved_policy() -> None:
     assert policy["allow_write"] is True
     assert policy["allow_shell"] is True
     assert policy["allow_network"] is False
-    assert policy["allowed_paths"] == [""]
+    assert policy["allowed_paths"] == ["."]
     assert policy["max_runtime_seconds"] == GUARDIAN_CODING_MAX_RUNTIME_SECONDS
 
 
@@ -223,3 +224,114 @@ def test_posture_serializes_its_enforcement_provenance() -> None:
     assert "git_mutation_guard" in payload["enforced_surfaces"]
     assert "process_isolation" in payload["advisory_surfaces"]
     assert payload["notes"]
+
+
+# ---------------------------------------------------------------------------
+# Producer/consumer contract: the scope Guardian emits and the scope the
+# worker's canonical resolver accepts.
+#
+# The worker is the canonical interpreter of the write scope. Guardian owns
+# the authorization and emits the representation; it does not restate the
+# worker's path policy. These cases pin the representation both sides agree
+# on, and prove that a scope which is not authorized never becomes one.
+# ---------------------------------------------------------------------------
+
+
+def test_the_default_scope_constant_is_the_canonical_root_token() -> None:
+    """The delegated-task scope is the explicit repository-root token."""
+    assert GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE == (".",)
+
+
+def test_the_worker_resolver_accepts_the_emitted_scope() -> None:
+    """The scope Guardian emits resolves in the worker's canonical resolver.
+
+    ``_resolve_authorized_write_scope`` is the worker's single scope
+    normalizer. It is imported here directly because the contract being
+    pinned is precisely that this producer's output is consumable by it.
+    """
+    from guardian.workers.coding_worker import _resolve_authorized_write_scope
+
+    posture = _posture()
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=posture.permission_policy["allowed_paths"],
+        repo_root="/workspace/project",
+    )
+
+    assert scope.resolved is True
+    assert scope.root_authorized is True
+
+
+def test_narrow_authorized_paths_stay_narrow() -> None:
+    """A narrower scope is not widened into repository-root access."""
+    from guardian.workers.coding_worker import (
+        _authorized_scope_allows_path,
+        _resolve_authorized_write_scope,
+    )
+
+    posture = _posture(allowed_paths=("src/app.py",))
+    assert posture.permission_policy["allowed_paths"] == ["src/app.py"]
+
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=posture.permission_policy["allowed_paths"],
+        repo_root="/workspace/project",
+    )
+
+    assert scope.resolved is True
+    assert scope.root_authorized is False
+    assert _authorized_scope_allows_path(scope, "src/app.py") is True
+    assert _authorized_scope_allows_path(scope, "src/other.py") is False
+    assert _authorized_scope_allows_path(scope, "other/app.py") is False
+
+
+def test_a_blank_scope_is_refused_rather_than_emitted() -> None:
+    """A scope of blank entries names nothing, so it is not a write grant."""
+    with pytest.raises(GuardianPermissionPostureError) as excinfo:
+        _posture(allowed_paths=("",))
+
+    assert excinfo.value.code == "guardian_posture_write_scope_missing"
+
+
+def test_a_blank_scope_resolves_to_nothing_in_the_worker() -> None:
+    """The representation Guardian used to emit authorizes nothing.
+
+    This is the reason the producer had to change: the old empty-string
+    scope is not a repository-root grant to the canonical resolver, it is an
+    empty authorization.
+    """
+    from guardian.workers.coding_worker import _resolve_authorized_write_scope
+
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=("",),
+        repo_root="/workspace/project",
+    )
+
+    assert scope.resolved is False
+    assert scope.root_authorized is False
+
+
+def test_the_scope_constant_is_not_independently_sufficient() -> None:
+    """The scope constant cannot stand in for a missing repository binding.
+
+    A write posture still needs a resolved working-tree root. Without one
+    there is no authorizable workspace, so the scope alone must not produce a
+    root grant.
+    """
+    with pytest.raises(GuardianPermissionPostureError) as excinfo:
+        _posture(
+            repo_root=None,
+            allowed_paths=GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
+        )
+
+    assert excinfo.value.code == "guardian_posture_write_scope_unresolved"
+
+
+def test_a_read_only_posture_needs_no_scope_at_all() -> None:
+    """A read-only posture is not a write grant, so it needs no scope."""
+    posture = _posture(
+        repo_root=None,
+        allow_write=False,
+        allowed_paths=(),
+    )
+
+    assert posture.permission_policy["allow_write"] is False
+    assert posture.permission_policy["allowed_paths"] == []
