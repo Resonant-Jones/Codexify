@@ -36,16 +36,16 @@ deployment-wide provider, model, or provider API key.
 
 Wrapper presence is not execution readiness. Before starting the Redis
 consumer, the worker checks Node, the Guardian wrapper, the pinned Pi SDK
-artifacts, and non-executing adapter initialization. Startup does not resolve
-provider/model identity or inspect credential state. Guardian authorizes those
-for each invocation. Before each attempt, the worker requests a sealed,
-attempt-bound credential lease; the initial account-scoped implementation
-accepts encrypted account credentials or service-owned credentials covered by
-explicit Guardian policy. Operator-owned credentials are not an account
-fallback. The Pi process receives any required plaintext only for that
-invocation through its trusted runtime path. Queue and durable execution
-records contain references and identity metadata, never key material. A
-`blocked` readiness result exits with status 78 before the worker can dequeue
+artifacts, a usable Git CLI, and non-executing adapter initialization. Startup
+does not resolve provider/model identity or inspect credential state. Guardian
+authorizes those for each invocation. Before each attempt, the worker requests
+a sealed, attempt-bound credential lease; the initial account-scoped
+implementation accepts encrypted account credentials or service-owned
+credentials covered by explicit Guardian policy. Operator-owned credentials are
+not an account fallback. The Pi process receives any required plaintext only
+for that invocation through its trusted runtime path. Queue and durable
+execution records contain references and identity metadata, never key material.
+A `blocked` readiness result exits with status 78 before the worker can dequeue
 a task.
 
 From the repository root, validate Compose without rendering secret-bearing
@@ -87,7 +87,7 @@ each invocation binding and cannot be selected by worker environment.
 
 | State | Meaning | Queue behavior |
 |---|---|---|
-| `ready` | Node, wrapper, pinned SDK artifacts, and the non-executing adapter probe passed. | Worker may start consuming tasks. |
+| `ready` | Node, wrapper, pinned SDK artifacts, a usable Git CLI, and the non-executing adapter probe passed. | Worker may start consuming tasks. |
 | `blocked` | One or more required prerequisites failed. | Startup exits before queue consumption. |
 
 Stable reasons and recovery:
@@ -98,6 +98,36 @@ Stable reasons and recovery:
 | `wrapper_missing` | Restore the tracked `codex_runner/src/agent-wrapper.js` mount and rerun readiness. |
 | `pi_sdk_build_missing` | Run `docker compose build --no-cache worker-coding`, then rerun readiness. |
 | `adapter_initialization_failed` | Rebuild the image and inspect the secret-free readiness JSON plus worker logs for packaging drift. |
+| `git_missing` | Rebuild `worker-coding` and `backend` from the canonical `backend/Dockerfile`; Git is installed in the shared `runtime` stage. Do not mount a host Git binary. |
+| `git_probe_failed` | Rebuild the image; the image's Git binary did not run `git --version` successfully. |
+| `git_probe_timeout` | Rebuild the image; the image's Git binary did not answer `git --version` within the bounded probe timeout. |
+
+### Canonical Git installation
+
+Git is a **mandatory runtime prerequisite**, not an optional tool. Guardian's
+repository-binding authority resolves a working-tree root with Git, and the
+coding worker's mutation enforcement inspects porcelain state with Git. A runtime
+without a usable Git CLI cannot perform those already-authorized operations.
+
+Git is installed once, by `apt-get`, in the canonical `runtime` stage of
+`backend/Dockerfile`. The `worker-coding-runtime` stage derives from `runtime`,
+so the backend image and the coding-worker image ship the same Git. There is no
+second installation, no host-mounted Git binary, and no package installation
+during worker startup.
+
+To verify an image carries it:
+
+```bash
+docker run --rm --entrypoint git codexify-worker-coding-runtime:latest --version
+docker run --rm --entrypoint git codexify-backend-runtime:latest --version
+```
+
+**This is a packaging prerequisite, not a sandbox.** Shipping Git does not
+isolate the worker: it is the same *detective* boundary the mutation guard has
+always been. The guard observes a mutation after the fact and fails the
+attempt; it does not prevent the write, and it provides no filesystem, network,
+or process isolation. See the mutation scope guard sections below and ADR-077
+rules 6-8.
 
 After readiness reports `ready`, start and inspect the service:
 
@@ -741,6 +771,7 @@ and is not made Pi-ready by this source-Compose change.
 | Symptom | Likely Cause | Remediation |
 |---------|--------------|-------------|
 | Readiness exits 78 | One or more Pi prerequisites are `blocked` | Use the stable readiness reason and recovery table above; do not enqueue work |
+| Readiness exits 78 with `git_missing` | The image has no usable Git CLI | Rebuild from the canonical `backend/Dockerfile`; the `runtime` stage installs Git and `worker-coding-runtime` inherits it |
 | `ADAPTER_NOT_FOUND` in worker logs or run events | `adapter_kind` resolved to an unregistered adapter | Check the deployment spec and `guardian/agents/adapters/__init__.py` |
 | Redis connection errors | Wrong `REDIS_URL` | Verify `redis://redis:6379/0` in container |
 | Thread injection fails silently | No Postgres / `_has_db()` false | Check `DATABASE_URL` env var |

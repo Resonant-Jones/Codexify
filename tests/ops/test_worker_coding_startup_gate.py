@@ -54,3 +54,42 @@ def test_blocked_worker_exits_before_proxy_or_queue_consumer(
     )
 
     assert module.main() == 78
+
+
+def test_worker_without_git_exits_before_proxy_or_queue_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing Git prerequisite must stop the worker before it consumes.
+
+    Pi itself can be ready while the runtime has no Git. The worker must not
+    dequeue a task on the strength of Pi readiness alone.
+    """
+    module = _load_startup_module()
+    report = PiReadinessReport(
+        status="blocked",
+        checks=(
+            PiReadinessCheck(
+                name="git_executable",
+                state="blocked",
+                reason="git_missing",
+            ),
+        ),
+        reasons=("git_missing",),
+        warnings=(),
+    )
+
+    monkeypatch.setattr(module, "evaluate_pi_readiness", lambda: report)
+    monkeypatch.setattr(
+        module,
+        "_start_proxy",
+        lambda: pytest.fail("proxy started while Git readiness was blocked"),
+    )
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail(
+            "coding worker started while Git readiness was blocked"
+        ),
+    )
+
+    assert module.main() == 78
