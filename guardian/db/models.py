@@ -22,6 +22,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -7538,6 +7539,295 @@ class MemoryProvenance(Base):
             "ix_memory_provenance_source_thread_id",
             "source_thread_id",
             postgresql_where=text("source_thread_id IS NOT NULL"),
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryRevision(Base):
+    """Append-only authored content history for canonical memory (UMS-05C9).
+
+    Frozen by migration ``c3d9f4e6a1b2`` and UMS contract §4.2. The parent
+    ``memory_records`` row retains current content authority; this relation
+    preserves the exact prior and resulting authored text for one transition,
+    so a direct content correction can be reconstructed.
+
+    Deliberately distinct from ``memory_provenance`` (source identity plus
+    non-authoritative receipt extensions -- audit evidence, not content
+    history) and ``personal_fact_revisions`` (the specialized Personal Facts
+    revision authority, untouched here).
+    """
+
+    __tablename__ = "memory_revisions"
+
+    revision_id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    new_text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        # Revision account identity is bound to canonical-memory account
+        # identity. CASCADE ties revision lifetime to legitimate permanent
+        # erasure of the parent memory.
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint("revision_id", name="pk_memory_revisions"),
+        # Per-memory ordering is explicit and duplicate sequence numbers are
+        # impossible. memory_id is globally unique (PK of memory_records), so
+        # this is strictly per-memory unique without weakening that.
+        UniqueConstraint(
+            "memory_id", "revision_number", name="uq_memory_revisions_memory_number"
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_revisions_number_check"
+        ),
+        # Exact byte comparison: a row with identical prior and resulting text
+        # is not a semantic revision. No trimming, no collation.
+        CheckConstraint(
+            "old_text_content <> new_text_content",
+            name="memory_revisions_change_check",
+        ),
+        Index("ix_memory_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryReviewRevision(Base):
+    """Append-only review-state transition history (UMS-05C10A-P).
+
+    Frozen by migration ``a7c3e91d4b60``. Records *that* a typed review state
+    changed, without granting transition authority: no legal-transition graph
+    is encoded, and persistence capability is not mutation authorization.
+
+    Four truth surfaces stay strictly separate -- ``memory_records``
+    ``review_state`` (current review authority), ``memory_revisions`` (content
+    history only), ``memory_review_revisions`` (review-authority history), and
+    ``memory_provenance`` (intent / source / audit evidence, whose
+    ``extensions`` are explicitly non-authority).
+    """
+
+    __tablename__ = "memory_review_revisions"
+
+    review_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_review_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        # Review-revision account identity is bound to canonical-memory
+        # account identity. CASCADE ties review-revision lifetime to
+        # legitimate permanent erasure of the parent memory.
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_review_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint(
+            "review_revision_id", name="pk_memory_review_revisions"
+        ),
+        # Per-memory ordering is explicit and duplicate sequence numbers are
+        # impossible. This sequence is scoped to the review-history family
+        # and is NOT shared with content `memory_revisions`.
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_review_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_review_revisions_number_check"
+        ),
+        # Typed review vocabulary only. No source->target pair is privileged
+        # or forbidden: the legal transition graph is unresolved.
+        CheckConstraint(
+            "old_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
+            name="memory_review_revisions_new_state_check",
+        ),
+        CheckConstraint(
+            "old_review_state <> new_review_state",
+            name="memory_review_revisions_change_check",
+        ),
+        CheckConstraint(
+            "actor_account_id = user_id",
+            name="memory_review_revisions_actor_account_check",
+        ),
+        Index("ix_memory_review_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryLifecycleRevision(Base):
+    """Append-only lifecycle-state transition history (UMS-05C10B-P).
+
+    Frozen by migration ``b8e2f4a6c901``. Preserves the pre-retirement
+    governed posture in ``old_lifecycle_state`` so a restore can return a
+    retired record to the posture it actually held; no parallel mutable
+    ``pre_retirement_state`` column is added.
+
+    The parent ``memory_records`` row retains present lifecycle authority. No
+    legal transition graph is encoded -- any unequal pair of valid lifecycle
+    tokens is accepted and no source-to-target combination is forbidden.
+    """
+
+    __tablename__ = "memory_lifecycle_revisions"
+
+    lifecycle_revision_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    new_lifecycle_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        # Lifecycle-revision account identity is bound to canonical-memory
+        # account identity. CASCADE ties lifecycle history to legitimate
+        # permanent erasure of the parent memory.
+        ForeignKeyConstraint(
+            ["memory_id", "user_id"],
+            ["memory_records.memory_id", "memory_records.user_id"],
+            name="fk_memory_lifecycle_revisions_memory_account",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint(
+            "lifecycle_revision_id", name="pk_memory_lifecycle_revisions"
+        ),
+        # Per-memory ordering is explicit and duplicate sequence numbers are
+        # impossible. This sequence is scoped to the lifecycle-history family
+        # and is NOT shared with content or review revision numbering.
+        UniqueConstraint(
+            "memory_id",
+            "revision_number",
+            name="uq_memory_lifecycle_revisions_memory_number",
+        ),
+        CheckConstraint(
+            "revision_number >= 1", name="memory_lifecycle_revisions_number_check"
+        ),
+        # Typed canonical lifecycle vocabulary only. No source->target pair
+        # is privileged or forbidden.
+        CheckConstraint(
+            "old_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_old_state_check",
+        ),
+        CheckConstraint(
+            "new_lifecycle_state IN ('active', 'dormant', 'retired')",
+            name="memory_lifecycle_revisions_new_state_check",
+        ),
+        CheckConstraint(
+            "old_lifecycle_state <> new_lifecycle_state",
+            name="memory_lifecycle_revisions_change_check",
+        ),
+        Index("ix_memory_lifecycle_revisions_memory_id", "memory_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class MemoryPurgeTombstone(Base):
+    """Minimum non-content suppression state surviving erasure (UMS-11).
+
+    Frozen by migration ``c7f4a9b2e6d1`` and UMS contract §12. This is *not*
+    an ordinary canonical memory family: it deliberately has no composite
+    foreign key to ``memory_records`` and stores no canonical ``memory_id``,
+    because the parent row is deleted by the purge that writes the tombstone.
+    Identity is carried by a versioned, domain-separated, non-reversible
+    digest instead, which makes an idempotent retry detectable after the
+    canonical row is gone while revealing nothing about the erased content.
+
+    ``suppress_reimport`` is stored but structurally cannot become false: the
+    CHECK constraint pins it true, and no model, Operator, importer, or
+    internal service may clear it.
+    """
+
+    __tablename__ = "memory_purge_tombstones"
+
+    purge_receipt_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    purged_record_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_system: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_entity_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_atom_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    purged_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False
+    )
+    suppress_reimport: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("true"), nullable=False
+    )
+
+    __table_args__ = (
+        # Non-null account authority. CASCADE removes suppression when the
+        # owning account itself is legitimately erased.
+        ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="fk_memory_purge_tombstones_user",
+            ondelete="CASCADE",
+        ),
+        PrimaryKeyConstraint("purge_receipt_id", name="pk_memory_purge_tombstones"),
+        # One suppression entry per erased record per account. This is what
+        # makes an idempotent retry provable without creating a second
+        # tombstone or a second receipt identity.
+        UniqueConstraint(
+            "user_id",
+            "purged_record_fingerprint",
+            name="uq_memory_purge_tombstones_account_record",
+        ),
+        # Typed source vocabulary, revision-local and immutable.
+        CheckConstraint(
+            "source_system IS NULL OR source_system IN "
+            "('codexify', 'openai', 'anthropic', 'future_registered')",
+            name="memory_purge_tombstones_source_system_check",
+        ),
+        CheckConstraint(
+            "source_entity_kind IS NULL OR source_entity_kind IN "
+            "('chat', 'vault', 'importer', 'classifier', 'future_registered')",
+            name="memory_purge_tombstones_source_entity_kind_check",
+        ),
+        # The suppression posture cannot be relaxed. This is a structural
+        # guarantee, not a service convention.
+        CheckConstraint(
+            "suppress_reimport", name="memory_purge_tombstones_suppress_reimport_check"
+        ),
+        Index("ix_memory_purge_tombstones_user_id", "user_id"),
+        # Partial unique index: a given source atom may be suppressed at most
+        # once per account, while leaving the NULL case unconstrained so any
+        # number of direct/manual purges coexist.
+        Index(
+            "uq_memory_purge_tombstones_account_source_atom",
+            "user_id",
+            "source_atom_fingerprint",
+            unique=True,
+            postgresql_where=text("source_atom_fingerprint IS NOT NULL"),
         ),
     )
 
