@@ -35,6 +35,7 @@ from guardian.core.guardian_execution_binding import (
     GuardianExecutionBindingError,
     GuardianExecutionBindingRequest,
     resolve_guardian_execution_binding,
+    resolve_guardian_reasoning_effort,
     validate_guardian_execution_binding,
 )
 from guardian.db.models import (
@@ -199,6 +200,7 @@ def _request(
     provider_id: str = "openai",
     model_id: str = "gpt-4o",
     max_attempts: int = 1,
+    reasoning_effort: str | None = None,
 ) -> GuardianExecutionBindingRequest:
     return GuardianExecutionBindingRequest(
         account_id=seeded["user_id"],
@@ -211,6 +213,7 @@ def _request(
         provider_id=provider_id,
         model_id=model_id,
         max_attempts=max_attempts,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -582,3 +585,238 @@ def test_persisted_binding_cannot_be_rewritten(db: _TestDB) -> None:
         excinfo.value.detail
         == "guardian_delegation_execution_binding_already_established"
     )
+
+
+# ---------------------------------------------------------------------------
+# Guardian-owned reasoning effort.
+#
+# The binding is the authoritative carrier of the invocation options Guardian
+# resolved. The effort reaches the worker only through it, so a worker task can
+# never choose its own level and a caller-supplied task field can never widen
+# the grant.
+# ---------------------------------------------------------------------------
+
+
+def test_binding_resolves_the_validated_deepseek_effort(db: _TestDB) -> None:
+    """Guardian selects the validated DeepSeek default under its own authority."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(
+        db, user_id=seeded["user_id"], provider_id="deepseek"
+    )
+
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id="deepseek-v4-flash",
+        ),
+    )
+
+    assert binding["reasoning_effort"] == "off"
+    assert binding["schema_version"] == 2
+    # The effort is carried by the binding, so it travels with the binding.
+    assert CodingExecutionBinding.from_dict(binding).reasoning_effort == "off"
+
+
+def test_binding_preserves_an_explicitly_selected_compatible_effort(
+    db: _TestDB,
+) -> None:
+    """A separately authorized compatible effort is carried unmodified."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(
+        db, user_id=seeded["user_id"], provider_id="deepseek"
+    )
+
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id="deepseek-v4-flash",
+            reasoning_effort="high",
+        ),
+    )
+
+    assert binding["reasoning_effort"] == "high"
+
+
+def test_binding_fails_closed_on_an_invalid_effort_token(db: _TestDB) -> None:
+    """An effort the harness does not accept is refused, not repaired."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(
+        db, user_id=seeded["user_id"], provider_id="deepseek"
+    )
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db,
+            _request(
+                seeded,
+                credential_ref=credential_ref,
+                provider_id="deepseek",
+                model_id="deepseek-v4-flash",
+                reasoning_effort="bogus",
+            ),
+        )
+
+    assert excinfo.value.code == "guardian_binding_reasoning_effort_invalid"
+
+
+def test_binding_fails_closed_instead_of_downgrading_a_positive_effort(
+    db: _TestDB,
+) -> None:
+    """A positive effort is never silently downgraded to the lane default."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(
+        db, user_id=seeded["user_id"], provider_id="deepseek"
+    )
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db,
+            _request(
+                seeded,
+                credential_ref=credential_ref,
+                provider_id="deepseek",
+                model_id="deepseek-v4-flash",
+                reasoning_effort="medium",
+            ),
+        )
+
+    assert excinfo.value.code == "guardian_binding_reasoning_effort_unsupported"
+
+
+def test_binding_fails_closed_on_an_effort_for_an_unvalidated_lane(
+    db: _TestDB,
+) -> None:
+    """An unvalidated lane cannot authorize an effort it never validated."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    with pytest.raises(GuardianExecutionBindingError) as excinfo:
+        resolve_guardian_execution_binding(
+            db,
+            _request(
+                seeded,
+                credential_ref=credential_ref,
+                reasoning_effort="high",
+            ),
+        )
+
+    assert excinfo.value.code == "guardian_binding_reasoning_effort_unsupported"
+
+
+def test_binding_leaves_an_unrelated_lane_ungoverned(db: _TestDB) -> None:
+    """An unvalidated lane keeps the harness default exactly as before."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db, _request(seeded, credential_ref=credential_ref)
+    )
+
+    assert binding["reasoning_effort"] is None
+    assert binding["schema_version"] == 1
+
+
+def test_effort_resolution_is_bounded_to_the_validated_lane() -> None:
+    """Only the validated lane governs an effort; every other lane is ungoverned."""
+    assert (
+        resolve_guardian_reasoning_effort(
+            provider_id="deepseek", model_id="deepseek-v4-flash"
+        )
+        == "off"
+    )
+    assert (
+        resolve_guardian_reasoning_effort(
+            provider_id="deepseek", model_id="deepseek-v4-flash", requested="high"
+        )
+        == "high"
+    )
+    assert (
+        resolve_guardian_reasoning_effort(
+            provider_id="deepseek", model_id="deepseek-chat"
+        )
+        is None
+    )
+    assert (
+        resolve_guardian_reasoning_effort(
+            provider_id="openai", model_id="gpt-4o"
+        )
+        is None
+    )
+
+
+def _governed_binding_payload(**overrides: Any) -> dict[str, Any]:
+    """One schema-version-2 binding payload for the DeepSeek lane."""
+    payload = {
+        "binding_id": "xeb-effort-1",
+        "schema_version": 2,
+        "harness_id": "pi",
+        "harness_selection_mode": "default",
+        "provider_id": "deepseek",
+        "model_id": "deepseek-v4-flash",
+        "funding_route": "user_byok",
+        "placement": "container",
+        "credential_ref": "ccr-effort-1",
+        "credential_owner_scope": "account",
+        "credential_owner_id": "account-1",
+        "credential_type": "api_key",
+        "credential_source_class": "account_api_key",
+        "usage_policy_ref": None,
+        "user_id": "account-1",
+        "project_id": None,
+        "thread_id": "thread-1",
+        "source_message_id": "message-1",
+        "coding_task_id": "coding-task-1",
+        "attempt_id": "attempt-1",
+        "max_attempts": 1,
+        "authorization_evidence_ref": "xeb-effort-1",
+        "reasoning_effort": "off",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_a_governing_binding_requires_its_effort() -> None:
+    """A governing binding can never be persisted without the effort."""
+    payload = _governed_binding_payload()
+    payload.pop("reasoning_effort")
+
+    with pytest.raises(ValueError) as excinfo:
+        CodingExecutionBinding.from_dict(payload)
+
+    assert str(excinfo.value) == "execution_binding_reasoning_effort_missing"
+
+
+def test_a_governing_binding_rejects_an_unvalidated_level() -> None:
+    """A level the lane never validated cannot ride in a governing binding."""
+    with pytest.raises(ValueError) as excinfo:
+        CodingExecutionBinding.from_dict(
+            _governed_binding_payload(reasoning_effort="medium")
+        )
+
+    assert str(excinfo.value) == "execution_binding_reasoning_effort_unsupported"
+
+
+def test_a_governing_binding_rejects_a_level_for_another_lane() -> None:
+    """The effort is bound to the lane the binding pins."""
+    with pytest.raises(ValueError) as excinfo:
+        CodingExecutionBinding.from_dict(
+            _governed_binding_payload(model_id="gpt-4o")
+        )
+
+    assert str(excinfo.value) == "execution_binding_reasoning_effort_unsupported"
+
+
+def test_a_legacy_binding_is_never_reinterpreted_as_governing() -> None:
+    """A version 1 binding keeps the harness default, even if one is present."""
+    payload = _governed_binding_payload(schema_version=1)
+
+    binding = CodingExecutionBinding.from_dict(payload)
+
+    assert binding.schema_version == 1
+    assert binding.reasoning_effort is None

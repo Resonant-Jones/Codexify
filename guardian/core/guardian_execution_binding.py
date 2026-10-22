@@ -33,11 +33,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from guardian.agents.coding_agent_contracts import CodingExecutionBinding
+from guardian.agents.coding_agent_contracts import (
+    CodingExecutionBinding,
+    coding_execution_reasoning_effort_lane,
+)
 from guardian.agents.execution_credentials import (
     CredentialAuthorityError,
     authorize_credential_selection,
 )
+from guardian.pi.tokens import PI_AUTHORIZED_REASONING_EFFORTS
 
 #: The only harness the current coding worker can accept. The worker hardcodes
 #: ``harness_id == "pi"`` in ``_validate_task_execution_binding``; a different
@@ -91,7 +95,47 @@ class GuardianExecutionBindingRequest:
     provider_id: str
     #: Model resolved from the account's configured model posture.
     model_id: str
+    #: An explicitly selected reasoning effort, resolved by Guardian from
+    #: trusted context. ``None`` means Guardian selects the lane default. A
+    #: caller-supplied task field can never set this: the effort reaches the
+    #: worker only through the binding Guardian minted.
+    reasoning_effort: str | None = None
     max_attempts: int = GUARDIAN_CODING_MAX_ATTEMPTS
+
+
+def resolve_guardian_reasoning_effort(
+    *,
+    provider_id: str,
+    model_id: str,
+    requested: str | None = None,
+) -> str | None:
+    """Resolve the reasoning effort Guardian authorizes for one lane.
+
+    Returns the authorized effort, or ``None`` when the lane has no validated
+    compatibility rule — in that case the binding does not govern the effort
+    and the harness keeps its own default, exactly as before.
+
+    An explicitly requested effort is never downgraded: a level the harness
+    does not accept, or one the lane does not support, fails closed here
+    rather than being silently replaced with the lane default.
+    """
+    lane = coding_execution_reasoning_effort_lane(provider_id, model_id)
+    if requested is None:
+        return lane.default if lane is not None else None
+
+    effort = str(requested).strip()
+    if effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+        raise GuardianExecutionBindingError(
+            "guardian_binding_reasoning_effort_invalid"
+        )
+    if lane is None or effort not in lane.compatible:
+        # The lane has no validated compatibility rule, or this level is not
+        # one of its validated levels. Either way Guardian cannot authorize
+        # it, and it must not be replaced with a level it did not ask for.
+        raise GuardianExecutionBindingError(
+            "guardian_binding_reasoning_effort_unsupported"
+        )
+    return effort
 
 
 def resolve_guardian_execution_binding(
@@ -176,6 +220,16 @@ def resolve_guardian_execution_binding(
             "guardian_binding_credential_provider_mismatch"
         )
 
+    # The reasoning effort is resolved here, under Guardian authority, from the
+    # same provider/model the binding pins. A lane with no validated
+    # compatibility rule leaves the effort ungoverned, so the harness keeps
+    # its own default for it.
+    reasoning_effort = resolve_guardian_reasoning_effort(
+        provider_id=provider_id,
+        model_id=model_id,
+        requested=request.reasoning_effort,
+    )
+
     try:
         binding = CodingExecutionBinding.authorized(
             harness_id=GUARDIAN_CODING_HARNESS_ID,
@@ -191,6 +245,7 @@ def resolve_guardian_execution_binding(
             coding_task_id=coding_task_id,
             attempt_id=attempt_id,
             max_attempts=max_attempts,
+            reasoning_effort=reasoning_effort,
         )
     except ValueError as exc:
         raise GuardianExecutionBindingError(

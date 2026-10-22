@@ -173,12 +173,17 @@ def _seed_account(db: _TestDB, *, user_id: str = "account-1") -> dict[str, Any]:
         }
 
 
-def _seed_credential(db: _TestDB, *, user_id: str = "account-1") -> str:
+def _seed_credential(
+    db: _TestDB,
+    *,
+    user_id: str = "account-1",
+    provider_id: str = "openai",
+) -> str:
     record = store_api_key(
         db,
         owner_scope="account",
         owner_id=user_id,
-        provider_id="openai",
+        provider_id=provider_id,
         api_key="sk-test-guardian-dispatch",
         funding_route="user_byok",
     )
@@ -500,3 +505,99 @@ def test_dispatch_refuses_a_binding_rewrite_for_the_same_attempt(
             deployment_id=run["deployment_id"],
             execution_binding={**binding, "model_id": "another-model"},
         )
+
+
+def test_dispatch_carries_the_guardian_resolved_reasoning_effort(
+    db: _TestDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The queued task carries the effort Guardian resolved, unchanged.
+
+    The binding is the carrier: Guardian persists it into the deployment
+    specification and mirrors it into the queued task, and the two agree
+    byte-for-byte. That equality is also what makes a tampered effort
+    detectable before the harness runs.
+    """
+    from guardian.queue.redis_queue import dequeue_coding_execution
+
+    # The lane's model must be the validated one, not an ambient override.
+    monkeypatch.delenv("DEEPSEEK_CHAT_MODEL", raising=False)
+    seeded = _seed_account(db)
+    _seed_credential(db, user_id=seeded["user_id"], provider_id="deepseek")
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = _link_run(service, seeded)
+
+    service.dispatch_delegated_task(
+        intent_id="gdi-dispatch-1",
+        deployment_id=run["deployment_id"],
+        run_id=run["run_id"],
+        attempt_id=run["attempt_id"],
+        coding_task_id=run["coding_task_id"],
+        instructions="Do the thing.",
+        repo_root="/workspace/project",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+
+    payload = dequeue_coding_execution(block=False)
+    assert payload is not None
+
+    queued_binding = payload["execution_binding"]
+    assert queued_binding["schema_version"] == 2
+    assert queued_binding["reasoning_effort"] == "off"
+
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+    assert deployment is not None
+    spec = dict(deployment.spec_json or {})
+    persisted_binding = spec.get("execution_binding")
+    assert isinstance(persisted_binding, dict)
+
+    # The persisted specification and the dispatched task agree.
+    assert persisted_binding == queued_binding
+    assert persisted_binding["reasoning_effort"] == "off"
+
+
+def test_dispatch_leaves_an_unvalidated_lane_ungoverned(db: _TestDB) -> None:
+    """A lane with no validated effort rule keeps the harness default.
+
+    The binding carries no effort for that lane, so the worker forwards no
+    value and the harness behaves exactly as it did before the contract.
+    """
+    from guardian.queue.redis_queue import dequeue_coding_execution
+
+    seeded = _seed_account(db)
+    _seed_credential(db, user_id=seeded["user_id"])
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = _link_run(service, seeded)
+
+    service.dispatch_delegated_task(
+        intent_id="gdi-dispatch-1",
+        deployment_id=run["deployment_id"],
+        run_id=run["run_id"],
+        attempt_id=run["attempt_id"],
+        coding_task_id=run["coding_task_id"],
+        instructions="Do the thing.",
+        repo_root="/workspace/project",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+
+    payload = dequeue_coding_execution(block=False)
+    assert payload is not None
+
+    queued_binding = payload["execution_binding"]
+    assert queued_binding["schema_version"] == 1
+    assert queued_binding["reasoning_effort"] is None

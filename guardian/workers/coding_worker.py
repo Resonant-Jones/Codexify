@@ -1867,6 +1867,23 @@ def _execution_provenance(
     return provenance
 
 
+def _authorized_reasoning_effort_kwargs(
+    binding: CodingExecutionBinding,
+) -> dict[str, Any]:
+    """Forward the Guardian-governed reasoning effort, and nothing else.
+
+    The effort reaches the worker only through the persisted Guardian execution
+    binding, and it is forwarded verbatim. The worker never selects a level of
+    its own from the model identity or from ambient process configuration.
+
+    A binding that does not govern the effort (schema version 1) forwards no
+    value at all, so those lanes keep the harness default exactly as before.
+    """
+    if binding.reasoning_effort is None:
+        return {}
+    return {"reasoning_effort": binding.reasoning_effort}
+
+
 def _validate_task_execution_binding(
     task: CodingExecutionTask,
     deployment_spec: dict[str, Any],
@@ -2982,6 +2999,7 @@ class CodingWorker:
                     identity,
                     credential_material=credential_material,
                     read_only=not bool(permission_policy.get("allow_write")),
+                    **_authorized_reasoning_effort_kwargs(execution_binding),
                 )
             finally:
                 del credential_material

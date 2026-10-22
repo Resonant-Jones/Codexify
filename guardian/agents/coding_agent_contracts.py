@@ -9,6 +9,72 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
+from guardian.pi.tokens import PI_AUTHORIZED_REASONING_EFFORTS
+
+#: The original binding schema. It carries no reasoning effort: the harness
+#: keeps its own default for those bindings, and a version 1 binding is never
+#: reinterpreted as if it had governed one.
+CODING_EXECUTION_BINDING_SCHEMA_VERSION = 1
+
+#: The binding schema that adds the Guardian-governed reasoning effort. A
+#: version 2 binding *requires* the field, so a governing binding can never
+#: be persisted without the effort it was minted with.
+CODING_EXECUTION_BINDING_EFFORT_SCHEMA_VERSION = 2
+
+
+@dataclass(frozen=True)
+class CodingExecutionReasoningEffortLane:
+    """One provider/model lane and the reasoning levels it accepts.
+
+    ``compatible`` is the set of levels that were actually validated for this
+    lane. ``default`` is the level Guardian selects when nothing else was
+    explicitly selected. A level outside ``compatible`` is never substituted:
+    an unsupported selection fails closed instead of being downgraded.
+    """
+
+    provider_id: str
+    model_id: str
+    compatible: frozenset[str]
+    default: str
+
+
+#: The reasoning-effort lanes that have been validated end to end.
+#:
+#: This is a bounded list of *validated* lanes, not a model-capability
+#: registry. A lane that is not listed here has no validated compatibility
+#: rule, so Guardian does not govern its effort at all and the harness keeps
+#: its own default — exactly as before.
+#:
+#: The DeepSeek lane is the one the live canary exercised. The Pi harness
+#: rejects a DeepSeek invocation whose effective thinking level differs from
+#: the requested one, and that model reports ``high``; only ``off`` and
+#: ``high`` were observed to satisfy the wrapper gate. ``off`` is the selected
+#: default because it is also the only level the harness accepts for a
+#: DeepSeek required-tool selection, so the delegated path's default stays
+#: valid under both harness postures.
+CODING_EXECUTION_REASONING_EFFORT_LANES: tuple[
+    CodingExecutionReasoningEffortLane, ...
+] = (
+    CodingExecutionReasoningEffortLane(
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        compatible=frozenset({"off", "high"}),
+        default="off",
+    ),
+)
+
+
+def coding_execution_reasoning_effort_lane(
+    provider_id: str,
+    model_id: str,
+) -> CodingExecutionReasoningEffortLane | None:
+    """Return the validated effort lane for one provider/model, if any."""
+    for lane in CODING_EXECUTION_REASONING_EFFORT_LANES:
+        if lane.provider_id == provider_id and lane.model_id == model_id:
+            return lane
+    return None
+
+
 # `pi_codex_runner` remains the canonical worker target for now because it is
 # already persisted in runtime state. The name is legacy-compatible only and
 # does not imply direct Codex CLI execution; it is the Pi broker lane.
@@ -92,6 +158,10 @@ class CodingExecutionBinding:
     attempt_id: str
     max_attempts: int
     authorization_evidence_ref: str
+    #: The reasoning effort Guardian authorized for this invocation, or ``None``
+    #: when the binding does not govern one (schema version 1). The worker
+    #: forwards this value verbatim to the harness and never selects one.
+    reasoning_effort: str | None = None
 
     @classmethod
     def authorized(
@@ -110,11 +180,16 @@ class CodingExecutionBinding:
         coding_task_id: str,
         attempt_id: str,
         max_attempts: int,
+        reasoning_effort: str | None = None,
     ) -> "CodingExecutionBinding":
         binding_id = f"xeb_{uuid4().hex}"
         return cls(
             binding_id=binding_id,
-            schema_version=1,
+            schema_version=(
+                CODING_EXECUTION_BINDING_EFFORT_SCHEMA_VERSION
+                if reasoning_effort is not None
+                else CODING_EXECUTION_BINDING_SCHEMA_VERSION
+            ),
             harness_id=harness_id,
             harness_selection_mode=harness_selection_mode,
             provider_id=provider_id,
@@ -139,6 +214,7 @@ class CodingExecutionBinding:
             attempt_id=attempt_id,
             max_attempts=max_attempts,
             authorization_evidence_ref=binding_id,
+            reasoning_effort=reasoning_effort,
         )
 
     @classmethod
@@ -165,8 +241,32 @@ class CodingExecutionBinding:
         )
         if any(not str(payload.get(key) or "").strip() for key in required):
             raise ValueError("execution_binding_incomplete")
-        if int(payload.get("schema_version") or 0) != 1:
+        schema_version = int(payload.get("schema_version") or 0)
+        if schema_version not in {
+            CODING_EXECUTION_BINDING_SCHEMA_VERSION,
+            CODING_EXECUTION_BINDING_EFFORT_SCHEMA_VERSION,
+        }:
             raise ValueError("execution_binding_version_unsupported")
+        # A version 1 binding does not govern the reasoning effort: it keeps
+        # the harness default exactly as before, and it is never reinterpreted
+        # as if it had carried one. A version 2 binding *requires* the field,
+        # so a governing binding can never be persisted without it.
+        reasoning_effort: str | None = None
+        if schema_version == CODING_EXECUTION_BINDING_EFFORT_SCHEMA_VERSION:
+            reasoning_effort = str(payload.get("reasoning_effort") or "").strip()
+            if not reasoning_effort:
+                raise ValueError("execution_binding_reasoning_effort_missing")
+            if reasoning_effort not in PI_AUTHORIZED_REASONING_EFFORTS:
+                raise ValueError("execution_binding_reasoning_effort_invalid")
+            # A governing binding may only carry a level the bound lane has
+            # actually validated. Anything else fails closed here, so no
+            # minting path can persist an effort Guardian never authorized.
+            lane = coding_execution_reasoning_effort_lane(
+                str(payload.get("provider_id") or "").strip(),
+                str(payload.get("model_id") or "").strip(),
+            )
+            if lane is None or reasoning_effort not in lane.compatible:
+                raise ValueError("execution_binding_reasoning_effort_unsupported")
         if payload.get("harness_selection_mode") not in {"default", "explicit"}:
             raise ValueError("execution_binding_selection_mode_invalid")
         if payload.get("credential_owner_scope") == "service" and not str(
@@ -179,7 +279,7 @@ class CodingExecutionBinding:
         project_id = payload.get("project_id")
         return cls(
             binding_id=str(payload["binding_id"]),
-            schema_version=1,
+            schema_version=schema_version,
             harness_id=str(payload["harness_id"]),
             harness_selection_mode=str(payload["harness_selection_mode"]),
             provider_id=str(payload["provider_id"]),
@@ -204,6 +304,7 @@ class CodingExecutionBinding:
             attempt_id=str(payload["attempt_id"]),
             max_attempts=max_attempts,
             authorization_evidence_ref=str(payload["authorization_evidence_ref"]),
+            reasoning_effort=reasoning_effort,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -230,6 +331,7 @@ class CodingExecutionBinding:
             "attempt_id": self.attempt_id,
             "max_attempts": self.max_attempts,
             "authorization_evidence_ref": self.authorization_evidence_ref,
+            "reasoning_effort": self.reasoning_effort,
         }
 
 

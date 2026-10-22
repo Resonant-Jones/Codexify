@@ -356,6 +356,7 @@ def _build_task(
     require_human_review_before_merge: bool | None = None,
     provider_id: str = "test-provider-a",
     model_id: str = "test-model-a",
+    reasoning_effort: str | None = None,
 ) -> CodingExecutionTask:
     payload: dict[str, Any] = {
         "task_id": f"task-{coding_task_id}",
@@ -401,7 +402,7 @@ def _build_task(
             binding_id = f"xeb-test-{coding_task_id}-{attempt_id}"
             binding = {
                 "binding_id": binding_id,
-                "schema_version": 1,
+                "schema_version": 2 if reasoning_effort is not None else 1,
                 "harness_id": "pi",
                 "harness_selection_mode": "default",
                 "provider_id": provider_id,
@@ -429,6 +430,8 @@ def _build_task(
                 ),
                 "authorization_evidence_ref": binding_id,
             }
+            if reasoning_effort is not None:
+                binding["reasoning_effort"] = reasoning_effort
             with store.db.get_session() as session:
                 row = (
                     session.query(AgentDeployment)
@@ -6278,3 +6281,208 @@ def test_worker_fails_closed_when_the_authorized_scope_is_empty(
     run_state = _fetch_run_state(store, run_id)
     assert run_state is not None
     assert run_state["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Reasoning-effort handoff.
+#
+# The reasoning effort is Guardian's to choose and the binding's to carry. The
+# worker forwards the persisted value unchanged and selects no level of its own.
+# ---------------------------------------------------------------------------
+
+_EFFORT_NOT_PROVIDED = object()
+
+
+def _install_effort_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[Any]:
+    """Record exactly what the worker hands the authorized adapter."""
+
+    forwarded: list[Any] = []
+
+    class _EffortAdapter:
+        def execute_authorized(
+            self,
+            request: Any,
+            identity: Any,
+            *,
+            credential_material: str,
+            read_only: bool,
+            reasoning_effort: Any = _EFFORT_NOT_PROVIDED,
+            required_tool_name: str | None = None,
+        ) -> Any:
+            del request, identity, credential_material, read_only
+            del required_tool_name
+            forwarded.append(reasoning_effort)
+            return SimpleNamespace(status="ok", summary="Effort adapter completed.")
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _EffortAdapter()}
+    )
+    return forwarded
+
+
+def test_worker_forwards_the_authorized_reasoning_effort_to_the_adapter(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker hands the harness the effort Guardian authorized.
+
+    The value arrives in the persisted binding and is forwarded verbatim. The
+    worker never picks a level from the model identity or from ambient
+    process configuration.
+    """
+    seeded = _seed_source_context(db, user_id="effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    worker._process_task(task)
+
+    assert forwarded == ["off"]
+
+
+def test_worker_forwards_no_effort_for_an_ungoverned_binding(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A binding that does not govern the effort forwards no value at all.
+
+    Those lanes keep the harness default exactly as before the contract
+    existed; the worker does not restate it as an authorized value.
+    """
+    seeded = _seed_source_context(db, user_id="legacy-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-legacy-effort",
+        provider_id="test-provider-a",
+        model_id="test-model-a",
+    )
+    worker._process_task(task)
+
+    assert forwarded == [_EFFORT_NOT_PROVIDED]
+
+
+def test_worker_refuses_a_tampered_reasoning_effort_before_execution(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A queued effort that differs from the persisted spec never reaches the harness.
+
+    The binding is compared byte-for-byte with the persisted deployment
+    specification, so a tampered effort is a binding mismatch and the attempt
+    is refused before any provider execution.
+    """
+    seeded = _seed_source_context(db, user_id="tampered-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-tampered-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    # The persisted specification still carries the authorized value; only the
+    # queued task is tampered with.
+    assert task.execution_binding is not None
+    task.execution_binding["reasoning_effort"] = "high"
+
+    worker._process_task(task)
+
+    assert forwarded == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
+
+
+def test_worker_refuses_a_governing_binding_without_its_effort(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A governing binding that lost its effort fails closed.
+
+    The binding can only govern the effort if it carries one, so a binding
+    that claims to govern the effort and does not carry it is refused before
+    provider execution.
+    """
+    seeded = _seed_source_context(db, user_id="missing-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    assert task.execution_binding is not None
+    task.execution_binding.pop("reasoning_effort")
+
+    worker._process_task(task)
+
+    assert forwarded == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
