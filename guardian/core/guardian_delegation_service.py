@@ -1583,15 +1583,24 @@ class GuardianDelegationService:
         )
 
         credentials = list_account_credentials(db, account_id=user_id)
-        if not credentials:
-            raise GuardianExecutionBindingError(
-                "guardian_binding_no_account_credential"
-            )
+        if credentials:
+            # Prefer the most recently registered account credential that the
+            # account is allowed to use. `list_account_credentials` already
+            # returns account-scoped credentials newest-first.
+            selected = credentials[0]
+        else:
+            # The account owns no credential of its own. A service-owned
+            # credential may still serve this account, but only where the
+            # service's own recorded policy authorizes it. The service lane is
+            # reached only when the account lane is empty: an account that
+            # brings its own key keeps it, and a rejected account credential is
+            # never silently replaced by a service one.
+            selected = self._select_service_credential(db=db, user_id=user_id)
+            if selected is None:
+                raise GuardianExecutionBindingError(
+                    "guardian_binding_no_account_credential"
+                )
 
-        # Prefer the most recently registered account credential that the
-        # account is allowed to use. `list_account_credentials` already
-        # returns account-scoped credentials newest-first.
-        selected = credentials[0]
         credential_ref = str(selected.get("credential_ref") or "").strip()
         provider_id = str(selected.get("provider_id") or "").strip()
         # The stored credential pins the provider; Guardian pins the model
@@ -1618,6 +1627,87 @@ class GuardianDelegationService:
                 model_id=model_id,
             ),
         )
+
+    def _select_service_credential(
+        self, *, db: Any, user_id: str
+    ) -> dict[str, Any] | None:
+        """Select the single service-owned credential this account may use.
+
+        Guardian owns the selection. The credential authority owns the
+        policy: every candidate is decided by the existing
+        ``authorize_credential_selection`` boundary, and no policy decision
+        is re-implemented here.
+
+        A service credential serves this account only where the service's own
+        recorded policy authorizes the account, the provider, the model, the
+        funding route, and the usage policy. If more than one candidate
+        authorizes, no existing authoritative rule resolves them, so this
+        fails closed rather than choosing one arbitrarily.
+
+        Returns ``None`` when the service lane has no candidate at all; the
+        caller then reports that the account has no usable credential.
+        """
+        from guardian.agents.execution_credentials import (
+            CredentialAuthorityError,
+            authorize_credential_selection,
+            list_service_credential_candidates,
+        )
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+        )
+
+        candidates = list_service_credential_candidates(db, account_id=user_id)
+        if not candidates:
+            return None
+
+        authorized: list[dict[str, Any]] = []
+        first_denial: CredentialAuthorityError | None = None
+        model_unresolved = False
+        for candidate in candidates:
+            credential_ref = str(candidate.get("credential_ref") or "").strip()
+            provider_id = str(candidate.get("provider_id") or "").strip()
+            if not credential_ref or not provider_id:
+                continue
+            # The model is pinned by Guardian from the runtime's own
+            # configuration for that provider, exactly as on the account
+            # lane. The service's model allow-list is enforced by the
+            # credential authority, not here.
+            model_id = self._resolve_account_model_id(provider_id)
+            if not model_id:
+                model_unresolved = True
+                continue
+            try:
+                authorize_credential_selection(
+                    db,
+                    credential_ref=credential_ref,
+                    account_id=user_id,
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+            except CredentialAuthorityError as exc:
+                if first_denial is None:
+                    first_denial = exc
+                continue
+            authorized.append(candidate)
+
+        if len(authorized) == 1:
+            return authorized[0]
+        if len(authorized) > 1:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_selection_ambiguous"
+            )
+        if first_denial is not None:
+            # The credential authority's own denial code is preserved as the
+            # detail, so the precise cause (account policy, model policy,
+            # funding route, usage policy, expiry, revocation) stays visible.
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_unauthorized", first_denial.code
+            )
+        if model_unresolved:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+        return None
 
     def _resolve_account_model_id(self, provider_id: str) -> str:
         """Resolve the account's configured model for a provider.

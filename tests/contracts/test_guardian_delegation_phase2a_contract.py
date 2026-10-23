@@ -1360,3 +1360,121 @@ def test_delegated_dispatch_without_a_bound_root_refuses_to_emit_a_scope(
     assert cause is not None
     assert getattr(cause, "code", "") == "guardian_posture_unresolved"
     assert getattr(cause, "detail", "") == "guardian_posture_write_scope_unresolved"
+
+
+# ---------------------------------------------------------------------------
+# The service credential lane produces the same canonical scope.
+#
+# Selecting a service-owned credential must not change anything the worker
+# reads: the authorized write scope, the permission posture, and the
+# byte-identical relationship between the persisted and queued bindings all
+# have to be exactly what the account-owned lane produces.
+# ---------------------------------------------------------------------------
+
+
+def test_delegated_dispatch_emits_the_canonical_write_scope_for_a_service_credential(
+    db: _TestDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A service-owned credential emits the same canonical repository-root scope."""
+    from guardian.agents.execution_credentials import store_api_key
+    from guardian.queue import redis_queue
+    from guardian.queue.redis_queue import dequeue_coding_execution
+    from guardian.tasks.types import CodingExecutionTask
+    from guardian.workers.coding_worker import _resolve_authorized_write_scope
+
+    # Keep the coding-execution queue in memory and the credential store
+    # encryptable, so this case never reaches a shared queue.
+    monkeypatch.setattr(redis_queue, "_CLIENT", redis_queue._InMemoryRedis())
+    monkeypatch.setattr(
+        redis_queue, "_QUEUE_CLIENT", redis_queue._InMemoryRedis()
+    )
+    monkeypatch.setenv(
+        "GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY",
+        "T7xQ9v2Kc4mB8nR3wY6zA1sD5fG0hJ7kL2pX9uV4eC8=",
+    )
+
+    seeded = _seed_source_context(db)
+    store_api_key(
+        db,
+        owner_scope="service",
+        owner_id="codexify-service",
+        provider_id="deepseek",
+        api_key="sk-test-service-scope-emission",
+        funding_route="codexify_metered",
+        allowed_account_ids=[seeded["user_id"]],
+        allowed_model_ids=["deepseek-v4-flash"],
+        usage_policy_ref="usage-policy-codexify-metered",
+    )
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = service._create_agent_run_link(
+        intent_id="gdi-service-scope-emission",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    result = service.dispatch_delegated_task(
+        intent_id="gdi-service-scope-emission",
+        deployment_id=run["deployment_id"],
+        run_id=run["run_id"],
+        attempt_id=run["attempt_id"],
+        coding_task_id=run["coding_task_id"],
+        instructions="Do the thing.",
+        repo_root=str(tmp_path),
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+
+    payload = dequeue_coding_execution(block=False)
+    assert payload is not None
+    task = CodingExecutionTask.from_dict(payload)
+
+    # The emitted scope is the explicit repository-root token, exactly as on
+    # the account lane.
+    assert task.permission_policy["allowed_paths"] == ["."]
+
+    # The worker's canonical resolver accepts that representation.
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=list(task.permission_policy["allowed_paths"]),
+        repo_root=str(tmp_path),
+    )
+    assert scope.resolved is True
+    assert scope.root_authorized is True
+
+    # The service ownership survives into the enqueued binding.
+    assert task.execution_binding["credential_owner_scope"] == "service"
+    assert task.execution_binding["credential_owner_id"] == "codexify-service"
+    assert task.execution_binding["funding_route"] == "codexify_metered"
+    assert task.execution_binding["usage_policy_ref"] == (
+        "usage-policy-codexify-metered"
+    )
+
+    # The enqueued binding is byte-identical to the durable one.
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+    assert deployment is not None
+    spec = dict(deployment.spec_json or {})
+    persisted_binding = spec.get("execution_binding")
+    assert isinstance(persisted_binding, dict)
+    assert task.execution_binding == persisted_binding
+
+    # The permission posture is unchanged by the credential's owner.
+    assert result["permission_posture"]["permission_policy"]["allowed_paths"] == [
+        "."
+    ]
+    assert task.permission_policy["allow_write"] is True
+    assert task.permission_policy["allow_shell"] is True
+    assert task.permission_policy["allow_network"] is False

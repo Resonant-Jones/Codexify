@@ -820,3 +820,253 @@ def test_a_legacy_binding_is_never_reinterpreted_as_governing() -> None:
 
     assert binding.schema_version == 1
     assert binding.reasoning_effort is None
+
+
+# ---------------------------------------------------------------------------
+# Service-owned credential binding truthfulness.
+#
+# A binding minted from a service-owned credential must carry that
+# credential's real ownership and funding route, and the execution-time
+# revalidation must accept it as such. Relabelling a service credential as
+# account-owned, rerouting its funding, or pointing it at a foreign usage
+# policy is refused.
+# ---------------------------------------------------------------------------
+
+
+_SERVICE_BINDING_OWNER = "codexify-service"
+_SERVICE_BINDING_ROUTE = "codexify_metered"
+_SERVICE_BINDING_POLICY = "usage-policy-codexify-metered"
+_SERVICE_BINDING_SECRET = "sk-test-service-guardian-binding"
+_SERVICE_BINDING_MODEL = "deepseek-v4-flash"
+
+
+def _seed_service_credential(
+    db: _TestDB,
+    *,
+    user_id: str = "account-1",
+    provider_id: str = "deepseek",
+    allowed_account_ids: list[str] | None = None,
+    allowed_model_ids: list[str] | None = None,
+    usage_policy_ref: str | None = _SERVICE_BINDING_POLICY,
+) -> str:
+    """Register one service-owned credential and return its reference."""
+    record = store_api_key(
+        db,
+        owner_scope="service",
+        owner_id=_SERVICE_BINDING_OWNER,
+        provider_id=provider_id,
+        api_key=_SERVICE_BINDING_SECRET,
+        funding_route=_SERVICE_BINDING_ROUTE,
+        allowed_account_ids=(
+            allowed_account_ids if allowed_account_ids is not None else [user_id]
+        ),
+        allowed_model_ids=(
+            allowed_model_ids
+            if allowed_model_ids is not None
+            else [_SERVICE_BINDING_MODEL]
+        ),
+        usage_policy_ref=usage_policy_ref,
+    )
+    return str(record["credential_ref"])
+
+
+def test_service_owned_binding_keeps_its_ownership_and_funding_route(
+    db: _TestDB,
+) -> None:
+    """A service credential's binding is not relabelled as account-owned."""
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id=_SERVICE_BINDING_MODEL,
+        ),
+    )
+
+    assert binding["credential_ref"] == credential_ref
+    assert binding["credential_owner_scope"] == "service"
+    assert binding["credential_owner_id"] == _SERVICE_BINDING_OWNER
+    assert binding["credential_source_class"] == "service_api_key"
+    assert binding["credential_type"] == "api_key"
+    assert binding["funding_route"] == _SERVICE_BINDING_ROUTE
+    assert binding["usage_policy_ref"] == _SERVICE_BINDING_POLICY
+    assert binding["provider_id"] == "deepseek"
+    assert binding["model_id"] == _SERVICE_BINDING_MODEL
+
+    # The binding stays secret-free.
+    assert _SERVICE_BINDING_SECRET not in str(binding)
+
+    # The binding round-trips through the validator the worker applies.
+    round_tripped = CodingExecutionBinding.from_dict(binding)
+    assert round_tripped.credential_owner_scope == "service"
+    assert round_tripped.funding_route == _SERVICE_BINDING_ROUTE
+
+
+def test_service_owned_binding_is_authorized_at_the_execution_time_boundary(
+    db: _TestDB,
+) -> None:
+    """The execution-time revalidation accepts the service binding as bound."""
+    from guardian.agents.execution_credentials import authorize_binding_credential
+
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id=_SERVICE_BINDING_MODEL,
+        ),
+    )
+
+    authorized = authorize_binding_credential(
+        db, binding=binding, account_id=seeded["user_id"]
+    )
+    assert authorized["owner_scope"] == "service"
+    assert authorized["owner_id"] == _SERVICE_BINDING_OWNER
+    assert authorized["funding_route"] == _SERVICE_BINDING_ROUTE
+    assert authorized["usage_policy_ref"] == _SERVICE_BINDING_POLICY
+
+
+def test_relabelling_service_ownership_or_funding_is_refused(
+    db: _TestDB,
+) -> None:
+    """A service credential may not be presented as account-owned."""
+    from guardian.agents.execution_credentials import (
+        CredentialAuthorityError,
+        authorize_binding_credential,
+    )
+
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id=_SERVICE_BINDING_MODEL,
+        ),
+    )
+
+    relabelled = {**binding, "credential_owner_scope": "account"}
+    with pytest.raises(
+        CredentialAuthorityError, match="credential_owner_scope_mismatch"
+    ):
+        authorize_binding_credential(
+            db, binding=relabelled, account_id=seeded["user_id"]
+        )
+
+    rerouted = {**binding, "funding_route": "user_byok"}
+    with pytest.raises(
+        CredentialAuthorityError, match="credential_funding_route_mismatch"
+    ):
+        authorize_binding_credential(
+            db, binding=rerouted, account_id=seeded["user_id"]
+        )
+
+    reowned = {**binding, "credential_owner_id": seeded["user_id"]}
+    with pytest.raises(
+        CredentialAuthorityError, match="credential_owner_mismatch"
+    ):
+        authorize_binding_credential(
+            db, binding=reowned, account_id=seeded["user_id"]
+        )
+
+
+def test_service_binding_with_a_foreign_usage_policy_is_refused(
+    db: _TestDB,
+) -> None:
+    """A service binding may not point at another usage policy."""
+    from guardian.agents.execution_credentials import (
+        CredentialAuthorityError,
+        authorize_binding_credential,
+    )
+
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+    binding = resolve_guardian_execution_binding(
+        db,
+        _request(
+            seeded,
+            credential_ref=credential_ref,
+            provider_id="deepseek",
+            model_id=_SERVICE_BINDING_MODEL,
+        ),
+    )
+
+    with pytest.raises(
+        CredentialAuthorityError, match="service_usage_policy_mismatch"
+    ):
+        authorize_binding_credential(
+            db,
+            binding={**binding, "usage_policy_ref": "other-policy"},
+            account_id=seeded["user_id"],
+        )
+
+
+def test_service_credential_with_an_incompatible_funding_route_is_refused(
+    db: _TestDB,
+) -> None:
+    """A service credential may not carry a route that is not a service route."""
+    from guardian.agents.execution_credentials import (
+        CredentialAuthorityError,
+        authorize_credential_selection,
+    )
+    from guardian.db.models import CodingExecutionCredential
+
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+
+    # The registration boundary refuses a non-service route for a service
+    # credential, so the only way to reach the state is a row whose route was
+    # changed afterwards. The authority must still deny it.
+    with db.get_session() as session:
+        row = (
+            session.query(CodingExecutionCredential)
+            .filter_by(credential_ref=credential_ref)
+            .one_or_none()
+        )
+        assert row is not None
+        row.funding_route = "user_byok"
+        session.commit()
+
+    with pytest.raises(
+        CredentialAuthorityError, match="service_funding_route_invalid"
+    ):
+        authorize_credential_selection(
+            db,
+            credential_ref=credential_ref,
+            account_id=seeded["user_id"],
+            provider_id="deepseek",
+            model_id=_SERVICE_BINDING_MODEL,
+        )
+
+
+def test_service_credential_with_a_provider_mismatch_is_refused(
+    db: _TestDB,
+) -> None:
+    """A service credential may not be used for a provider it does not carry."""
+    from guardian.agents.execution_credentials import (
+        CredentialAuthorityError,
+        authorize_credential_selection,
+    )
+
+    seeded = _seed_account(db)
+    credential_ref = _seed_service_credential(db, user_id=seeded["user_id"])
+
+    with pytest.raises(
+        CredentialAuthorityError, match="credential_provider_mismatch"
+    ):
+        authorize_credential_selection(
+            db,
+            credential_ref=credential_ref,
+            account_id=seeded["user_id"],
+            provider_id="openai",
+            model_id=_SERVICE_BINDING_MODEL,
+        )
