@@ -2,7 +2,7 @@
 
 Purpose: define v1 as a hybrid bridge: `Guardian-owned chat intake -> task normalization -> durable intent artifact -> existing coding-run backbone -> Guardian thread continuation -> Command Center transcript mirror`.
 
-Last updated: 2026-09-24
+Last updated: 2026-10-23
 
 Source anchors:
 - docs/architecture/00-current-state.md
@@ -155,6 +155,27 @@ Dispatching a delegated coding task requires two Guardian-owned authorizations, 
 - **The permission posture** (`guardian/core/guardian_permission_posture.py`) states which surfaces actually enforce the grant and which do not. Per ADR-077 rule 6, denied filesystem mutation is enforced below the model/tool layer; per rule 7, tool allowlists and prompt instructions are defense in depth, not filesystem, network, or process isolation. The git mutation guard **detects** an out-of-scope mutation and fails the attempt — it does not prevent the write. `allow_network` is a request, not an egress guarantee, because no sandbox provider is wired into the coding worker. The posture is therefore advisory for network egress and process isolation, and says so rather than claiming enforcement it cannot evidence.
 - **The reasoning effort** is part of the execution binding, not a separate configuration surface. Guardian resolves the effective effort from the provider and model the binding pins, before anything is dispatched, and records it in the binding. The binding schema version is the discriminator: a version 2 binding *governs* the effort and therefore carries it, while a version 1 binding predates the contract and governs nothing, so the harness keeps its own default exactly as before. A version 1 binding is never reinterpreted as if it had governed one. The coding worker forwards the persisted value verbatim to the adapter and selects no level of its own — from the model identity, from ambient process configuration, or from a caller-supplied task field. Because the queued task's binding must equal the persisted one byte-for-byte, a tampered effort is a binding mismatch and is refused before any provider execution. An effort the harness does not accept, or one the lane has not validated, fails closed at resolution time; it is never clamped or downgraded to a level Guardian did not select. The lanes that have been validated are a bounded list in `guardian/agents/coding_agent_contracts.py`, not a model-capability registry: a lane that is not listed there has no validated compatibility rule and is left ungoverned.
 
+### Durable execution acceptance
+
+Dispatching a task is not the same as owning it. A queued coding task that has never been picked up, and a coding task whose worker has already begun and then died, are indistinguishable in the queue: the queue is lossy and at-most-once, and a dequeued task may still be executing. The **durable acceptance record** is what tells those two states apart in canonical PostgreSQL, and it is a precondition for any side-effecting execution.
+
+The acceptance record is the existing canonical `agent_runs` row. No migration, no new table, and no separate execution ledger are required: the schema already permits `status = 'running'` and already carries a nullable `started_at`.
+
+| Field | Before acceptance | After acceptance |
+|---|---|---|
+| `agent_runs.status` | `queued` | `running` |
+| `agent_runs.started_at` | `null` | stamped exactly once |
+
+`AgentStore.claim_run_for_acceptance` (`guardian/agents/store.py`) performs the transition as a **compare-and-set**: `UPDATE agent_runs SET status = 'running', started_at = now() WHERE id = :id AND status = 'queued' AND deployment_id = :deployment_id`. The update applies only while the row is still `queued`, so exactly one of two racing workers can win; a terminal run is never reopened; and a duplicate claim never refreshes `started_at`.
+
+The claim's authority is the durable deployment record the run already points at — the same immutable spec the execution binding was validated against. The run must belong to that deployment, and every identity the deployment *asserts* — account, thread, source message, attempt, and coding task — must agree with the claiming task. Asserted identities are read from the deployment spec and from its persisted execution binding, because that binding is the record the credential-lease authority re-validates. A deployment that asserts nothing about an identity does not contradict the task; a deployment that asserts a different one does, and so does a deployment that contradicts itself.
+
+**The boundary.** In `guardian/workers/coding_worker.py`, acceptance sits after the trusted execution-binding validation and before every side-effecting step: before the worktree lease, before the isolated worktree, before `task.running`, and before adapter entry. `task.running` therefore follows a successful durable acceptance rather than preceding it.
+
+**Refusal is fail-closed and non-destructive.** The claim returns one of three outcomes — `accepted`, `rejected`, or `unavailable` — and anything other than `accepted` refuses execution. Unreachable persistence is `unavailable`, never permission to execute: missing persistence is not a weaker form of authorization. A refusal is published as the canonical generic, **non-terminal** `task.event` with a local `error_code` (`EXECUTION_ACCEPTANCE_REJECTED` or `EXECUTION_ACCEPTANCE_UNAVAILABLE`), following the worker's existing precedent for local error codes; no protocol token is added. A refusal never calls `update_run_status` and never calls `store_coding_result`, so a duplicate delivery cannot turn another worker's running attempt into a terminal failure, cannot produce a second result artifact, and cannot post a second source-thread message.
+
+**What this does not yet provide.** The acceptance record makes an accepted run distinguishable from a queued, never-started run after worker process death. It does **not** implement restart-time reconciliation: nothing reads the acceptance record at startup, no uncertain-outcome sweep exists, and `observe_liveness()`, `classify_dispatch_health()`, and `recover_dispatch()` are not wired into any startup path. Reconciliation remains a separate, dependent task, and no retry authority is implied by the record.
+
 ### Dispatch recovery
 
 The queue is `LPUSH` + destructive `BRPOP`/`RPOP` with no ack, no pending list, and no requeue. Four layers must therefore be kept distinct, because a guarantee on one says nothing about another:
@@ -169,6 +190,8 @@ The queue is `LPUSH` + destructive `BRPOP`/`RPOP` with no ack, no pending list, 
 **No exactly-once execution claim is made.** A missing heartbeat is *uncertain*, not lost: the worker may be between phases, blocked on a subprocess, or in a long validation loop. Recovery is therefore **quarantine-and-escalate**. Automated re-dispatch is refused while no fencing token exists, because without fencing a superseded attempt's writes cannot be rejected, and isolation alone bounds cross-contamination but not duplicate logical effects. A recovery attempt must mint a new attempt id, a new binding, and a freshly issued credential lease. This mirrors the existing chat recovery idiom, which also refuses to execute during recovery.
 
 Dispatch state lives in `guardian/core/guardian_dispatch.py` and is durable and queryable: `prepared`, `dispatched`, `executing`, `completed`, `failed`, `uncertain`, `quarantined`, `cancelled`. Recovery reads that state; it never infers from absence.
+
+The durable acceptance record described above is the substrate this recovery reads: it is what makes an accepted run distinguishable from a queued, never-started run after the worker process disappears. Restart-time reconciliation of that record — reading it at startup and classifying the uncertain outcomes it implies — is **not implemented** and remains a separate, dependent task.
 
 ## Coding Delegation Context Policy
 
@@ -245,6 +268,7 @@ Recommended `source_type` values for coding v1:
 - Acceptance, approval, execution, and visibility must not be collapsed into one state.
 - The reasoning effort is Guardian's to select and the binding's to carry. A worker task may not choose or widen its own invocation options, and an effort the Guardian did not authorize must not reach the harness.
 - The credential that authorizes a delegated execution keeps its real owner. A service-owned credential serves an account only where the service's own recorded policy names that account, provider, model, funding route, and usage policy, and it remains service-owned in the binding. Credential discovery is not authorization, and an account principal does not become the credential's owner by using a service-owned key.
+- A side-effecting coding execution may not begin until its acceptance is durably recorded in canonical PostgreSQL. Missing or unreachable persistence is never permission to execute, and a refused or duplicated acceptance never overwrites another worker's run, artifact, or source-thread result.
 
 ## Deferred Phases / Non-Goals
 

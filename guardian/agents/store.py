@@ -122,6 +122,22 @@ def _is_terminal_agent_run_status(status: Any) -> bool:
     }
 
 
+#: Outcomes of a durable coding-run acceptance claim.
+#:
+#: ``accepted`` -- this caller owns the run and may perform side effects.
+#: ``rejected`` -- the run is missing, already claimed, terminal, or does not
+#: match the expected authority. The caller must not execute.
+#: ``unavailable`` -- no durable store is reachable. The caller must not
+#: execute; missing persistence is never permission to execute.
+RUN_ACCEPTANCE_ACCEPTED = "accepted"
+RUN_ACCEPTANCE_REJECTED = "rejected"
+RUN_ACCEPTANCE_UNAVAILABLE = "unavailable"
+
+#: Internal marker for a durable deployment that asserts two different values
+#: for one identity. Such a deployment is never an authority.
+_CONTRADICTORY_IDENTITY = "\x00contradictory-identity"
+
+
 def _should_persist_coding_result_message(status: str) -> bool:
     normalized = _normalize_coding_result_status(status)
     # Terminal coding outcomes should return bounded evidence to the source
@@ -1093,6 +1109,157 @@ class AgentStore:
         if _is_terminal_agent_run_status(normalized_status):
             item["ended_at"] = now.isoformat()
         return True
+
+    def claim_run_for_acceptance(
+        self,
+        *,
+        run_id: str,
+        deployment_id: str,
+        user_id: str | None = None,
+        thread_id: int | None = None,
+        source_message_id: int | None = None,
+        attempt_id: str | None = None,
+        coding_task_id: str | None = None,
+    ) -> str:
+        """Atomically claim a queued coding run for side-effecting execution.
+
+        Acceptance is the durable record that a worker took ownership of an
+        execution. It transitions the canonical ``agent_runs`` row from
+        ``queued`` to ``running`` and stamps ``started_at`` exactly once, in
+        the same transaction that validates the run's authority.
+
+        The transition is a compare-and-set: the update applies only while the
+        row is still ``queued``, so two workers racing for the same run
+        cannot both claim it. A terminal run is never reopened, and a
+        duplicate claim never refreshes ``started_at``.
+
+        The run's authority is taken from the durable deployment record the
+        run already points at -- the same immutable spec the execution binding
+        was validated against. The run must belong to that deployment, and
+        every identity the deployment *asserts* -- account, thread, source
+        message, attempt, and coding task -- must agree with the claiming
+        task. The asserted identities are read from the deployment spec and
+        from its persisted execution binding, because that binding is the
+        record the credential authority re-validates. A deployment that asserts
+        nothing about an identity does not contradict the task; a deployment
+        that asserts a different one does.
+
+        Returns ``accepted``, ``rejected``, or ``unavailable``. Callers must
+        treat anything other than ``accepted`` as a refusal to execute:
+        missing or unreachable persistence is never permission to execute.
+        """
+        if not self._has_db():
+            return RUN_ACCEPTANCE_UNAVAILABLE
+
+        now = _utc_now()
+        try:
+            with self.db.get_session() as session:
+                deployment_row = (
+                    session.query(AgentDeployment)
+                    .filter_by(deployment_id=str(deployment_id))
+                    .one_or_none()
+                )
+                if deployment_row is None:
+                    return RUN_ACCEPTANCE_REJECTED
+                run_row = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(run_id))
+                    .one_or_none()
+                )
+                if run_row is None:
+                    return RUN_ACCEPTANCE_REJECTED
+                if int(run_row.deployment_id) != int(deployment_row.id):
+                    return RUN_ACCEPTANCE_REJECTED
+
+                spec = deployment_row.spec_json or {}
+                if not isinstance(spec, dict):
+                    spec = {}
+                spec_binding = spec.get("execution_binding")
+                if not isinstance(spec_binding, dict):
+                    spec_binding = {}
+
+                def _asserted_identity(*keys: str) -> str | None:
+                    """The identity the durable deployment asserts, if any.
+
+                    A deployment that asserts nothing about an identity is not
+                    contradicting the task; a deployment that asserts a
+                    different one is. The persisted execution binding is read
+                    alongside the top-level spec keys, because that binding is
+                    the record the credential authority re-validates.
+                    """
+                    seen: set[str] = set()
+                    for source in (spec, spec_binding):
+                        for key in keys:
+                            raw = source.get(key)
+                            if raw is None:
+                                continue
+                            text = str(raw).strip()
+                            if not text:
+                                continue
+                            seen.add(text)
+                    if not seen:
+                        return None
+                    if len(seen) != 1:
+                        # The deployment contradicts itself. That is never an
+                        # authority for a side-effecting execution.
+                        return _CONTRADICTORY_IDENTITY
+                    return seen.pop()
+
+                for claimed, keys in (
+                    (attempt_id, ("attempt_id",)),
+                    (coding_task_id, ("coding_task_id",)),
+                    (user_id, ("user_id",)),
+                    (thread_id, ("thread_id", "source_thread_id")),
+                    (source_message_id, ("source_message_id",)),
+                ):
+                    asserted = _asserted_identity(*keys)
+                    if asserted is None:
+                        # The deployment says nothing about this identity, so
+                        # there is no durable authority to disagree with.
+                        continue
+                    if asserted == _CONTRADICTORY_IDENTITY:
+                        return RUN_ACCEPTANCE_REJECTED
+                    if claimed is None or str(claimed).strip() != asserted:
+                        return RUN_ACCEPTANCE_REJECTED
+                if (
+                    user_id
+                    and run_row.account_origin_user_id
+                    and str(run_row.account_origin_user_id) != str(user_id)
+                ):
+                    return RUN_ACCEPTANCE_REJECTED
+                if (
+                    thread_id is not None
+                    and run_row.thread_id is not None
+                    and int(run_row.thread_id) != int(thread_id)
+                ):
+                    return RUN_ACCEPTANCE_REJECTED
+
+                if _normalize_agent_run_status(run_row.status) != "queued":
+                    # Already accepted, terminal, or otherwise not claimable.
+                    return RUN_ACCEPTANCE_REJECTED
+
+                claimed = (
+                    session.query(AgentRun)
+                    .filter(
+                        AgentRun.id == run_row.id,
+                        AgentRun.status == "queued",
+                        AgentRun.deployment_id == deployment_row.id,
+                    )
+                    .update(
+                        {"status": "running", "started_at": now},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                if claimed != 1:
+                    return RUN_ACCEPTANCE_REJECTED
+                return RUN_ACCEPTANCE_ACCEPTED
+        except Exception:
+            logger.exception(
+                "[agent-store] durable acceptance claim failed run_id=%s",
+                run_id,
+            )
+            return RUN_ACCEPTANCE_UNAVAILABLE
 
     def create_step(
         self,

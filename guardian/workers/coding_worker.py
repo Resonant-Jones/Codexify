@@ -26,7 +26,12 @@ from guardian.agents.commit_gate import (
     commit_after_green,
 )
 from guardian.agents.events import build_coding_result_lineage_payload
-from guardian.agents.store import AgentStore, store
+from guardian.agents.store import (
+    RUN_ACCEPTANCE_ACCEPTED,
+    RUN_ACCEPTANCE_UNAVAILABLE,
+    AgentStore,
+    store,
+)
 from guardian.agents.test_results import (
     NormalizedTestResult,
     normalize_subprocess_test_result,
@@ -2274,6 +2279,42 @@ class CodingWorker:
             )
             return
 
+        # Durable acceptance. A side-effecting Guardian execution may not
+        # begin until ownership of the run is durably recorded: the canonical
+        # agent_runs row is atomically transitioned queued -> running and
+        # stamped with started_at. The trusted execution binding and its
+        # lineage were validated above, and the durable deployment record
+        # supplies the authority that the claim re-checks. Anything other
+        # than an accepted claim -- already claimed, terminal, mismatched, or
+        # unreachable persistence -- refuses execution.
+        acceptance = self.store.claim_run_for_acceptance(
+            run_id=str(task.run_id or ""),
+            deployment_id=str(task.deployment_id or ""),
+            user_id=execution_binding.user_id,
+            thread_id=task.thread_id,
+            source_message_id=_coerce_optional_positive_int(
+                task.source_message_id
+            ),
+            attempt_id=str(task.attempt_id or ""),
+            coding_task_id=str(task.coding_task_id or ""),
+        )
+        if acceptance != RUN_ACCEPTANCE_ACCEPTED:
+            self._emit_acceptance_rejected(
+                task,
+                adapter_kind=adapter_kind,
+                error_code=(
+                    "EXECUTION_ACCEPTANCE_UNAVAILABLE"
+                    if acceptance == RUN_ACCEPTANCE_UNAVAILABLE
+                    else "EXECUTION_ACCEPTANCE_REJECTED"
+                ),
+                error_message=(
+                    "durable execution acceptance is unavailable"
+                    if acceptance == RUN_ACCEPTANCE_UNAVAILABLE
+                    else "execution run was not accepted for this worker"
+                ),
+            )
+            return
+
         (
             lease_ctx,
             lease_store,
@@ -4245,6 +4286,54 @@ class CodingWorker:
         except Exception as exc:
             logger.warning(
                 "[coding-worker] failed to emit terminal event: %s",
+                exc,
+            )
+
+    def _emit_acceptance_rejected(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        """Report a refused durable acceptance without disturbing the run.
+
+        A duplicate delivery must not turn another worker's legitimately
+        running attempt into a terminal failure, must not produce a second
+        result artifact, and must not deliver a second source-thread
+        message. The refusal is therefore published as the canonical generic,
+        non-terminal task event: it is observable, and it is not a terminal
+        outcome for the attempt.
+        """
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_EVENT.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "acceptance_rejected",
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "execution_provenance": _execution_provenance(
+                        task.execution_binding
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit acceptance rejection event: %s",
                 exc,
             )
 
