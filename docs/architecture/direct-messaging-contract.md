@@ -74,6 +74,33 @@ State: `unset` (no deliberate selection) or `active` (claimed).  Existing
 users remain `unset` until they deliberately choose a username.  Username
 is never derived from the email local-part.
 
+The deliberately claimed username **is** this contract's public/discoverable
+state for a profile.  There is no separate visibility column, no hidden-but-
+discoverable tier, and no per-profile publicity setting: claiming a username
+is the opt-in act, and a profile that never claimed one is not discoverable.
+A non-discoverable profile is indistinguishable from one that does not
+exist — both are simply absent from results, and neither leaks through
+response details or error messages.
+
+### 2a. Username search queries
+
+A search query is a **prefix** query over the same-node username namespace, not
+a full-grammar lookup, so a partial handle such as `res` is a legitimate
+query even though it is shorter than the 3-character username grammar.
+
+The query is canonicalized before matching: it is trimmed, lowercased, and the
+conventional `@` sigil is stripped.  The sigil is a presentation convention
+the People UI displays and people type — it is never part of the stored
+username — so `@resonant-` and `resonant-` resolve to the same match instead
+of silently returning nothing.  Queries shorter than **2 characters** return
+no results; a single character is not a meaningful prefix query and would
+degenerate into enumeration of the node's username space.
+
+Discovery is **same-node by construction**, and the UI states that scope
+plainly rather than presenting an unmatched handle as a person who does not
+exist anywhere.  Cross-node identity discovery and transport remain deferred
+(§10, §11).
+
 ## 3. Private account boundary
 
 Email is private account metadata.  No social API may expose another
@@ -169,7 +196,7 @@ caller may act only through a profile they own.
 |---|---|---|
 | Claim username | `PUT /api/profile/social-identity` | normalize → grammar/reserved validation → Node-scoped uniqueness → persist `active`; never derived from email |
 | Own social identity | `GET /api/profile/social-identity` | caller's `node_id`, `profile_id`, `username`, `username_state`, presentation fields |
-| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated owned Profile with a claimed username; same-node username-prefix, bounded (max 20), social fields only |
+| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated owned Profile with a claimed username; same-node username-prefix, bounded (max 20), social fields only; query canonicalized per §2a (`@` sigil stripped, trimmed, lowercased, minimum 2 characters); finding a profile is not messaging authority — request, block, and consent rules still apply |
 | Resolve relationship | `POST /api/direct-messages/relationships` | `destination_node_id` + `destination_profile_id`; nonlocal Node_ID rejected as unsupported (no federation); self-DM rejected; reverse direction resolves the same Relationship; no Conversation is required to establish a Relationship |
 | List relationships | `GET /api/direct-messages/relationships` | caller-participating Relationships, safe peer social identity, ordered by durable `updated_at` |
 | List relationship conversations | `GET /api/direct-messages/relationships/{relationship_id}/conversations` | participants only; every Conversation in the Relationship; stable activity ordering; caller-local placement and caller-visible origin only (peer's private placement never revealed) |
@@ -377,6 +404,14 @@ General (no origin or placement); requests never disclose Project/Thread
 state. Established pairs may create further distinct Conversations via
 the existing creation/origin flow. Opening/refreshing provides visibility;
 this slice makes no realtime delivery claim.
+
+Discovery is same-node, so the flow states that scope where the query is
+entered rather than implying that an unmatched handle is a person who does
+not exist anywhere: the search surface says the search covers people on this
+node only, and an empty result says no profile *on this node* matched. The
+query is debounced and the latest query wins, so a slower earlier response
+never replaces newer results. Finding a profile grants no messaging
+authority — the request, block, and consent rules in §7 still apply.
 
 ### Privacy
 

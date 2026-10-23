@@ -20,7 +20,7 @@
  * route capability is not `available`.
  */
 import { MessageSquarePlus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MessageRequestPanel from "./MessageRequestPanel";
 import { useOnboarding } from "@/features/onboarding/OnboardingProvider";
 
@@ -36,9 +36,11 @@ import {
   fetchThreadProjectScope,
   filterConversationsByRelationship,
   normalizeDirectMessageError,
+  normalizeUsernameSearchQuery,
   peerPresentationLabel,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
+  USERNAME_SEARCH_MIN_LENGTH,
   type ConversationOriginInput,
   type DirectMessageConversation,
   type DirectMessageSocialProfile,
@@ -199,23 +201,86 @@ export default function DirectMessageInbox({
     return visibleConversations[0]?.peer ?? null;
   }, [filterRelationshipId, visibleConversations]);
 
-  const runSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      setSearchResults([]);
-      return;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestSequence = useRef(0);
+
+  const runSearch = useCallback(
+    async (query: string, requestSequence: number) => {
+      const normalized = normalizeUsernameSearchQuery(query);
+      if (normalized.length < USERNAME_SEARCH_MIN_LENGTH) {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults([]);
+          setSearching(false);
+        }
+        return;
+      }
+      setSearching(true);
+      setCreateError(null);
+      try {
+        const results = await searchDirectMessageProfiles(normalized);
+        // A slower earlier response must never replace a newer query's
+        // results.
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults(results);
+        }
+      } catch (error) {
+        if (requestSequence === searchRequestSequence.current) {
+          setCreateError(normalizeDirectMessageError(error).message);
+          setSearchResults([]);
+        }
+      } finally {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearching(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleSearchQueryChange = useCallback(
+    (value: string) => {
+      const requestSequence = searchRequestSequence.current + 1;
+      searchRequestSequence.current = requestSequence;
+      setSearchQuery(value);
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+      if (normalizeUsernameSearchQuery(value).length < USERNAME_SEARCH_MIN_LENGTH) {
+        setSearchResults([]);
+        setSearching(false);
+        return;
+      }
+      searchTimer.current = window.setTimeout(() => {
+        void runSearch(value, requestSequence);
+      }, 250);
+    },
+    [runSearch],
+  );
+
+  const closeSearch = useCallback(() => {
+    // Invalidate any in-flight search so a late response cannot repopulate a
+    // surface the user already closed.
+    searchRequestSequence.current += 1;
+    if (searchTimer.current) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
     }
-    setSearching(true);
+    setNewConversationOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearching(false);
     setCreateError(null);
-    try {
-      setSearchResults(await searchDirectMessageProfiles(trimmed));
-    } catch (error) {
-      setCreateError(normalizeDirectMessageError(error).message);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
   }, []);
+
+  useEffect(
+    () => () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+
+  const normalizedSearchQuery = useMemo(
+    () => normalizeUsernameSearchQuery(searchQuery),
+    [searchQuery],
+  );
 
   const computeOrigin =
     useCallback(async (): Promise<ConversationOriginInput> => {
@@ -360,24 +425,21 @@ export default function DirectMessageInbox({
               placeholder="Search by Codexify username"
               aria-label="Search profiles by username"
               onChange={(event) => {
-                setSearchQuery(event.target.value);
-                void runSearch(event.target.value);
+                handleSearchQueryChange(event.target.value);
               }}
             />
             <button
               type="button"
               aria-label="Close new conversation search"
               className="text-[var(--text-subtle)] hover:text-[var(--text)]"
-              onClick={() => {
-                setNewConversationOpen(false);
-                setSearchQuery("");
-                setSearchResults([]);
-                setCreateError(null);
-              }}
+              onClick={closeSearch}
             >
               <X size={13} aria-hidden="true" />
             </button>
           </div>
+          <p className="mt-1 text-[11px] text-[var(--text-subtle)]">
+            Search covers people on this node only.
+          </p>
           {createError ? (
             <p className="mt-2 text-xs text-[var(--text-subtle)]">
               {createError}
@@ -385,11 +447,17 @@ export default function DirectMessageInbox({
           ) : null}
           {searching ? (
             <p className="mt-2 text-xs text-[var(--text-subtle)]">Searching…</p>
-          ) : searchQuery.trim() && searchResults.length === 0 ? (
-            <p className="mt-2 text-xs text-[var(--text-subtle)]">
-              No profiles match that username.
-            </p>
-          ) : (
+          ) : searchQuery.trim() &&
+            normalizedSearchQuery.length < USERNAME_SEARCH_MIN_LENGTH ? (
+              <p className="mt-2 text-xs text-[var(--text-subtle)]">
+                Type at least {USERNAME_SEARCH_MIN_LENGTH} characters to search.
+              </p>
+            ) : normalizedSearchQuery.length >= USERNAME_SEARCH_MIN_LENGTH &&
+              searchResults.length === 0 ? (
+              <p className="mt-2 text-xs text-[var(--text-subtle)]">
+                No profiles on this node match “{normalizedSearchQuery}”.
+              </p>
+            ) : (
             <div className="mt-2 space-y-1" role="list">
               {searchResults.map((profile) => (
                 <button

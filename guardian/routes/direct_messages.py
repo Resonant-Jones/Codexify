@@ -164,6 +164,13 @@ def search_profiles(
     fields (node_id, profile_id, username, display_name, avatar) — email,
     owning_user_id, credentials, and private account state are never
     included.
+
+    The query accepts the conventional ``@`` sigil and is matched as a
+    same-node username prefix; the canonicalization lives in
+    ``service.normalize_search_query`` so every client resolves the same
+    handles the People UI displays.  Discovery is deliberately same-node: a
+    profile on another node is not merely unmatched by prefix, it is outside
+    this endpoint's scope entirely.
     """
     db = _db()
     with db.get_session() as session:

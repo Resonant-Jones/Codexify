@@ -11,6 +11,31 @@
 
 import api from "@/lib/api";
 
+/**
+ * Shortest username query worth sending.
+ *
+ * Username search is a same-node prefix query, so a partial handle such as
+ * "res" is legitimate even though it is shorter than the 3-character
+ * username grammar. Two characters is the shortest query that still
+ * discriminates between handles. Mirrors the backend's own bound in
+ * `guardian/messaging/service.py`.
+ */
+export const USERNAME_SEARCH_MIN_LENGTH = 2;
+
+/**
+ * Canonicalize a username search query into the stored-handle form.
+ *
+ * A stored username never carries the `@` sigil — the V1 username grammar
+ * admits only lowercase letters, digits, underscore, and hyphen — but the
+ * People UI presents handles with the sigil and people type them that way.
+ * Normalizing here means `@resonant-` and `resonant-` resolve to the same
+ * query instead of silently matching nothing.
+ */
+export function normalizeUsernameSearchQuery(query: string): string {
+  const trimmed = (query ?? "").trim().toLowerCase();
+  return trimmed.startsWith("@") ? trimmed.slice(1).trim() : trimmed;
+}
+
 export type DirectMessageSocialProfile = {
   node_id: string;
   profile_id: string;
@@ -166,7 +191,7 @@ export async function searchDirectMessageProfiles(
       profiles: DirectMessageSocialProfile[];
     }>("/api/direct-messages/profiles", {
       params: {
-        q: query.trim(),
+        q: normalizeUsernameSearchQuery(query),
         limit: Math.min(Math.max(limit, 1), 20),
       },
     });

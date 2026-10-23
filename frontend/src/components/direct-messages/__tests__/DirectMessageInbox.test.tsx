@@ -457,3 +457,135 @@ describe("consent integration", () => {
     expect(state.openConversation).not.toHaveBeenCalled();
   });
 });
+
+describe("people search", () => {
+  async function openSearch(state = makeState()) {
+    renderInbox(state);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Find People/ }),
+      ).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Find People/ }));
+    return screen.getByLabelText("Search profiles by username");
+  }
+
+  it("searches the bare handle when the @ sigil is typed", async () => {
+    mockedSearch.mockResolvedValue([bob]);
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "@resonant-" } });
+
+    await waitFor(() =>
+      expect(mockedSearch).toHaveBeenCalledWith("resonant-"),
+    );
+  });
+
+  it("debounces rapid typing into a single request for the latest query", async () => {
+    mockedSearch.mockResolvedValue([bob]);
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "res" } });
+    fireEvent.change(input, { target: { value: "reso" } });
+    fireEvent.change(input, { target: { value: "resonant-" } });
+
+    await waitFor(() =>
+      expect(mockedSearch).toHaveBeenCalledWith("resonant-"),
+    );
+    expect(mockedSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a stale response replace newer results", async () => {
+    let resolveStale: (profiles: DirectMessageSocialProfile[]) => void = () => {};
+    mockedSearch
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([bob]);
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "old" } });
+    await waitFor(() => expect(mockedSearch).toHaveBeenCalledWith("old"));
+
+    fireEvent.change(input, { target: { value: "new" } });
+    await waitFor(() => expect(mockedSearch).toHaveBeenCalledWith("new"));
+    await screen.findByTestId("profile-search-result");
+
+    resolveStale([
+      {
+        ...bob,
+        profile_id: "profile-stale",
+        username: "stale-result",
+        display_name: "Stale Result",
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Stale Result")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("profile-search-result")).toHaveTextContent(
+      "Bob Tester",
+    );
+  });
+
+  it("clears results when the query is cleared", async () => {
+    mockedSearch.mockResolvedValue([bob]);
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "bob" } });
+    await screen.findByTestId("profile-search-result");
+
+    fireEvent.change(input, { target: { value: "" } });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("profile-search-result")).not.toBeInTheDocument();
+    });
+    expect(mockedSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a failed search without breaking the surface", async () => {
+    mockedSearch.mockRejectedValue(new Error("search unavailable"));
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "bob" } });
+
+    await waitFor(() =>
+      expect(screen.getByText("search unavailable")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("profile-search-result")).not.toBeInTheDocument();
+  });
+
+  it("does not search below the minimum query length", async () => {
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: "@" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Type at least 2 characters to search/),
+      ).toBeInTheDocument(),
+    );
+    expect(mockedSearch).not.toHaveBeenCalled();
+  });
+
+  it("communicates that search is limited to this node", async () => {
+    mockedSearch.mockResolvedValue([]);
+    const input = await openSearch();
+
+    expect(
+      screen.getByText("Search covers people on this node only."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "nobody" } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No profiles on this node match/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("No profiles match that username.")).toBeNull();
+  });
+});

@@ -13,6 +13,11 @@ const dm = vi.hoisted(() => ({
   createDirectMessageConversation: vi.fn(),
   sendDirectMessage: vi.fn(),
   fetchThreadProjectScope: vi.fn(),
+  USERNAME_SEARCH_MIN_LENGTH: 2,
+  normalizeUsernameSearchQuery: (query: string) => {
+    const trimmed = (query ?? "").trim().toLowerCase();
+    return trimmed.startsWith("@") ? trimmed.slice(1).trim() : trimmed;
+  },
   peerPresentationLabel: vi.fn(
     (p: { display_name?: string | null; username?: string | null }) =>
       p?.display_name?.trim() || p?.username || "Profile"

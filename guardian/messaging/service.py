@@ -50,6 +50,13 @@ _MAX_SEARCH_RESULTS = 20
 _DEFAULT_PAGE_LIMIT = 100
 _MAX_PAGE_LIMIT = 200
 
+# Username search is a prefix query, not a full-grammar lookup: a partial
+# handle such as "res" is a legitimate query even though it is shorter than
+# USERNAME_MIN_LENGTH.  Two characters is the shortest query that still
+# discriminates between handles without degenerating into single-character
+# enumeration of the node's username space.
+_MIN_SEARCH_QUERY_LENGTH = 2
+
 _LOCAL_NODE_NAME_ENV = "CODEXIFY_LOCAL_NODE_NAME"
 _DEFAULT_LOCAL_NODE_NAME = "Codexify Local Node"
 
@@ -236,6 +243,29 @@ def social_profile_payload(profile: UserProfile) -> dict[str, Any]:
     }
 
 
+def normalize_search_query(raw_query: Any) -> str:
+    """Canonicalize a username search query into its stored-handle form.
+
+    A stored username never carries the conventional ``@`` sigil — the V1
+    username grammar admits only lowercase letters, digits, underscore, and
+    hyphen — but the People UI presents handles with the sigil and people type
+    them that way.  Stripping the sigil here means ``@resonant-`` and
+    ``resonant-`` resolve to the same same-node prefix match instead of
+    silently returning nothing.
+
+    The query is trimmed and lowercased so it compares against the lowercase
+    canonical stored form, exactly as ``normalize_username`` does for the
+    stored value itself.  The full username grammar deliberately does NOT
+    apply here: a partial handle is a legitimate query.
+    """
+    if not isinstance(raw_query, str):
+        return ""
+    candidate = raw_query.strip().lower()
+    if candidate.startswith("@"):
+        candidate = candidate[1:].strip()
+    return candidate
+
+
 def search_profiles(
     session, raw_query: Any, limit: int = _MAX_SEARCH_RESULTS
 ) -> list[dict[str, Any]]:
@@ -244,9 +274,15 @@ def search_profiles(
     Authenticated, bounded, and case-insensitive.  Only profiles with an
     actively claimed username are discoverable; responses expose social
     fields only.
+
+    The deliberately claimed username *is* the profile's public/discoverable
+    state in this contract — there is no separate visibility column, so
+    claiming a username is the opt-in act.  A profile that never claimed one
+    is indistinguishable from one that does not exist: both are simply absent
+    from the result set, and neither leaks through response details.
     """
-    query = str(raw_query or "").strip().lower()
-    if not query:
+    query = normalize_search_query(raw_query)
+    if len(query) < _MIN_SEARCH_QUERY_LENGTH:
         return []
 
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -1243,6 +1279,7 @@ __all__ = [
     "list_relationships_for_profile",
     "local_node_id",
     "message_payload",
+    "normalize_search_query",
     "participant_addresses",
     "participant_pair_key",
     "relationship_payload",
