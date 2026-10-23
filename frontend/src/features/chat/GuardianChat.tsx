@@ -4572,7 +4572,11 @@ export function GuardianChat({
       ) : null}
 
       {/* Conversation remains flow-based; landing keeps the greeting and Composer
-          together as one centered prompt-first unit. */}
+          together as one centered prompt-first unit. The landing unit is
+          centered by the stage's own flex alignment, so it carries no vertical
+          transform: an earlier fixed-position layout used one, and leaving it
+          behind after the layout became flow-based lifted the whole unit —
+          composer included — by half its own height. */}
       <div
         data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
         className={
@@ -4598,7 +4602,6 @@ export function GuardianChat({
               ? {
                   maxWidth: CHAT_LANE_MAX_WIDTH,
                   zIndex: 20,
-                  transform: "translateY(-50%)",
                 }
               : undefined
           }
@@ -4672,6 +4675,15 @@ export function GuardianChat({
           isLandingPresentation
             ? "z-20 flex w-full shrink-0 justify-center"
             : "z-20 mt-2 flex w-full shrink-0 justify-center"
+        }
+        style={
+          isLandingPresentation
+            ? undefined
+            : // The canonical shell safe-area inset, so the active composer
+              // clears the home indicator instead of sitting flush against the
+              // viewport bottom. The landing posture centers its composer, so
+              // the bottom inset does not apply there.
+              { paddingBottom: mobileShellProfile.chat.composer.bottomSafeArea }
         }
       >
         <div
