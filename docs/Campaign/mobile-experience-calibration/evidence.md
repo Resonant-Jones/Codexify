@@ -514,19 +514,83 @@ distinguishing detail is not rendered. A slow local model and a stalled
 transport are therefore not distinguishable on the device that reported the
 problem.
 
-### E-23 — The banner's own visibility predicate hides the queued state entirely
+### E-23 — The banner's visibility predicate does not hide the queued state (Gate 0 reading corrected)
 
 **Class:** `code-path`
 
-`InferenceStatusBanner.tsx:11-20` — `isVisibleState` returns true for
-`sending`, `thinking`, `streaming`, `failed`, `cancelled`, and a `completed`
-state carrying latency metrics. A request whose lifecycle has not yet been
-classified as one of `sending`/`thinking`/`streaming` renders **nothing**,
-including the queued state.
+Gate 0 recorded this entry as "the banner's visibility predicate hides the
+queued state entirely". **That reading was wrong and is corrected here.**
 
-**Consequence for Gate 2:** the banner's visibility rule and the detail's
-breakpoint gating are two independent reasons a phone user cannot distinguish
-a warming model from a stalled request. Both are in scope.
+`frontend/src/features/chat/components/InferenceStatusBanner.tsx:11-20` —
+`isVisibleState` returns true for `sending`, `thinking`, `streaming`,
+`failed`, `cancelled`, and a `completed` state carrying latency metrics.
+
+The queued state is **not** hidden. `frontend/src/features/chat/hooks/useInferenceRequestState.ts:540-546`
+builds the queued patch with `phase: "sending"` and
+`statusText: INFERENCE_STATUS_TEXT.QUEUED` ("Queued…"), so the banner does
+render during queueing.
+
+**Correction to the Gate 0 reading of this entry.** The defect is not
+visibility but **labeling** — see E-26. The queued state renders, but under
+the same "Working…" label as model warmup and first-token wait, so it is not
+*distinguishable* from them.
+
+What the queued status is genuinely suppressed from is the runtime status
+strip: `frontend/src/features/chat/GuardianChat.tsx:291` treats
+`statusText === "Queued…"` as diagnostic-only and
+`GuardianChat.tsx:293-296` excludes it from `showRequestState`, so the strip
+renders nothing for a queued request while the provider is `READY`. That is
+an intentional, documented decision ("Queue acceptance is diagnostic state"),
+not a defect — and it is one more reason the banner must be legible on a
+phone.
+
+### E-26 — The banner discards the canonical lifecycle stage: its `statusText` fallback is unreachable dead code
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/components/InferenceStatusBanner.tsx:37-47` —
+the label is an IIFE whose branches are, in order: `isPendingStop` →
+`"Stopping…"`; `phase === "failed"` → `"Reply failed"`; `phase === "cancelled"`
+→ `"Reply stopped"`; `phase === "completed"` → `"Completed"`; `phase ===
+"sending"` → `"Working…"`; `phase === "thinking"` → `"Thinking…"`; `phase ===
+"streaming"` → `"Replying…"`; and only then `if (state.statusText) return
+state.statusText;` followed by `return state.statusText ?? "Working…";`.
+
+**The last two lines are unreachable.** `InferencePhase`
+(`frontend/src/types/inference.ts:10-17`) is exactly `idle | sending |
+thinking | streaming | completed | failed | cancelled`. Every phase except
+`idle` returns at one of the earlier branches, and `idle` never reaches the
+label at all because `isVisibleState` returns false for it and the component
+returns `null` at `InferenceStatusBanner.tsx:27-29`.
+
+**Consequence.** The banner can *never* display `state.statusText`. The
+canonical lifecycle stage — "Queued…", "Warming model…", "Waiting for first
+token…", "Generating…", "Provider degraded…" — is computed by the request
+state machine and is rendered by the runtime status strip
+(`GuardianChat.tsx:335-338`), but the in-thread banner, which sits directly
+above the reply the user is waiting for, can only ever say "Working…".
+
+This is the direct code-path explanation of the reported symptom *"Working…
+persisted"* for roughly three minutes: queueing, model warmup, and
+first-token wait are three distinct canonical stages that the banner renders
+identically. Together with E-22 (the detail is `hidden … sm:inline`), a phone
+user had no way to distinguish a slow local model from a stalled request.
+
+### E-27 — The runtime status strip is the desktop owner of the request stage
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/GuardianChat.tsx:311-347` — the strip renders the
+provider runtime state (dot, tone, `providerDesc.title`) and, in the same
+truncated row, the request stage for active requests
+(`{inferenceState.statusText ?? "Working…"}`, `:335-338`) and a terminal word
+(`:340-347`).
+
+**Consequence for Gate 2.** Because both surfaces would otherwise carry the
+same canonical stage, a phone-scoped change to the banner alone would render
+the stage twice on one screen. Gate 2 therefore gives each surface one owner:
+on a phone the banner owns the request state and the strip keeps the provider
+runtime state. The strip's terminal word is retained on all viewports.
 
 ### E-24 — The backend emits a lifecycle timing chain, but no dispatch timestamp and no durable latency record
 
@@ -705,6 +769,22 @@ frontend smoke run above is a toolchain check and is labeled as such.
 produced. The route disclosure is proven to render and to dispatch the correct
 selection callbacks; it has **not** been observed on a physical phone.
 
+### 11.3 Gate 2
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/chat/components/__tests__/InferenceStatusBanner.phone-lifecycle.test.tsx` | **pass** — 1 file, 12 tests |
+| Chat + layout + components regression sweep | `vitest run features/chat components/persona/layout components/__tests__` | 69 files passed, 971 tests run, **4 failed** — all four confirmed **pre-existing** on the clean baseline by stashing the change and re-running (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are both absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Backend / latency instrumentation | — | **not changed.** The dispatch timestamp and durable latency columns remain an open gap owned by the runtime track (§9) |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 2's evidence class is `code-path` +
+`unit-test`. The phone lifecycle legibility is proven by test, not observed on
+a physical phone.
+
 ---
 
 ## 12. Gate checkpoints
@@ -825,3 +905,105 @@ dispatch timestamp and no durable per-request latency record (E-24), and
 displayed latency may be client-synthesized (E-25). Gate 2 must improve UI
 state only where authoritative evidence exists and must record the
 instrumentation gap rather than invent a root cause.
+
+### 12.3 Gate 2 — request-observation correctness and first-token latency diagnosis
+
+**Task:** `MOB-G2-TASK-1` — phone lifecycle legibility.
+**Lane:** architecture-impact.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* let a phone distinguish the canonical request lifecycle stages
+  that the request state machine already computes, without inventing a state,
+  inferring a retry, or asserting a cause for slow responses.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/components/InferenceStatusBanner.tsx`
+  2. `frontend/src/features/chat/ChatView.tsx`
+  3. `frontend/src/features/chat/GuardianChat.tsx`
+  4. `frontend/src/features/chat/components/__tests__/InferenceStatusBanner.phone-lifecycle.test.tsx` (new)
+- *Deliberately excluded:* all backend files, the request state machine, the
+  lifecycle snapshot builder, and the persistence layer.
+
+**Behavior change.**
+
+- On a phone shell the in-thread banner names the canonical lifecycle stage
+  ("Queued…", "Warming model…", "Waiting for first token…", "Provider
+  degraded…") instead of collapsing every active phase into "Working…".
+- On a phone shell the diagnostic detail is rendered as a visible line instead
+  of the desktop-only `hidden … sm:inline` span, so the degraded/uncertainty
+  text ("Provider visibility is degraded; still waiting for a terminal task
+  event.") is legible on the device that reported the problem.
+- The runtime status strip no longer repeats the *active* request stage on a
+  phone. The strip keeps the provider runtime state on every viewport, and
+  keeps its terminal word on every viewport, so the stage is never shown
+  twice on one phone screen.
+- **Desktop is unchanged.** The banner's label logic, the detail's markup, and
+  the strip's rendering are all byte-for-byte the prior behavior when the
+  shell is not a phone. This is asserted by test, not by inspection alone.
+
+**Why this is the truthful fix.** Every string surfaced is one the request
+state machine already computes from the canonical lifecycle state
+(`useInferenceRequestState.ts:540-570` and the degraded variants at `:89-96`,
+`:958-960`). Nothing was inferred, and no timestamp, retry, or terminal state
+was invented.
+
+**Deliberately not changed.**
+
+- **The observation-loss message.** "Response observation is unavailable. The
+  request outcome has not been changed." is already correct (E-21) and is
+  covered by an existing assertion that the status does not match
+  `/failed|stopped/i`. It was left alone.
+- **The missing dispatch timestamp and the missing durable per-request latency
+  columns** (E-24). Instrumenting them is a backend and schema change
+  requiring an independent architecture decision, and the release track owns
+  that question. **Recorded as an open gap, not fixed, and not diagnosed.**
+- **Client-clock timestamp synthesis** (E-25). The client substitutes
+  `new Date().toISOString()` when a lifecycle event carries no timestamp. No
+  client-synthesized value is presented as a server measurement by this
+  change, and the substitution was not removed because it is load-bearing for
+  the client's own ordering.
+
+**Corrections made to this register during Gate 2.** E-23 was re-read and its
+Gate 0 reading was found to be wrong: the queued state is *not* hidden by the
+banner's visibility predicate, because the queued patch uses `phase:
+"sending"`. The real defect is E-26 — the banner's `statusText` fallback is
+unreachable dead code, so the banner can never display the canonical stage.
+E-23 has been rewritten accordingly.
+
+**Files changed:** the four authorized files above. 4 files changed, 211
+insertions, 5 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. The request lifecycle
+states defined in `chat-runtime-contract.md` and
+`request-state-machine.md` are unchanged, and the campaign surfaces them
+rather than redefining them.
+
+**Preserved invariants:** outcome and transcript integrity across observation
+loss and refresh are unchanged — no observation path was modified. Message and
+attempt identity are unchanged. No retry was inferred and no state was
+invented. Provider policy, account scoping, canonical tokens, and desktop
+behavior are unchanged.
+
+**Commit:** `c01b9d1af` — `fix(chat): name the canonical request stage on a
+phone`. Hash recorded in the Gate 2 checkpoint comment on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. The dispatch-timestamp and
+durable-latency instrumentation gap (E-24) remains open and externally owned
+by the runtime track.
+
+**Next atomic Task:** Gate 3 — mobile composer placement and keyboard-safe
+layout (`MOB-G3-TASK-1`). Scope is bounded by E-05 through E-10: the landing
+unit carries `transform: "translateY(-50%)"` on top of a flex stage that
+already centers it (E-05); the canonical keyboard-inset and safe-area seams
+exist and are measured correctly but are not plumbed to the composer, and the
+phone shell root is `position: fixed` with a viewport-derived height, so the
+composer rises with the keyboard (E-06); the composer is deliberately in
+normal document flow and that is asserted (E-07); no test asserts the landing
+vertical position or the composer bottom offset (E-08); and a second, dead
+legacy composer and several declared-but-unconsumed shell tokens exist
+(E-09, E-10). Gate 3 must not "fix" the composer by making it
+`position: fixed` — the correct seam is the existing shell token channel.

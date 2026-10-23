@@ -1,7 +1,7 @@
 # Mobile Experience Calibration
 
 **Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
-**Status:** Gate 0–1 complete — campaign frozen, execution order fixed
+**Status:** Gate 0–2 complete — campaign frozen, execution order fixed
 **Lane:** Architecture-impact (campaign governance and provider/runtime truth)
 **Executor:** MiniMax, supervised and dependency-ordered
 **Campaign owner:** Resonant Jones
@@ -95,8 +95,8 @@ Issue #888 checkpoint. Gates do not run together.
 |---|---|---|---|
 | **0** | Source inspection, evidence register, campaign freeze | docs-only | — |
 | **1** | Provider/model selection and execution-truth reconciliation | architecture-impact | Gate 0 | ✅ complete |
-| **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | next |
-| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | |
+| **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | ✅ complete |
+| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | next |
 | **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | |
 | **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | |
 
@@ -145,18 +145,17 @@ no new provider, route, or authority is introduced.
 
 ### Gate 2 — Request-observation correctness and first-token latency diagnosis
 
+**Status:** complete (`MOB-G2-TASK-1`). See [evidence.md §12.3](./evidence.md#123-gate-2--request-observation-correctness-and-first-token-latency-diagnosis).
+
 **Objective.** Distinguish queueing, model warmup, generation, transport, and
 durable terminal outcome in the interface — using only evidence that exists.
 
-**Authorized files (proposed).**
+**Authorized files (as executed).**
 
 - `frontend/src/features/chat/components/InferenceStatusBanner.tsx`
-- `frontend/src/features/chat/components/ThreadAttemptObservation.tsx`
-- `frontend/src/features/chat/hooks/useInferenceRequestState.ts`
-- `frontend/src/types/inference.ts`
+- `frontend/src/features/chat/ChatView.tsx`
 - `frontend/src/features/chat/GuardianChat.tsx`
-- `frontend/src/features/chat/components/__tests__/InferenceStatusBanner.test.tsx`
-- `frontend/src/features/chat/components/__tests__/ThreadAttemptObservation.test.tsx`
+- `frontend/src/features/chat/components/__tests__/InferenceStatusBanner.phone-lifecycle.test.tsx` (new)
 
 **Acceptance.** Observation loss is never presented as execution failure or
 completion; request/attempt identity and transcript behavior are unchanged; the
