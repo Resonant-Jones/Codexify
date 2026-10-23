@@ -1,7 +1,7 @@
 # Mobile Experience Calibration
 
 **Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
-**Status:** Gate 0–3 complete — campaign frozen, execution order fixed
+**Status:** Gate 0–4 complete — campaign frozen, execution order fixed
 **Lane:** Architecture-impact (campaign governance and provider/runtime truth)
 **Executor:** MiniMax, supervised and dependency-ordered
 **Campaign owner:** Resonant Jones
@@ -97,8 +97,8 @@ Issue #888 checkpoint. Gates do not run together.
 | **1** | Provider/model selection and execution-truth reconciliation | architecture-impact | Gate 0 | ✅ complete |
 | **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | ✅ complete |
 | **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | ✅ complete |
-| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | next |
-| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | |
+| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | ✅ complete |
+| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | next |
 
 ### Gate 0 — Source inspection, evidence register, campaign freeze
 
@@ -183,16 +183,20 @@ composer through the canonical shell tokens rather than ad-hoc offsets.
 
 ### Gate 4 — Bounded onboarding pages, pagination, copy revision
 
+**Status:** complete (`MOB-G4-TASK-1`). See [evidence.md §12.5](./evidence.md#125-gate-4--bounded-onboarding-pages-pagination-and-copy-revision).
+
 **Objective.** Make ordinary onboarding pages fit a bounded phone viewport
 without nested scrolling, and replace internal-contract language with
 user-facing copy that keeps privacy and capability truth.
 
-**Authorized files (proposed).**
+**Authorized files (as executed).**
 
 - `frontend/src/features/onboarding/onboardingContent.ts`
 - `frontend/src/features/onboarding/OnboardingWizard.tsx`
 - `frontend/src/features/onboarding/onboarding.css`
 - `frontend/src/features/onboarding/__tests__/Onboarding.test.tsx`
+- `docs/architecture/onboarding-and-tips-contract.md` (the stale
+  baseline-limitation statement recorded as D-02)
 
 **Explicitly excluded.** `onboardingTypes.ts`, `onboardingApi.ts`,
 `OnboardingProvider.tsx`, the backend onboarding route, and any persistence

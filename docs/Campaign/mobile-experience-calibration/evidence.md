@@ -71,6 +71,12 @@ the six keys map to the account-owned progress record
 seven cards does not change the six step keys, the persisted `last_step_key`,
 or the progress record.
 
+**Gate 4 resolution.** The step now presents the surface cards in bounded
+pages of two on a phone, with Previous/Next and a page indicator. The desktop
+grid still shows every card on one page, so desktop behavior is unchanged.
+Pagination is local component state: no key, request field, or persisted value
+was added, and changing a page writes nothing.
+
 ### E-02 — The card grid collapses to one column on a phone, making the surfaces page the tallest step
 
 **Class:** `code-path`
@@ -86,6 +92,15 @@ collapses it to a single column at `max-width: 640px`.
 one column inside a scroll container. This is the structural cause of
 "onboarding content exceeds comfortable phone viewport limits". No device
 measurement was taken; the geometry follows from the declarations.
+
+**Gate 4 resolution.** Two cards per page (the grid is one column on a phone)
+and a card now carries the tip *summary* rather than its full body. The
+deeper body remains in Tips, where the catalog already presents it behind a
+`<details>` disclosure. On a 568px-tall phone the dialog body has roughly
+430px of usable height after the header, progress bar, and footer; two cards
+plus the step heading and the page indicator fit inside it, while three
+cards plus the same chrome do not. The page size of two is therefore a
+geometry bound, not an arbitrary number.
 
 ### E-03 — Onboarding body copy carries internal-contract language
 
@@ -111,6 +126,33 @@ contract must survive the rewrite:
 
 The username charset rule is a *contract-level* claim about the username
 field. It must be stated plainly without becoming an internal error message.
+
+**Gate 4 resolution — the revision and what it kept.** Every `summary` and
+`body` string was rewritten to remove internal contract language while keeping
+the truths the contract requires the onboarding to convey
+(`onboarding-and-tips-contract.md:21`, `:29`):
+
+| Internal language removed | User-facing replacement | Truth preserved |
+|---|---|---|
+| "one shared underlying system" | "explains things without moving you around the app" | the introduction does not navigate the app |
+| "private authentication and ownership identity" | "how you sign in and what you own" | account ownership |
+| "durable social profile" | "what other people see" | profile identity |
+| "discovery alias" / "presentation only" | "an optional way to be found" / "how you appear" | optional username, presentational display name |
+| "not exposed through People discovery" | "never exposed through People" | email is not exposed |
+| "must not require self-doxxing" | "you never have to use your real name" | participation needs no real identity |
+| "This does not promise anonymity" | "This is privacy, not anonymity" | the honesty clause, kept verbatim in meaning |
+| "the current runtime and permissions" | "what this device's setup allows" | capability is conditional |
+| "according to the workspace's current behavior" | "inside a Project or across the ones you work in" | — |
+| "exposed by your current workspace" | "your workspace gives you" | — |
+| "the runtime's available capabilities" | "what this device's setup provides" | — |
+| "workspace/sidebar model" | "the workspace/sidebar" | contract-sanctioned surface language (`:29`) |
+| "same-node human-to-human Conversations" | "works between people on this node" | Private Preview and same-node (`:21`) |
+
+The contract's own phrasings were preserved deliberately so the existing
+navigation assertions still hold: "Threads and Projects live in the
+workspace/sidebar" and "Access your workspace, Threads, and Projects through
+the mobile drawer" survive verbatim in the revised bodies, and every step and
+tip *title* is unchanged.
 
 ### E-04 — Onboarding account-state semantics that must not drift
 
@@ -712,6 +754,12 @@ The contract text is now stale. Gate 4 owns the correction because the
 onboarding contract is in the same subject area and the correction is
 one-line. No functional behavior depends on it.
 
+**RESOLVED in Gate 4.** `docs/architecture/onboarding-and-tips-contract.md` was
+corrected in commit `bb9d79dc8`. The paragraph now states that the orphan line
+was removed in `3f4ba0034` and that the profile parses, and retains the
+original limitation as provenance rather than as a current property.
+`scripts/validate_docs.py` passes after the edit.
+
 ### D-03 — Two explicit-model proof documents are referenced by lineage but absent at HEAD
 
 **Owner:** release track
@@ -846,6 +894,22 @@ recorded so a reviewer does not mistake it for a weakened assertion.
 `unit-test`. The posture correction is proven by test and by source history;
 it has **not** been observed on a physical phone, and no visual screenshot
 comparison was performed.
+
+### 11.5 Gate 4
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/onboarding` | **pass** — 2 files, 24 tests (19 pre-existing + 5 new) |
+| Full frontend suite | `vitest run` (whole `frontend/src`) | 225 files, 2225 tests — **2220 passed**, 1 skipped, **4 failed**. All four are the known pre-existing failures, each individually confirmed on the clean baseline (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Architecture documentation validation | `python3 scripts/validate_docs.py` | **pass** — "Docs validation passed: required architecture docs, README links, and source headings verified." |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100`; the over-length lines are string literals and a markdown paragraph, which the formatter does not reflow and which match the files' existing style |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 4's evidence class is `code-path` +
+`unit-test`. The bounded-page geometry is derived from the CSS declarations
+and the dialog's own `max-height`, not measured on a device.
 
 ---
 
@@ -1167,3 +1231,105 @@ pagination, not schema — and the six semantic step keys, the account-owned
 progress record, the skip/resume/restart invariants, and the optional username
 semantics are preserved exactly. The stale baseline-limitation sentence in the
 onboarding contract (D-02) is corrected in the same scope.
+
+### 12.5 Gate 4 — bounded onboarding pages, pagination, and copy revision
+
+**Task:** `MOB-G4-TASK-1`.
+**Lane:** standard.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* make ordinary onboarding pages fit a bounded phone viewport
+  without nested scrolling, and replace internal contract language with
+  user-facing copy that keeps the privacy and capability truth.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/onboarding/onboardingContent.ts`
+  2. `frontend/src/features/onboarding/OnboardingWizard.tsx`
+  3. `frontend/src/features/onboarding/onboarding.css`
+  4. `frontend/src/features/onboarding/__tests__/Onboarding.test.tsx`
+  5. `docs/architecture/onboarding-and-tips-contract.md` (the D-02 correction)
+- *Deliberately excluded:* `onboardingTypes.ts`, `onboardingApi.ts`,
+  `OnboardingProvider.tsx`, the backend onboarding route, and every persistence
+  surface. No onboarding key, field, or schema was added or changed.
+
+**Behavior change.**
+
+- The `core_surfaces` step presents its seven surface cards in bounded pages
+  of two on a phone, with Previous/Next controls and a "Page N of M"
+  indicator. The desktop grid still shows every card on one page, so desktop
+  behavior is unchanged.
+- A card now carries the tip **summary**. The deeper explanatory **body**
+  stays in the shared Tips catalog, where it was already presented behind a
+  `<details>` disclosure. Nothing was deleted from the catalog: "Cards and
+  Tips share one catalog" (`onboarding-and-tips-contract.md:29`) still holds,
+  because there is still exactly one catalog, presented two ways.
+- Every `summary` and `body` string was rewritten to remove internal contract
+  language while keeping the required truths. The full
+  removed-language → replacement → preserved-truth mapping is in E-03.
+- The onboarding contract's baseline-limitation paragraph was corrected (D-02).
+
+**Why this is the truthful fix.** The overflow had a demonstrable structural
+cause — seven full-body cards in a one-column grid inside a scrolling dialog
+— and a bounded page of two cards is the largest page that fits the dialog's
+own declared `max-height` on a short phone. The copy change is bounded by the
+contract: the contract's own phrasings ("workspace/sidebar", the mobile
+drawer sentence) were kept verbatim so the contract's described surfaces are
+still described, and every step and tip title is unchanged.
+
+**A defect found and fixed during implementation.** The first implementation
+reset the page index in a `useEffect` keyed on `step`. React runs passive
+effects after the render that shows the step, so a page change that arrived
+between that render and the effect was silently undone — the click landed and
+the page snapped back. The reset is now **adjusted during render** (the
+React-documented pattern for resetting state when a prop changes), which
+orders the reset ahead of the render that shows the step and makes the race
+impossible. This was found by a failing test, not by inspection.
+
+**Deliberately not changed.**
+
+- **The six semantic step keys** (`onboardingTypes.ts`) and the account-owned
+  progress record are untouched. Pagination is component-local state: it adds
+  no request field, no persisted value, and no API surface, and a test asserts
+  that changing a page writes nothing and leaves `last_step_key` and `status`
+  unchanged.
+- **The username step** is unchanged: the form, the claim path, the
+  `requiredCapability` gating, and the "Skip username" affordance are as they
+  were. No username-edit route was invented.
+- **The capability labels on the cards** ("Private Preview" / "Unavailable in
+  this runtime/profile") are preserved, as the contract requires explanatory
+  cards to label unavailable messaging.
+- **The Tips catalog's structure** is unchanged; the Tips center still shows
+  title + summary and reveals the body on demand.
+
+**Files changed:** the five authorized files above. 5 files changed, 225
+insertions, 41 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. ADR-079/ADR-080
+remain authoritative for the identity model; the copy now describes that model
+in plain language instead of contract terms.
+
+**Preserved invariants:** the six-step semantics, the account-owned progress
+record, skip/resume/restart behavior, the optional-username requirement, the
+"never requires a username to finish" rule, the "never derives username from
+email" rule, the Private Preview and same-node messaging posture, and the
+shared-cards-and-Tips single catalog are all unchanged. Desktop behavior is
+unchanged. No functional behavior depends on the D-02 correction.
+
+**Commit:** `bb9d79dc8` — `fix(onboarding): bound the surfaces step and remove
+contract language from copy`. Hash recorded in the Gate 4 checkpoint comment
+on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. External prerequisites in §9 are
+unchanged. D-02 is now resolved.
+
+**Next atomic Task:** Gate 5 — mobile regression proof and campaign closeout
+(`MOB-G5-TASK-1`). No product source is edited in this gate. It revalidates
+every campaign acceptance criterion against the committed implementation,
+separates proven outcomes from unresolved limitations, confirms the register's
+evidence links, reconciles every gate's status with Issue #888, and publishes
+the final closeout comment — including the four external prerequisites that
+remain open and the deferred work that is *not* admitted into this campaign.
