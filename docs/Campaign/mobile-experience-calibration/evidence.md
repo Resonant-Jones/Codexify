@@ -129,30 +129,43 @@ neighboring test surface and must be extended, not replaced.
 
 ## 4. Evidence register — composer placement (symptom 3)
 
-### E-05 — The landing composer unit is translated upward by half its own height, on every viewport
+### E-05 — The landing composer unit was translated upward by half its own height, on every viewport
 
 **Class:** `code-path`
 
-`frontend/src/features/chat/GuardianChat.tsx:4571` — the landing stage is
+`frontend/src/features/chat/GuardianChat.tsx:4576-4582` — the landing stage is
 `relative flex min-h-0 min-w-0 flex-1 items-center justify-center`.
 
-`frontend/src/features/chat/GuardianChat.tsx:4592` — the landing unit carries
-`transform: "translateY(-50%)"`.
+`frontend/src/features/chat/GuardianChat.tsx:4596-4602` — the landing unit
+carried `transform: "translateY(-50%)"`.
 
-The **conversation** posture has no equivalent transform.
+The **conversation** posture had no equivalent transform.
 
-**Reading:** `items-center` already centers the unit vertically in the stage.
-The additional `translateY(-50%)` lifts it by half its own height on top of
-that centering. This is the most direct code-path candidate for "the floating
-composer sits too high" on the new-thread surface. The transform was
-introduced by commit `93bb09a37` ("Respect Guardian sidebar in landing
-layout").
+**Provenance (traced during Gate 3).** `git show 93bb09a37` ("Respect
+Guardian sidebar in landing layout", 2026-09-23) shows the transform was
+*recalibrated*, not introduced. Before that commit the landing unit was
+`position: fixed; top: 50vh; transform: translateY(-100%)` — its bottom edge
+sat at the vertical centre of the viewport. The same commit removed the fixed
+positioning and moved the unit into a flow child of a flex stage that already
+centers its child (`items-center justify-center`), and changed the transform
+from `translateY(-100%)` to `translateY(-50%)`.
 
-**Limit of this evidence:** this is a candidate cause, not a proven cause.
-It is code-path proof of *geometry*, not a measurement of what the operator saw.
-Gate 3 must verify against a rendered viewport before treating it as the fix.
+**The defect.** Once the unit became a flow child, the stage's own
+`align-items: center` already centred it. The remaining `translateY(-50%)`
+became an *additional* half-height lift on top of that centring, so the unit
+— and the composer at the bottom of it — rose by half the unit's height
+relative to the fixed layout it was calibrated for. The code's own comment
+(`GuardianChat.tsx:4574-4575`) states the intent: the landing keeps the
+greeting and Composer together as "one **centered** prompt-first unit". The
+transform contradicted the stated intent.
 
-### E-06 — The composer has no safe-area or keyboard inset of its own; the shell root shrinks instead
+**Limit of this evidence:** this is code-path and history proof of *geometry*
+and of a *stale calibration*, not a measurement of what the operator saw. It
+is the most direct candidate for "the floating composer sits too high" on the
+new-thread surface, and it is the only composer-posture defect in the survey
+that has a demonstrable cause rather than a plausible one.
+
+### E-06 — The composer had no safe-area or keyboard inset of its own; the shell root shrinks instead
 
 **Class:** `code-path`
 
@@ -181,6 +194,31 @@ already exist and are measured correctly. They are simply not plumbed to the
 composer. When the iOS keyboard opens, the fixed shell root shrinks and the
 flow-positioned composer rises with it — which is consistent with "feels
 detached from the bottom of the usable screen" while typing.
+
+**Gate 3 resolution — the keyboard is handled at the shell root, and the
+unconsumed `--shell-keyboard-inset` is a latent seam, not a defect.** The phone
+shell root is `position: fixed; top: var(--shell-viewport-offset-top); height:
+var(--shell-viewport-height)`, and `--shell-viewport-height` is the
+`visualViewport` height (`AppShell.tsx:2462`). The root's bottom edge is
+therefore the visual viewport's bottom edge, which is the top of the iOS
+keyboard. The composer is the last flow child of that root, so it rises to sit
+directly above the keyboard. The message lane agrees:
+`frontend/src/components/persona/layout/mobileBottomEdgeContract.ts:43-51`
+(`resolveMessageLaneBottomPad`) returns `0` on a phone with the keyboard open
+precisely so the lane does not add padding that would push content up, and
+`ChatView.tsx:316-320` consumes it.
+
+**Consequence:** adding `--shell-keyboard-inset` to the composer would
+double-count the keyboard, because the root geometry already accounts for it.
+Gate 3 therefore did **not** introduce a new consumption path for that token.
+The genuine gap was the *safe-area* inset only, and that is what Gate 3
+closed.
+
+The safe-area token's absence from the composer was a real inconsistency: the
+sibling jump-to-latest overlay already consumed it, and the phone shell root's
+own padding is a flat `--edge-chrome: "4px"`
+(`frontend/src/components/persona/layout/shellBreakpointContract.ts:32`), which
+does not clear a home indicator.
 
 ### E-07 — The composer is deliberately in normal document flow, and that is asserted
 
@@ -785,6 +823,30 @@ selection callbacks; it has **not** been observed on a physical phone.
 `unit-test`. The phone lifecycle legibility is proven by test, not observed on
 a physical phone.
 
+### 11.4 Gate 3
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/chat/__tests__/GuardianChat.composer-posture.test.tsx` | **pass** — 1 file, 8 tests |
+| Chat + layout + components regression sweep | `vitest run features/chat components/persona/layout components/__tests__` | 70 files passed, 979 tests run, **4 failed** — the same four confirmed **pre-existing** on the clean baseline (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Note on the test environment.** jsdom's CSS parser rejects `env(...)`, so
+the safe-area token cannot be asserted through a parsed style property. The
+test therefore asserts the *wiring* with a parseable sentinel, and asserts the
+real token (`env(safe-area-inset-bottom, 0px)` for phone, `0px` for desktop)
+directly against the profile contract via `getMobileShellProfile`. This is a
+limitation of the test environment, not of the implementation, and it is
+recorded so a reviewer does not mistake it for a weakened assertion.
+
+**Deliberately not claimed:** Gate 3's evidence class is `code-path` +
+`unit-test`. The posture correction is proven by test and by source history;
+it has **not** been observed on a physical phone, and no visual screenshot
+comparison was performed.
+
 ---
 
 ## 12. Gate checkpoints
@@ -1007,3 +1069,101 @@ vertical position or the composer bottom offset (E-08); and a second, dead
 legacy composer and several declared-but-unconsumed shell tokens exist
 (E-09, E-10). Gate 3 must not "fix" the composer by making it
 `position: fixed` — the correct seam is the existing shell token channel.
+
+### 12.4 Gate 3 — mobile composer placement and keyboard-safe layout
+
+**Task:** `MOB-G3-TASK-1` — landing composer posture and the active safe-area
+inset.
+**Lane:** standard.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* correct the landing composer posture and give the active
+  composer the canonical shell safe-area inset, using the existing shell
+  contract and without changing how the composer is positioned.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/GuardianChat.tsx`
+  2. `frontend/src/features/chat/__tests__/GuardianChat.composer-posture.test.tsx` (new)
+- *Deliberately excluded:* `AppShell.tsx`, `mobileShellProfile.ts`,
+  `mobileBottomEdgeContract.ts`, `useViewportInsets.ts`, and the CSS layer.
+  None of them needed to change: the canonical contracts they hold were
+  already correct and already implemented — they were simply not reaching the
+  composer.
+
+**Behavior change.**
+
+- The landing prompt-first unit no longer carries `transform:
+  "translateY(-50%)"`. The stage's own flex alignment centres it, which is
+  what the code's comment already said was intended.
+- The active-thread composer positioner now applies
+  `mobileShellProfile.chat.composer.bottomSafeArea` as its bottom padding, so
+  the composer clears the home indicator instead of sitting flush against the
+  viewport bottom. The landing posture is excluded, because its composer is
+  centred and the viewport's bottom inset does not apply to it.
+
+**Why this is the truthful fix.** The transform was a stale calibration, not a
+design decision: `git show 93bb09a37` proves it was written for a
+`position: fixed` layout that the same commit replaced with flow positioning.
+The safe-area inset is an existing canonical token whose sibling consumer — the
+ChatView jump-to-latest overlay — already applies it. Both changes consume
+existing contracts; neither introduced a token, a layout mode, or a new
+positioning strategy.
+
+**Deliberately not changed.**
+
+- **The composer stays in normal document flow.** Making it `position: fixed`
+  would have been the easy fix and is forbidden by the contract asserted at
+  `GuardianChat.session-shortcuts.test.tsx:431`. It remains flow-positioned,
+  and the posture test asserts it.
+- **`--shell-keyboard-inset` was not consumed by the composer.** The phone
+  shell root is `position: fixed` with `height: var(--shell-viewport-height)`
+  — the `visualViewport` height — so the root's bottom edge is already the top
+  of the iOS keyboard and the flow-positioned composer already sits directly
+  above it. Adding the keyboard inset to the composer would double-count it.
+  The token remains an unconsumed seam and is recorded as such, not silently
+  wired up.
+- **The message lane's bottom padding** is governed by
+  `mobileBottomEdgeContract.ts` and already returns `0` on a phone with the
+  keyboard open, so the lane does not push the transcript up. It was left
+  alone.
+- **The dead legacy composer** (`frontend/src/components/chat/Composer.tsx`)
+  and the **unconsumed `mobileShellProfile.chat.composer.*` tokens** (E-09,
+  E-10) remain deferred hygiene (§10), not campaign work.
+
+**Files changed:** the two authorized files above. 2 files changed, 328
+insertions, 2 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. The canonical shell
+contract in `mobileShellProfile.ts` and `mobileBottomEdgeContract.ts` is
+unchanged; this gate makes the composer honor it.
+
+**Preserved invariants:** the composer remains in normal document flow and is
+never a fixed overlay; the landing unit is still not fixed-positioned and is
+still centred by its stage; the single-composer-surface rule is unchanged; the
+composer DOM node is reused across the landing and conversation postures, so
+draft, focus, and attachments are never reset by a posture change; FrameCard
+styling, the removed mobile Session rail, and desktop geometry are unchanged
+(the desktop profile declares a zero safe-area inset, so desktop is inert).
+
+**Commit:** `0854be7c4` — `fix(chat): correct the landing composer posture and
+the active safe-area inset`. Hash recorded in the Gate 3 checkpoint comment on
+Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`, plus source-history evidence
+for the transform's provenance. Not browser-emulated, not real device, not
+live runtime.
+
+**Outstanding blockers:** none introduced. External prerequisites in §9 are
+unchanged.
+
+**Next atomic Task:** Gate 4 — bounded onboarding pages, pagination, and copy
+revision (`MOB-G4-TASK-1`). Scope is bounded by E-01 through E-04: the
+`core_surfaces` step renders seven cards in a grid that collapses to one
+column on a phone inside a scrolling dialog (E-01, E-02); the body copy
+carries internal-contract language (E-03); and the account-state semantics
+that must not drift are enumerated in E-04. The fix is presentation-only —
+pagination, not schema — and the six semantic step keys, the account-owned
+progress record, the skip/resume/restart invariants, and the optional username
+semantics are preserved exactly. The stale baseline-limitation sentence in the
+onboarding contract (D-02) is corrected in the same scope.

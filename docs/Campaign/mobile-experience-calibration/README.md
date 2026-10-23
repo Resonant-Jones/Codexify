@@ -1,7 +1,7 @@
 # Mobile Experience Calibration
 
 **Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
-**Status:** Gate 0–2 complete — campaign frozen, execution order fixed
+**Status:** Gate 0–3 complete — campaign frozen, execution order fixed
 **Lane:** Architecture-impact (campaign governance and provider/runtime truth)
 **Executor:** MiniMax, supervised and dependency-ordered
 **Campaign owner:** Resonant Jones
@@ -96,8 +96,8 @@ Issue #888 checkpoint. Gates do not run together.
 | **0** | Source inspection, evidence register, campaign freeze | docs-only | — |
 | **1** | Provider/model selection and execution-truth reconciliation | architecture-impact | Gate 0 | ✅ complete |
 | **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | ✅ complete |
-| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | next |
-| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | |
+| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | ✅ complete |
+| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | next |
 | **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | |
 
 ### Gate 0 — Source inspection, evidence register, campaign freeze
@@ -164,18 +164,16 @@ an explicit instrumentation gap — never a guessed root cause.
 
 ### Gate 3 — Mobile composer placement and keyboard-safe layout
 
+**Status:** complete (`MOB-G3-TASK-1`). See [evidence.md §12.4](./evidence.md#124-gate-3--mobile-composer-placement-and-keyboard-safe-layout).
+
 **Objective.** Calibrate the landing and active-thread composer postures so the
 active composer sits near the bottom of the usable viewport and stays
 keyboard-accessible.
 
-**Authorized files (proposed).**
+**Authorized files (as executed).**
 
 - `frontend/src/features/chat/GuardianChat.tsx`
-- `frontend/src/components/persona/layout/mobileShellProfile.ts`
-- `frontend/src/components/persona/layout/AppShell.tsx`
-- `frontend/src/components/persona/layout/mobileBottomEdgeContract.ts`
-- `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx`
-- `frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx`
+- `frontend/src/features/chat/__tests__/GuardianChat.composer-posture.test.tsx` (new)
 
 **Acceptance.** The active composer remains reachable with the iOS keyboard
 open, across viewport changes and multiline drafts; drafts, focus, send/stop,
