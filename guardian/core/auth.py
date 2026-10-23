@@ -284,27 +284,43 @@ def _verified_session_token_claims(token: str) -> dict[str, Any] | None:
         return None
 
 
-def _verified_account_jwt_claims(token: str) -> dict[str, Any] | None:
+def _account_jwt_secrets() -> list[str]:
+    """Return account JWT signing keys in the documented preference order."""
+    secrets: list[str] = []
+    for name in ("GUARDIAN_SESSION_SECRET", "GUARDIAN_JWT_SECRET"):
+        secret = (os.getenv(name) or "").strip()
+        if secret and secret not in secrets:
+            secrets.append(secret)
+    return secrets
+
+
+def _verified_account_jwt_claims(
+    token: str, *, verify_exp: bool = True
+) -> dict[str, Any] | None:
     """Return claims from the supported remote account-session JWT shape."""
     if jwt is None or token.count(".") != 2:
         return None
 
-    secret = (os.getenv("GUARDIAN_JWT_SECRET") or "").strip()
-    if not secret:
+    secrets = _account_jwt_secrets()
+    if not secrets:
         return None
 
-    try:
-        claims = jwt.decode(
-            token.strip(),
-            secret,
-            algorithms=["HS256"],
-            options={
-                "verify_aud": False,
-                "require": ["exp", "purpose", "sub"],
-            },
-        )
-    except Exception:
-        return None
+    claims = None
+    for secret in secrets:
+        try:
+            claims = jwt.decode(
+                token.strip(),
+                secret,
+                algorithms=["HS256"],
+                options={
+                    "verify_aud": False,
+                    "verify_exp": verify_exp,
+                    "require": ["exp", "purpose", "sub"],
+                },
+            )
+            break
+        except Exception:
+            continue
 
     if not isinstance(claims, dict):
         return None
@@ -318,14 +334,12 @@ def _verified_account_jwt_claims(token: str) -> dict[str, Any] | None:
 def get_verified_session_token_purpose(token: str) -> str | None:
     """Read a signed token's class for failure classification only.
 
-    Native-token expiry is intentionally not checked here: an expired native
-    token still identifies which credential lane was presented. JWT decoding
-    enforces its required ``exp`` claim as part of signature validation.
-    Callers must use ``verify_session_token_for_purpose`` to authorize a
-    request.
+    Expiry is not checked here: a correctly signed expired token still
+    identifies its credential lane. This is classification only; callers must
+    use ``verify_session_token_for_purpose`` to authorize a request.
     """
     claims = _verified_session_token_claims(token) or _verified_account_jwt_claims(
-        token
+        token, verify_exp=False
     )
     if claims is None:
         return None
@@ -371,7 +385,9 @@ def verify_session_token_for_purpose(
     )
 
 
-def resolve_account_session_subject(token: str) -> str:
+def resolve_account_session_subject(
+    token: str, *, require_stored_session: bool = False
+) -> str:
     """Validate an account credential before consulting its session mapping.
 
     A stored mapping is evidence of session approval, never a substitute for
@@ -394,7 +410,7 @@ def resolve_account_session_subject(token: str) -> str:
     from guardian.core.session_store import get_session_store
 
     stored_user_id = get_session_store().verify(token)
-    if native_valid and not stored_user_id:
+    if (native_valid or require_stored_session) and not stored_user_id:
         raise HTTPException(status_code=401, detail="Account session required")
     if stored_user_id and stored_user_id != subject:
         raise HTTPException(status_code=401, detail="Account session mismatch")
@@ -504,7 +520,9 @@ def require_auth(
         from guardian.core.auth_dependencies import extract_session_token
 
         token = extract_session_token(authorization, gc_session)
-        subject = resolve_account_session_subject(token or "")
+        subject = resolve_account_session_subject(
+            token or "", require_stored_session=is_private_preview()
+        )
         if is_private_preview():
             from guardian.core.session_store import get_session_store
 

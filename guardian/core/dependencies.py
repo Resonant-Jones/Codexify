@@ -1038,7 +1038,9 @@ def verify_account_session(
             },
         )
     try:
-        subject = resolve_account_session_subject(token)
+        subject = resolve_account_session_subject(
+            token, require_stored_session=private_preview
+        )
     except HTTPException as exc:
         if exc.status_code != 401:
             raise

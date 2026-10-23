@@ -377,7 +377,8 @@ def test_frozen_inventory_and_declarations() -> None:
         ast.parse((ROOT / "guardian/core/auth.py").read_text())
     )
     auth_source = (ROOT / "guardian/core/auth.py").read_text()
-    assert "subject = resolve_account_session_subject(token or \"\")" in auth_source
+    assert "subject = resolve_account_session_subject(" in auth_source
+    assert "require_stored_session=is_private_preview()" in auth_source
     ws = (ROOT / "guardian/ws/auth.py").read_text()
     assert "verify_session_token_for_purpose" in ws
     assert "ACCOUNT_SESSION_PURPOSE" in ws
@@ -515,6 +516,30 @@ def test_remote_account_jwt_auth_preserves_exact_purpose_and_subject(
     assert session_context.calls == 2
 
 
+def test_remote_account_jwt_uses_preferred_session_secret(
+    session_context: _Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GUARDIAN_JWT_SECRET", raising=False)
+    token = _account_jwt(secret="test-session-secret")
+    session_context.mapping[token] = "account-a"
+
+    assert auth.resolve_account_session_subject(token) == "account-a"
+
+
+def test_expired_wrong_purpose_jwt_does_not_invalidate_account_session(
+    session_context: _Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-session-secret")
+    token = _account_jwt(
+        purpose="operator_session", expires=int(time.time()) - 60
+    )
+
+    with pytest.raises(HTTPException) as error:
+        dependencies.verify_account_session(None, None, f"Bearer {token}", None)
+    assert error.value.status_code == 401
+    assert "x-guardian-auth-failure" not in (error.value.headers or {})
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -603,6 +628,19 @@ def test_private_preview_requires_approved_stored_account(
 
         session_context.mapping[token] = "account-b@example.com"
         assert client.get("/probe", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+        monkeypatch.setenv("GUARDIAN_JWT_SECRET", "preview-jwt-secret")
+        jwt_token = _account_jwt(
+            "account-a@example.com", secret="preview-jwt-secret"
+        )
+        assert client.get(
+            "/probe", headers={"Authorization": f"Bearer {jwt_token}"}
+        ).status_code == 401
+        session_context.mapping[jwt_token] = "account-a@example.com"
+        assert client.get(
+            "/probe", headers={"Authorization": f"Bearer {jwt_token}"}
+        ).status_code == 200
+        session_context.mapping.pop(jwt_token)
 
 
 def test_account_scope_keeps_existing_local_dependency_behavior(

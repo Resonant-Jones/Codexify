@@ -35,7 +35,9 @@ def _validate_api_key(token: str) -> str:
         if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
             raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
         try:
-            user_id = resolve_account_session_subject(token)
+            user_id = resolve_account_session_subject(
+                token, require_stored_session=preview
+            )
         except HTTPException:
             raise WSAuthError(code=AUTH_FAILURE_CLOSE_CODE, reason="unauthorized")
         if preview and not role_for_preview_email(user_id):

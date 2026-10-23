@@ -207,6 +207,7 @@ def test_valid_account_session_jwt_authenticates(
 ):
     monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-secret")
     token = _account_jwt()
+    boundary.entries[token] = ACCOUNT_ID
     with _connect(_client(mounted_routes), transport, token) as ws:
         _send_frame(ws, transport, token)
         ws.send_json(
@@ -214,6 +215,20 @@ def test_valid_account_session_jwt_authenticates(
         )
         response = ws.receive_json()
     assert response["result"] == {"ok": True}
+    assert boundary.reads == [token]
+
+
+@pytest.mark.parametrize("transport", TRANSPORTS)
+def test_private_preview_rejects_unmapped_account_session_jwt(
+    boundary: _Store, monkeypatch, transport: str
+):
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-secret")
+    token = _account_jwt()
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with _connect(_client(mounted_routes), transport, token) as ws:
+            _send_frame(ws, transport, token)
+            ws.receive_json()
+    assert exc.value.code == ws_auth.AUTH_FAILURE_CLOSE_CODE
     assert boundary.reads == [token]
 
 
