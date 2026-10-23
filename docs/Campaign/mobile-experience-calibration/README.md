@@ -1,7 +1,7 @@
 # Mobile Experience Calibration
 
 **Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
-**Status:** Gate 0–4 complete — campaign frozen, execution order fixed
+**Status:** complete — Gates 0–5 closed. Campaign frozen and closed; release qualification unchanged (`HOLD`).
 **Lane:** Architecture-impact (campaign governance and provider/runtime truth)
 **Executor:** MiniMax, supervised and dependency-ordered
 **Campaign owner:** Resonant Jones
@@ -98,7 +98,14 @@ Issue #888 checkpoint. Gates do not run together.
 | **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | ✅ complete |
 | **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | ✅ complete |
 | **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | ✅ complete |
-| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | next |
+| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | ✅ complete |
+
+**Final status.** Every in-scope gate is proven against the campaign
+acceptance criteria. The acceptance reconciliation, the proven outcomes, the
+unresolved limitations, and the deferred work are in
+[evidence.md §12.6](./evidence.md#126-gate-5--mobile-regression-proof-and-campaign-closeout).
+Four external prerequisites remain open and are owned outside this campaign
+(evidence.md §9).
 
 ### Gate 0 — Source inspection, evidence register, campaign freeze
 
@@ -212,10 +219,12 @@ route is invented.
 
 ### Gate 5 — Mobile regression proof and campaign closeout
 
+**Status:** complete (`MOB-G5-TASK-1`). See [evidence.md §12.6](./evidence.md#126-gate-5--mobile-regression-proof-and-campaign-closeout).
+
 **Objective.** Revalidate every campaign acceptance criterion and separate
 proven outcomes from unresolved limitations.
 
-**Authorized files (proposed).**
+**Authorized files (as executed).**
 
 - `docs/Campaign/mobile-experience-calibration/README.md`
 - `docs/Campaign/mobile-experience-calibration/evidence.md`

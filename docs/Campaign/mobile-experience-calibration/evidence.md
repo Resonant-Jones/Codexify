@@ -102,6 +102,69 @@ plus the step heading and the page indicator fit inside it, while three
 cards plus the same chrome do not. The page size of two is therefore a
 geometry bound, not an arbitrary number.
 
+### E-28 — Browser-emulated measurement: the surfaces step overflowed by 757px before the fix and fits with zero overflow after
+
+**Class:** `browser-emulated`
+
+**Method.** A temporary harness (outside the repository) served the **real**
+`OnboardingWizard` component and the **real** `onboarding.css` from the
+worktree, with the onboarding provider stubbed to a fixed phone context
+because the account-state API is not available in this environment. The
+harness also renders a second scenario that reproduces the **pre-change**
+markup for the same step — all seven surface cards in one grid, each with its
+full body — using the same stylesheet and the same tip catalog. Both
+scenarios were measured in Chrome at a 390×844 phone viewport (device scale
+3, touch emulation) and at 1440×900 desktop.
+
+**The surfaces step (`core_surfaces`), phone, 390×844:**
+
+| Scenario | Cards | Dialog client height | Dialog scroll height | Overflows? | Overflow by |
+|---|---|---|---|---|---|
+| **Before** (7 cards, full bodies) | 7 | 826 | 1583 | **yes** | **757px** |
+| **After** (bounded pages of 2) | 2 | 608 | 608 | **no** | 0 |
+
+**Every step after the fix, phone, 390×844 — all fit with zero overflow:**
+
+| Step | Heading | Dialog client = scroll height | Overflow |
+|---|---|---|---|
+| `welcome` | An optional introduction | 474 | 0 |
+| `identity` | Your identity, your choice | 602 | 0 |
+| `username` | Choose a username | 616 | 0 |
+| `navigation` | Phone navigation | 448 | 0 |
+| `core_surfaces` (pages 1–4) | One workspace, several surfaces | 608 / 608 / 633 / 475 | 0 / 0 / 0 / 0 |
+| `help` | Keep learning at your pace | 449 | 0 |
+
+**Desktop, 1440×900:** the surfaces step renders **all seven cards** in a
+two-column grid (`348.5px 348.5px`) with **no pager** and **no overflow**
+(dialog 824 = 824). Desktop behavior is unchanged by the fix.
+
+**Limit of this evidence.** This is a **browser-emulated** measurement of the
+real component and the real stylesheet, not the running application: the
+account-state API, the provider catalog, and the chat surface were not
+running, and the provider context was stubbed. It is **not** real-device
+proof and it is **not** live-runtime proof. The composer and chat surfaces
+were **not** measured this way — mounting the real `GuardianChat` requires
+the auth, API, and chat-session seams that are not available here, so the
+Gate 1–3 claims remain `code-path` + `unit-test` and are recorded as such.
+
+**The A/B is faithful in the way that matters.** Both scenarios use the same
+stylesheet and the same tip catalog; they differ only in the markup and the
+card body vs summary choice, which is exactly what the fix changed. The
+"before" figure is measured against the **revised** copy, so the original
+copy — whose bodies were longer — overflowed by at least as much.
+
+### E-29 — The onboarding contract's stale baseline limitation is corrected
+
+**Class:** `code-path` + `docs-only`
+
+`docs/architecture/onboarding-and-tips-contract.md` stated that
+`config/supported_profiles/v1-whooshd-deepseek-web.yaml` contains an orphan
+`=======` line and cannot be loaded. The file parses cleanly and contains no
+such line; the orphan was removed in commit `3f4ba0034`. The paragraph was
+corrected in commit `bb9d79dc8` to record the repair while retaining the
+original limitation as provenance. `scripts/validate_docs.py` passes after the
+edit. See D-02.
+
 ### E-03 — Onboarding body copy carries internal-contract language
 
 **Class:** `code-path`
@@ -911,6 +974,29 @@ comparison was performed.
 `unit-test`. The bounded-page geometry is derived from the CSS declarations
 and the dialog's own `max-height`, not measured on a device.
 
+### 11.6 Gate 5
+
+| Check | Command | Result |
+|---|---|---|
+| Full frontend suite (re-run at closeout) | `vitest run` (whole `frontend/src`) | 225 files, 2225 tests — **2220 passed**, 1 skipped, **4 failed** (the known pre-existing failures, each individually confirmed on the clean baseline) |
+| Affected suites, re-run at closeout | `vitest run features/chat features/onboarding components/persona/layout` | **pass** for every suite that this campaign touched |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Architecture documentation validation | `python3 scripts/validate_docs.py` | **pass** |
+| Diagram freshness | `python3 scripts/check_diagram_freshness.py` | Not applicable — no diagram sources changed |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| **Browser-emulated geometry** | Chrome, 390×844 phone emulation and 1440×900 desktop, real component + real stylesheet | **pass** — the surfaces step overflowed by **757px** before the fix and fits with **zero** overflow after; every step and every page fits on a phone; desktop is unchanged (E-28) |
+| Backend suite | `pytest` | **not run** — this campaign changed no backend file. Not a claim about backend health |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Real mobile device | — | **not performed, not claimed** |
+| Live runtime | — | **not performed, not claimed** |
+
+**Environment note.** The browser harness ran three temporary Vite dev
+servers on localhost ports 5211–5213, serving a harness outside the
+repository. The sandbox denied `kill` on those detached processes, so they
+may still be running. They have **no repository impact**: the worktree's
+`git status` is clean, and the harness cache directory was removed and
+git-excluded.
+
 ---
 
 ## 12. Gate checkpoints
@@ -1333,3 +1419,76 @@ separates proven outcomes from unresolved limitations, confirms the register's
 evidence links, reconciles every gate's status with Issue #888, and publishes
 the final closeout comment — including the four external prerequisites that
 remain open and the deferred work that is *not* admitted into this campaign.
+
+### 12.6 Gate 5 — mobile regression proof and campaign closeout
+
+**Task:** `MOB-G5-TASK-1`.
+**Lane:** docs-only.
+**Outcome:** complete.
+
+**Authorized files:** the two campaign documents. **No product source was
+edited in this gate.**
+
+#### Acceptance criteria reconciliation
+
+| # | Campaign acceptance criterion | Verdict | Evidence | Owner of the remainder |
+|---|---|---|---|---|
+| 1 | Provider selection is visible, accurate, and functional on phone | **Proven** (code-path + unit-test) | E-15, E-27; Gate 1: the mobile conversation surface now renders the provider/model route and can switch both. Verified by 8 new tests plus 37 affected-suite tests | — |
+| 2 | Explicit unavailable model targets cannot silently substitute | **Not proven here — externally owned** | E-18, E-19, D-01. The backend fails closed and is test-backed, but the release item at `00-current-state.md:74` is unchecked and the complete-Compose contradiction is unresolved | **Release track** |
+| 3 | Request status never presents observation loss as execution failure | **Proven** (code-path + unit-test) | E-21; the observation-loss message was already correct and was left unchanged; Gate 2 added no failure semantics | — |
+| 4 | Slow model startup is diagnosed using observable lifecycle evidence | **Partially proven** | Gate 2 made the canonical stages ("Queued…", "Warming model…", "Waiting for first token…") legible on a phone instead of a single "Working…". The **queue-wait interval is not instrumented** (E-24) and no root cause for slow first-token responses was diagnosed | **Runtime track** (dispatch timestamp) |
+| 5 | The active mobile composer remains keyboard-accessible and near the bottom of the usable viewport | **Proven for posture and safe area; keyboard path is code-path only** | E-05, E-06, E-07; Gate 3 corrected the landing double-lift and applied the canonical safe-area inset. The keyboard path was shown to be correct at the shell root by code path, **not** on a device | — |
+| 6 | Onboarding ordinarily fits bounded pages without nested scrolling | **Proven** (browser-emulated) | E-28: 757px overflow before, **zero** overflow after, on every step and every page at 390×844 | — |
+| 7 | Onboarding skip, resume, and username behavior remain intact | **Proven** (unit-test) | E-04; all 19 pre-existing onboarding tests pass unchanged; 5 new tests added | — |
+| 8 | Existing desktop and mobile shell behavior does not regress | **Proven** (unit-test + browser-emulated) | Full frontend suite: 2220 passed, 4 pre-existing failures only. Desktop onboarding: all seven cards, no pager, no overflow (E-28) | — |
+| 9 | Each implementation slice has scoped validation and a commit | **Proven** | Five implementation commits, one per gate, each with its own scoped validation (§11.1–§11.6) | — |
+| 10 | All unresolved limitations are explicitly documented | **Proven** | §9, §10, D-01…D-04, E-24, E-25, and the limits stated on every entry | — |
+| 11 | GitHub Issue #888 contains a checkpoint for every completed or blocked Gate | **Proven** | Six checkpoint comments, one per gate, plus a ticked checklist | — |
+| 12 | The Campaign register links the relevant commits, PRs, and proof | **Proven** | §12.1–§12.6 and the commit subjects/hashes | — |
+| 13 | The final Campaign status accurately reflects completed work and any outstanding external dependencies | **This section** | — | — |
+
+#### Proven outcomes
+
+- The mobile conversation composer **discloses the active provider/model
+  route** and can switch it (Gate 1).
+- The mobile banner **names the canonical request stage** instead of a single
+  "Working…", and shows the degraded/uncertainty detail (Gate 2).
+- The landing composer **no longer floats high**, and the active composer
+  **clears the home indicator** (Gate 3).
+- Onboarding **fits a bounded phone viewport** on every step, with
+  presentation-only pagination and user-facing copy (Gate 4).
+
+#### Unresolved limitations — not proven by this campaign
+
+1. **No real-device proof.** Nothing in this campaign was observed on a
+   physical phone. The strongest evidence is browser-emulated geometry
+   (E-28) plus code-path and unit-test proof.
+2. **No live-runtime proof.** No supported-Compose stack was available.
+3. **The chat surfaces were not browser-measured.** Mounting the real
+   `GuardianChat` needs the auth, API, and chat-session seams. The Gate 1–3
+   claims stand on code-path and unit-test evidence.
+4. **The queue-wait interval is still not instrumented** (E-24), and the
+   client can still synthesize a timestamp (E-25). The interface does not
+   present either as a server measurement.
+5. **The explicit-model release item remains open and externally owned**
+   (E-19, D-01). This campaign did **not** mark it complete and did **not**
+   duplicate the backend contract.
+6. **The four pre-existing test failures remain pre-existing** and were not
+   repaired here.
+7. **ESLint and Prettier could not be run** in this environment.
+
+#### Campaign stop condition
+
+The campaign's stopping condition is met: every in-scope gate is proven
+against the campaign acceptance criteria, and the scope that remains is
+blocked by external owners whose prerequisites are recorded and linked
+(§9). The campaign does not reopen for further improvements.
+
+**Release qualification is unchanged.** The release gate remains `HOLD` per
+`00-current-state.md`. Nothing in this campaign is a release-readiness claim,
+and no deployment, push, merge, or release promotion was performed.
+
+**Deferred work — not admitted into this campaign:** see §10. The most
+notable items are the dead legacy composer, the unmounted `ProviderSelect`,
+the ADR-051/ADR-052 filename collision, the two absent explicit-model proof
+documents, and the dispatch-timestamp instrumentation.
