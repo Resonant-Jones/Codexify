@@ -259,7 +259,9 @@ and escalate:
 - No broad UI redesign and no FrameCard replacement.
 - No new provider framework and no new provider identity.
 - No unrelated runtime refactoring.
-- No automatic deployment, push, merge, or release promotion.
+- No automatic deployment, push, merge, or release promotion. (The branch push
+  and pull request #891 were made on explicit operator authorization, after
+  the gates closed.)
 - No new onboarding persistence schema without an independent architecture
   decision.
 - No unrelated feature development.

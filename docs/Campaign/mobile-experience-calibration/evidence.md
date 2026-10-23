@@ -33,7 +33,7 @@ establishes a cause for any of them on a physical device.
 | Item | Value |
 |---|---|
 | Worktree | `/Volumes/Dev_SSD/Codexify-main/.worktrees/feat-auto-20261023-5ef3356f` |
-| Branch | `feat/auto-20261023-5ef3356f` |
+| Branch | `feat/auto-20261023-5ef3356f` (pushed to origin after the gates closed; PR #891) |
 | Baseline | `b2907f828` (merge of PR #887) |
 | Working tree at Gate 0 start | clean |
 | Frontend test runner | vitest 3.2.7, config `frontend/src/vitest.config.ts` |
@@ -1498,8 +1498,19 @@ blocked by external owners whose prerequisites are recorded and linked
 (§9). The campaign does not reopen for further improvements.
 
 **Release qualification is unchanged.** The release gate remains `HOLD` per
-`00-current-state.md`. Nothing in this campaign is a release-readiness claim,
-and no deployment, push, merge, or release promotion was performed.
+`00-current-state.md`. Nothing in this campaign is a release-readiness claim.
+No deployment, merge, or release promotion was performed.
+
+**Publication.** After the gates closed, the branch was pushed and the pull
+request was opened **on explicit operator authorization**:
+
+- Branch: `feat/auto-20261023-5ef3356f` → `origin/feat/auto-20261023-5ef3356f`
+- Pull request: **#891** —
+  [`fix(mobile): calibrate route truth, request-stage legibility, composer posture, and onboarding bounds`](https://github.com/Resonant-Jones/Codexify/pull/891),
+  base `main`, 11 commits, 16 files, +2878 / −74.
+
+The PR is open and unmerged. It is not merged, and it is not a release
+promotion.
 
 **Deferred work — not admitted into this campaign:** see §10. The most
 notable items are the dead legacy composer, the unmounted `ProviderSelect`,
