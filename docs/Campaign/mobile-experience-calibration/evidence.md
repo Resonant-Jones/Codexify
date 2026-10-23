@@ -979,7 +979,9 @@ and the dialog's own `max-height`, not measured on a device.
 | Check | Command | Result |
 |---|---|---|
 | Full frontend suite (re-run at closeout) | `vitest run` (whole `frontend/src`) | 225 files, 2225 tests — **2220 passed**, 1 skipped, **4 failed** (the known pre-existing failures, each individually confirmed on the clean baseline) |
-| Affected suites, re-run at closeout | `vitest run features/chat features/onboarding components/persona/layout` | **pass** for every suite that this campaign touched |
+| Affected suites, re-run at closeout | `vitest run features/chat features/onboarding components/persona/layout` | **pass** for every suite that this campaign touched. 62 files, 842 tests — **839 passed**, 3 failed (the stable pre-existing set) |
+| **Baseline-source comparison** | The campaign's changed source files were checked out from the baseline commit `b2907f828` and the same sweep was re-run | **Every test this campaign added fails against the baseline source and passes against the campaign source.** The new tests are therefore meaningful regression tests, not tautologies. The stable pre-existing failures were unchanged by the substitution |
+| **Flake characterization** | The same sweep was run three times on the campaign tree | The failure set is **not** stable. The stable failures are three (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu`); a **fourth, varying** identity appeared in some runs only (`GuardianChat turn lock lifecycle` in one run, `ChatView loop guards` in another). Both pass **in isolation** (76/76 and 12/12) and neither is attributable to this campaign — the baseline-source run produced neither. This matches the suite's known load-dependent flakiness |
 | TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
 | Architecture documentation validation | `python3 scripts/validate_docs.py` | **pass** |
 | Diagram freshness | `python3 scripts/check_diagram_freshness.py` | Not applicable — no diagram sources changed |
@@ -1473,9 +1475,20 @@ edited in this gate.**
 5. **The explicit-model release item remains open and externally owned**
    (E-19, D-01). This campaign did **not** mark it complete and did **not**
    duplicate the backend contract.
-6. **The four pre-existing test failures remain pre-existing** and were not
-   repaired here.
+6. **The pre-existing test failures remain pre-existing.** Three are stable
+   (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu`), and a
+   fourth, varying identity appears under full-suite load
+   (`GuardianChat turn lock lifecycle`, `ChatView loop guards`). Every one of
+   them passes in isolation, and the campaign's own tests were confirmed
+   meaningful by failing against the baseline source (§11.6).
 7. **ESLint and Prettier could not be run** in this environment.
+8. **One residual environment artifact.** A baseline worktree created for the
+   comparison could not be removed: the sandbox denied both `mavis-trash` and
+   any other deletion for
+   `/Volumes/Dev_SSD/Codexify-main/.worktrees/mob-baseline-check` (329 MB). It
+   is a plain checkout of `b2907f828` with no repository registration and no
+   effect on this campaign's worktree, but it is left on disk and should be
+   removed by an operator.
 
 #### Campaign stop condition
 
