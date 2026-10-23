@@ -176,6 +176,68 @@ The claim's authority is the durable deployment record the run already points at
 
 **What this does not yet provide.** The acceptance record makes an accepted run distinguishable from a queued, never-started run after worker process death. It does **not** implement restart-time reconciliation: nothing reads the acceptance record at startup, no uncertain-outcome sweep exists, and `observe_liveness()`, `classify_dispatch_health()`, and `recover_dispatch()` are not wired into any startup path. Reconciliation remains a separate, dependent task, and no retry authority is implied by the record.
 
+### Restart reconciliation of abandoned executions
+
+The durable acceptance record makes an accepted run **distinguishable from a
+queued, never-started run** after worker process death. It does not, by itself,
+make an abandoned run distinguishable from an **actively owned** one — and
+restart reconciliation requires exactly that second distinction.
+
+**The gate.** A reconciliation may only touch an accepted execution whose
+owning worker is *demonstrably* gone. The runtime must therefore supply durable
+evidence of **which worker instance owns which run**, and whether that owner is
+still alive. A running `AgentRun` does not establish liveness. An expired
+worktree lease does not prove the worker process is dead. An empty queue does not
+establish that the accepted execution completed. A missing lease row does not
+establish that no execution occurred. A stale heartbeat cannot authorize task
+replay.
+
+**The gate currently fails.** The canonical records carry no worker ownership
+and no liveness:
+
+- `agent_runs` and `agent_deployments` have no worker, owner, lease, or
+  heartbeat column. The only liveness-adjacent field is `started_at`, which is
+  a timestamp and therefore not a signal.
+- `coding_worktree_leases` has exactly the right shape — `worker_id`,
+  `last_heartbeat_at`, `expires_at` — but **no production code path creates a
+  lease**, and the lease contract is worktree-scoped, so it cannot own a
+  Guardian run that has no branch, no worktree path, and no work order.
+- The coding worker publishes **no** liveness heartbeat. The chat and voice
+  workers do; the coding worker does not, and a global heartbeat could not
+  attribute ownership of a specific run in any case.
+- The dispatch record (`guardian/core/guardian_dispatch.py`) is a frozen,
+  unpersisted value object with no worker-identity field. Its
+  `last_heartbeat_at` and `lease_expires_at` are *inputs* to the classifier,
+  not observations the runtime records.
+- Fencing is absent by design, and stays absent.
+
+Consequently, **no restart reconciliation is implemented today**. A restarted
+coding worker performs no classification, writes no escalation, re-inserts no
+task, issues no credential lease, invokes no provider, and fabricates no
+source-thread result. That is the correct behaviour under the gate: an
+implementation built on the available signals would either escalate a run whose
+worker is alive and mid-execution, or escalate nothing at all.
+
+**The disposition already exists.** The operator-visible outcome for an
+unresolved execution needs no migration and no new status. The canonical run
+moves to `escalated` — already permitted by the `agent_runs` status check — and
+one `agent_escalations` row is written with `status = 'open'`, a `reason_code`,
+a human-readable reason, `preserved_worktree`, and a `payload_json` carrying the
+recovery evidence. The three states the contract keeps distinct are:
+
+| Meaning | Representation |
+|---|---|
+| Recovery classification | `uncertain` / `quarantined` in the dispatch vocabulary |
+| Canonical run disposition | `agent_runs.status = 'escalated'` |
+| Actual execution result | `unknown`, carried in the escalation evidence |
+
+**What is deferred.** The durable worker-ownership and liveness authority that
+would let the worker decide that a run is genuinely abandoned, and the fencing
+that would let a reconciler be safe against a late terminal success. The next
+task supplies that authority; the recovery contract, the disposition, and the
+startup integration point are already in place for it. The evidence is in
+`docs/architecture/proofs/runtime/2026-10-23-guardian-coding-restart-reconciliation-proof.md`.
+
 ### Dispatch recovery
 
 The queue is `LPUSH` + destructive `BRPOP`/`RPOP` with no ack, no pending list, and no requeue. Four layers must therefore be kept distinct, because a guarantee on one says nothing about another:
@@ -269,6 +331,7 @@ Recommended `source_type` values for coding v1:
 - The reasoning effort is Guardian's to select and the binding's to carry. A worker task may not choose or widen its own invocation options, and an effort the Guardian did not authorize must not reach the harness.
 - The credential that authorizes a delegated execution keeps its real owner. A service-owned credential serves an account only where the service's own recorded policy names that account, provider, model, funding route, and usage policy, and it remains service-owned in the binding. Credential discovery is not authorization, and an account principal does not become the credential's owner by using a service-owned key.
 - A side-effecting coding execution may not begin until its acceptance is durably recorded in canonical PostgreSQL. Missing or unreachable persistence is never permission to execute, and a refused or duplicated acceptance never overwrites another worker's run, artifact, or source-thread result.
+- A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals
 

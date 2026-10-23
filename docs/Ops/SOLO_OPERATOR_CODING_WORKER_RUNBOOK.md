@@ -25,6 +25,60 @@ Source anchors:
 5. Future loop work must consume the normalized test-result contract rather than
    raw stdout/stderr blobs.
 
+## Operator-Visible Recovery Posture (and its limits)
+
+**Read this before interpreting a stuck coding run.**
+
+A Guardian coding execution that a worker has claimed is **durably accepted**.
+The canonical `agent_runs` row moves `queued` -> `running` and `started_at` is
+stamped exactly once, in PostgreSQL, before any worktree, credential lease, or
+provider execution happens. A worker that dies mid-execution therefore leaves
+behind an `agent_runs` row that reads `running` with a non-null `started_at`
+and a null `ended_at`.
+
+**What that looks like to an operator:** a run stuck in `running` with no
+result artifact and no source-thread message. That is the *expected* durable
+shape of an interrupted execution. It is not, by itself, evidence that the
+worker is still running, and it is not evidence that it died.
+
+**What the system does today about it: nothing.** A restarted coding worker
+performs **no** restart reconciliation. It does not classify the abandoned run,
+does not escalate it, does not quarantine it, and does not retry it. There is no
+recovery status to look for, because no recovery record is written.
+
+**Why not, precisely:** the runtime cannot yet tell an **abandoned** accepted
+run from an **actively owned** one. There is no durable record of which worker
+instance owns a coding run, and the coding worker publishes no liveness
+heartbeat. Every available substitute is a timestamp or an empty queue, and
+both are unsafe: an elapsed time is not a death, and an empty queue is equally
+consistent with a crash and with a success.
+
+**Therefore, at the time of writing:**
+
+| Signal | What it means |
+|---|---|
+| `agent_runs.status = 'running'`, `started_at` set, `ended_at` null | The execution was **accepted** and never reached a durable terminal state. It may still be executing. |
+| No `agent_escalations` row | Nothing has classified it. This is the current, expected state — it is **not** a sign that a check ran and passed. |
+| Empty `codexify:queue:coding-execution` | Nothing is waiting. The queue is lossy and at-most-once, so this says nothing about whether the accepted run completed. |
+| No `coding_worktree_leases` row | The Guardian path never creates one. The lease table has the right shape but no production code path writes it. |
+| An isolated Git worktree left behind | The worker created it and died before cleanup. Nothing reclaims it automatically. |
+
+**What an operator can safely do.** Treat a `running` Guardian coding run with
+a null `ended_at` as *unresolved*. It is safe to inspect the repository, the
+worktree, and the run's `started_at` to decide for yourself. It is **not** safe
+to re-dispatch the same task, and there is no supported automatic or manual
+re-drive in this runtime — a re-dispatch would mint a new attempt without
+fencing, and duplicate execution effects are not idempotent.
+
+**What is coming.** The operator-visible disposition for an unresolved run is
+already defined and needs no migration: the canonical run moves to
+`escalated` and one `agent_escalations` row is written with
+`status = 'open'`, a `reason_code`, and the recovery evidence. What is missing
+is the durable worker-ownership and liveness authority that would let the worker
+decide that a run is genuinely abandoned. The evidence for that investigation is
+in
+`docs/architecture/proofs/runtime/2026-10-23-guardian-coding-restart-reconciliation-proof.md`.
+
 ## Pi Runtime Readiness Gate
 
 The source-Compose coding worker uses a dedicated
