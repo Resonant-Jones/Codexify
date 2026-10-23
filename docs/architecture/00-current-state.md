@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-22
+2026-10-23
 
 ## Interpretation rule
 
@@ -18,15 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Main now includes the local history reconciliation, UMS ORM restoration, account-boundary fail-closed repair, and bounded private-preview restart evidence. No fresh integrated-tip supported-Compose qualification exists; the release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, mainline changes were documentation and repository cleanup; no new runtime qualification or supported-path widening landed. The current release gate remains `HOLD`.
 
 ## What changed recently
 
-- Reconciled local audit history with `origin/main` through `f7e6a7f48`; no push was performed, and the stored `origin/main` is one commit ahead only because its 2026-10-22 accounting log is not present on local `main`.
-- Restored the four missing UMS ORM mappings and recorded focused evidence: 124 tests passed, with one inherited stale migration-head assertion remaining; Chronicle HTTP cases were collected but not executed.
-- Added fail-closed account-boundary checks for the legacy continuity operator surface outside local single-user execution, with focused route coverage.
-- Recorded bounded private-preview restart, schema, health, and mount evidence; no ordinary chat, browser interaction, provider inference, or full supported-Compose run was performed.
-- Merged recent Library, shell, chat/session-rail, task-cancellation, tool-loop, and accepted-turn identity changes; these remain implementation evidence, not integrated-tip release qualification.
+- Merged the account recovery, export, archive, and conversation-retention decision brief; it explicitly remains a decision request with no accepted architecture, runtime implementation, or R2 work.
+- Added the 2026-10-22 mainline accounting log, which records feature-ref work as unmerged rather than shipped behavior.
+- Removed the accidental `Codexify.Space` gitlink; this is repository hygiene, not a product or release change.
+- Preserved the reconciled mainline history, UMS ORM restoration, account-boundary fail-closed repair, and bounded Private Preview restart evidence from the preceding audit window.
+- No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`.
 
 ## Current supported reality
 
@@ -44,8 +44,9 @@ This file is authoritative for:
 - Do not infer current-tip restart/shutdown recovery, browser/event/provenance coherence, ordinary chat after restart, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
+- Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
 - Do not promote account-owned connectors, direct messaging, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
-- Branch-only connector work, the delegation canary, uncommitted checkout work, and local-only commits are not shipped `main` reality.
+- Branch-only implementation, origin-only accounting, uncommitted checkout work, and local-only commits are not shipped `main` reality.
 - The current-state knowledge-graph node parses but its freshness is stale; validity is not current release proof.
 
 ## Active blockers
@@ -55,6 +56,7 @@ This file is authoritative for:
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap and natural import-to-recall scope proof remain open.
+- Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
 - Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
 
 ## This week’s priorities
@@ -63,7 +65,7 @@ This file is authoritative for:
 2. Repair the stale migration-head expectation and execute the blocked Chronicle HTTP regression cases.
 3. Close the explicit-model rejection contradiction before provider execution.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, and ordinary chat on one evaluated tip.
-5. Resolve the delegation adapter contract, complete import-to-recall scope proof, and refresh release metadata.
+5. Resolve export/restore/retention contract gaps, the delegation adapter contract, and import-to-recall scope proof.
 
 ## Release definition right now
 
