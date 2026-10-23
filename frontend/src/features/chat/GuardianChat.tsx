@@ -235,6 +235,7 @@ type RuntimeStatusStripProps = {
   inferenceState: InferenceRequestState;
   orphaned: boolean;
   effectiveThreadId: number | null;
+  isPhoneShell: boolean;
 };
 
 function RuntimeStatusStrip({
@@ -242,6 +243,7 @@ function RuntimeStatusStrip({
   inferenceState,
   orphaned,
   effectiveThreadId,
+  isPhoneShell,
 }: RuntimeStatusStripProps) {
   // Orphan state takes highest priority — show before any other state.
   if (orphaned && effectiveThreadId != null) {
@@ -294,8 +296,14 @@ function RuntimeStatusStrip({
   // do not surface it as a user-facing runtime status.
   const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
   const showRequestState = (isActive || isTerminal) && !isQueued;
+  // On a phone the inference status banner owns the request state: it names the
+  // canonical lifecycle stage and carries the degraded/uncertain diagnostic.
+  // The strip keeps the provider runtime state, so the stage is never shown
+  // twice on one phone screen.
+  const stripShowsActiveRequestState = showRequestState && isActive && !isPhoneShell;
+  const stripShowsTerminalRequestState = showRequestState && isTerminal;
 
-  if (!showProviderState && !showRequestState) {
+  if (!showProviderState && !stripShowsActiveRequestState && !stripShowsTerminalRequestState) {
     return null;
   }
 
@@ -332,12 +340,12 @@ function RuntimeStatusStrip({
           <span className="font-medium truncate" style={{ color: "var(--text)" }}>
             {providerDesc.title}
           </span>
-          {showRequestState && isActive && (
+          {stripShowsActiveRequestState && (
             <span className="truncate" style={{ color: "var(--muted)" }}>
               {inferenceState.statusText ?? "Working…"}
             </span>
           )}
-          {showRequestState && isTerminal && (
+          {stripShowsTerminalRequestState && (
             <span className="truncate" style={{ color: "var(--muted)" }}>
               {inferenceState.phase === "completed"
                 ? "Completed"
@@ -4550,6 +4558,7 @@ export function GuardianChat({
         inferenceState={composerInferenceState}
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
+        isPhoneShell={mobileShellProfile.active}
       />
       {effectiveThreadId != null ? (
         <ThreadAttemptObservation
