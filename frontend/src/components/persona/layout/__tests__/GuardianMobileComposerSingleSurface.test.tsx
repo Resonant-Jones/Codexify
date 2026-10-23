@@ -483,9 +483,28 @@ describe("Guardian mobile composer single surface", () => {
       document.querySelector('[data-composer-surface="base"]')
     ).toBeNull();
 
-    // Desktop selectors are absent on mobile
-    expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
+    // The compact mobile conversation surface discloses the active route.
+    // Provider and model are the phone-shell bare triggers, not the desktop
+    // chip variant, so the route stays visible without widening the composer.
+    const routeRow = screen.getByTestId("composer-mobile-route-row");
+    expect(routeRow).toBeInTheDocument();
+    expect(routeRow).toContainElement(
+      screen.getByRole("button", { name: "Select provider" })
+    );
+    expect(routeRow).toContainElement(
+      screen.getByRole("button", { name: "Select model" })
+    );
+    for (const name of ["Select provider", "Select model"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "data-composer-select-trigger-variant",
+        "bare"
+      );
+    }
+
+    // The route row sits inside the same single composer root.
+    expect(routeRow.closest("[data-composer-root]")).toBe(root);
+
+    // Inference mode and retrieval source remain desktop-scoped.
     expect(
       screen.queryByRole("button", { name: "Select inference mode" })
     ).toBeNull();
