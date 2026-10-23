@@ -8,13 +8,13 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "d718015e6c3ca3148b0c47af4efc0c25ceea6c8d4617460855e764b31713636f",
+  "content_hash": "4f2d9ae32fe4248d4d3389c370d24f359a0f4b22735c777078bfe9ef696570ad",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "ADR-089 index entry and governed ADR source were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
-    "state": "current",
+    "reason": "ADR-102 was added to the reading order and the ADR graph, and the indexed ADR set changed after the recorded verification commit, so a freshness re-verification is owed. Documentation metadata only, not runtime or release proof.",
+    "state": "stale",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",

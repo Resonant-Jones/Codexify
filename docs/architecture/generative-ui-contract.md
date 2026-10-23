@@ -26,6 +26,27 @@ Source anchors:
   completion acceptance, turn-lock semantics, or the task lifecycle.
 - This contract creates no new backend subsystem, table, route, or identity.
 
+### Relationship to the Saved Widget contract
+
+The [Saved Widget Contract](./saved-widget-contract.md) and
+[ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) propose a
+later, separate architecture for promoting eligible generated UI into durable,
+account-owned, revisioned resources that can be invoked from any thread.
+
+That proposal is **not** part of this contract, and nothing in it changes the
+artifact channel, the renderer, the sandbox, the bridge, the artifact envelope,
+or the wire format described here. The statement above — that this contract
+creates no new backend subsystem, table, route, or identity — remains true of
+*this* contract; the Saved Widget proposal is a distinct document with a
+distinct status, and it is **Proposed**, not accepted.
+
+A saved widget is rendered through the existing renderer and the existing
+sandbox frame, so the containment, bridge, and provider-hygiene rules in this
+document continue to govern it unchanged. A saved widget's *identity* is a
+resource identity and is not a message, request, or attempt identity, so
+ADR-003 continues to hold for both. See the Saved Widget contract for the
+classification, ownership, revision, invocation, and editing boundaries.
+
 ## Upstream reference and pinned revision
 
 The reference implementation is
