@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 from importlib import import_module
 from types import SimpleNamespace
 
@@ -71,6 +72,10 @@ def boundary(monkeypatch):
     )
     store = _Store()
     monkeypatch.setattr(auth_dependencies, "get_session_store", lambda: store)
+    monkeypatch.setattr(
+        "guardian.core.session_store.get_session_store",
+        lambda: store,
+    )
     return store
 
 
@@ -107,6 +112,19 @@ def _legacy_token(store: _Store) -> str:
     token = f"{encode(payload)}.{encode(signature)}"
     store.entries[token] = ACCOUNT_ID
     return token
+
+
+def _account_jwt(*, subject: str = ACCOUNT_ID, secret: str = "jwt-secret") -> str:
+    jwt = pytest.importorskip("jwt")
+    return jwt.encode(
+        {
+            "sub": subject,
+            "exp": int(time.time()) + 60,
+            "purpose": ACCOUNT_SESSION_PURPOSE,
+        },
+        secret,
+        algorithm="HS256",
+    )
 
 
 def _credential(store: _Store, case: str) -> str:
@@ -178,6 +196,22 @@ def test_valid_approved_account_session_authenticates(
     with _connect(_client(module), transport, token) as ws:
         _send_frame(ws, transport, token)
         ws.send_json({"type": "request", "id": "ping", "method": "ping", "params": {}})
+        response = ws.receive_json()
+    assert response["result"] == {"ok": True}
+    assert boundary.reads == [token]
+
+
+@pytest.mark.parametrize("transport", TRANSPORTS)
+def test_valid_account_session_jwt_authenticates(
+    boundary: _Store, monkeypatch, transport: str
+):
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-secret")
+    token = _account_jwt()
+    with _connect(_client(mounted_routes), transport, token) as ws:
+        _send_frame(ws, transport, token)
+        ws.send_json(
+            {"type": "request", "id": "jwt", "method": "ping", "params": {}}
+        )
         response = ws.receive_json()
     assert response["result"] == {"ok": True}
     assert boundary.reads == [token]

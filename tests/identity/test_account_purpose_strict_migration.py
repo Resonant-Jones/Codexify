@@ -409,6 +409,20 @@ def _legacy_token(subject: str, *, purpose: str | None, expires: int | None = No
     ))
 
 
+def _account_jwt(
+    subject: str = "account-a",
+    *,
+    purpose: str | None = "account_session",
+    secret: str = "jwt-session-secret",
+    expires: int | None = None,
+) -> str:
+    jwt = pytest.importorskip("jwt")
+    claims = {"sub": subject, "exp": expires or int(time.time()) + 3600}
+    if purpose is not None:
+        claims["purpose"] = purpose
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
 @pytest.fixture
 def session_context(monkeypatch: pytest.MonkeyPatch) -> _Store:
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "test-session-secret")
@@ -486,6 +500,51 @@ def test_remote_account_http_auth_rejects_other_purposes(session_context: _Store
                 authenticate()
             assert error.value.status_code == 401
         assert session_context.calls == before
+
+
+def test_remote_account_jwt_auth_preserves_exact_purpose_and_subject(
+    session_context: _Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-session-secret")
+    token = _account_jwt()
+
+    assert auth.resolve_account_session_subject(token) == "account-a"
+    assert dependencies.verify_account_session(
+        None, None, f"Bearer {token}", None
+    ) == token
+    assert session_context.calls == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"purpose": None},
+        {"purpose": "operator_session"},
+        {"secret": "wrong-secret"},
+        {"subject": ""},
+        {"expires": int(time.time()) - 60},
+    ],
+    ids=[
+        "missing-purpose",
+        "wrong-purpose",
+        "wrong-secret",
+        "empty-subject",
+        "expired",
+    ],
+)
+def test_remote_account_jwt_auth_fails_closed_before_store_lookup(
+    session_context: _Store,
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, object],
+) -> None:
+    monkeypatch.setenv("GUARDIAN_JWT_SECRET", "jwt-session-secret")
+    token = _account_jwt(**kwargs)
+    session_context.mapping[token] = "account-a"
+
+    with pytest.raises(HTTPException) as error:
+        auth.resolve_account_session_subject(token)
+    assert error.value.status_code == 401
+    assert session_context.calls == 0
 
 
 def test_account_scope_gate_precedes_generic_resolution_and_business_logic(

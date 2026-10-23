@@ -23,6 +23,11 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 from guardian.protocol_tokens import ErrorCode
 
+try:  # Optional; only remote account-JWT validation needs PyJWT.
+    import jwt  # type: ignore
+except Exception:  # pragma: no cover - optional dependency in some environments
+    jwt = None  # type: ignore[assignment]
+
 
 ACCOUNT_SESSION_PURPOSE = "account_session"
 OPERATOR_SESSION_PURPOSE = "operator_session"
@@ -279,14 +284,49 @@ def _verified_session_token_claims(token: str) -> dict[str, Any] | None:
         return None
 
 
+def _verified_account_jwt_claims(token: str) -> dict[str, Any] | None:
+    """Return claims from the supported remote account-session JWT shape."""
+    if jwt is None or token.count(".") != 2:
+        return None
+
+    secret = (os.getenv("GUARDIAN_JWT_SECRET") or "").strip()
+    if not secret:
+        return None
+
+    try:
+        claims = jwt.decode(
+            token.strip(),
+            secret,
+            algorithms=["HS256"],
+            options={
+                "verify_aud": False,
+                "require": ["exp", "purpose", "sub"],
+            },
+        )
+    except Exception:
+        return None
+
+    if not isinstance(claims, dict):
+        return None
+    if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
+        return None
+    if not isinstance(claims.get("purpose"), str) or not claims["purpose"].strip():
+        return None
+    return claims
+
+
 def get_verified_session_token_purpose(token: str) -> str | None:
     """Read a signed token's class for failure classification only.
 
-    Expiry is intentionally not checked here: an expired signed token still
-    identifies which credential lane was presented. Callers must use
-    ``verify_session_token_for_purpose`` to authorize a request.
+    Native-token expiry is intentionally not checked here: an expired native
+    token still identifies which credential lane was presented. JWT decoding
+    enforces its required ``exp`` claim as part of signature validation.
+    Callers must use ``verify_session_token_for_purpose`` to authorize a
+    request.
     """
-    claims = _verified_session_token_claims(token)
+    claims = _verified_session_token_claims(token) or _verified_account_jwt_claims(
+        token
+    )
     if claims is None:
         return None
     return str(claims.get("purpose") or "").strip() or None
@@ -304,22 +344,31 @@ def get_unverified_session_token_purpose(token: str) -> str | None:
 def verify_session_token_for_purpose(
     token: str, expected_purpose: str
 ) -> bool:
-    """Validate a current-format signed session token for one exact purpose.
+    """Validate a signed session credential for one exact purpose.
 
-    Unlike the compatibility verifier below, this validator requires the
-    canonical two-part HMAC format and all current claims, including nonce
-    and purpose. Legacy purpose-less tokens cannot cross this boundary.
+    Native two-part HMAC sessions require all current claims, including nonce
+    and purpose. The documented three-part HS256 JWT compatibility transport is
+    admitted only for the account-session purpose and requires its own JWT
+    secret, expiry, purpose, and nonempty ``sub`` claim. Legacy purpose-less
+    tokens cannot cross this boundary.
     """
     claims = _verified_session_token_claims(token)
-    if claims is None:
+    if claims is not None:
+        try:
+            return bool(
+                str(claims.get("purpose") or "").strip() == expected_purpose
+                and int(claims.get("exp") or 0) >= int(time.time())
+            )
+        except Exception:
+            return False
+
+    if expected_purpose != ACCOUNT_SESSION_PURPOSE:
         return False
-    try:
-        return bool(
-            str(claims.get("purpose") or "").strip() == expected_purpose
-            and int(claims.get("exp") or 0) >= int(time.time())
-        )
-    except Exception:
-        return False
+    jwt_claims = _verified_account_jwt_claims(token)
+    return bool(
+        jwt_claims is not None
+        and jwt_claims.get("purpose") == ACCOUNT_SESSION_PURPOSE
+    )
 
 
 def resolve_account_session_subject(token: str) -> str:
@@ -331,13 +380,22 @@ def resolve_account_session_subject(token: str) -> str:
     if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
         raise HTTPException(status_code=401, detail="Account session required")
 
-    valid, subject = verify_session_token(token)
-    if not valid or not subject:
+    native_valid, subject = verify_session_token(token)
+    if not native_valid:
+        jwt_claims = _verified_account_jwt_claims(token)
+        subject = (
+            str(jwt_claims.get("sub") or "").strip()
+            if jwt_claims is not None
+            else None
+        )
+    if not subject:
         raise HTTPException(status_code=401, detail="Account session required")
 
     from guardian.core.session_store import get_session_store
 
     stored_user_id = get_session_store().verify(token)
+    if native_valid and not stored_user_id:
+        raise HTTPException(status_code=401, detail="Account session required")
     if stored_user_id and stored_user_id != subject:
         raise HTTPException(status_code=401, detail="Account session mismatch")
     return subject
