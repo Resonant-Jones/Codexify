@@ -54,9 +54,17 @@ authenticated, same-node People messaging. The profile manifest is the route
 gate; the existing route-registration flag defaults on, so no additional
 environment variable is required. Direct messaging uses the current private
 preview account boundary and does not enable federation or Guardian
-execution. The separate `share` route remains quarantined, so link creation
-and the Share Sheet's send-a-link flow stay unavailable in this profile. This
-admission does not widen default Beta support.
+execution. This admission does not widen default Beta support.
+
+The same profile now also admits the existing `share` route, so the Share
+Sheet's "Send to Person" flow can create a thread/document share link and
+deliver it as a People message. `POST /api/share` requires an authenticated
+approved account; `GET /api/share/{token}` does **not** carry a Guardian auth
+dependency — the link token is the credential, and `expires_in_days` is
+optional, so a link minted without it does not expire. Treat share links as
+bearer secrets on this origin, keep them off channels wider than the intended
+peer, and note that no revocation endpoint exists. The `federation`,
+`collaboration`, and other high-blast route families remain quarantined.
 
 ## Provider and network posture
 

@@ -270,8 +270,14 @@ rule in §3, §7, or §8 changes with route posture: username search remains
 authenticated and bounded, peer-facing results remain limited to deliberate
 social fields, self-DM and nonlocal destinations remain rejected, and no DM
 operation triggers Guardian inference, retrieval, memory, or Project authority
-as a side effect. Federation, Guardian execution, and share-link routes remain
-quarantined on the private-preview profile.
+as a side effect. Federation and Guardian execution remain quarantined on the
+private-preview profile. The `share` route is also admitted on the
+private-preview profile so the Share Sheet's "Send to Person" flow can create a
+share link and deliver it as a People message; this adds no privacy,
+authorization, isolation, or context rule of its own, and it does not make
+`GET /api/share/{token}` an authenticated read — the link token remains the
+sole credential, links minted without `expires_in_days` do not expire, and no
+revocation endpoint exists.
 
 ## 10. Deferred (explicitly not implemented)
 

@@ -64,6 +64,7 @@ route_posture:
     - auth
     - persona_profiles
     - direct_messages
+    - share
     - hosted_rooms
     - hosted_room_guest
   internal_only:
@@ -81,7 +82,6 @@ route_posture:
     - memory
     - agent
     - research
-    - share
     - federation
     - collaboration
     - connectors
