@@ -1,7 +1,7 @@
 # Mobile Experience Calibration
 
 **Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
-**Status:** Gate 0 complete — campaign frozen, execution order fixed
+**Status:** Gate 0–1 complete — campaign frozen, execution order fixed
 **Lane:** Architecture-impact (campaign governance and provider/runtime truth)
 **Executor:** MiniMax, supervised and dependency-ordered
 **Campaign owner:** Resonant Jones
@@ -94,13 +94,15 @@ Issue #888 checkpoint. Gates do not run together.
 | Gate | Objective | Class | Depends on |
 |---|---|---|---|
 | **0** | Source inspection, evidence register, campaign freeze | docs-only | — |
-| **1** | Provider/model selection and execution-truth reconciliation | architecture-impact | Gate 0 |
-| **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 |
-| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 |
-| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 |
-| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 |
+| **1** | Provider/model selection and execution-truth reconciliation | architecture-impact | Gate 0 | ✅ complete |
+| **2** | Request-observation correctness and first-token latency diagnosis | architecture-impact | Gate 1 | next |
+| **3** | Mobile composer placement and keyboard-safe layout | standard | Gate 2 | |
+| **4** | Bounded onboarding pages, pagination, copy revision | standard | Gate 3 | |
+| **5** | Mobile regression proof and campaign closeout | docs-only | Gate 4 | |
 
 ### Gate 0 — Source inspection, evidence register, campaign freeze
+
+**Status:** complete. See [evidence.md §12.1](./evidence.md#121-gate-0--evidence-inventory-and-campaign-freeze).
 
 **Objective.** Separate observed symptoms, code-proven behavior, documented
 contracts, and unknowns. Identify task owners and overlapping campaigns.
@@ -118,20 +120,18 @@ owners of prerequisites identified and recorded.
 
 ### Gate 1 — Provider/model selection and execution-truth reconciliation
 
+**Status:** complete (`MOB-G1-TASK-1`). See [evidence.md §12.2](./evidence.md#122-gate-1--provider-model-selection-and-execution-truth-reconciliation).
+
 **Objective.** Make the active provider/model route visible and truthful on a
 phone, and reconcile *requested* against *effective* execution without creating
 a parallel authority.
 
-**Authorized files (proposed; the Task Spec must narrow this list).**
+**Authorized files (as executed).**
 
 - `frontend/src/features/chat/components/Composer.tsx`
-- `frontend/src/features/chat/components/ComposerActionMenu.tsx`
-- `frontend/src/features/chat/components/ComposerSelectMenu.tsx`
-- `frontend/src/lib/providerPref.ts`
-- `frontend/src/features/chat/GuardianChat.tsx`
+- `frontend/src/features/chat/components/__tests__/Composer.mobile-route.test.tsx` (new)
 - `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx`
-- `frontend/src/components/__tests__/ProviderSelect.catalog.test.tsx`
-- `frontend/src/features/chat/components/__tests__/ComposerSelectMenu.test.tsx`
+- `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerCommands.test.tsx`
 
 Backend files are **out of scope by default**. The explicit-model
 fail-closed contract is already implemented, test-backed, and owned elsewhere

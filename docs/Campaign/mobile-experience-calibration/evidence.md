@@ -333,26 +333,51 @@ forces `isLandingControlsOpen` true when `compactMobile` is set, and the
 neighboring test at `:497` asserts the landing inference controls stay mounted
 but quiet until lower-edge reveal.
 
-### E-16 — A stored provider preference is silently discarded when the provider is absent from the catalog
+**The four-posture matrix (the decisive Gate 1 finding).** Tracing every
+posture of `Composer.tsx` shows that three of four render the route controls
+and one does not:
+
+| Posture | Provider visible | Provider switchable | Model visible | Model switchable |
+|---|---|---|---|---|
+| Desktop conversation (`Composer.tsx:1576-1594`) | yes | yes | yes | yes |
+| Desktop landing (`Composer.tsx:1330`) | yes | yes | yes | yes |
+| Mobile landing (`Composer.tsx:1308`) | yes | yes | yes | yes |
+| **Mobile conversation (`Composer.tsx:1514-1539`)** | **no** | **no** | **no** | yes (actions menu) |
+
+The mobile conversation surface was the single missing branch in an otherwise
+consistent pattern. The user composes on the landing surface — where the
+provider and model are visible — sends, and lands in the conversation surface,
+where the route is invisible and the provider cannot be changed at all.
+
+### E-16 — A stored provider preference *would* be silently discarded when the provider is absent from the catalog — but the caller is never mounted
 
 **Class:** `code-path`
 
-`frontend/src/lib/providerPref.ts` — `reconcilePreferredProviderSelection`
+`frontend/src/lib/providerPref.ts:144-147` — `reconcilePreferredProviderSelection`
 clears the stored selection when the persisted provider id is not present in
 the reconciled provider list, and clears the stored model when the persisted
-model id is not present in that provider's models. `frontend/src/components/ProviderSelect.tsx:271`
-filters the provider list to entries with `enabled` set.
+model id is not present in that provider's models.
+`frontend/src/components/ProviderSelect.tsx:271` filters the provider list to
+entries with `enabled` set, and `ProviderSelect.tsx:274` is the **only**
+caller of `reconcilePreferredProviderSelection`.
 
-**Consequence for Gate 1 — a second, distinct mechanism.** ADR-052's 2026-09-15
-amendment permits a bounded compatibility fallback when DeepSeek model
-discovery is degraded. If the catalog momentarily omits a provider, the
-client-side preference can be reconciled away and the interface falls back to
-a default provider — with no explicit signal to the user that a stored
-selection was dropped.
+**Correction to the Gate 0 reading of this entry.** Gate 0 recorded this as a
+live silent-substitution mechanism. A direct import sweep of `frontend/src`
+shows `ProviderSelect.tsx` has **no importer outside its own test file**
+(`components/__tests__/ProviderSelect.catalog.test.tsx`). The component is not
+mounted anywhere in the application, so the reconciliation — and therefore the
+silent discard — is **not reachable in the live Guardian flow**.
 
-**Limit of this evidence:** whether this fired during the operator's session is
-**unproven**. It is a proven *mechanism* in code. Gate 1 must establish whether
-it is reachable and observable before treating it as the cause.
+**Consequence for Gate 1.** `frontend/src/lib/providerPref.ts` was removed from
+the Gate 1 authorized file list. The mechanism is real but dormant; removing
+it is deferred hygiene (§10), not a campaign fix. The live selection path is
+instead proven to be explicit: `GuardianChat.tsx:1902-1915`
+(`resolveCompletionSelection`) resolves `providerId`/`modelId` from the
+selected provider and model, and `GuardianChat.tsx:1948-1956` passes them
+explicitly to `buildChatCompletionPayload`, where
+`frontend/src/lib/chatClient.ts:139-146` prefers the explicit values over the
+persisted preference. The request therefore carries an explicit provider and
+model, and `selection_source` is `"explicit"`.
 
 ### E-17 — A stored thread configuration overrides the requested provider/model at acceptance
 
@@ -634,6 +659,7 @@ campaign records the dependency and does not create a competing implementation.
 | Item | Reason | Suggested owner |
 |---|---|---|
 | Remove the dead legacy `frontend/src/components/chat/Composer.tsx` | Unrelated cleanup; no acceptance criterion depends on it | Runtime hygiene |
+| Remove the unmounted `frontend/src/components/ProviderSelect.tsx` and its dormant `reconcilePreferredProviderSelection` path (E-16) | Dead code; removing it is cleanup, not a campaign fix | Runtime hygiene |
 | Consume the declared-but-unused `mobileShellProfile.chat.composer.*` tokens | May be subsumed by Gate 3; decide there | Gate 3, if it falls out of scope |
 | Resolve the ADR-051/ADR-052 filename collision (D-04) | Governance change with wide blast radius | Architecture |
 | Restore or supersede the two absent explicit-model proofs (D-03) | Release track owns the explicit-model contract | Release track |
@@ -641,7 +667,9 @@ campaign records the dependency and does not create a competing implementation.
 
 ---
 
-## 11. Gate 0 validation performed
+## 11. Validation performed
+
+### 11.1 Gate 0
 
 | Check | Result |
 |---|---|
@@ -660,9 +688,28 @@ campaign records the dependency and does not create a competing implementation.
 live-runtime execution, and no full-suite run was performed in Gate 0. The
 frontend smoke run above is a toolchain check and is labeled as such.
 
+### 11.2 Gate 1
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suites | `vitest run features/chat/components/__tests__/Composer.mobile-route.test.tsx components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx components/persona/layout/__tests__/GuardianMobileComposerCommands.test.tsx` | **pass** — 3 files, 37 tests |
+| Chat + layout regression sweep | `vitest run features/chat components/persona/layout` | 56 files passed, **3 tests failed** — all three confirmed **pre-existing** on the clean baseline by stashing the change and re-running (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint | `eslint <changed files>` | **not run** — `eslint-plugin-react` is absent from the installed `node_modules` in this environment. Toolchain gap, not a code result |
+| Prettier | `prettier --check <changed files>` | **not run** — the `prettier` binary is absent from the installed `node_modules`. Line lengths were manually checked against the repo's `printWidth: 100` |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 1's evidence class is `code-path` +
+`unit-test`. No browser-emulated, real-device, or live-runtime proof was
+produced. The route disclosure is proven to render and to dispatch the correct
+selection callbacks; it has **not** been observed on a physical phone.
+
 ---
 
-## 12. Gate 0 checkpoint
+## 12. Gate checkpoints
+
+### 12.1 Gate 0 — evidence inventory and campaign freeze
 
 **Outcome:** complete.
 
@@ -676,7 +723,7 @@ ADR-074 are read and cited, not modified.
 
 **Commit:** the Gate 0 documentation commit —
 `docs(campaign): define mobile experience calibration gates` — on branch
-`feat/auto-20261023-5ef3356f`, baseline `b2907f828`, 2 files added, 1006
+`feat/auto-20261023-5ef3356f`, baseline `b2907f828`, 2 files added, 1011
 insertions, no functional source touched.
 
 The commit hash is recorded in the Gate 0 checkpoint comment on Issue #888.
@@ -691,3 +738,90 @@ recorded in §9.
 **Next atomic Task:** Gate 1 — provider/model selection and execution-truth
 reconciliation on mobile. It is scoped against the allowlist in README §4 and
 must narrow that list before implementation.
+
+### 12.2 Gate 1 — provider/model selection and execution-truth reconciliation
+
+**Task:** `MOB-G1-TASK-1` — mobile route disclosure and provider reachability.
+**Lane:** architecture-impact.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* make the active provider/model route visible and switchable on a
+  phone in the compact mobile conversation surface, without adding a second
+  selection surface, a new authority, or a new provider identity.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/components/Composer.tsx`
+  2. `frontend/src/features/chat/components/__tests__/Composer.mobile-route.test.tsx` (new)
+  3. `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx`
+  4. `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerCommands.test.tsx`
+- *Deliberately excluded:* `frontend/src/lib/providerPref.ts` (the reconcile
+  path is unreachable — E-16), `frontend/src/components/ProviderSelect.tsx`
+  (not mounted), `frontend/src/features/chat/GuardianChat.tsx` (every required
+  prop was already passed), and all backend files.
+
+**Behavior change.**
+
+- The compact mobile **conversation** surface now renders the provider and
+  model route in a dedicated row (`composer-mobile-route-row`) above the
+  control row, using the same `ComposerSelectMenu` controls and the
+  phone-shell bare trigger variant the mobile landing surface already used.
+- The row is omitted entirely when the authorized catalog offers no provider
+  and no model, so no placeholder route is shown.
+- The composer actions menu no longer carries its own Model section on this
+  surface. Model selection is owned by the route row only, matching the
+  precedent the landing surface already set (`Composer.tsx:1321`). This
+  removes a duplicate model affordance rather than adding one.
+
+**Why this is the truthful fix.** The route is drawn from the same
+server-authoritative catalog the landing surface uses
+(`GET /api/llm/catalog`, E-11), and the selection callbacks are the existing
+`onProviderChange` / `onModelChange`, which write the same thread-config
+snapshot the landing surface writes (`GuardianChat.tsx:4747-4801`). No new
+authority, request field, persistence key, or provider identity was introduced.
+
+**Deliberately not changed.**
+
+- The backend explicit-model contract. It already fails closed and is
+  test-backed (E-18). The open release item (`00-current-state.md:74`) and the
+  complete-Compose contradiction (D-01) remain **externally owned** and are
+  **not** marked complete by this campaign.
+- The "⚠ Executed on" effective-route badge and its payload guard
+  (`useChat.ts:339-341`, `:354`). A partial `execution` payload would render
+  no badge, but **no partial payload was proven to occur**, so the guard was
+  left alone. Recorded as an observation, not a defect.
+- The `DeepSeek` display label. `llm_catalog.py:44-45` maps a *local* model's
+  family to its display label. The route row now shows that label next to the
+  provider's runtime identity, so the pairing is explicit rather than
+  ambiguous. Hiding the label would be the misleading fix.
+
+**Files changed:** the four authorized files above. 4 files changed, 279
+insertions, 26 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired.
+
+**Preserved invariants:** Guardian ownership, account scoping, provider policy,
+canonical tokens, message/attempt identity, transcript integrity, the removed
+mobile Session rail, FrameCard styling, and desktop behavior are all unchanged.
+The single-composer-surface invariant is preserved — the route row renders
+inside the same `data-composer-root`, and no projection surface was added.
+
+**Commit:** `fea3338` — `fix(chat): disclose the active provider and model
+route on mobile`. Hash recorded in the Gate 1 checkpoint comment on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. The external prerequisites in §9
+are unchanged, and the explicit-model release item is still open and still
+externally owned.
+
+**Next atomic Task:** Gate 2 — request-observation correctness and first-token
+latency diagnosis (`MOB-G2-TASK-1`). Scope is bounded by E-21 through E-25:
+the observation-loss message is already correct (E-21), the lifecycle
+diagnostic is real but hidden below the `sm` breakpoint on a phone (E-22), the
+banner's visibility predicate omits the queued state (E-23), there is no
+dispatch timestamp and no durable per-request latency record (E-24), and
+displayed latency may be client-synthesized (E-25). Gate 2 must improve UI
+state only where authoritative evidence exists and must record the
+instrumentation gap rather than invent a root cause.
