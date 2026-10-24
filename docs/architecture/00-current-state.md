@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-23
+2026-10-24
 
 ## Interpretation rule
 
@@ -18,14 +18,14 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, mainline changes were documentation and repository cleanup; no new runtime qualification or supported-path widening landed. The current release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Recent merges add bounded profile and application changes, but no fresh supported-path runtime qualification or default Beta widening. The current release gate remains `HOLD`.
 
 ## What changed recently
 
-- Merged the account recovery, export, archive, and conversation-retention decision brief; it explicitly remains a decision request with no accepted architecture, runtime implementation, or R2 work.
-- Added the 2026-10-22 mainline accounting log, which records feature-ref work as unmerged rather than shipped behavior.
-- Removed the accidental `Codexify.Space` gitlink; this is repository hygiene, not a product or release change.
-- Preserved the reconciled mainline history, UMS ORM restoration, account-boundary fail-closed repair, and bounded Private Preview restart evidence from the preceding audit window.
+- Admitted the existing `share` route alongside `direct_messages` in the private-preview profile; this does not widen default Beta support.
+- Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
+- Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
+- Added saved-widget identity/revision architecture and personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`.
 
 ## Current supported reality
@@ -35,7 +35,7 @@ This file is authoritative for:
 - Mainline has bounded evidence at evaluated tips for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - UMS ORM imports and migration-to-ORM parity are recorded; this does not establish complete UMS or supported-Compose qualification.
-- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and same-node human messaging is not default Beta support.
+- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes; neither is default Beta support or end-to-end qualified here.
 - The legacy continuity operator surface is fail-closed for remote, Preview, and multi-user execution because operator credentials do not establish account authority.
 
 ## Not yet true / do not assume
@@ -45,7 +45,9 @@ This file is authoritative for:
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
 - Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
-- Do not promote account-owned connectors, direct messaging, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
+- Do not promote account-owned connectors, direct messaging/share, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
+- Do not treat the saved-widget contract or personal-fact pipeline baseline as accepted product scope, or focused candidate/search tests as live release proof.
+- Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
 - Branch-only implementation, origin-only accounting, uncommitted checkout work, and local-only commits are not shipped `main` reality.
 - The current-state knowledge-graph node parses but its freshness is stale; validity is not current release proof.
 
@@ -57,15 +59,16 @@ This file is authoritative for:
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap and natural import-to-recall scope proof remain open.
 - Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
+- Private-preview messaging/share admission has route-mount and focused-test evidence but lacks current end-to-end live proof; bearer-link expiry and revocation remain unresolved risks.
 - Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
 
 ## This week’s priorities
 
 1. Freeze the evaluated local `main` SHA and run the complete supported-Compose proof bundle.
 2. Repair the stale migration-head expectation and execute the blocked Chronicle HTTP regression cases.
-3. Close the explicit-model rejection contradiction before provider execution.
+3. Close the explicit-model rejection and delegated adapter contract contradictions before provider execution.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, and ordinary chat on one evaluated tip.
-5. Resolve export/restore/retention contract gaps, the delegation adapter contract, and import-to-recall scope proof.
+5. Resolve export/restore/retention, import-to-recall, and private-preview messaging/share proof gaps.
 
 ## Release definition right now
 
