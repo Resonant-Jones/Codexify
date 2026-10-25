@@ -45,7 +45,19 @@ def mock_facts_db(mock_db):
     mock_db.add_fact_evidence.return_value = 10
     mock_db.get_fact_revisions.return_value = []
     mock_db.count_facts.return_value = 1
-    mock_db.list_fact_evidence_for_facts.return_value = {}
+    # Thread-filtered reads attach the matching source evidence. The candidate
+    # endpoint is fail-closed, so the loader must return usable evidence for
+    # every fact it selects.
+    mock_db.list_fact_evidence_for_facts.return_value = {
+        1: [
+            {
+                "id": 10,
+                "fact_id": 1,
+                "source_type": "user_stated",
+                "evidence_meta": {"thread_id": 42, "source": "chat"},
+            }
+        ]
+    }
     return mock_db
 
 
@@ -242,3 +254,128 @@ def test_list_fact_candidates_passes_the_thread_filter(
     assert call_kwargs["thread_id"] == 42
     _, count_kwargs = mock_facts_db.count_facts.call_args
     assert count_kwargs["thread_id"] == 42
+
+
+# ── Fail-closed evidence reads ──────────────────────────────────────────────
+#
+# The Guardrails Contract requires that evidence is never silently dropped.
+# A thread-filtered candidate page promises its source evidence, so a storage
+# failure or an unusable loader must fail the request rather than return an
+# incomplete page as a success.
+
+
+def test_thread_filtered_read_attaches_matching_evidence(
+    facts_test_client, auth_headers
+):
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["total"] == 1
+    evidence = body["facts"][0]["_evidence"]
+    assert evidence["evidence_meta"]["thread_id"] == 42
+
+
+def test_thread_filtered_read_fails_closed_when_the_loader_raises(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        "evidence store unavailable: host=db.internal token=secret-value"
+    )
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+    assert response.json() != {"ok": True}
+
+
+def test_thread_filtered_read_fails_closed_when_the_loader_is_absent(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts = None
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+
+
+def test_thread_filtered_read_fails_closed_on_a_malformed_result(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.return_value = ["not-a-mapping"]
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+
+
+def test_thread_filtered_read_fails_closed_on_malformed_evidence_rows(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.return_value = {1: "not-a-list"}
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+
+
+def test_thread_filtered_read_fails_closed_when_matching_evidence_is_absent(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.return_value = {
+        1: [{"id": 10, "fact_id": 1, "evidence_meta": {"thread_id": 7}}]
+    }
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+
+
+def test_evidence_failure_response_leaks_no_internal_detail(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        "psycopg connection to db.internal failed for user chris: token=secret"
+    )
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+    body = response.text
+    assert "psycopg" not in body
+    assert "db.internal" not in body
+    assert "secret" not in body
+    assert "chris" not in body
+    assert "Traceback" not in body
+
+
+def test_evidence_failure_does_not_leak_fact_content(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        "failed"
+    )
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+    assert "NYC" not in response.text
+    assert "location" not in response.text
+
+
+def test_read_without_thread_id_does_not_load_evidence(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    """Without thread_id the current read path is unchanged."""
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        "must not be called"
+    )
+    response = facts_test_client.get(
+        "/personal-facts/candidates", headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert "_evidence" not in response.json()["facts"][0]
+    assert not mock_facts_db.list_fact_evidence_for_facts.called

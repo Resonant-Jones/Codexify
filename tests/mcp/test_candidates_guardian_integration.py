@@ -26,7 +26,11 @@ from fastapi.testclient import TestClient
 
 from guardian.mcp_memory.client import MemoryClient
 from guardian.mcp_memory.config import load_config
-from guardian.mcp_memory.errors import ConfigurationError
+from guardian.mcp_memory.errors import (
+    UPSTREAM_ERROR,
+    CodexifyMCPError,
+    ConfigurationError,
+)
 
 PRINCIPAL = "mcp-candidates-principal"
 API_KEY = "mcp-candidates-test-key"
@@ -54,10 +58,16 @@ class _FakeFactsDB:
     PostgreSQL.
     """
 
-    def __init__(self, facts: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        facts: list[dict[str, Any]],
+        *,
+        evidence_mode: str = "ok",
+    ) -> None:
         self._facts = sorted(
             facts, key=lambda f: (f["updated_at"], f["id"]), reverse=True
         )
+        self.evidence_mode = evidence_mode
 
     def _matching(
         self,
@@ -88,6 +98,8 @@ class _FakeFactsDB:
         offset: int = 0,
         thread_id: int | None = None,
     ) -> list[dict[str, Any]]:
+        if self.evidence_mode == "list_raises":
+            raise RuntimeError("candidate read failed: db.internal")
         rows = self._matching(user_id, status, active_only, thread_id)
         if limit is None:
             return list(rows[offset:])
@@ -105,7 +117,30 @@ class _FakeFactsDB:
     def list_fact_evidence_for_facts(
         self, fact_ids: list[int]
     ) -> dict[int, list[dict[str, Any]]]:
-        return {}
+        if self.evidence_mode == "raise":
+            raise RuntimeError(
+                "evidence store unavailable: host=db.internal token=secret"
+            )
+        if self.evidence_mode == "malformed":
+            return ["not-a-mapping"]
+        if self.evidence_mode == "missing":
+            return {}
+        wanted = set(fact_ids)
+        return {
+            fact["id"]: [
+                {
+                    "id": fact["id"] * 100,
+                    "fact_id": fact["id"],
+                    "source_type": "user_stated",
+                    "evidence_meta": {
+                        "thread_id": fact.get("thread_id"),
+                        "source": "chat",
+                    },
+                }
+            ]
+            for fact in self._facts
+            if fact["id"] in wanted and fact.get("thread_id") is not None
+        }
 
     def get_fact(self, fact_id: int) -> dict[str, Any] | None:
         for fact in self._facts:
@@ -117,12 +152,20 @@ class _FakeFactsDB:
         return []
 
 
-def _build_app(monkeypatch: pytest.MonkeyPatch, facts: list[dict[str, Any]]):
+def _build_app(
+    monkeypatch: pytest.MonkeyPatch,
+    facts: list[dict[str, Any]],
+    *,
+    evidence_mode: str = "ok",
+):
     """Build an app that serves the real personal-facts router."""
     from guardian.routes import personal_facts
 
     monkeypatch.setattr(
-        personal_facts, "chatlog_db", _FakeFactsDB(facts), raising=False
+        personal_facts,
+        "chatlog_db",
+        _FakeFactsDB(facts, evidence_mode=evidence_mode),
+        raising=False,
     )
 
     def _require_api_key(
@@ -164,6 +207,17 @@ def facts() -> list[dict[str, Any]]:
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch, facts: list[dict[str, Any]]) -> FastAPI:
     return _build_app(monkeypatch, facts)
+
+
+@pytest.fixture
+def thread_facts() -> list[dict[str, Any]]:
+    """Candidates that belong to a thread, so evidence is required."""
+    rows = []
+    for index in range(1, 4):
+        fact = _fact(index, f"probe_key_{index}", f"synthetic-value-{index}")
+        fact["thread_id"] = 4242
+        rows.append(fact)
+    return rows
 
 
 # ── The route must be reachable over HTTP ───────────────────────────────────
@@ -300,3 +354,115 @@ async def test_adapter_sends_its_api_key(app: FastAPI) -> None:
         }
     )
     assert config.api_key == API_KEY
+
+
+# ── Evidence-read failures must not reach the adapter as a success ───────────
+#
+# The Guardrails Contract forbids silently dropping evidence. The adapter must
+# therefore report an error when the upstream candidate read fails, and must
+# still surface matching evidence on the success path.
+
+
+class _ThreadQueryShim:
+    """ASGI shim that adds ``thread_id`` to the adapter's candidate request.
+
+    The v1 memory MCP adapter exposes no ``thread_id`` parameter on
+    ``list_fact_candidates``, so the adapter's own request never enters the
+    route's thread-evidence branch. This shim exists only to drive that branch
+    through the *real* adapter and the *real* router so the adapter's error
+    mapping is observed against the actual failure response. It changes no
+    product code.
+    """
+
+    def __init__(self, app: Any, thread_id: int) -> None:
+        self._app = app
+        self._thread_id = thread_id
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if (
+            scope.get("type") == "http"
+            and scope.get("path") == "/personal-facts/candidates"
+        ):
+            query = scope.get("query_string", b"").decode()
+            scope = dict(scope)
+            scope["query_string"] = (
+                f"{query}&thread_id={self._thread_id}".encode()
+            )
+        await self._app(scope, receive, send)
+
+
+@pytest.mark.asyncio
+async def test_adapter_thread_read_attaches_matching_evidence(
+    monkeypatch: pytest.MonkeyPatch, thread_facts: list[dict[str, Any]]
+) -> None:
+    app = _build_app(monkeypatch, thread_facts)
+    transport = httpx.ASGITransport(app=_ThreadQueryShim(app, 4242))
+    async with MemoryClient(_config(), transport=transport) as client:
+        response = await client.list_fact_candidates(
+            status="candidate", limit=50, offset=0
+        )
+    assert response.status == 200
+    payload = response.payload
+    assert payload["ok"] is True
+    assert payload["total"] == 3
+    for fact in payload["facts"]:
+        assert fact["_evidence"]["evidence_meta"]["thread_id"] == 4242
+
+
+@pytest.mark.asyncio
+async def test_adapter_reports_an_error_when_the_evidence_loader_raises(
+    monkeypatch: pytest.MonkeyPatch, thread_facts: list[dict[str, Any]]
+) -> None:
+    app = _build_app(monkeypatch, thread_facts, evidence_mode="raise")
+    transport = httpx.ASGITransport(app=_ThreadQueryShim(app, 4242))
+    async with MemoryClient(_config(), transport=transport) as client:
+        with pytest.raises(CodexifyMCPError) as excinfo:
+            await client.list_fact_candidates(status="candidate", limit=50)
+    assert excinfo.value.code == UPSTREAM_ERROR
+    message = str(excinfo.value)
+    assert "db.internal" not in message
+    assert "secret" not in message
+
+
+@pytest.mark.asyncio
+async def test_adapter_reports_an_error_on_a_malformed_evidence_result(
+    monkeypatch: pytest.MonkeyPatch, thread_facts: list[dict[str, Any]]
+) -> None:
+    app = _build_app(monkeypatch, thread_facts, evidence_mode="malformed")
+    transport = httpx.ASGITransport(app=_ThreadQueryShim(app, 4242))
+    async with MemoryClient(_config(), transport=transport) as client:
+        with pytest.raises(CodexifyMCPError) as excinfo:
+            await client.list_fact_candidates(status="candidate", limit=50)
+    assert excinfo.value.code == UPSTREAM_ERROR
+
+
+@pytest.mark.asyncio
+async def test_adapter_reports_an_error_when_matching_evidence_is_absent(
+    monkeypatch: pytest.MonkeyPatch, thread_facts: list[dict[str, Any]]
+) -> None:
+    app = _build_app(monkeypatch, thread_facts, evidence_mode="missing")
+    transport = httpx.ASGITransport(app=_ThreadQueryShim(app, 4242))
+    async with MemoryClient(_config(), transport=transport) as client:
+        with pytest.raises(CodexifyMCPError) as excinfo:
+            await client.list_fact_candidates(status="candidate", limit=50)
+    assert excinfo.value.code == UPSTREAM_ERROR
+
+
+@pytest.mark.asyncio
+async def test_adapter_reports_an_error_when_the_candidate_read_fails(
+    monkeypatch: pytest.MonkeyPatch, thread_facts: list[dict[str, Any]]
+) -> None:
+    """A failed upstream candidate read must never reach the client as success.
+
+    This is the plain (no ``thread_id``) read path, which PFP-01R1 leaves
+    unchanged: a storage exception propagates and the server answers 500.
+    ``raise_app_exceptions=False`` reproduces that production behaviour in the
+    in-process transport, which otherwise re-raises the exception to the test.
+    """
+    app = _build_app(monkeypatch, thread_facts, evidence_mode="list_raises")
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with MemoryClient(_config(), transport=transport) as client:
+        with pytest.raises(CodexifyMCPError) as excinfo:
+            await client.list_fact_candidates(status="candidate", limit=50)
+    assert excinfo.value.code == UPSTREAM_ERROR
+    assert "db.internal" not in str(excinfo.value)

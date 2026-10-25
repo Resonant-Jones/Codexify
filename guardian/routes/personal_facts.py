@@ -360,17 +360,55 @@ def list_fact_candidates(
         # Attach the evidence row that matched the thread. Only the returned
         # page is inspected, so the evidence read stays bounded by the page
         # size instead of scanning every fact's evidence.
-        grouped: dict[int, list[dict[str, Any]]] = {}
+        #
+        # Evidence integrity is fail-closed. The Guardrails Contract requires
+        # that evidence is never silently dropped, so a storage failure, an
+        # unusable loader, or a page fact whose matching thread evidence is
+        # absent must not be presented as a complete successful review page.
+        fact_ids = [fact["id"] for fact in page]
         loader = getattr(db, "list_fact_evidence_for_facts", None)
-        if callable(loader):
-            try:
-                loaded = loader([fact["id"] for fact in page])
-            except Exception:
-                loaded = None
-            if isinstance(loaded, dict):
-                grouped = loaded
+        if not callable(loader):
+            logger.error(
+                "Personal Fact candidate evidence loader is unavailable for "
+                "%d fact(s)",
+                len(fact_ids),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
+        try:
+            loaded = loader(fact_ids)
+        except Exception as exc:
+            logger.error(
+                "Personal Fact candidate evidence load failed: %s", exc
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            ) from exc
+        if not isinstance(loaded, dict):
+            logger.error(
+                "Personal Fact candidate evidence loader returned an "
+                "unexpected result"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
         for fact in page:
-            rows = grouped.get(fact["id"]) or []
+            rows = loaded.get(fact["id"])
+            if rows is None:
+                rows = []
+            if not isinstance(rows, (list, tuple)):
+                logger.error(
+                    "Personal Fact candidate evidence rows are malformed"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            matched: dict[str, Any] | None = None
             for ev in rows:
                 meta = ev.get("evidence_meta") if isinstance(ev, dict) else {}
                 if not isinstance(meta, dict):
@@ -383,8 +421,18 @@ def list_fact_candidates(
                 except (TypeError, ValueError):
                     matches = False
                 if matches:
-                    fact["_evidence"] = ev
+                    matched = ev
                     break
+            if matched is None:
+                logger.error(
+                    "Personal Fact candidate %s has no matching thread evidence",
+                    fact["id"],
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            fact["_evidence"] = matched
 
     return {
         "ok": True,
