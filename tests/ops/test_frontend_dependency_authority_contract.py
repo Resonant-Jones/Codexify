@@ -172,6 +172,19 @@ def test_no_live_consumer_references_the_retired_lockfiles() -> None:
     assert not offenders, "Retired install-root artifacts are still referenced: " + "; ".join(offenders)
 
 
+def test_self_heal_is_covered_by_the_live_consumer_scan() -> None:
+    """The self-heal script restores canonical artifacts; it must stay scanned.
+
+    It is the script that rebuilds the canonical manifests and lockfile, so
+    it must not be able to drift back to the retired install root without the
+    live-consumer scan noticing.
+    """
+    script = "scripts/dev/self_heal_frontend.sh"
+
+    assert script in set(_tracked_files())
+    assert any(Path(script).match(pattern) for pattern in CONSUMER_GLOBS)
+
+
 def test_typecheck_script_covers_application_source() -> None:
     app_manifest = _manifest("frontend/src/package.json")
     root_manifest = _manifest("package.json")
