@@ -95,9 +95,21 @@ result, and remains useful outside the conversation that produced it.
 ### 2. Classification never grants the model authority over its own trust
 
 Eligibility is evaluated by the **server** against the artifact payload, as a set of necessary conditions: the
-envelope parses and validates; the kind is `sandbox`; the executable payload is present; the payload references no
-external origin; the size is within the existing caps; and the source message is linked by the server to a completed,
-accepted Guardian completion attempt.
+envelope parses and validates; the kind is `sandbox`; the executable payload is present; the payload shows no
+external-origin indicators; the size is within the existing caps; and the source message is linked by the server to a
+completed, accepted Guardian completion attempt.
+
+Those conditions sit on **three separate boundaries**, which this decision keeps apart. Structural envelope
+validation — envelope form, kind, executable payload presence, and size — is decidable exactly by parsing.
+Self-containment eligibility, judged from external-origin indicators, is a **heuristic filter derived from static
+inspection, not a proof**. Runtime CSP enforcement is the actual network-denial boundary, and it is unchanged here.
+
+**Static inspection cannot prove that arbitrary JavaScript is network-independent.** A payload can assemble a URL at
+runtime, or derive one from encoded data, through a channel no string scan would flag. A clean self-containment
+check therefore means "no obvious external-origin reference", **not** "cannot make a network request". That is
+acceptable only because the runtime CSP (`default-src 'none'`, `connect-src 'none'`) denies the attempt when it
+happens. The CSP is the security control; the static check is not. Any future render path that cannot rely on the CSP
+must fail closed rather than fall back on static inspection.
 
 Passing those conditions makes an artifact **offerable**. It does not make it saved.
 
@@ -125,11 +137,31 @@ The provenance snapshot is **denormalized into the revision record at save time*
 because the referents cascade on thread deletion. Deleting the source thread does not delete, alter, or
 un-provenance a Saved Widget: the source thread is provenance, not the storage authority.
 
+A Saved Widget also carries an explicit lifecycle state — `active`, `archived`, or `deleted` — which is a property of
+the widget and distinct from its revision history.
+
+**Deletion preserves the transcript reference while withdrawing the source.** Explicit deletion moves the widget and
+its revisions out of the servable set: the canonical identity, ownership, and revision numbering remain addressable
+for audit and transcript truth, but the artifact payload is no longer returned by any read path, so no historical
+reference can still fetch and run the program. A historical invocation of a deleted widget renders an honest
+**unavailable / tombstone state** — the entry and the reference remain, and the surface states plainly that the
+widget was deleted. It must not render a successful widget, a cached or mirrored copy, or a blank frame that looks
+like a working program.
+
+**Source-thread deletion and Saved Widget deletion are independent operations.** Deleting the thread a widget was
+generated in does not delete the widget; deleting the widget does not delete the thread. Neither implies the other.
+
 ### 4. Revisions are immutable, monotonic, and linear
 
 The revision model follows the immutable-snapshot pattern already proven by Persona Profiles — a stable record
-with a `current_revision` pointer, and revisions keyed by `(owner_id, revision)` holding an immutable snapshot — as
+with a `current_revision` pointer, and revisions keyed by `(widget_id, revision)` holding an immutable snapshot — as
 a **design reference only**, with no coupling to Persona Profiles.
+
+The revision key is **`(widget_id, revision)`**. Ownership is a property *of* the widget, not a component of the
+revision key, and revision numbering is scoped to the individual widget. Two widgets owned by the same account each
+number their own revisions from 1 without collision. Keying revisions by owner would make revision identity depend
+on an ownership attribute instead of the resource's own identity, and would let two same-account widgets collide on
+a revision number.
 
 A Saved Widget has a stable widget ID, a strictly increasing server-assigned revision number, an immutable revision
 snapshot, a current-revision pointer, revision creation provenance, and an edit base revision.
@@ -158,6 +190,15 @@ in the message's existing structured metadata field rather than in message conte
 copied into the message row. The server resolves the widget, verifies account authorization, and canonicalizes the
 revision on write, because a client-forged reference is untrusted input.
 
+**`extra_meta` is not automatically provider-visible context.** It is a message-record field; the inference path
+reads message *content*. A reference held in `extra_meta` reaches the provider only if the inference assembly
+deliberately renders a descriptor for it, and is otherwise invisible to the model. Any inference descriptor must be
+**server-resolved, authorization-checked, bounded, and canonicalized** — derived from the authoritative record at
+assembly time rather than from the stored client claim — and it states only the widget display name and revision
+number, length-capped and rendered as text. **Client-supplied metadata cannot establish authority**: a forged
+reference is resolved against the record, and an unresolvable one yields no descriptor at all. Normal inference
+**never receives widget program source**; supplying the source is the separately authorized edit path.
+
 The widget is rendered by the **host** from the authoritative record, through the **existing** renderer and the
 **existing** sandbox frame, in the user-side transcript surface alongside the established document-context tile.
 
@@ -185,9 +226,17 @@ A failed edit leaves the existing saved revision intact. A generated candidate n
 revision. When the model cannot accommodate the selected source within available context capacity, the edit fails
 explicitly with a stated reason rather than silently truncating the source and proceeding with a partial program.
 
-Widget source is untrusted and may contain instructions. The mitigation is not source sanitization but the chain of
-authority: the source is delimited and labeled as data, and no model output can create, save, revise, install, or
-publish a Saved Widget.
+Widget source is untrusted and may contain instructions. Two gates protect the system, and they are **different
+gates**: the **persistence gate** is human approval, and the **execution-context gate** is authority isolation.
+Human approval does not protect the model's own context, so this decision does not rely on it alone.
+
+A source-bearing edit turn is therefore constrained as an **inference-only candidate-generation operation**:
+widget source enters as delimited, labelled untrusted data; it does not participate in instruction selection; and it
+**must not grant, request, or influence authority** for tools, connectors, retrieval, or any privileged action. The
+turn's authority posture is fixed before the source is attached and is never derived from it. Where that isolation
+cannot be enforced, the operation **fails closed** rather than proceeding with source attached or degrading into a
+lesser capability. This does not invent a second Guardian control plane: it is a property of how the edit turn is
+assembled, not a new authority registry.
 
 ### 7. Runtime containment is unchanged, and saving grants no capability
 
@@ -206,9 +255,17 @@ explicit launch affordance starts it, and a running instance is destroyed on dis
 denies the frame access to host storage, cookies, `document`, and host APIs, "a reopened widget starts with fresh
 runtime state" is a containment-derived property and not only a policy.
 
-Web Audio synthesizers and canvas games are compatible with the existing containment without any CSP change, since
-browser autoplay rules require a user gesture — which explicit launch already supplies — and canvas drawing needs
-no additional permission. Any future need that would genuinely widen the boundary requires a separate ADR.
+Web Audio synthesizers and canvas games are the motivating examples. Neither needs a sandbox permission widened to
+attempt, and **no CSP change is made here** — but "needs no permission change" is not the same as "works".
+
+Synthesizer compatibility is **unproven**. Browser autoplay rules require a user activation to start an
+`AudioContext`, and a host-side launch click is **not** established to be a user activation inside a newly created
+sandboxed iframe. Explicit launch is therefore a **necessary condition for a future audio widget, not a sufficient
+one**. Calling synthesizer support proven requires real-browser evidence of `AudioContext` creation and
+initialization inside the frame, user-initiated playback and resume, containment while audio runs, and teardown when
+the instance is dismissed. If that evidence shows a permission the sandbox does not grant, the expansion is
+**separately gated** and needs its own ADR. Canvas does not depend on an autoplay activation policy and inherits
+the same containment, explicit launch, and cleanup rules as every other saved widget.
 
 ### 8. Library semantics are preserved, including unavailable versus empty
 
@@ -342,6 +399,23 @@ govern the Library projection and its unavailable-versus-empty semantics unchang
 11. A saved widget's runtime starts only on explicit launch and is destroyed on dismissal.
 12. Library remains a read-only projection, and widget mutations belong to a separate governed authoring path.
 13. Widget export and restore are not supported until separately implemented and proven.
+14. Revision identity is keyed by `(widget_id, revision)`. Ownership is a property of the widget and is not a
+    component of the revision key.
+15. Structural envelope validation, self-containment eligibility, and runtime CSP enforcement are three separate
+    boundaries. The runtime CSP is the network-denial control; a static self-containment check is an eligibility
+    filter and is never a security guarantee.
+16. A source-bearing edit turn is an inference-only candidate-generation operation. Widget source must not grant,
+    request, or influence authority for tools, connectors, retrieval, or privileged actions, and the operation fails
+    closed where that isolation cannot be enforced. Human approval remains required before revision persistence.
+17. Synthesizer compatibility is unproven pending real-browser evidence of `AudioContext` creation, user-initiated
+    playback and resume, containment, and cleanup on dismissal. Explicit launch is a necessary condition, not a
+    sufficient one.
+18. Explicit widget deletion preserves the historical transcript reference while withdrawing the executable source.
+    A deleted widget's historical invocations render an honest unavailable/tombstone state and never a successful
+    rendering.
+19. `extra_meta` is not automatically provider-visible context. Any inference descriptor is server-resolved,
+    authorization-checked, bounded, and canonicalized, and client-supplied metadata cannot establish authority.
+    Normal inference never receives widget program source.
 
 ## Approved product intent versus unaccepted implementation architecture
 
@@ -382,8 +456,9 @@ None of the above is implemented. This ADR records architecture only.
 
 - A saved widget is functionally a user-installed, model-authored program with a long life. Its containment is
   unchanged, but its lifetime is not. Explicit launch and the unchanged bridge are what keep that acceptable.
-- Widget source supplied as edit context is untrusted instruction-shaped content. The control is the human approval
-  gate, not sanitization.
+- Widget source supplied as edit context is untrusted instruction-shaped content. The human approval gate protects
+  *persistence*; it does not protect the model's *execution context*. Authority isolation on source-bearing edit
+  turns is the second, separate control, and it fails closed where it cannot be enforced.
 - A durable cross-thread record requires a server-side artifact envelope validator, which does not exist today —
   the backend currently only strips `cfy-ui` markers, and every validation rule lives in the frontend codec. The two
   sides must be kept in agreement, which the shared marker corpus already exists to serve.
