@@ -176,6 +176,23 @@ The claim's authority is the durable deployment record the run already points at
 
 **What this does not yet provide.** The acceptance record makes an accepted run distinguishable from a queued, never-started run after worker process death. It does **not** implement restart-time reconciliation: nothing reads the acceptance record at startup, no uncertain-outcome sweep exists, and `observe_liveness()`, `classify_dispatch_health()`, and `recover_dispatch()` are not wired into any startup path. Reconciliation remains a separate, dependent task, and no retry authority is implied by the record.
 
+### Durable coding-worker ownership
+
+The acceptance record says *that* an execution was claimed. It does not say *who* claimed it, and without that, an accepted run cannot be told apart from one whose owner is still working. **Durable ownership** records the worker instance that took the claim and the unique claim it made, inside the existing `agent_runs` authority.
+
+| Field | Meaning | Before | After acceptance |
+|---|---|---|---|
+| `agent_runs.coding_worker_instance_id` | the coding-worker instance that accepted the run | `null` | the internal instance identity |
+| `agent_runs.coding_worker_claim_id` | the unique ownership claim made at that moment | `null` | a fresh claim identity |
+
+Both fields are nullable and bounded, and the schema enforces that they are **both present or both absent** (`agent_runs_coding_worker_ownership_check`) and that a non-null claim identity is **unique** (`uq_agent_runs_coding_worker_claim_id`). The migration `e42c7d0b9135` is additive: it adds the two columns and the two named constraints, it preserves every existing row and the run-status vocabulary, and it does not backfill historical ownership. Rows accepted before the migration remain **ownership-unknown** — that is their truthful meaning, and the migration does not fabricate an owner for them.
+
+**Ownership is executor metadata.** The instance identity identifies the worker *instance*, never an account, principal, or credential owner; the two identities are never conflated. The identity is generated inside the worker from a fresh uuid, using the repository's established `<prefix>_<uuid4 hex>` convention. It is **not** derived solely from a hostname or a PID, because two instances on one host must never collide and a restarted process must never inherit its predecessor's identity. It cannot be supplied by a queue payload, a deployment field, or model output; a trusted constructor seam exists only so a test can inject a deterministic value.
+
+**The claim boundary.** The ownership claim and the `queued → running` transition are one statement in one transaction. A successful acceptance commits `status`, `started_at`, the instance identity, and the claim identity together; a failed acceptance commits none of them. The claim remains a compare-and-set on `status = 'queued'`, so a second worker cannot take an accepted run, cannot replace its owner or claim, cannot refresh `started_at`, and never reaches the adapter, a worktree, or a credential lease. A duplicate claim also publishes no terminal failure, so an accepted attempt is never reported as failed by a second delivery.
+
+**What ownership does not provide.** A persisted owner is **not** proof that the worker is still alive: it records that an instance took the claim, not that it still holds it. There is deliberately no heartbeat column, no expiry, no takeover, and no automatic claim reassignment, and the restart-reconciliation posture described below remains unimplemented. A claim identity is durable correlation material for a future fencing mechanism; it is **not** retry authority, and it grants no permission to re-execute. Ownership stays subordinate to `agent_runs` — there is no separate ownership table and no independent control plane.
+
 ### Restart reconciliation of abandoned executions
 
 The durable acceptance record makes an accepted run **distinguishable from a
@@ -192,12 +209,13 @@ establish that the accepted execution completed. A missing lease row does not
 establish that no execution occurred. A stale heartbeat cannot authorize task
 replay.
 
-**The gate currently fails.** The canonical records carry no worker ownership
-and no liveness:
+**The gate still fails, on the liveness half.** Durable ownership now exists —
+`agent_runs.coding_worker_instance_id` records which instance took the claim —
+so the *ownership* half of the question is answered. The *liveness* half is not:
 
-- `agent_runs` and `agent_deployments` have no worker, owner, lease, or
-  heartbeat column. The only liveness-adjacent field is `started_at`, which is
-  a timestamp and therefore not a signal.
+- `agent_runs` and `agent_deployments` still carry no heartbeat, expiry, or
+  lease column. The only liveness-adjacent fields are `started_at` and the
+  ownership identities, and a timestamp is not a signal.
 - `coding_worktree_leases` has exactly the right shape — `worker_id`,
   `last_heartbeat_at`, `expires_at` — but **no production code path creates a
   lease**, and the lease contract is worktree-scoped, so it cannot own a
@@ -331,6 +349,7 @@ Recommended `source_type` values for coding v1:
 - The reasoning effort is Guardian's to select and the binding's to carry. A worker task may not choose or widen its own invocation options, and an effort the Guardian did not authorize must not reach the harness.
 - The credential that authorizes a delegated execution keeps its real owner. A service-owned credential serves an account only where the service's own recorded policy names that account, provider, model, funding route, and usage policy, and it remains service-owned in the binding. Credential discovery is not authorization, and an account principal does not become the credential's owner by using a service-owned key.
 - A side-effecting coding execution may not begin until its acceptance is durably recorded in canonical PostgreSQL. Missing or unreachable persistence is never permission to execute, and a refused or duplicated acceptance never overwrites another worker's run, artifact, or source-thread result.
+- A coding run records the worker instance that accepted it and the unique claim it made, atomically with acceptance. Worker identity is executor metadata: it is not an account, a principal, or a credential owner, and a queue payload cannot choose it. A persisted owner is not proof of liveness, and a claim identity grants no retry authority.
 - A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals

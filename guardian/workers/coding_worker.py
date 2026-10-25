@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
@@ -1921,11 +1922,63 @@ def _validate_task_execution_binding(
     return binding
 
 
+#: Prefixes for the internally generated coding-worker ownership identifiers.
+#: They follow the repository's established ``<prefix>_<uuid4 hex>`` convention.
+_CODING_WORKER_INSTANCE_ID_PREFIX = "cwi"
+_CODING_WORKER_CLAIM_ID_PREFIX = "cwc"
+
+
+def _new_coding_worker_instance_id() -> str:
+    """Generate a fresh internal coding-worker instance identity.
+
+    The identity is a fresh uuid, not a hostname or a PID: two worker
+    instances on the same host must never collide, and a restarted process
+    must never inherit its predecessor's identity. It is generated here, in
+    the worker, so that no queue payload, deployment field, or model output
+    can choose who executes a run.
+    """
+    return f"{_CODING_WORKER_INSTANCE_ID_PREFIX}_{uuid4().hex}"
+
+
+def _new_coding_worker_claim_id() -> str:
+    """Generate a fresh ownership claim id for one proposed run acceptance.
+
+    A claim identifies exactly one acceptance, so every proposed acceptance
+    gets its own. It is durable correlation material for future fencing; it is
+    not retry authority and it says nothing about liveness.
+    """
+    return f"{_CODING_WORKER_CLAIM_ID_PREFIX}_{uuid4().hex}"
+
+
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
-    def __init__(self, agent_store: AgentStore | None = None):
+    def __init__(
+        self,
+        agent_store: AgentStore | None = None,
+        *,
+        worker_instance_id: str | None = None,
+    ):
+        """Create a coding worker with its own internal instance identity.
+
+        The instance identity is *executor* metadata: it says which worker
+        instance took an execution claim. It is not an account, principal, or
+        credential identity, and it is not derived from a hostname or a PID,
+        because two instances on one host must never collide and a restarted
+        process must never inherit its predecessor's identity.
+
+        ``worker_instance_id`` is a trusted test seam. It exists so a test can
+        inject a deterministic identity; production never supplies it, and no
+        queue payload, deployment field, or model output can select it.
+        """
         self.store = agent_store or _store
+        self.worker_instance_id = (
+            str(worker_instance_id).strip()
+            if worker_instance_id is not None
+            else _new_coding_worker_instance_id()
+        )
+        if not self.worker_instance_id:
+            raise ValueError("coding worker instance id must not be empty")
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if processed."""
@@ -2281,15 +2334,23 @@ class CodingWorker:
 
         # Durable acceptance. A side-effecting Guardian execution may not
         # begin until ownership of the run is durably recorded: the canonical
-        # agent_runs row is atomically transitioned queued -> running and
-        # stamped with started_at. The trusted execution binding and its
+        # agent_runs row is atomically transitioned queued -> running, stamped
+        # with started_at, and stamped with the owning worker instance and a
+        # unique ownership claim. The trusted execution binding and its
         # lineage were validated above, and the durable deployment record
         # supplies the authority that the claim re-checks. Anything other
         # than an accepted claim -- already claimed, terminal, mismatched, or
         # unreachable persistence -- refuses execution.
+        #
+        # The ownership identity is generated here, from the worker instance
+        # itself. It is never read from the task, the payload, the
+        # deployment, or anything model-controlled.
+        ownership_claim_id = _new_coding_worker_claim_id()
         acceptance = self.store.claim_run_for_acceptance(
             run_id=str(task.run_id or ""),
             deployment_id=str(task.deployment_id or ""),
+            worker_instance_id=self.worker_instance_id,
+            claim_id=ownership_claim_id,
             user_id=execution_binding.user_id,
             thread_id=task.thread_id,
             source_message_id=_coerce_optional_positive_int(

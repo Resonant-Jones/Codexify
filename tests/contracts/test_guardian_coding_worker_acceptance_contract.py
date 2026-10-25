@@ -73,6 +73,11 @@ _ACCEPTED = "accepted"
 _REJECTED = "rejected"
 _UNAVAILABLE = "unavailable"
 
+#: A deterministic worker-instance identity for direct store-level claims.
+#: The worker generates its own in production; this seam only keeps the
+#: acceptance contract's store-level cases reproducible.
+_TEST_WORKER_INSTANCE_ID = "cwi_test_acceptance_contract"
+
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +425,8 @@ def _claim(db: _TestDB, task: CodingExecutionTask, **overrides: Any) -> str:
     kwargs: dict[str, Any] = {
         "run_id": str(task.run_id or ""),
         "deployment_id": str(task.deployment_id or ""),
+        "worker_instance_id": _TEST_WORKER_INSTANCE_ID,
+        "claim_id": f"cwc_test_{uuid4().hex}",
         "user_id": (task.execution_binding or {}).get("user_id"),
         "thread_id": task.thread_id,
         "source_message_id": task.source_message_id,
@@ -814,6 +821,8 @@ def test_unavailable_persistence_is_refused(db: _TestDB) -> None:
     outcome = store.claim_run_for_acceptance(
         run_id=str(task.run_id or ""),
         deployment_id=str(task.deployment_id or ""),
+        worker_instance_id=_TEST_WORKER_INSTANCE_ID,
+        claim_id=f"cwc_test_{uuid4().hex}",
         user_id=(task.execution_binding or {}).get("user_id"),
         thread_id=task.thread_id,
         source_message_id=task.source_message_id,

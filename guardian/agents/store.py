@@ -137,6 +137,10 @@ RUN_ACCEPTANCE_UNAVAILABLE = "unavailable"
 #: for one identity. Such a deployment is never an authority.
 _CONTRADICTORY_IDENTITY = "\x00contradictory-identity"
 
+#: Bounded length of the durable coding-worker ownership identifiers. It
+#: matches the ``agent_runs`` column width.
+_CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH = 64
+
 
 def _should_persist_coding_result_message(status: str) -> bool:
     normalized = _normalize_coding_result_status(status)
@@ -1115,6 +1119,8 @@ class AgentStore:
         *,
         run_id: str,
         deployment_id: str,
+        worker_instance_id: str,
+        claim_id: str,
         user_id: str | None = None,
         thread_id: int | None = None,
         source_message_id: int | None = None,
@@ -1125,13 +1131,15 @@ class AgentStore:
 
         Acceptance is the durable record that a worker took ownership of an
         execution. It transitions the canonical ``agent_runs`` row from
-        ``queued`` to ``running`` and stamps ``started_at`` exactly once, in
-        the same transaction that validates the run's authority.
+        ``queued`` to ``running``, stamps ``started_at`` exactly once, and
+        records the owning worker instance and the unique ownership claim --
+        all in the same transaction that validates the run's authority.
 
         The transition is a compare-and-set: the update applies only while the
         row is still ``queued``, so two workers racing for the same run
-        cannot both claim it. A terminal run is never reopened, and a
-        duplicate claim never refreshes ``started_at``.
+        cannot both claim it. A terminal run is never reopened, a duplicate
+        claim never refreshes ``started_at``, and an accepted run's owner and
+        claim are never replaced.
 
         The run's authority is taken from the durable deployment record the
         run already points at -- the same immutable spec the execution binding
@@ -1144,12 +1152,35 @@ class AgentStore:
         nothing about an identity does not contradict the task; a deployment
         that asserts a different one does.
 
+        ``worker_instance_id`` identifies the worker *instance* that accepted
+        the run, and ``claim_id`` identifies that one acceptance. Both are
+        executor metadata: neither is an account, principal, or credential
+        identity, and neither grants retry authority. A persisted owner records
+        that an instance took the claim, not that it is still alive.
+
         Returns ``accepted``, ``rejected``, or ``unavailable``. Callers must
         treat anything other than ``accepted`` as a refusal to execute:
         missing or unreachable persistence is never permission to execute.
         """
         if not self._has_db():
             return RUN_ACCEPTANCE_UNAVAILABLE
+
+        owner_instance_id = str(worker_instance_id or "").strip()
+        owner_claim_id = str(claim_id or "").strip()
+        if (
+            not owner_instance_id
+            or not owner_claim_id
+            or len(owner_instance_id) > _CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH
+            or len(owner_claim_id) > _CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH
+        ):
+            # Ownership metadata that cannot be recorded durably is never
+            # permission to execute.
+            logger.error(
+                "[agent-store] refusing acceptance with invalid ownership "
+                "metadata run_id=%s",
+                run_id,
+            )
+            return RUN_ACCEPTANCE_REJECTED
 
         now = _utc_now()
         try:
@@ -1246,7 +1277,12 @@ class AgentStore:
                         AgentRun.deployment_id == deployment_row.id,
                     )
                     .update(
-                        {"status": "running", "started_at": now},
+                        {
+                            "status": "running",
+                            "started_at": now,
+                            "coding_worker_instance_id": owner_instance_id,
+                            "coding_worker_claim_id": owner_claim_id,
+                        },
                         synchronize_session=False,
                     )
                 )
@@ -1254,6 +1290,16 @@ class AgentStore:
                 if claimed != 1:
                     return RUN_ACCEPTANCE_REJECTED
                 return RUN_ACCEPTANCE_ACCEPTED
+        except IntegrityError:
+            # A claim id identifies exactly one acceptance. Reusing one is a
+            # rejected claim, not a persistence outage. The session is closed
+            # by its context manager, so the failed transaction is already
+            # rolled back.
+            logger.warning(
+                "[agent-store] durable acceptance claim conflicted run_id=%s",
+                run_id,
+            )
+            return RUN_ACCEPTANCE_REJECTED
         except Exception:
             logger.exception(
                 "[agent-store] durable acceptance claim failed run_id=%s",

@@ -12,15 +12,18 @@ an **abandoned** accepted run from an **actively owned** one. The gate for that
 distinction is the *worker-liveness authority*: durable evidence of which worker
 instance owns which run, and whether that owner is still alive.
 
-The gate is evaluated here, and it **fails**: the runtime has no per-run worker
-ownership and no coding-worker liveness signal. Every candidate signal is
-either a timestamp, Redis emptiness, or a table that no production code path
-ever writes.
+The gate is evaluated here, and it **still fails** — but now only on its
+*liveness* half. Durable worker ownership has since been added, so the
+canonical run records the worker instance that accepted it and the unique claim
+it made. What the runtime still cannot supply is a signal that the owner is
+*gone*: there is no coding-worker heartbeat, no expiry, and no fencing. Every
+remaining candidate signal is either a timestamp, Redis emptiness, or a table
+that no production code path ever writes.
 
 These tests therefore assert three things, and only these three things:
 
-1. **The gate.** The durable records that would carry worker ownership and
-   liveness do not carry them, and the existing recovery contract's own
+1. **The gate.** Ownership is now durable, but the durable records that would
+   carry *liveness* do not carry it, and the existing recovery contract's own
    semantics leave an attempt with no liveness evidence alone.
 2. **The gap.** A worker restart performs no reconciliation: an accepted run
    left behind by a dead worker stays ``running`` with no escalation, no
@@ -111,11 +114,22 @@ def _columns(model: Any) -> set[str]:
     return {str(column.name) for column in model.__table__.columns}
 
 
-def test_the_canonical_run_record_carries_no_worker_ownership() -> None:
-    """``agent_runs`` cannot say which worker owns a run, or whether it is alive."""
+def test_the_canonical_run_record_carries_ownership_but_no_liveness_signal() -> None:
+    """``agent_runs`` says who owns a run, but not whether that owner is alive.
+
+    Durable worker ownership has since been added, so the *ownership* half of
+    the liveness gate is closed: the canonical run records the worker instance
+    that accepted it and the unique claim it made. The *liveness* half is what
+    still fails, and it is what keeps reconciliation unimplemented.
+    """
     columns = _columns(AgentRun)
 
-    for token in _WORKER_OWNERSHIP_TOKENS:
+    # The ownership half of the gate is closed.
+    assert "coding_worker_instance_id" in columns
+    assert "coding_worker_claim_id" in columns
+
+    # The liveness half is not: there is no heartbeat, expiry, or lease signal.
+    for token in ("heartbeat", "expires", "lease"):
         assert not any(token in column for column in columns), (
             f"agent_runs gained a {token!r} column; the liveness gate must be "
             "re-evaluated against the new authority"
