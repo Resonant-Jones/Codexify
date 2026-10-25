@@ -78,7 +78,10 @@ build/
 
 # Lockfiles: keep only the intentional roots
 # (Root workspace lockfile is tracked; nested lockfiles are never tracked.)
-**/src/pnpm-lock.yaml
+**/pnpm-lock.yaml
+!/pnpm-lock.yaml
+# The retired frontend install root used this to pin its own lockfile location.
+frontend/.npmrc
 
 # TypeScript build info caches
 *.tsbuildinfo

@@ -91,7 +91,7 @@ Codexify follows a multi-tier architecture with a clear separation of concerns a
 - **Package Manager:** The project uses `pnpm` for managing frontend dependencies.
 - **Code Style:** The project uses `eslint` for linting and `prettier` for code formatting.
 - **Testing:** The project uses `vitest` for unit testing and `cypress` for end-to-end testing.
-- **Dependencies:** Frontend dependencies are managed in `frontend/package.json`.
+- **Dependencies:** Frontend dependencies are declared in `frontend/src/package.json` and resolved from the root `pnpm-lock.yaml`. The root pnpm workspace is the only dependency installation root.
 
 ### 3.3. Commits
 

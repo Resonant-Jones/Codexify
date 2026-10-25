@@ -52,9 +52,6 @@ jobs:
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
-              - 'frontend/package.json'
-              - 'frontend/pnpm-lock.yaml'
-              - 'frontend/pnpm-workspace.yaml'
             backend:
               - 'guardian/**'
               - 'backend/**'
@@ -307,7 +304,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            frontend/pnpm-lock.yaml
 
       - name: Install dependencies
         if: ${{ needs.changes.outputs.run_frontend == 'true' }}
