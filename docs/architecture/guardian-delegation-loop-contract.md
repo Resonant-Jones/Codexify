@@ -193,6 +193,108 @@ Both fields are nullable and bounded, and the schema enforces that they are **bo
 
 **What ownership does not provide.** A persisted owner is **not** proof that the worker is still alive: it records that an instance took the claim, not that it still holds it. There is deliberately no heartbeat column, no expiry, no takeover, and no automatic claim reassignment, and the restart-reconciliation posture described below remains unimplemented. A claim identity is durable correlation material for a future fencing mechanism; it is **not** retry authority, and it grants no permission to re-execute. Ownership stays subordinate to `agent_runs` — there is no separate ownership table and no independent control plane.
 
+### Claim-scoped coding-run heartbeats
+
+Durable ownership records *who* took a claim. A heartbeat records that the
+recorded owner was **still reporting** while the execution was in flight. Both
+are canonical `agent_runs` facts and both stay subordinate to it: a heartbeat is
+**evidence of activity, never authority to act**.
+
+| Field | Meaning | Before | After acceptance |
+|---|---|---|---|
+| `agent_runs.coding_worker_last_heartbeat_at` | the last moment the recorded owner reported liveness for this run | `null` | the acceptance timestamp, then each renewal |
+
+The column is nullable and timezone-aware (`TIMESTAMP(timezone=True)`), and the
+migration `d86f2a4b1c90` is additive: it adds the column and the named
+constraint `agent_runs_coding_worker_heartbeat_ownership_check`, preserves every
+existing row, leaves the run-status vocabulary untouched, and **does not
+backfill** a heartbeat for a historical row. A run accepted before heartbeats
+existed keeps a `NULL` heartbeat, which is the truthful meaning of "never
+reported".
+
+**The first heartbeat is part of acceptance.** `AgentStore.claim_run_for_acceptance`
+writes `status`, `started_at`, the instance identity, the claim identity, and
+the first heartbeat in **one statement in one transaction**, so a heartbeat can
+never exist without the ownership that produced it, and a refused acceptance
+writes none of them. The heartbeat timestamp comes from the **database clock**
+(`now()`) rather than the worker's wall clock, so the liveness evidence and the
+durable row share one canonical time source; `started_at` keeps the worker-side
+clock it has always used.
+
+**Renewal is claim-fenced and atomic.** `AgentStore.renew_coding_run_heartbeat`
+performs a single conditional update:
+
+```
+UPDATE agent_runs
+   SET coding_worker_last_heartbeat_at = now()
+ WHERE run_id = :run_id
+   AND status = 'running'
+   AND coding_worker_instance_id = :worker_instance_id
+   AND coding_worker_claim_id = :claim_id
+```
+
+There is no read-then-write sequence and no application-level ownership guess:
+the database's own verdict is the authority. The operation returns `renewed`,
+`not_eligible` (the row did not match — a different worker, a different claim, a
+terminal or escalated run, or a run that no longer exists), or `unavailable`
+(persistence could not be reached). A failed condition updates **zero rows**: it
+never creates or repairs ownership metadata, never refreshes `started_at`, never
+changes a terminal status, and never reopens a run. Knowing a `run_id` is not
+authorization.
+
+**The worker reports on its own thread.** The adapter invocation is
+synchronous, so a heartbeat on the worker's own thread would be silent for the
+whole duration of a provider call. The worker therefore runs a small
+per-execution reporter (`_CodingRunHeartbeat`) that renews on an explicit,
+documented cadence (`CODING_RUN_HEARTBEAT_INTERVAL_SECONDS`, default 15 seconds,
+overridable by environment so it is testable) and **stops and joins** when the
+execution ends. Each renewal opens its **own** bounded database session, so no
+SQLAlchemy session is ever shared across threads. The reporter is scoped to
+exactly one run and one claim, is held on the worker instance rather than in
+process-global state, and is removed on every terminal path (success, failure,
+cancellation) plus a `finally` safety net on the poll loop, so it cannot leak
+into a later task or outlive a graceful shutdown. Graceful shutdown is a real
+path rather than an assumption: `CodingWorker.shutdown()` stops and joins every
+reporter the worker owns, and the worker loop calls it in a `finally`. The
+reporter is a daemon thread, so an abrupt process death cannot leave it
+holding the process open either. Stopping a reporter resolves nothing: the
+canonical row keeps its status, owner, claim, and last heartbeat, and the
+evidence simply stops moving.
+
+**Loss of ownership stops the run.** When a renewal comes back `not_eligible`,
+the reporter stops immediately and preserves the rejection reason
+(`coding_run_claim_no_longer_eligible`); the worker then refuses to enter the
+adapter, because the claim it holds is no longer the canonical owner of the
+run. The worker never replaces the claim, never mints a new owner or binding,
+never issues another credential lease, and never converts the rejection into a
+successful execution. The refusal is published as the canonical generic,
+**non-terminal** `task.event` with `error_code = 'EXECUTION_OWNERSHIP_LOST'`.
+
+**What the heartbeat does not provide.** A heartbeat is a *report*, not a
+guarantee:
+
+- It does not prove the worker is alive. A stale heartbeat is **not** proof of
+  worker death: the worker may be between phases, blocked on a provider call, or
+  paused by the host.
+- It does not stop an in-flight provider call or subprocess. The rejection check
+  happens at the worker's cooperative boundaries, so an operation already
+  running inside the adapter is **not** preempted. No side-effect fencing is
+  claimed from this mechanism.
+- It does not authorize execution, retry, requeue, escalation, or takeover. No
+  expiry rule, no quarantine decision, and no classifier reads it.
+- Terminal results are **not** fenced by it. A stale worker may still attempt a
+  terminal write; claim-fenced terminal persistence and stale-result rejection
+  are the next dependent slice.
+- It does not implement restart reconciliation. Nothing reads the heartbeat at
+  startup.
+
+**Historical rows.** A `NULL` heartbeat means the run never reported one:
+either it predates the migration, or it is ownership-unknown. Such a row stays
+readable, acquires no synthetic heartbeat, and is **never** escalated because a
+heartbeat is missing. The gate below is unchanged in substance: reconciliation
+still requires a *demonstrated*-dead worker, and a stale heartbeat still cannot
+authorize replay.
+
 ### Restart reconciliation of abandoned executions
 
 The durable acceptance record makes an accepted run **distinguishable from a
@@ -211,18 +313,23 @@ replay.
 
 **The gate still fails, on the liveness half.** Durable ownership now exists —
 `agent_runs.coding_worker_instance_id` records which instance took the claim —
-so the *ownership* half of the question is answered. The *liveness* half is not:
+and per-run liveness *evidence* now exists as well
+(`agent_runs.coding_worker_last_heartbeat_at`). The *liveness* half is still
+unanswered, because evidence is not a verdict:
 
-- `agent_runs` and `agent_deployments` still carry no heartbeat, expiry, or
-  lease column. The only liveness-adjacent fields are `started_at` and the
-  ownership identities, and a timestamp is not a signal.
+- `agent_runs` now carries a heartbeat column, but it records only that the
+  recorded owner last reported. Nothing converts a stale timestamp into a
+  liveness decision: there is no expiry rule, no threshold, no classifier, and
+  no startup path that reads it. The other liveness-adjacent fields
+  (`started_at`, the ownership identities) remain what they were.
 - `coding_worktree_leases` has exactly the right shape — `worker_id`,
   `last_heartbeat_at`, `expires_at` — but **no production code path creates a
   lease**, and the lease contract is worktree-scoped, so it cannot own a
   Guardian run that has no branch, no worktree path, and no work order.
-- The coding worker publishes **no** liveness heartbeat. The chat and voice
-  workers do; the coding worker does not, and a global heartbeat could not
-  attribute ownership of a specific run in any case.
+- The coding worker now publishes a **per-run, claim-scoped** heartbeat for the
+  run it owns. It is scoped to one run and one claim, and it stops when the
+  execution ends — so it is not a global worker heartbeat, and a heartbeat that
+  stops advancing does not, by itself, say why.
 - The dispatch record (`guardian/core/guardian_dispatch.py`) is a frozen,
   unpersisted value object with no worker-identity field. Its
   `last_heartbeat_at` and `lease_expires_at` are *inputs* to the classifier,
@@ -350,6 +457,7 @@ Recommended `source_type` values for coding v1:
 - The credential that authorizes a delegated execution keeps its real owner. A service-owned credential serves an account only where the service's own recorded policy names that account, provider, model, funding route, and usage policy, and it remains service-owned in the binding. Credential discovery is not authorization, and an account principal does not become the credential's owner by using a service-owned key.
 - A side-effecting coding execution may not begin until its acceptance is durably recorded in canonical PostgreSQL. Missing or unreachable persistence is never permission to execute, and a refused or duplicated acceptance never overwrites another worker's run, artifact, or source-thread result.
 - A coding run records the worker instance that accepted it and the unique claim it made, atomically with acceptance. Worker identity is executor metadata: it is not an account, a principal, or a credential owner, and a queue payload cannot choose it. A persisted owner is not proof of liveness, and a claim identity grants no retry authority.
+- Only the recorded owner and claim may renew a coding run's heartbeat, and renewal is a single conditional database update. A heartbeat is evidence of reported activity, never authority to execute, retry, escalate, or take over. A stale heartbeat is not proof of worker death, and a missing heartbeat on a historical run is not evidence of abandonment.
 - A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals

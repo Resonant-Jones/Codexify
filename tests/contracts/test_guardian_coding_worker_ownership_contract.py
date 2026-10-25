@@ -10,10 +10,12 @@ records the coding-worker **instance** that accepted it and the unique
 ``queued -> running`` transition.
 
 **What this contract does not claim.** A persisted owner is not proof that the
-worker is still alive. There is no heartbeat here, no expiry, no takeover, and
-no restart reconciliation — those are separate, dependent slices. The tests
-below assert ownership persistence and its safety properties, and they assert
-the *absence* of the behaviours this task deliberately does not implement.
+worker is still alive. The claim-scoped heartbeat added by the next slice is
+*evidence of reported activity*, not authority: there is still no expiry, no
+takeover, no automatic retry, and no restart reconciliation — those remain
+separate, dependent slices. The tests below assert ownership persistence and
+its safety properties, and they assert the *absence* of the behaviours this
+task deliberately does not implement.
 """
 
 from __future__ import annotations
@@ -700,13 +702,24 @@ def test_source_thread_result_idempotency_remains_intact(
 # ---------------------------------------------------------------------------
 
 
-def test_no_heartbeat_or_expiry_field_exists() -> None:
-    """Ownership is not liveness: there is no heartbeat or expiry column."""
+def test_ownership_is_not_liveness_authority() -> None:
+    """Ownership stays subordinate: liveness evidence is not an authority.
+
+    A claim-scoped heartbeat now exists on the canonical run, so the liveness
+    *evidence* is present. What is still absent is liveness *authority*: there
+    is no expiry column, no takeover column, and the heartbeat column itself
+    is nullable and may only exist when the ownership fields do.
+    """
     columns = {column.name for column in AgentRun.__table__.columns}
 
-    assert "coding_worker_heartbeat_at" not in columns
+    # Liveness evidence exists, and it is subordinate.
+    assert "coding_worker_last_heartbeat_at" in columns
+    assert AgentRun.__table__.columns["coding_worker_last_heartbeat_at"].nullable
+
+    # Liveness authority does not: no expiry, no takeover.
     assert "coding_worker_lease_expires_at" not in columns
     assert "coding_worker_expires_at" not in columns
+    assert "coding_worker_taken_over_at" not in columns
 
 
 def test_no_new_persisted_run_status_exists() -> None:

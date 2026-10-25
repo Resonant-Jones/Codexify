@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from guardian.agents.campaign_runner_store import (
@@ -140,6 +141,19 @@ _CONTRADICTORY_IDENTITY = "\x00contradictory-identity"
 #: Bounded length of the durable coding-worker ownership identifiers. It
 #: matches the ``agent_runs`` column width.
 _CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH = 64
+
+#: Outcomes of a claim-scoped coding-run heartbeat renewal.
+#:
+#: ``renewed`` -- the run is still running under exactly this worker instance
+#: and claim, and its heartbeat advanced.
+#: ``not_eligible`` -- the claim no longer matches the canonical run, so the
+#: renewal updated zero rows. The caller must not infer *why* from this: a
+#: terminal run, a replaced owner, and an obsolete claim are all ineligible.
+#: ``unavailable`` -- the renewal could not be evaluated because persistence
+#: was unreachable.
+RUN_HEARTBEAT_RENEWED = "renewed"
+RUN_HEARTBEAT_NOT_ELIGIBLE = "not_eligible"
+RUN_HEARTBEAT_UNAVAILABLE = "unavailable"
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
@@ -1282,6 +1296,10 @@ class AgentStore:
                             "started_at": now,
                             "coding_worker_instance_id": owner_instance_id,
                             "coding_worker_claim_id": owner_claim_id,
+                            # The heartbeat is written from the database clock
+                            # so that liveness evidence shares one canonical
+                            # time source with the durable row.
+                            "coding_worker_last_heartbeat_at": func.now(),
                         },
                         synchronize_session=False,
                     )
@@ -1306,6 +1324,68 @@ class AgentStore:
                 run_id,
             )
             return RUN_ACCEPTANCE_UNAVAILABLE
+
+    def renew_coding_run_heartbeat(
+        self,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+    ) -> str:
+        """Renew the claim-scoped liveness evidence for an accepted coding run.
+
+        Renewal is a single conditional update, evaluated by the database
+        against the run's current canonical state. Only the run that is still
+        ``running`` **and** still recorded under exactly this worker instance
+        and claim may advance its heartbeat. Every other combination -- a
+        different worker, a different or obsolete claim, a missing run, a
+        terminal or escalated run -- updates zero rows and is rejected.
+
+        The renewal never creates or repairs ownership metadata, never
+        refreshes ``started_at``, and never grants authority: a heartbeat is
+        evidence that the recorded owner is still active, nothing more.
+
+        Returns ``renewed``, ``not_eligible``, or ``unavailable``.
+        """
+        if not self._has_db():
+            return RUN_HEARTBEAT_UNAVAILABLE
+
+        owner_instance_id = str(worker_instance_id or "").strip()
+        owner_claim_id = str(claim_id or "").strip()
+        if not owner_instance_id or not owner_claim_id:
+            return RUN_HEARTBEAT_NOT_ELIGIBLE
+
+        try:
+            with self.db.get_session() as session:
+                renewed = (
+                    session.query(AgentRun)
+                    .filter(
+                        AgentRun.run_id == str(run_id or ""),
+                        AgentRun.status == "running",
+                        AgentRun.coding_worker_instance_id == owner_instance_id,
+                        AgentRun.coding_worker_claim_id == owner_claim_id,
+                    )
+                    .update(
+                        # The database clock is the canonical time source for
+                        # liveness evidence.
+                        {"coding_worker_last_heartbeat_at": func.now()},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                if renewed != 1:
+                    logger.warning(
+                        "[agent-store] heartbeat renewal rejected run_id=%s",
+                        run_id,
+                    )
+                    return RUN_HEARTBEAT_NOT_ELIGIBLE
+                return RUN_HEARTBEAT_RENEWED
+        except Exception:
+            logger.exception(
+                "[agent-store] heartbeat renewal failed run_id=%s",
+                run_id,
+            )
+            return RUN_HEARTBEAT_UNAVAILABLE
 
     def create_step(
         self,

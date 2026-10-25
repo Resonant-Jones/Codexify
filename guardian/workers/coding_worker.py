@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
@@ -30,6 +31,8 @@ from guardian.agents.events import build_coding_result_lineage_payload
 from guardian.agents.store import (
     RUN_ACCEPTANCE_ACCEPTED,
     RUN_ACCEPTANCE_UNAVAILABLE,
+    RUN_HEARTBEAT_NOT_ELIGIBLE,
+    RUN_HEARTBEAT_UNAVAILABLE,
     AgentStore,
     store,
 )
@@ -1950,6 +1953,128 @@ def _new_coding_worker_claim_id() -> str:
     return f"{_CODING_WORKER_CLAIM_ID_PREFIX}_{uuid4().hex}"
 
 
+#: How often an accepted coding run reports liveness while it executes.
+#:
+#: The cadence is explicit and overridable so that it is testable and
+#: documented. It is *only* a reporting cadence: nothing in the runtime reads
+#: this value to infer that a worker died, and no heartbeat ever authorizes
+#: execution, retry, or recovery.
+CODING_RUN_HEARTBEAT_INTERVAL_SECONDS = float(
+    os.getenv("CODING_RUN_HEARTBEAT_INTERVAL_SECONDS", "15")
+)
+
+
+class _CodingRunHeartbeat:
+    """Claim-scoped liveness reporting for one accepted coding execution.
+
+    The reporting runs on its own thread because the adapter invocation is
+    synchronous: while the worker is blocked inside the provider call, nothing
+    else on that thread could report liveness.
+
+    Every renewal opens its own bounded database session, so no SQLAlchemy
+    session is ever shared across threads. The helper is scoped to exactly one
+    run and one ownership claim; it is never process-global, and it is stopped
+    and joined when the execution ends.
+    """
+
+    def __init__(
+        self,
+        store: AgentStore,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        interval_seconds: float,
+    ) -> None:
+        self._store = store
+        self._run_id = str(run_id or "")
+        self._worker_instance_id = str(worker_instance_id or "")
+        self._claim_id = str(claim_id or "")
+        self._interval_seconds = max(0.05, float(interval_seconds))
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._last_result: str | None = None
+        self._rejection_reason: str | None = None
+        self._stopped = False
+
+    # -- observable state -------------------------------------------------
+
+    @property
+    def last_result(self) -> str | None:
+        """The most recent renewal outcome, or ``None`` before the first one."""
+        with self._lock:
+            return self._last_result
+
+    @property
+    def rejection_reason(self) -> str | None:
+        """Why the claim stopped being eligible, if it did."""
+        with self._lock:
+            return self._rejection_reason
+
+    @property
+    def ownership_lost(self) -> bool:
+        """Whether the claim was found to be no longer eligible.
+
+        This is the database's own verdict from a conditional update, not an
+        optimistic application-level guess.
+        """
+        return self.rejection_reason is not None
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(self) -> None:
+        """Begin reporting liveness for the owned run."""
+        if self._thread is not None:
+            return
+        thread = threading.Thread(
+            target=self._run,
+            name=f"coding-run-heartbeat-{self._run_id[:12]}",
+            daemon=True,
+        )
+        self._thread = thread
+        thread.start()
+
+    def stop(self) -> None:
+        """Stop reporting and join the helper. Safe to call more than once."""
+        if self._stopped:
+            return
+        self._stopped = True
+        self._stop_event.set()
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5.0)
+
+    # -- reporting ---------------------------------------------------------
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval_seconds):
+            try:
+                result = self._store.renew_coding_run_heartbeat(
+                    run_id=self._run_id,
+                    worker_instance_id=self._worker_instance_id,
+                    claim_id=self._claim_id,
+                )
+            except Exception:
+                logger.exception(
+                    "[coding-worker] heartbeat renewal raised run_id=%s",
+                    self._run_id,
+                )
+                result = RUN_HEARTBEAT_UNAVAILABLE
+            with self._lock:
+                self._last_result = result
+            if result == RUN_HEARTBEAT_NOT_ELIGIBLE:
+                # The claim is no longer the canonical owner of this run.
+                # Stop reporting: a heartbeat must never be manufactured for a
+                # claim that no longer holds the run.
+                with self._lock:
+                    self._rejection_reason = (
+                        "coding_run_claim_no_longer_eligible"
+                    )
+                return
+
+
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
@@ -1979,6 +2104,10 @@ class CodingWorker:
         )
         if not self.worker_instance_id:
             raise ValueError("coding worker instance id must not be empty")
+        # Liveness reporters for the runs this worker currently owns. They are
+        # per-worker, never process-global, and every terminal path removes
+        # its entry, so a reporter cannot leak into a later task.
+        self._coding_run_heartbeats: dict[str, _CodingRunHeartbeat] = {}
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if processed."""
@@ -2010,9 +2139,71 @@ class CodingWorker:
                 error_code="PROCESSING_ERROR",
             )
             return True
+        finally:
+            # Safety net: a liveness reporter must never outlive the task that
+            # created it, even on a path that neither persisted nor failed a
+            # result.
+            self._stop_coding_run_heartbeat(str(task.run_id or ""))
 
     def _make_lease_store(self) -> WorktreeLeaseStore:
         return WorktreeLeaseStore(db=getattr(self.store, "db", None))
+
+    # -- claim-scoped liveness reporting ----------------------------------
+
+    def _start_coding_run_heartbeat(
+        self,
+        task: CodingExecutionTask,
+        *,
+        claim_id: str,
+    ) -> _CodingRunHeartbeat:
+        """Start reporting liveness for the run this worker just claimed."""
+        heartbeat = _CodingRunHeartbeat(
+            self.store,
+            run_id=str(task.run_id or ""),
+            worker_instance_id=self.worker_instance_id,
+            claim_id=str(claim_id or ""),
+            interval_seconds=CODING_RUN_HEARTBEAT_INTERVAL_SECONDS,
+        )
+        self._coding_run_heartbeats[str(task.run_id or "")] = heartbeat
+        heartbeat.start()
+        return heartbeat
+
+    def _stop_coding_run_heartbeat(self, run_id: str) -> None:
+        """Stop and join the liveness reporter for a run, if one is active."""
+        heartbeat = self._coding_run_heartbeats.pop(str(run_id or ""), None)
+        if heartbeat is not None:
+            heartbeat.stop()
+
+    def _stop_all_coding_run_heartbeats(self) -> None:
+        """Stop every liveness reporter this worker still owns."""
+        for run_id in list(self._coding_run_heartbeats):
+            self._stop_coding_run_heartbeat(run_id)
+
+    def shutdown(self) -> None:
+        """Stop and join every liveness reporter this worker owns.
+
+        This is the worker's graceful shutdown path. A reporter must never
+        outlive the worker that owns it: an orphaned reporter would keep
+        renewing a heartbeat for a run whose owner is going away, which is
+        exactly the liveness evidence the runtime is not allowed to
+        manufacture.
+
+        Stopping a reporter does not change the run. The canonical row keeps
+        its status, its owner, its claim, and its last heartbeat; the run
+        simply stops being reported, and a stale heartbeat is not proof that
+        the worker died.
+        """
+        self._stop_all_coding_run_heartbeats()
+
+    def _coding_run_ownership_lost(self, run_id: str) -> bool:
+        """Whether the database reported this run's claim as no longer eligible.
+
+        The verdict comes from the conditional heartbeat update itself, so it is
+        the database's own answer and not an optimistic application-level
+        guess about who owns the run.
+        """
+        heartbeat = self._coding_run_heartbeats.get(str(run_id or ""))
+        return bool(heartbeat is not None and heartbeat.ownership_lost)
 
     def _read_lease(
         self, lease_store: WorktreeLeaseStore, lease_id: str
@@ -2375,6 +2566,12 @@ class CodingWorker:
                 ),
             )
             return
+
+        # Durable acceptance succeeded. From here the run is owned by this
+        # worker instance under this claim, so the worker starts reporting
+        # claim-scoped liveness for it. The report is evidence, not authority:
+        # it never permits execution, retry, or recovery on its own.
+        self._start_coding_run_heartbeat(task, claim_id=ownership_claim_id)
 
         (
             lease_ctx,
@@ -2833,6 +3030,10 @@ class CodingWorker:
                     require_human_review_before_merge
                 ),
             )
+            # The run has reached its terminal outcome. Liveness reporting
+            # stops here: the heartbeat history stays on the row, but nothing
+            # renews it, and a terminal run can no longer be renewed anyway.
+            self._stop_coding_run_liveness(task)
 
             if _is_success_like_coding_result(result_status) and not bool(
                 delivery.get("delivery_ok", False)
@@ -3094,6 +3295,18 @@ class CodingWorker:
                         error_code="EXECUTION_CREDENTIAL_BINDING_MISMATCH",
                         lease_ctx=lease_ctx,
                         worktree=_current_worktree_metadata(),
+                    )
+                    return
+                if self._coding_run_ownership_lost(str(task.run_id or "")):
+                    # The database reported that this claim no longer holds
+                    # the run. Entering the adapter now would perform side
+                    # effects under a claim we do not hold, so refuse.
+                    self._emit_ownership_lost(
+                        task,
+                        adapter_kind=adapter_kind,
+                        reason=(
+                            "coding run ownership claim is no longer eligible"
+                        ),
                     )
                     return
                 result = execute_authorized(
@@ -4398,6 +4611,52 @@ class CodingWorker:
                 exc,
             )
 
+    def _emit_ownership_lost(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        reason: str,
+    ) -> None:
+        """Report that this worker's claim no longer holds the run.
+
+        The refusal is published as the canonical generic, non-terminal task
+        event. It is deliberately *not* a terminal outcome: the run's result is
+        unknown, and only an operator may decide what happens next. Nothing
+        here replaces the claim, mints a new owner, issues a credential lease,
+        grants a retry, or delivers a result.
+        """
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_EVENT.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "ownership_lost",
+                    "error_code": "EXECUTION_OWNERSHIP_LOST",
+                    "error_message": reason,
+                    "execution_provenance": _execution_provenance(
+                        task.execution_binding
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit ownership-lost event: %s",
+                exc,
+            )
+
     def _emit_failure(
         self,
         task: CodingExecutionTask,
@@ -4465,6 +4724,8 @@ class CodingWorker:
                 "[coding-worker] failed to emit failure event: %s",
                 exc,
             )
+        # The run is terminal now, so stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
 
     def _emit_cancelled(self, task: CodingExecutionTask) -> None:
         """Emit task.cancelled event."""
@@ -4494,6 +4755,17 @@ class CodingWorker:
                 "[coding-worker] failed to emit cancelled event: %s",
                 exc,
             )
+        # The run is terminal now, so stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
+
+    def _stop_coding_run_liveness(self, task: CodingExecutionTask) -> None:
+        """Stop reporting liveness once a run has reached a terminal state.
+
+        The heartbeat history stays on the canonical row; only the reporting
+        stops. A terminal run can no longer be renewed anyway, because
+        renewal requires the run to still be ``running``.
+        """
+        self._stop_coding_run_heartbeat(str(task.run_id or ""))
 
 
 def _initialize_worker() -> None:
@@ -4507,11 +4779,17 @@ def run_worker_loop() -> None:
     _initialize_worker()
     worker = CodingWorker()
 
-    while True:
-        try:
-            worker.poll_once()
-        except Exception as exc:
-            logger.exception("[coding-worker] poll error: %s", exc)
+    try:
+        while True:
+            try:
+                worker.poll_once()
+            except Exception as exc:
+                logger.exception("[coding-worker] poll error: %s", exc)
+    finally:
+        # Graceful shutdown: stop and join every liveness reporter so that
+        # none outlives the worker that owns it. The runs themselves are left
+        # untouched -- a stale heartbeat is not proof of worker death.
+        worker.shutdown()
 
 
 if __name__ == "__main__":

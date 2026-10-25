@@ -47,11 +47,14 @@ does not escalate it, does not quarantine it, and does not retry it. There is no
 recovery status to look for, because no recovery record is written.
 
 **Why not, precisely:** the runtime cannot yet tell an **abandoned** accepted
-run from an **actively owned** one. There is no durable record of which worker
-instance owns a coding run, and the coding worker publishes no liveness
-heartbeat. Every available substitute is a timestamp or an empty queue, and
-both are unsafe: an elapsed time is not a death, and an empty queue is equally
-consistent with a crash and with a success.
+run from an **actively owned** one. The coding worker now records which worker
+instance owns a run (`coding_worker_instance_id`, `coding_worker_claim_id`) and
+reports a per-run liveness heartbeat
+(`coding_worker_last_heartbeat_at`), but a heartbeat is *evidence of reported
+activity*, not a verdict: nothing in the runtime compares it against a deadline,
+and no startup path reads it. Every remaining substitute is a timestamp or an
+empty queue, and both are unsafe: an elapsed time is not a death, and an empty
+queue is equally consistent with a crash and with a success.
 
 **Therefore, at the time of writing:**
 
@@ -69,6 +72,31 @@ worktree, and the run's `started_at` to decide for yourself. It is **not** safe
 to re-dispatch the same task, and there is no supported automatic or manual
 re-drive in this runtime — a re-dispatch would mint a new attempt without
 fencing, and duplicate execution effects are not idempotent.
+
+### Reading the claim-scoped heartbeat
+
+An accepted coding run now carries three canonical facts in PostgreSQL:
+`coding_worker_instance_id`, `coding_worker_claim_id`, and
+`coding_worker_last_heartbeat_at`. The worker renews the heartbeat while it
+executes, on an explicit cadence (`CODING_RUN_HEARTBEAT_INTERVAL_SECONDS`,
+default 15 seconds), and stops the moment the execution ends.
+
+The heartbeat is **evidence of reported activity, never authority**. Read it as
+a hint about the run, not as a verdict about the worker:
+
+| What you see | What it means | What it does **not** mean |
+|---|---|---|
+| `status = 'running'`, heartbeat **fresh** (moving with the cadence) | The recorded owner is still reporting. The execution is most likely in flight. | That the run will succeed, or that it is safe to touch the worktree. |
+| `status = 'running'`, heartbeat **stale** (older than a few cadences) | The owner has stopped reporting. The worker may have died — or may be blocked in a long provider call, paused, or between phases. | **Not** proof of worker death. There is no expiry rule, and nothing in the runtime acts on a stale heartbeat. |
+| `status = 'running'`, **no** ownership metadata and no heartbeat | A historical row from before ownership existed, or a run that was never accepted. It is **ownership-unknown**. | Not an abandoned run. Missing ownership is not evidence of loss, and such a row is never escalated for it. |
+| A heartbeat renewal was **rejected** (`not_eligible`) | The database no longer sees this worker/claim as the owner of that run — a different worker, a different claim, or a terminal/escalated run. The worker stops reporting and refuses to enter the adapter. | Not a recoverable error and not a licence to retry. The worker does **not** take over the run, mint a new claim, or issue another credential lease. |
+| `status` is terminal (`succeeded` / `failed` / `canceled` / `escalated`) with the heartbeat preserved | The run finished. The heartbeat history is retained for inspection; nothing renews it any more. | Not evidence that the run's side effects were fenced. A stale worker can still attempt a terminal write; that fencing is not implemented yet. |
+
+**None of these observations authorizes a re-dispatch.** The runtime performs no
+automatic re-drive, quarantine, escalation, or takeover on any of them, and
+neither should an operator: a re-dispatch mints a new attempt without fencing,
+and duplicate execution effects are not idempotent. The heartbeat narrows what
+an operator can *know*; it does not grant permission to act.
 
 **What is coming.** The operator-visible disposition for an unresolved run is
 already defined and needs no migration: the canonical run moves to
