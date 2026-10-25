@@ -369,9 +369,7 @@ def list_fact_candidates(
         loader = getattr(db, "list_fact_evidence_for_facts", None)
         if not callable(loader):
             logger.error(
-                "Personal Fact candidate evidence loader is unavailable for "
-                "%d fact(s)",
-                len(fact_ids),
+                "personal_fact_candidate_evidence_loader_unavailable"
             )
             raise HTTPException(
                 status_code=500,
@@ -379,18 +377,19 @@ def list_fact_candidates(
             )
         try:
             loaded = loader(fact_ids)
-        except Exception as exc:
-            logger.error(
-                "Personal Fact candidate evidence load failed: %s", exc
-            )
+        except Exception:
+            # A backend exception can carry connection strings, credentials,
+            # tokens or private record detail, so nothing derived from it is
+            # logged or chained into the handled HTTP error. The static event
+            # token keeps the failure observable without disclosing content.
+            logger.error("personal_fact_candidate_evidence_load_failed")
             raise HTTPException(
                 status_code=500,
                 detail="Candidate evidence could not be loaded",
-            ) from exc
+            ) from None
         if not isinstance(loaded, dict):
             logger.error(
-                "Personal Fact candidate evidence loader returned an "
-                "unexpected result"
+                "personal_fact_candidate_evidence_result_invalid"
             )
             raise HTTPException(
                 status_code=500,
@@ -402,7 +401,7 @@ def list_fact_candidates(
                 rows = []
             if not isinstance(rows, (list, tuple)):
                 logger.error(
-                    "Personal Fact candidate evidence rows are malformed"
+                    "personal_fact_candidate_evidence_rows_malformed"
                 )
                 raise HTTPException(
                     status_code=500,
@@ -425,8 +424,7 @@ def list_fact_candidates(
                     break
             if matched is None:
                 logger.error(
-                    "Personal Fact candidate %s has no matching thread evidence",
-                    fact["id"],
+                    "personal_fact_candidate_evidence_missing"
                 )
                 raise HTTPException(
                     status_code=500,

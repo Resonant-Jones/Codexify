@@ -1,12 +1,30 @@
 """Route tests for personal facts endpoints."""
 
+import logging
+import traceback
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 SERVER_USER_ID = "local_user"
+
+#: Synthetic sensitive content used to prove that a backend failure never
+#: reaches the HTTP response, the application logs, or the raised error's
+#: traceback. Every value here is fabricated.
+SENSITIVE_MARKERS = (
+    "postgresql://dbuser@db.internal:5432/guardian",  # connection detail
+    "hunter2",  # password
+    "tok_abcdef123456",  # token
+    "SENSITIVE-CANDIDATE-CONTENT",  # private record content
+)
+SENSITIVE_EXCEPTION_MESSAGE = (
+    "psycopg.OperationalError: could not connect to "
+    "postgresql://dbuser@db.internal:5432/guardian "
+    "password=hunter2 token=tok_abcdef123456 "
+    "row=SENSITIVE-CANDIDATE-CONTENT"
+)
 
 
 @pytest.fixture
@@ -379,3 +397,113 @@ def test_read_without_thread_id_does_not_load_evidence(
     assert response.json()["ok"] is True
     assert "_evidence" not in response.json()["facts"][0]
     assert not mock_facts_db.list_fact_evidence_for_facts.called
+
+
+# ── Failure diagnostics must not disclose backend exception content ──────────
+#
+# A storage exception can carry connection strings, credentials, tokens or
+# private record detail. The endpoint must fail closed without letting any of
+# that reach the HTTP response, the application logs, or the raised error's
+# traceback.
+
+
+def test_secret_bearing_exception_produces_a_sanitized_500(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        SENSITIVE_EXCEPTION_MESSAGE
+    )
+    response = facts_test_client.get(
+        "/personal-facts/candidates?thread_id=42", headers=auth_headers
+    )
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Candidate evidence could not be loaded"
+    for marker in SENSITIVE_MARKERS:
+        assert marker not in response.text
+
+
+def test_captured_logs_contain_no_sensitive_markers(
+    facts_test_client, auth_headers, mock_facts_db, caplog
+):
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        SENSITIVE_EXCEPTION_MESSAGE
+    )
+    with caplog.at_level(logging.ERROR, logger="guardian.routes.personal_facts"):
+        response = facts_test_client.get(
+            "/personal-facts/candidates?thread_id=42", headers=auth_headers
+        )
+    assert response.status_code == 500
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "guardian.routes.personal_facts"
+    ]
+    assert records, "the failure must stay observable in the logs"
+    for record in records:
+        # No traceback, no exception arguments, no sensitive rendered text.
+        assert record.exc_info is None
+        assert getattr(record, "exc_text", None) is None
+        for marker in SENSITIVE_MARKERS:
+            assert marker not in record.getMessage()
+            assert marker not in repr(record.args)
+            assert marker not in repr(record.exc_info)
+
+
+def test_failure_log_message_stays_stable_and_sanitized(
+    facts_test_client, auth_headers, mock_facts_db, caplog
+):
+    """The failure must stay observable, in the repository's safe event form.
+
+    Codexify's log-safety boundary preserves a static snake_case event token
+    and redacts free-form prose to ``log_event=<redacted>``. A free-form
+    sentence would therefore be unobservable to an operator, so the failure is
+    reported as a stable event token with no arguments.
+    """
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        SENSITIVE_EXCEPTION_MESSAGE
+    )
+    with caplog.at_level(logging.ERROR, logger="guardian.routes.personal_facts"):
+        facts_test_client.get(
+            "/personal-facts/candidates?thread_id=42", headers=auth_headers
+        )
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "guardian.routes.personal_facts"
+    ]
+    assert messages == ["personal_fact_candidate_evidence_load_failed"]
+    for message in messages:
+        assert "log_event=<redacted>" not in message
+
+
+def test_raised_error_does_not_chain_the_storage_exception(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    """The handled HTTP error must not expose the original exception."""
+    from guardian.routes import personal_facts
+
+    mock_facts_db.list_fact_evidence_for_facts.side_effect = RuntimeError(
+        SENSITIVE_EXCEPTION_MESSAGE
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        personal_facts.list_fact_candidates(
+            status="candidate",
+            thread_id=42,
+            limit=50,
+            offset=0,
+            current_user=SERVER_USER_ID,
+        )
+    error = excinfo.value
+    assert error.status_code == 500
+    assert error.detail == "Candidate evidence could not be loaded"
+    # No explicit cause, and the implicit context is suppressed so the
+    # storage exception is absent from the rendered traceback.
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+    rendered = "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+    for marker in SENSITIVE_MARKERS:
+        assert marker not in rendered
+    assert "RuntimeError" not in rendered
