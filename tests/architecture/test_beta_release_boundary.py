@@ -502,26 +502,114 @@ _COMPOSE_QUALIFICATION_OBLIGATION = re.compile(
 )
 _IMPORT_TO_RECALL_OBLIGATION = re.compile(r"import-to-recall", re.IGNORECASE)
 
-# Wording that marks an obligation as still outstanding.
-_UNRESOLVED_OBLIGATION = re.compile(
-    r"\b(?:missing|pending|unresolved|incomplete|"
-    r"remain(?:s)?\s+open|still\s+open|"
-    r"not\s+(?:yet\s+)?(?:complete|completed|proven|qualified|resolved))\b",
+# ── Release-gate contract ───────────────────────────────────────────────────
+#
+# The canonical current phase states the gate positively: "The current release
+# gate remains `HOLD`." The contract therefore requires an *affirmative*,
+# *unnegated* release-gate HOLD declaration. A HOLD that is negated or lifted
+# is a contradiction, and a positive readiness claim is a promotion.
+#
+# A negated readiness statement ("not release-ready") is truthful and must not
+# be mistaken for a promotion, so readiness is judged per clause and only
+# unqualified claims count.
+
+# A HOLD that is negated ("the release gate is not HOLD") or lifted
+# ("HOLD has been lifted") no longer declares an active HOLD gate.
+_HOLD_NEGATED = re.compile(
+    r"\b(?:not|never|no\s+longer|isn't|is\s+no\s+longer)\b[^\n.;]{0,24}?\bHOLD\b"
+    r"|\bHOLD\b[^\n.;]{0,24}?\b(?:lifted|cleared|released|removed|dropped|"
+    r"waived|rescinded|retired)\b",
     re.IGNORECASE,
 )
 
-# Release-readiness promotion. The canonical current phase states the gate
-# positively ("The current release gate remains `HOLD`"), so any phrasing that
-# promotes the gate to readiness contradicts the HOLD contract.
-_RELEASE_READY_CLAIM = re.compile(
-    r"\brelease[-\s]ready\b"
-    r"|\bready\s+for\s+release\b"
-    r"|\bgenerally\s+available\b"
-    r"|\bpromoted\s+to\s+(?:ready|release)\b"
-    r"|\bno\s+longer\s+(?:on\s+)?hold\b"
-    r"|\brelease\s+gate\s+is\s+(?:open|lifted|ready)\b",
+# An affirmative declaration that a gate is on HOLD.
+_ACTIVE_HOLD_DECLARATION = re.compile(
+    r"\b(?:remains?|is|stays?|holds?|still)\b\s*`?HOLD`?(?![A-Za-z])",
     re.IGNORECASE,
 )
+
+# The declaration must be about a release gate, not about any HOLD mention.
+_RELEASE_GATE_MENTION = re.compile(
+    r"\bgate\b|\brelease\s+posture\b",
+    re.IGNORECASE,
+)
+
+# A readiness claim. Only an unqualified claim promotes the release.
+_READINESS_WORD = re.compile(
+    r"\bready\b|\bgenerally\s+available\b",
+    re.IGNORECASE,
+)
+
+# A negation anywhere before the matched word scopes that word.
+_NEGATION = re.compile(
+    r"\b(?:not|never|no\s+longer|isn't|is\s+no\s+longer|cannot|can't|"
+    r"nor\s+is)\b",
+    re.IGNORECASE,
+)
+
+# ── Obligation contract ─────────────────────────────────────────────────────
+#
+# The two obligations must be recorded as outstanding, and the unresolved
+# state must belong to the *obligation's own* clause. A completion claim on
+# the obligation rejects it even when the same bullet carries a pending word
+# for something else.
+
+# Ordinary, bounded wording for an obligation that is still outstanding.
+_UNRESOLVED_OBLIGATION = re.compile(
+    r"\b(?:missing|pending|outstanding|unresolved|incomplete)\b"
+    r"|\b(?:is|are|remains?|stays?)\s+open\b"
+    r"|\bnot\s+(?:yet\s+)?(?:been\s+)?"
+    r"(?:complete|completed|done|proven|qualified|resolved)\b",
+    re.IGNORECASE,
+)
+
+# Wording that claims an obligation is finished.
+_COMPLETION_CLAIM = re.compile(
+    r"\b(?:complete|completed|done|finished|proven|qualified|resolved|"
+    r"closed|cleared)\b",
+    re.IGNORECASE,
+)
+
+
+def _clauses(text: str) -> list[str]:
+    """Split a passage into the statements that can stand on their own.
+
+    Semicolons and sentence ends separate independent statements. Commas are
+    intra-statement detail and do not scope an obligation's state, so
+    "qualification is missing, including restart recovery" keeps its state.
+    """
+    parts = re.split(r";|(?<=[.!?])\s+|\n", text)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _has_affirmative(text: str, pattern: re.Pattern[str]) -> bool:
+    """True when ``pattern`` matches somewhere without a preceding negation."""
+    for match in pattern.finditer(text):
+        if not _NEGATION.search(text[: match.start()]):
+            return True
+    return False
+
+
+def _promotes_release_readiness(text: str) -> bool:
+    """True when the text claims the release is ready.
+
+    A negated readiness statement ("not release-ready") is truthful and is
+    not a promotion, so only unqualified readiness claims count.
+    """
+    for clause in _clauses(text):
+        if _has_affirmative(clause, _READINESS_WORD):
+            return True
+    return False
+
+
+def _active_release_gate_is_hold(text: str) -> bool:
+    """True when an active, unnegated release gate is declared on HOLD."""
+    for clause in _clauses(text):
+        if not _RELEASE_GATE_MENTION.search(clause):
+            continue
+        if _ACTIVE_HOLD_DECLARATION.search(clause):
+            return True
+    return False
 
 
 def _blocker_bullets(section: str) -> list[str]:
@@ -537,17 +625,27 @@ def _require_unresolved_obligation(
 ) -> None:
     """Require ``topic`` to be recorded as an unresolved blocker.
 
-    The obligation must appear inside the Active blockers section, and must
-    still be marked outstanding: a blocker described as completed no longer
-    proves the gap, and wording that only appears elsewhere in the document
-    does not satisfy the contract.
+    The obligation must appear inside the Active blockers section. The
+    unresolved state must belong to the obligation's *own* clause: a pending
+    word attached to a different statement in the same bullet does not prove
+    the gap, and an obligation that claims completion is rejected outright.
     """
     bullets = _blocker_bullets(section)
-    matching = [bullet for bullet in bullets if topic.search(bullet)]
-    assert matching, f"Active blockers must record the {label} obligation"
-    assert any(_UNRESOLVED_OBLIGATION.search(bullet) for bullet in matching), (
-        f"Active blockers must record the {label} obligation as unresolved, "
-        f"not as completed"
+    for bullet in bullets:
+        for clause in _clauses(bullet):
+            if not topic.search(clause):
+                continue
+            assert not _has_affirmative(clause, _COMPLETION_CLAIM), (
+                f"Active blockers must not record the {label} obligation as "
+                f"complete"
+            )
+            assert _UNRESOLVED_OBLIGATION.search(clause), (
+                f"Active blockers must record the {label} obligation as "
+                f"unresolved"
+            )
+            return
+    raise AssertionError(
+        f"Active blockers must record the {label} obligation"
     )
 
 
@@ -575,10 +673,13 @@ def _assert_beta_release_current_state_contract(text: str) -> None:
     assert "local-first Beta hardening" in current_phase, (
         "Current phase must record local-first Beta hardening"
     )
-    assert re.search(r"\bHOLD\b", current_phase), (
-        "Current phase must record the release gate as HOLD"
+    assert _active_release_gate_is_hold(current_phase), (
+        "Current phase must declare an active, unnegated release gate on HOLD"
     )
-    assert not _RELEASE_READY_CLAIM.search(current_phase), (
+    assert not _HOLD_NEGATED.search(current_phase), (
+        "Current phase must not negate or lift the HOLD release gate"
+    )
+    assert not _promotes_release_readiness(current_phase), (
         "Current phase must not promote the release gate to readiness"
     )
     assert "local Docker Compose" in supported_reality, (
@@ -607,6 +708,81 @@ def test_current_state_preserves_supported_path_hold_and_active_blockers():
 # ---------------------------------------------------------------------------
 # 16b. Negative proof: the release contract must fail closed
 # ---------------------------------------------------------------------------
+
+# Table-driven release-gate cases. Each entry is (current phase text,
+# accepted). The first four rows are the Codex review findings; the rest
+# cover the equivalent truthful wordings the contract must keep accepting.
+_HOLD_GATE_CASES = [
+    # Finding 1: a negated or lifted HOLD must not pass.
+    (
+        "`main` remains in local-first Beta hardening. The current release "
+        "gate is not HOLD.",
+        False,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. HOLD has been lifted.",
+        False,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. The release gate is no "
+        "longer on HOLD.",
+        False,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. The release is ready to "
+        "ship.",
+        False,
+    ),
+    # Equivalent truthful wordings must pass.
+    (
+        "`main` remains in local-first Beta hardening. The current release "
+        "gate remains `HOLD`.",
+        True,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. The release gate is "
+        "HOLD.",
+        True,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. Not release-ready; the "
+        "release gate remains HOLD.",
+        True,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. The Beta release "
+        "posture is still HOLD.",
+        True,
+    ),
+]
+
+# Table-driven obligation cases. Each entry is (active-blocker bullet,
+# accepted) for the current-tip supported-Compose obligation.
+_COMPOSE_OBLIGATION_CASES = [
+    # Finding 2: a completed obligation must not borrow another clause's
+    # pending marker.
+    (
+        "- The current-tip supported-Compose qualification is complete; "
+        "documentation remains pending.",
+        False,
+    ),
+    (
+        "- The current-tip supported-Compose qualification is complete; "
+        "import-to-recall proof remains open.",
+        False,
+    ),
+    # Finding 4: ordinary unresolved wording must be accepted.
+    ("- The current-tip supported-Compose qualification is missing.", True),
+    ("- The current-tip supported-Compose qualification is pending.", True),
+    ("- The current-tip supported-Compose qualification is open.", True),
+    ("- The current-tip supported-Compose qualification is outstanding.", True),
+    ("- The current-tip supported-Compose qualification remains open.", True),
+    (
+        "- The current-tip supported-Compose qualification has not been "
+        "completed.",
+        True,
+    ),
+]
 
 
 def _synthetic_current_state(
@@ -663,6 +839,78 @@ def test_beta_release_contract_accepts_typographic_apostrophe_heading() -> None:
         priorities_heading="## This week’s priorities"
     )
     _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("phase,accepted", _HOLD_GATE_CASES)
+def test_beta_release_contract_release_gate_cases(
+    phase: str, accepted: bool
+) -> None:
+    """The release gate must be an active, unnegated HOLD."""
+    text = _synthetic_current_state(phase=phase)
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("bullet,accepted", _COMPOSE_OBLIGATION_CASES)
+def test_beta_release_contract_obligation_cases(
+    bullet: str, accepted: bool
+) -> None:
+    """Each obligation independently requires its own unresolved state."""
+    text = _synthetic_current_state(
+        blockers=(
+            bullet,
+            "- The natural import-to-recall scope proof remain open.",
+        )
+    )
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize(
+    "bullet",
+    [
+        "- The current-tip supported-Compose qualification is complete.",
+        "- The current-tip supported-Compose qualification is done.",
+        "- The current-tip supported-Compose qualification has been qualified.",
+    ],
+)
+def test_beta_release_contract_rejects_a_completed_obligation(bullet: str) -> None:
+    text = _synthetic_current_state(
+        blockers=(
+            bullet,
+            "- The natural import-to-recall scope proof remain open.",
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize(
+    "bullet",
+    [
+        "- The natural import-to-recall scope proof is complete; "
+        "supported-Compose qualification remains pending.",
+        "- The natural import-to-recall scope proof is done; "
+        "supported-Compose qualification remains open.",
+    ],
+)
+def test_beta_release_contract_rejects_a_completed_import_obligation(
+    bullet: str,
+) -> None:
+    text = _synthetic_current_state(
+        blockers=(
+            "- A fresh current-tip supported-Compose qualification is missing.",
+            bullet,
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
 
 
 def test_beta_release_contract_fails_when_hold_is_removed() -> None:
