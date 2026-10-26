@@ -16,6 +16,14 @@
 that navigation the frame's document CSP no longer applies. The navigated
 document can issue outbound network requests that **reach the server**.
 
+> **Addendum (2026-10-26).** The committed Playwright reproduction was later
+> found to be defective and has been repaired. The corrected fixture has been
+> executed and **reproduces the same failure**. See
+> [section 11](#11-addendum--corrected-playwright-reproduction-2026-10-26),
+> which keeps the original measurement, the corrected reproduction, and the
+> still-unexecuted Playwright suite strictly apart. The finding below is
+> unchanged.
+
 The sandbox attribute itself is *not* breached. The frame stays opaque-origin,
 retains no host API access, and still cannot navigate the parent or open a popup.
 What is lost is the **network denial**, which the contract states as an absolute.
@@ -425,3 +433,187 @@ E4 should be corrected: a relative resource declaration is not "self-contained"
 for a frame that ships no resource package, and a candidate depending on one is
 not a working widget. That correction belongs with the validation work and does
 not depend on the containment repair.
+
+---
+
+## 11. Addendum — corrected Playwright reproduction (2026-10-26)
+
+This addendum is a **later, separate** record. It does not rewrite the
+measurement in sections 2–6, and it does not replace the FAIL finding.
+
+Three things are kept apart throughout:
+
+| | What it is | Status |
+|---|---|---|
+| **1. Original CDP measurement** | The Chrome DevTools Protocol run recorded in sections 2–6 | **Unchanged.** Still the primary observation of the failure. |
+| **2. Corrected Playwright reproduction** | The repaired committed fixture, executed against the same browser engine | **Executed.** Reproduces the same failure. |
+| **3. Unexecuted tests** | The committed Playwright suite, as committed | **Not executed here.** Chromium cannot launch in this environment. |
+
+### 11.1 The defects found in the committed spec
+
+Source inspection of the committed spec found three defects that made the
+committed reproduction incapable of executing as written:
+
+1. **The generated iframe was never inserted.** `HOST_HTML` contained only
+   `<div id="frames"></div>`, and the server substituted `__FRAME_DOC__` into a
+   template that had no such placeholder. `hostDocuments` stored an iframe
+   *fragment* whose `srcdoc` was the literal string `__FRAME_DOC__`, not the
+   output of `buildSandboxDocument()`. The host page therefore served no
+   generated frame at all.
+2. **The bridge rejected every message.** `activeFrameWindow` was initialised
+   to `null` and never assigned the generated frame's `contentWindow`, so the
+   source-identity check failed before the session, channel, schema, and
+   payload checks could run. The committed spec's bridge assertions could not
+   have distinguished an accepted message from a rejected one.
+3. **The readiness check violated opaque-origin isolation.** `runCase()` waited
+   for `frame.contentDocument.body` from the host page. A frame sandboxed
+   without `allow-same-origin` has an opaque origin, so that read is `null` by
+   design. The wait could only ever succeed if the sandbox were weakened.
+
+A fourth, reporting-level defect surfaced while executing it: the known-gap
+cases were marked `test.fail()`, and Playwright counts a **setup failure** —
+including a browser that cannot launch at all — as an expected failure. The
+suite therefore reported "3 passed" when the browser had never started. That
+was an artefact, not evidence.
+
+### 11.2 The correction
+
+The fixture was rebuilt so that:
+
+- `HOST_HTML` contains the generated iframe in its markup, with `srcdoc`
+  carrying the **production-built** document from `buildSandboxDocument()`;
+- the document is embedded as an escaped attribute value (`&` and `"`), and the
+  replacements use function form, so a `$&` sequence inside generated content
+  cannot be reinterpreted as a replacement pattern;
+- the host page binds `activeFrameWindow` to
+  `document.getElementById("gen-ui").contentWindow`;
+- readiness uses a **frame locator** and the production bridge's own `resize`
+  message, never the host's same-origin API;
+- a **liveness test** that is deliberately not marked `test.fail()` asserts
+  that the browser launched, the fixture server answered, the host document
+  loaded, exactly one generated iframe exists and carries
+  `sandbox="allow-scripts"`, the production CSP is present, the generated
+  JavaScript actually ran, and the fixture server records requests.
+
+**No production file was changed.** The sandbox attribute, the CSP, the bridge
+semantics, the action set, and the payload bounds are exactly as shipped.
+
+### 11.3 Browser-free verification of the fixture
+
+The committed spec module was imported with a stubbed test runner, so the
+fixture code under test is the real committed code. **26 checks, all passing:**
+
+- the host document contains the generated iframe, sandboxed exactly as shipped;
+- no `__FRAME_DOC__` or `__SESSION__` placeholder survives;
+- the decoded `srcdoc` is a complete document carrying the production CSP, the
+  production bridge script, and the generated artifact content;
+- attribute escaping did not corrupt the generated HTML — the document's own
+  `</script>` survives intact inside the attribute value;
+- the bridge keeps its source, opaque-origin, session, channel, payload-bound,
+  and unknown-action checks;
+- the fixture server starts, serves the host document, and records requests.
+
+### 11.4 Execution evidence — corrected fixture, same browser
+
+| | |
+|---|---|
+| Browser | **Google Chrome 156.0.0.0**, macOS — the same engine as the original CDP measurement |
+| Fixture | The **committed** fixture: the committed server, the committed host page, and the committed production document builder |
+| Cases executed | **16 of 16** — 15 scripted, plus one separately dispatched real trusted click |
+| Blocked-case results | Unchanged from the original measurement |
+| Bridge results | Correct, and now **distinguishable** — the source binding works |
+
+**The exploit reproduces on the corrected fixture.** For `plain-href`,
+`location-assign`, `location-replace`, `redirect`, and the real trusted click,
+the fixture recorded the navigation and then the replacement document's outbound
+request:
+
+```
+/dest.html
+/beacon?from=dest-fetch
+/beacon?from=dest-image
+/beacon?dest=scriptRan=true&fetchReached=true&fetchError=null&imageLoaded=false&imageError=true&cookie=THREW&storageWorks=false&parentReadable=false
+```
+
+`fetchReached=true` against a beacon that answers with permissive CORS, so the
+only thing that could have blocked it is CSP. The replacement document executed
+(`scriptRan=true`) while the frame kept its opaque origin (`cookie=THREW`,
+`storageWorks=false`, `parentReadable=false`).
+
+**The boundaries that still hold still hold.** `href-top`, `href-blank`,
+`window-open`, `form-submit`, `direct-fetch`, `image-request`, and
+`relative-resource` recorded **no request at all**.
+
+**The bridge now behaves and is now observable.** Every message arrived with
+`origin === "null"` and `sourceIsActiveFrame === true`. A message with the
+wrong session was **rejected** — only the frame's own `resize` was accepted. A
+message with the correct session was **accepted** (`send_prompt`). An unknown
+action was **ignored** and never partially applied.
+
+### 11.5 The committed Playwright suite remains unexecuted here
+
+The committed command was run and its outcome recorded:
+
+```
+pnpm --dir frontend/src exec playwright test \
+  --config playwright.config.ts \
+  tests/playwright/generative-ui-navigation-containment.spec.ts
+```
+
+**exit 1 — 19 tests collected, all 19 failing during browser launch**, with the
+host's macOS seatbelt sandbox refusing Chromium's Mach port rendezvous:
+
+```
+sandbox_extension_issue_file_to_process failed for /Applications/MiniMax Code.app: 1 (Operation not permitted)
+FATAL:base/apple/mach_port_rendezvous_mac.cc:159] Check failed: kr == KERN_SUCCESS.
+  bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer.<pid>: Permission denied (1100)
+```
+
+All 19 fail, **including the two liveness tests** — which is the intended
+behaviour now that no test in the file uses `test.fail()`. An environment that
+cannot start a browser reports the suite red instead of green.
+
+**Playwright qualification is therefore not claimed.** The corrected suite has
+been executed against Chrome 156 through the DevTools Protocol, which runs the
+identical committed fixture; it has not been executed by Playwright's own
+launcher on this host.
+
+### 11.6 Disposition of independent reproduction
+
+**The FAIL finding stands, and is now reproducible on the corrected fixture.**
+
+| Claim | Level of evidence |
+|---|---|
+| A generated UI frame can navigate itself and then reach the network | **Reproduced twice** — on the original harness and on the corrected committed fixture, in Chrome 156.0.0.0 |
+| The committed Playwright suite runs green | **Not claimed.** It cannot launch a browser on this host, and it reports red |
+| The containment boundary holds | **False.** The boundary is breached; that is the finding |
+| Saved Widget persistence is ready | **Not claimed, and explicitly blocked** |
+
+### 11.7 Remaining environment limitations
+
+1. The committed Playwright suite has **not** been executed by Playwright's own
+   launcher anywhere. It must be run once in an environment that can start a
+   browser before the reproduction is treated as independently reproduced by the
+   committed test alone.
+2. All browser evidence is from one engine build (Google Chrome 156.0.0.0 on
+   macOS). Cross-browser and cross-platform behaviour is not established.
+3. The corrected fixture was executed by driving the committed host document's
+   `srcdoc` with the committed per-case document, rather than by re-navigating
+   the host page once per case. The frame document, the host page's bridge, and
+   the fixture server's log are all the committed ones; only the per-case page
+   reload differs, and it cannot affect the frame's document, the bridge
+   binding, or the recorded requests.
+4. The proof does not characterise how much could be exfiltrated in the window
+   before any host-side teardown, because no teardown exists yet.
+
+### 11.8 What the correction changes about the recommendation
+
+Nothing in the recommendation changes. The runtime containment repair is still
+the next atomic task, and Saved Widget persistence remains blocked behind it.
+
+One item in section 10 is now stale in a minor way: the note about updating
+the committed spec "so that the `test.fail()` assertions become passing
+assertions" describes the old shape. The corrected spec no longer uses
+`test.fail()`: the reproduction cases assert the **observed vulnerable
+behaviour** directly, so a future containment repair must invert them, and the
+liveness test keeps an infrastructure failure from ever reading as a pass.
