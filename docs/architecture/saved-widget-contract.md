@@ -519,6 +519,23 @@ renders through the same `SandboxFrame` path:
 - the existing validated bridge semantics — source-bound, session-bound, origin-checked, schema-validated messages,
   with an allowed action set of `resize` and `send_prompt`.
 
+### The network boundary survives navigation
+
+A saved widget is invoked in a conversation it did not come from, so its containment cannot depend on the
+document it happens to be showing. The generated document's CSP governs **that document** only; a same-frame
+navigation replaces it with a document that declares no policy, and that replacement could then issue network
+requests. That escape was reproduced in a real browser before it was repaired.
+
+The repair is a **trusted outer wrapper** built by Codexify, carrying `frame-src 'none'`, which permits the
+nested generated frame to load from `about:srcdoc` and blocks it from navigating to any real URL before a request
+is made. The boundary therefore holds across navigation, because the navigation never occurs. The wrapper is
+sandboxed too, so it keeps an opaque origin, and it contains no generated source: generated content cannot
+reach the wrapper's CSP or its relay logic.
+
+This is a property of the **runtime boundary**, not of E4. E4 remains a packaging filter over declared
+dependencies, and it still cannot see a dynamic navigation statement. The relative-resource misclassification
+in E4 is a separate, still-open correction.
+
 ### Saving grants no new capability
 
 - The bridge action set is **unchanged**. The sandbox gains no `save`, `revise`, `install`, `publish`, or

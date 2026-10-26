@@ -79,8 +79,113 @@ function enableGate(value = "true") {
 
 function frameDocument(container: HTMLElement): string {
   const frame = container.querySelector("iframe");
+  const wrapper = frame?.getAttribute("srcdoc") ?? "";
+  // The app-level frame is the TRUSTED WRAPPER. The generated document lives
+  // in the nested frame's srcdoc inside it, so reach the generated document
+  // rather than the wrapper that carries it.
+  const parsed = new DOMParser().parseFromString(wrapper, "text/html");
+  const inner = parsed.querySelector("iframe");
+  return inner?.getAttribute("srcdoc") ?? "";
+}
+
+function wrapperDocument(container: HTMLElement): string {
+  const frame = container.querySelector("iframe");
   return frame?.getAttribute("srcdoc") ?? "";
 }
+
+// ---------------------------------------------------------------------------
+// Trusted wrapper — the navigation-containment repair
+// ---------------------------------------------------------------------------
+
+describe("generative UI trusted wrapper", () => {
+  it("embeds the generated document in a nested sandboxed frame", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+
+    const wrapper = wrapperDocument(container);
+    const parsed = new DOMParser().parseFromString(wrapper, "text/html");
+    const inner = parsed.querySelector("iframe");
+
+    expect(inner).not.toBeNull();
+    expect(inner?.getAttribute("sandbox")).toBe("allow-scripts");
+    // The generated document itself is unchanged inside the wrapper.
+    expect(inner?.getAttribute("srcdoc")).toBe(frameDocument(container));
+  });
+
+  it("forbids the nested frame from navigating, so the network policy survives", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const wrapper = wrapperDocument(container);
+
+    // frame-src 'none' is the load-bearing repair: it permits the inner
+    // about:srcdoc frame to load, and blocks it from navigating to any URL.
+    expect(wrapper).toContain("frame-src 'none'");
+    expect(wrapper).toContain("default-src 'none'");
+    expect(wrapper).toContain("connect-src 'none'");
+  });
+
+  it("keeps the generated document's own CSP intact", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const generated = frameDocument(container);
+
+    expect(generated).toContain("default-src 'none'");
+    expect(generated).toContain("connect-src 'none'");
+    expect(generated).toContain("frame-src 'none'");
+  });
+
+  it("sandboxes the wrapper itself, so it cannot reach the Codexify document", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const frame = container.querySelector("iframe");
+
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+  });
+
+  it("relays only validated, approved actions", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const wrapper = wrapperDocument(container);
+
+    // The relay re-validates source, origin, session, action and payload
+    // before it forwards anything, and never forwards an unknown action.
+    expect(wrapper).toContain("ev.source !== inner.contentWindow");
+    expect(wrapper).toContain('ev.origin !== "null"');
+    expect(wrapper).toContain("d.session !== SESSION");
+    expect(wrapper).toContain('d.action === "resize"');
+    expect(wrapper).toContain('d.action === "send_prompt"');
+    expect(wrapper).toContain("text.length > ");
+    expect(wrapper).not.toContain("forward(d.action");
+  });
+
+  it("rejects a message posted directly by the nested generated frame", () => {
+    enableGate();
+    const seen: string[] = [];
+    const listener = (event: Event) => {
+      seen.push((event as CustomEvent<{ text: string }>).detail?.text ?? "");
+    };
+    window.addEventListener(COMPOSER_PREFILL_EVENT, listener);
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const session = frameSession(container);
+
+    // The nested frame knows the session, but it is not the wrapper, so the
+    // host must not accept it merely because the session matches.
+    const nested = { name: "nested-generated-frame" } as unknown as MessageEventSource;
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { channel: "cfy-ui", session, action: "send_prompt", payload: { text: "from the inner frame" } },
+          origin: "null",
+          source: nested,
+        })
+      );
+    });
+
+    expect(seen).toEqual([]);
+    window.removeEventListener(COMPOSER_PREFILL_EVENT, listener);
+  });
+});
+
 
 function frameSession(container: HTMLElement): string {
   const match = /var SESSION = "([^"]+)"/.exec(frameDocument(container));

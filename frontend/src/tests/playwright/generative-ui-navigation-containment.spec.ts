@@ -1,20 +1,18 @@
 /**
- * Generated UI sandbox navigation containment — executable reproduction.
+ * Generated UI sandbox navigation containment — repaired boundary.
  *
- * Establishes, in a real browser, what network requests and what navigation a
- * generated UI iframe can initiate under the containment configuration the
- * product actually ships.
+ * Establishes, in a real browser, that a generated UI iframe cannot obtain
+ * network access by navigating away from its CSP-protected document.
  *
  * The frame is built with the **actual** document-generation path:
- * `buildSandboxDocument()` from
- * `frontend/src/features/chat/components/generativeUi/SandboxFrame.tsx`, and
- * embedded with the **actual** iframe permission set (`sandbox="allow-scripts"`,
- * no `allow-same-origin`, no `allow-top-navigation`, no `allow-popups`, no
- * `allow-forms`). This spec never weakens iframe permissions to make a case
- * pass, and it never substitutes a hand-written CSP mock for the shipped one.
+ * `buildSandboxDocument()` and `buildSandboxWrapperDocument()` from
+ * `frontend/src/features/chat/components/generativeUi/SandboxFrame.tsx`. The
+ * app-level frame is the trusted wrapper, carrying `frame-src 'none'`, and
+ * the generated document lives in a nested sandboxed `srcdoc` frame inside
+ * it. No iframe permission is weakened and no CSP is hand-written here.
  *
  * Every observation that matters is made through a local loopback fixture
- * server that records the paths it actually receives. The browser console is
+ * server that records the paths it actually received. The browser console is
  * recorded as supporting detail only; no assertion in this file rests on a
  * console warning alone.
  *
@@ -24,28 +22,22 @@
  * rather than about CORS.
  *
  * ---------------------------------------------------------------------------
- * READ THIS BEFORE READING ANY ASSERTION
+ * WHAT A PASSING RESULT MEANS
  * ---------------------------------------------------------------------------
- * The "reproduction" tests below assert the **observed vulnerable behaviour**.
- * A passing reproduction test means:
+ * These tests assert the **repaired** boundary: a generated frame cannot
+ * regain network access through navigation, and the bridge still authorizes
+ * exactly two actions. A pass means the containment holds.
  *
- *     "the known exploit was reproduced"
+ * The pre-repair failure is recorded separately and immutably in
+ * docs/architecture/proofs/runtime/2026-10-26-generative-ui-navigation-containment-proof.md
+ * and is NOT reproduced here. This file must never be made to go green by
+ * weakening an assertion.
  *
- * It does NOT mean:
- *
- *     "the containment boundary passed"
- *
- * The security boundary is still broken. These tests are a negative security
- * baseline: they lock in the exploit so that a future containment repair is
- * forced to invert them, and so that a regression cannot be mistaken for a
- * fix. The separate "security regression" tests assert the boundaries that
- * still hold, and they are the ones that must keep passing.
- *
- * No test in this file uses `test.fail()`. Playwright counts a setup failure —
- * including a browser that cannot launch at all — as an expected failure for a
- * `test.fail()` case, which would let this suite report green with no browser
- * ever started. The liveness test below is deliberately unmarked, so an
- * infrastructure failure is always red.
+ * No test in this file uses `test.fail()`. Playwright counts a setup failure
+ * — including a browser that cannot launch at all — as an expected failure,
+ * which would let this suite report green with no browser ever started. The
+ * liveness test below is deliberately unmarked, so an infrastructure failure
+ * is always red.
  *
  * Disposition and evidence:
  * docs/architecture/proofs/runtime/2026-10-26-generative-ui-navigation-containment-proof.md
@@ -57,7 +49,10 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { buildSandboxDocument } from '../../features/chat/components/generativeUi/SandboxFrame';
+import {
+  buildSandboxDocument,
+  buildSandboxWrapperDocument,
+} from '../../features/chat/components/generativeUi/SandboxFrame';
 import type { SandboxUiArtifact } from '../../features/chat/components/generativeUi/artifactCodec';
 
 // ---------------------------------------------------------------------------
@@ -66,10 +61,8 @@ import type { SandboxUiArtifact } from '../../features/chat/components/generativ
 
 export const SESSION = 'ui-containment-session';
 
-/**
- * Evidence log: the paths the fixture server actually received as a result of
- * something the generated frame did. Harness plumbing is excluded.
- */
+/** Evidence log: the paths the fixture actually received as a result of
+ * something the generated frame did. Harness plumbing is excluded. */
 const received: string[] = [];
 
 /** Every request the server received, harness plumbing included. */
@@ -80,41 +73,41 @@ const HARNESS_PATHS = new Set(['/host.html', '/__mark', '/__log', '/__all']);
 /**
  * The host page.
  *
- * The iframe is present in the markup and carries the production-generated
- * document in its `srcdoc` attribute. The bridge validation mirrors
- * SandboxFrame.tsx's host-side `handleMessage`: source binding (compared
- * against the frame's `contentWindow`, never the element), opaque-origin
- * binding, channel binding, session binding, schema validation, and "unknown
- * actions are ignored, never partially applied".
+ * The app-level frame is the TRUSTED WRAPPER produced by
+ * `buildSandboxWrapperDocument()`. The generated document is nested inside it.
+ *
+ * The host's bridge validation mirrors SandboxFrame.tsx's host-side
+ * `handleMessage`: source binding (against the wrapper's `contentWindow`),
+ * opaque-origin binding, channel binding, session binding, schema validation,
+ * and "unknown actions are ignored, never partially applied".
  */
 const HOST_HTML = `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>containment host</title></head>
-<body>
-<h1>containment host</h1>
-<iframe id="gen-ui" title="generated interface" sandbox="allow-scripts" srcdoc="__FRAME_DOC__" style="width:100%;height:200px;border:0"></iframe>
+<head><meta charset="utf-8"><title>containment host</title>
 <script>
   var SESSION = __SESSION__;
-  // Source binding. The bridge accepts a message only when it came from this
-  // frame's own contentWindow, so the binding has to point at the generated
-  // frame. The iframe element precedes this script, so the reference is
-  // resolved at parse time.
-  var activeFrameWindow = document.getElementById("gen-ui").contentWindow;
+  // Source binding: only the trusted wrapper may talk to us. A message posted
+  // directly by the nested generated frame has a different source and is
+  // rejected here even when it knows the session token.
+  //
+  // The frame is resolved when a message arrives, not at parse time: the
+  // iframe element is a sibling that may not exist yet.
+  function hostFrame() {
+    return document.getElementById("gen-ui");
+  }
   var accepted = [];
   var messages = [];
-
   window.addEventListener("message", function (event) {
+    var frame = hostFrame();
     var raw = event.data;
     messages.push({
       origin: event.origin,
-      sourceIsActiveFrame: !!activeFrameWindow && event.source === activeFrameWindow,
+      sourceIsActiveFrame: !!frame && event.source === frame.contentWindow,
       channel: raw && raw.channel,
       session: raw && raw.session,
       action: raw && raw.action
     });
-    // Source identity.
-    if (!activeFrameWindow || event.source !== activeFrameWindow) return;
-    // The opaque origin of a sandboxed frame serializes to "null".
+    if (!frame || event.source !== frame.contentWindow) return;
     if (event.origin !== "null") return;
     var data = raw;
     if (!data || typeof data !== "object") return;
@@ -126,23 +119,27 @@ const HOST_HTML = `<!doctype html>
       var text = typeof payload.text === "string" ? payload.text.trim() : "";
       if (!text || text.length > 2000) return;
       accepted.push("send_prompt");
+      window.__lastPrompt = text;
       return;
     }
     // Unknown actions are ignored, never partially applied.
   });
-
   window.__accepted = accepted;
   window.__messages = messages;
 </script>
+</head>
+<body>
+<h1>containment host</h1>
+<iframe id="gen-ui" title="generated interface" sandbox="allow-scripts" srcdoc="__WRAPPER_DOC__" style="width:100%;height:240px;border:0"></iframe>
 </body>
 </html>`;
 
 /**
  * The destination document. It declares no CSP of its own.
  *
- * If the frame's original document CSP still applied after the navigation,
- * the fetch below would be denied. It also reports whether host storage,
- * cookies, and the parent document are reachable, so the post-navigation
+ * If the frame's original document CSP still applied after a navigation, the
+ * fetch below would be denied. It also reports whether host storage,
+ * cookies, and the parent document are reachable, so post-navigation
  * isolation can be measured from inside the frame.
  */
 const DEST_HTML = `<!doctype html>
@@ -207,20 +204,55 @@ export const CASES: CaseSpec[] = [
     js: `document.getElementById("exec-marker").setAttribute("data-executed", "yes");`,
     trigger: 'script',
   },
-  // The known exploit.
-  { id: 'plain-href', html: `<a id="go" href="/dest.html">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
-  { id: 'user-initiated', html: `<a id="go" href="/dest.html">go</a>`, js: ``, trigger: 'click' },
-  { id: 'location-assign', html: `<p>navigating</p>`, js: `window.location.href = "/dest.html";`, trigger: 'script' },
-  { id: 'location-replace', html: `<p>navigating</p>`, js: `window.location.replace("/dest.html");`, trigger: 'script' },
-  { id: 'redirect', html: `<p>navigating</p>`, js: `window.location.href = "/redirect";`, trigger: 'script' },
-  // Boundaries that still hold.
-  { id: 'href-top', html: `<a id="go" href="/dest.html" target="_top">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
-  { id: 'href-blank', html: `<a id="go" href="/dest.html" target="_blank">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
-  { id: 'window-open', html: `<p>opening</p>`, js: `window.open("/dest.html", "_blank");`, trigger: 'script' },
+  // The previously-exploited navigation paths.
+  { id: 'nav-href', html: `<a id="go" href="/dest.html">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
+  { id: 'nav-location', html: `<p>navigating</p>`, js: `window.location.href = "/dest.html";`, trigger: 'script' },
+  { id: 'nav-replace', html: `<p>navigating</p>`, js: `window.location.replace("/dest.html");`, trigger: 'script' },
+  { id: 'nav-redirect', html: `<p>navigating</p>`, js: `window.location.href = "/redirect";`, trigger: 'script' },
+  { id: 'nav-user-click', html: `<a id="go" href="/dest.html">go</a>`, js: ``, trigger: 'click' },
+  // Ancestor navigation and popups.
+  { id: 'nav-parent', html: `<p>x</p>`, js: `try { window.parent.location = "/dest.html"; } catch (e) { window.__navError = String(e); }`, trigger: 'script' },
+  { id: 'nav-top', html: `<p>x</p>`, js: `try { window.top.location = "/dest.html"; } catch (e) { window.__navError = String(e); }`, trigger: 'script' },
+  { id: 'nav-self-target', html: `<a id="go" href="/dest.html" target="_self">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
+  { id: 'nav-blank-target', html: `<a id="go" href="/dest.html" target="_blank">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
+  { id: 'nav-top-target', html: `<a id="go" href="/dest.html" target="_top">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
+  { id: 'nav-parent-target', html: `<a id="go" href="/dest.html" target="_parent">go</a>`, js: `document.getElementById("go").click();`, trigger: 'script' },
+  { id: 'nav-window-open', html: `<p>x</p>`, js: `try { window.open("/dest.html", "_blank"); } catch (e) { window.__navError = String(e); }`, trigger: 'script' },
+  // Local-scheme navigation.
+  { id: 'nav-about-blank', html: `<p>x</p>`, js: `window.location.href = "about:blank";`, trigger: 'script' },
+  { id: 'nav-about-srcdoc', html: `<p>x</p>`, js: `window.location.href = "about:srcdoc";`, trigger: 'script' },
+  { id: 'nav-data', html: `<p>x</p>`, js: `window.location.href = "data:text/html,<p>data</p>";`, trigger: 'script' },
+  { id: 'nav-blob', html: `<p>x</p>`, js: `window.location.href = URL.createObjectURL(new Blob(["<p>blob</p>"], {type:"text/html"}));`, trigger: 'script' },
+  { id: 'nav-javascript', html: `<p>x</p>`, js: `window.location.href = "javascript:void 0";`, trigger: 'script' },
+  // Boundaries that were never broken.
   { id: 'form-submit', html: `<form id="f" action="/dest.html" method="get"><input name="x" value="1"><button type="submit">go</button></form>`, js: `document.getElementById("f").submit();`, trigger: 'script' },
   { id: 'direct-fetch', html: `<p>fetching</p>`, js: `fetch("/beacon?from=direct-fetch").catch(function () { window.__blockedByCsp = true; });`, trigger: 'script' },
   { id: 'image-request', html: `<img id="pic" src="/beacon?from=image-request">`, js: `document.getElementById("pic").addEventListener("error", function () { window.__blockedByCsp = true; });`, trigger: 'script' },
   { id: 'relative-resource', html: `<script src="/asset.js"></script><img id="pic" src="/beacon?from=relative-resource">`, js: `document.getElementById("pic").addEventListener("error", function () { window.__blockedByCsp = true; });`, trigger: 'script' },
+  // Ordinary generated-interface behaviour.
+  {
+    id: 'interaction',
+    html: `<style>#greeting { color: rgb(1, 2, 3); }</style>
+<p id="greeting">hello</p>
+<p id="exec-marker">pending</p>
+<p id="out">idle</p>
+<input id="field" />
+<button id="press" type="button">press</button>
+<button id="ask" type="button">ask</button>`,
+    js: `document.getElementById("exec-marker").setAttribute("data-executed", "yes");
+// Surface the computed colour in the document title so that CSS application
+// is observable from outside the opaque-origin frame, not only from inside it.
+document.title = "color:" + getComputedStyle(document.getElementById("greeting")).color;
+document.getElementById("press").addEventListener("click", function () {
+  document.getElementById("out").textContent = "clicked";
+});
+document.getElementById("ask").addEventListener("click", function () {
+  if (window.cfyUI && typeof window.cfyUI.sendPrompt === "function") {
+    window.cfyUI.sendPrompt("please help");
+  }
+});`,
+    trigger: 'script',
+  },
   // Bridge authorization.
   { id: 'bridge-wrong-session', html: `<p>bridge</p>`, js: `parent.postMessage({ channel: "cfy-ui", session: "not-the-session", action: "send_prompt", payload: { text: "forged" } }, "*");`, trigger: 'script' },
   { id: 'bridge-valid-session', html: `<p>bridge</p>`, js: `parent.postMessage({ channel: "cfy-ui", session: ${JSON.stringify(SESSION)}, action: "send_prompt", payload: { text: "hello" } }, "*");`, trigger: 'script' },
@@ -228,17 +260,17 @@ export const CASES: CaseSpec[] = [
 ];
 
 /** Escape a value for use inside a double-quoted HTML attribute. */
-function escapeAttribute(value: string): string {
+function escapeAttributeValue(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 /**
  * Build the host document for one case.
  *
- * The generated frame document comes from the production
- * `buildSandboxDocument()`, and is embedded in the iframe's `srcdoc`
- * attribute. The attribute value is escaped so the generated HTML is not
- * corrupted; the browser decodes it back to the original document.
+ * The generated document comes from the production `buildSandboxDocument()`,
+ * and is wrapped by the production `buildSandboxWrapperDocument()`. The
+ * wrapper is embedded in the host page's iframe `srcdoc` attribute, escaped
+ * so the generated HTML is not corrupted; the browser decodes it back.
  *
  * Replacements use function form, so a `$&` or similar sequence inside the
  * generated document cannot be interpreted as a replacement pattern.
@@ -253,10 +285,11 @@ export function buildHostDocument(caseId: string): string {
     html: spec.html,
     js: spec.js,
   };
-  const document = buildSandboxDocument(artifact, SESSION);
+  const generated = buildSandboxDocument(artifact, SESSION);
+  const wrapper = buildSandboxWrapperDocument(generated, SESSION);
   return HOST_HTML.replace('__SESSION__', () => JSON.stringify(SESSION)).replace(
-    '__FRAME_DOC__',
-    () => escapeAttribute(document),
+    '__WRAPPER_DOC__',
+    () => escapeAttributeValue(wrapper),
   );
 }
 
@@ -396,8 +429,7 @@ async function runCase(browser: Browser, spec: CaseSpec): Promise<Observation> {
   });
 
   // The evidence log is captured across the whole navigation, so the mark is
-  // taken before the host page is requested. A same-frame navigation happens
-  // while the frame loads, and it must be inside the slice.
+  // taken before the host page is requested.
   const mark = await page.request.get(`http://127.0.0.1:${port}/__mark`);
   const before = (await mark.json()) as { evidence: number; all: number };
   const beforeUrl = page.url();
@@ -405,14 +437,24 @@ async function runCase(browser: Browser, spec: CaseSpec): Promise<Observation> {
   await page.goto(`http://127.0.0.1:${port}/host.html?case=${encodeURIComponent(spec.id)}`);
 
   // Readiness must not read the sandboxed document through the host's
-  // same-origin API: the frame is sandboxed without allow-same-origin, so
-  // `frame.contentDocument` is null by design. A frame locator addresses the
-  // frame through the browser instead, so the sandbox is not weakened.
+  // same-origin API: the frames are sandboxed without allow-same-origin, so
+  // `contentDocument` is null by design. Frame locators address the frames
+  // through the browser, so the sandbox is not weakened.
   await page.frameLocator('#gen-ui').locator('body').waitFor({ state: 'attached', timeout: 20000 });
+  await page
+    .frameLocator('#gen-ui')
+    .frameLocator('#cfy-ui-inner')
+    .locator('body')
+    .waitFor({ state: 'attached', timeout: 20000 });
 
   if (spec.trigger === 'click') {
-    // A real trusted input event, dispatched at the element inside the frame.
-    await page.frameLocator('#gen-ui').locator('#go').click({ timeout: 15000 });
+    // A real trusted input event, dispatched at the element inside the
+    // nested generated frame.
+    await page
+      .frameLocator('#gen-ui')
+      .frameLocator('#cfy-ui-inner')
+      .locator('#go')
+      .click({ timeout: 15000 });
   }
 
   await page.waitForTimeout(1500);
@@ -427,7 +469,12 @@ async function runCase(browser: Browser, spec: CaseSpec): Promise<Observation> {
     () => (window as unknown as { __accepted?: string[] }).__accepted ?? [],
   );
   const bridgeMessages = await page.evaluate(
-    () => (window as unknown as { __messages?: { origin: string; sourceIsActiveFrame: boolean; action: string | null }[] }).__messages ?? [],
+    () =>
+      (
+        window as unknown as {
+          __messages?: { origin: string; sourceIsActiveFrame: boolean; action: string | null }[];
+        }
+      ).__messages ?? [],
   );
 
   const observation: Observation = {
@@ -467,25 +514,30 @@ test.describe('harness liveness', () => {
     const response = await page.goto(`http://127.0.0.1:${port}/host.html?case=liveness`);
     expect(response?.status()).toBe(200);
 
-    // Exactly one generated iframe, sandboxed exactly as shipped.
+    // Exactly one app-level frame, sandboxed exactly as shipped.
     await expect(page.locator('#gen-ui')).toHaveCount(1);
     await expect(page.locator('#gen-ui')).toHaveAttribute('sandbox', 'allow-scripts');
 
-    // The production-generated document loaded, and its JavaScript ran. The
-    // marker is inside the frame, so this is observed through the browser,
-    // not through the host's same-origin API.
+    // The wrapper carries the load-bearing directive.
+    const wrapperHtml = (await response?.text()) ?? '';
+    expect(wrapperHtml).toContain("frame-src 'none'");
+
+    // The nested generated frame loaded, and its JavaScript ran.
     await expect(
-      page.frameLocator('#gen-ui').locator('#exec-marker[data-executed="yes"]'),
+      page
+        .frameLocator('#gen-ui')
+        .frameLocator('#cfy-ui-inner')
+        .locator('#exec-marker[data-executed="yes"]'),
     ).toBeVisible({ timeout: 20000 });
 
     // The shipped CSP is present on the generated document.
     const csp = await page
       .frameLocator('#gen-ui')
+      .frameLocator('#cfy-ui-inner')
       .locator('meta[http-equiv="Content-Security-Policy"]')
       .getAttribute('content');
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("connect-src 'none'");
-    expect(csp).toContain("form-action 'none'");
 
     // The fixture server records requests.
     const all = await page.request.get(`http://127.0.0.1:${port}/__all`);
@@ -493,86 +545,77 @@ test.describe('harness liveness', () => {
     expect(allPaths.some((path) => path.startsWith('/host.html'))).toBe(true);
   });
 
-  test('the served host document contains the generated frame and no unresolved placeholder', async ({ page }) => {
+  test('the served host document contains the production wrapper and no unresolved placeholder', async ({ page }) => {
     const response = await page.goto(`http://127.0.0.1:${port}/host.html?case=liveness`);
     const html = (await response?.text()) ?? '';
     expect(html).toContain('sandbox="allow-scripts"');
-    expect(html).not.toContain('__FRAME_DOC__');
+    expect(html).toContain('frame-src &#39;none&#39;');
+    expect(html).not.toContain('__WRAPPER_DOC__');
     expect(html).not.toContain('__SESSION__');
   });
 });
 
 // ---------------------------------------------------------------------------
-// The known exploit — reproduction baseline
+// The repaired boundary — navigation must not yield network access
 // ---------------------------------------------------------------------------
 
-test.describe('known exploit reproduction (a pass means the exploit reproduced, NOT that the boundary held)', () => {
-  for (const id of ['plain-href', 'location-assign', 'location-replace', 'redirect', 'user-initiated']) {
-    test(`REPRODUCES the exploit: ${id} navigates the frame and the replacement document beacons out`, async ({ browser }) => {
+test.describe('navigation containment (repaired)', () => {
+  for (const id of [
+    'nav-href',
+    'nav-location',
+    'nav-replace',
+    'nav-redirect',
+    'nav-user-click',
+    'nav-parent',
+    'nav-top',
+    'nav-self-target',
+    'nav-blank-target',
+    'nav-top-target',
+    'nav-parent-target',
+    'nav-window-open',
+    'nav-about-blank',
+    'nav-about-srcdoc',
+    'nav-data',
+    'nav-blob',
+    'nav-javascript',
+  ]) {
+    test(`a generated frame cannot obtain network access through ${id}`, async ({ browser }) => {
       const result = await runCase(browser, specFor(id));
 
-      // The same-frame navigation reached the fixture.
-      expect(result.reached.some((path) => path.startsWith('/dest.html'))).toBe(true);
-
-      // The replacement document's outbound request reached the fixture. The
-      // beacon answers with permissive CORS, so only CSP could have blocked
-      // it, and the request was received.
-      expect(result.reached.some((path) => path.includes('from=dest-fetch'))).toBe(true);
-
-      // The replacement document's own report confirms the fetch succeeded.
-      const report = result.reached.find((path) => path.includes('dest='));
-      expect(report).toBeDefined();
-      expect(decodeURIComponent(report ?? '')).toContain('fetchReached=true');
+      // The destination was never requested, so no replacement document ran
+      // and no beacon could have been emitted.
+      expect(result.reached).toEqual([]);
+      expect(result.reached.some((path) => path.startsWith('/dest.html'))).toBe(false);
+      expect(result.reached.some((path) => path.includes('from=dest-fetch'))).toBe(false);
+      expect(result.reached.some((path) => path.includes('from=dest-image'))).toBe(false);
     });
   }
 
-  test('REPRODUCES the exploit: after the navigation the frame keeps its opaque origin and loses only the CSP', async ({ browser }) => {
-    const result = await runCase(browser, specFor('plain-href'));
-    const report = decodeURIComponent(result.reached.find((path) => path.includes('dest=')) ?? '');
-    // The replacement document executed, and the sandbox still holds.
-    expect(report).toContain('scriptRan=true');
-    expect(report).toContain('cookie=THREW');
-    expect(report).toContain('storageWorks=false');
-    expect(report).toContain('parentReadable=false');
-    // What it does not hold is the document CSP.
-    expect(report).toContain('fetchReached=true');
+  test('no navigation case replaced the host or opened a popup', async ({ browser }) => {
+    for (const id of ['nav-href', 'nav-location', 'nav-replace', 'nav-user-click', 'nav-parent', 'nav-top', 'nav-window-open']) {
+      const result = await runCase(browser, specFor(id));
+      expect(result.parentNavigated).toBe(false);
+      expect(result.popupCreated).toBe(false);
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Boundaries that still hold — these must keep passing
+// Boundaries that were never broken
 // ---------------------------------------------------------------------------
 
-test.describe('security regressions (boundaries that still hold)', () => {
-  test('the parent frame cannot be navigated', async ({ browser }) => {
-    const result = await runCase(browser, specFor('href-top'));
-    expect(result.parentNavigated).toBe(false);
-    expect(result.reached).toEqual([]);
-  });
-
-  test('no popup can be created by a link', async ({ browser }) => {
-    const result = await runCase(browser, specFor('href-blank'));
-    expect(result.popupCreated).toBe(false);
-    expect(result.reached).toEqual([]);
-  });
-
-  test('no popup can be created by window.open', async ({ browser }) => {
-    const result = await runCase(browser, specFor('window-open'));
-    expect(result.popupCreated).toBe(false);
-    expect(result.reached).toEqual([]);
-  });
-
+test.describe('security regressions', () => {
   test('a local form submission is blocked', async ({ browser }) => {
     const result = await runCase(browser, specFor('form-submit'));
     expect(result.reached).toEqual([]);
   });
 
-  test("the original document's own fetch is blocked before it leaves the browser", async ({ browser }) => {
+  test("the generated document's own fetch is blocked before it leaves the browser", async ({ browser }) => {
     const result = await runCase(browser, specFor('direct-fetch'));
     expect(result.reached).toEqual([]);
   });
 
-  test("the original document's own image load is blocked", async ({ browser }) => {
+  test("the generated document's own image load is blocked", async ({ browser }) => {
     const result = await runCase(browser, specFor('image-request'));
     expect(result.reached).toEqual([]);
   });
@@ -617,5 +660,48 @@ test.describe('bridge authorization', () => {
       expect(message.origin).toBe('null');
       expect(message.sourceIsActiveFrame).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ordinary generated-interface behaviour still works
+// ---------------------------------------------------------------------------
+
+test.describe('ordinary widget behaviour', () => {
+  test('inline HTML renders, CSS applies, JavaScript runs, inputs work, and the bridge reaches the host', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await page.goto(`http://127.0.0.1:${port}/host.html?case=interaction`);
+
+    const inner = page.frameLocator('#gen-ui').frameLocator('#cfy-ui-inner');
+
+    // Inline JavaScript executed.
+    await expect(inner.locator('#exec-marker[data-executed="yes"]')).toBeVisible({ timeout: 20000 });
+
+    // Inline HTML rendered.
+    await expect(inner.locator('#greeting')).toHaveText('hello');
+
+    // CSS applied: the generated stylesheet is scoped to the generated frame.
+    const color = await inner.locator('#greeting').evaluate((el) => getComputedStyle(el).color);
+    expect(color).toBe('rgb(1, 2, 3)');
+
+    // A button responds to a real user click.
+    await inner.locator('#press').click();
+    await expect(inner.locator('#out')).toHaveText('clicked');
+
+    // A text input stays usable.
+    await inner.locator('#field').fill('typed');
+    await expect(inner.locator('#field')).toHaveValue('typed');
+
+    // A valid send_prompt reaches the host's composer-prefill pathway.
+    await inner.locator('#ask').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __lastPrompt?: string }).__lastPrompt ?? '')).toBe('please help');
+
+    // The frame resized within the existing bounds.
+    const accepted = await page.evaluate(() => (window as unknown as { __accepted?: string[] }).__accepted ?? []);
+    expect(accepted).toContain('resize');
+
+    await context.close();
   });
 });

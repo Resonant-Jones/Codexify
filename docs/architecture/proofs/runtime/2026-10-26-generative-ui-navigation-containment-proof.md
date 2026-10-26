@@ -16,6 +16,12 @@
 that navigation the frame's document CSP no longer applies. The navigated
 document can issue outbound network requests that **reach the server**.
 
+> **This is the PRE-REPAIR finding, and it is preserved unchanged.**
+> The defect it records was subsequently repaired with a browser-enforced
+> trusted-embedding boundary, and the repair was measured in Chrome 156. See
+> [section 12](#12-repair-evidence--network-containment-across-navigation-2026-10-26).
+> Sections 2–6 and 11 remain the historical record of the failure.
+
 > **Addendum (2026-10-26).** The committed Playwright reproduction was later
 > found to be defective and has been repaired. The corrected fixture has been
 > executed and **reproduces the same failure**. See
@@ -617,3 +623,185 @@ assertions" describes the old shape. The corrected spec no longer uses
 `test.fail()`: the reproduction cases assert the **observed vulnerable
 behaviour** directly, so a future containment repair must invert them, and the
 liveness test keeps an infrastructure failure from ever reading as a pass.
+
+---
+
+## 12. Repair evidence — network containment across navigation (2026-10-26)
+
+This section records the **repair** of the defect measured above. Sections 2–6
+and 11 are the historical record and are **not** rewritten: the pre-repair
+failure remains the pre-repair failure, and it is kept here as the baseline the
+repair is measured against.
+
+### 12.1 The defect, restated precisely
+
+The generated document's CSP is a `<meta http-equiv>` on **that document**. A
+same-frame navigation replaces the document with one that declares no policy,
+and the replacement then had no network restriction. The broken invariant was
+**network denial** — not account authorization, not host DOM isolation, not the
+bridge.
+
+### 12.2 The mechanism selected
+
+A **trusted outer wrapper document**, built by Codexify, that embeds the
+generated document in a nested sandboxed `srcdoc` frame:
+
+```html
+<!-- app page -->
+<iframe sandbox="allow-scripts" srcdoc="<trusted wrapper>" />
+
+<!-- trusted wrapper, built by Codexify -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src 'none'; ...">
+<iframe id="cfy-ui-inner" sandbox="allow-scripts" srcdoc="<generated document>" />
+```
+
+`frame-src 'none'` is load-bearing. It governs which URLs may be loaded into
+**child frames**: a child loaded from `about:srcdoc` is permitted, so the
+generated frame still loads, while a child navigated to any real URL is blocked
+**before the request is made**. The network boundary therefore survives
+navigation, because the navigation never happens.
+
+The wrapper's `frame-src` is scoped to the wrapper document and is deliberately
+**not** applied to the Codexify app document, so other workspace iframe surfaces
+are unaffected. The wrapper is itself sandboxed (`allow-scripts`, no
+`allow-same-origin`), so it keeps an opaque origin and cannot reach the
+Codexify document. It contains no generated source: generated content cannot
+reach the wrapper's CSP or its relay logic.
+
+### 12.3 Candidate verification, before any production change
+
+The mechanism was measured **before** it was adopted, in a real browser, against
+the real `buildSandboxDocument()` output.
+
+| | |
+|---|---|
+| Browser | **Google Chrome 156.0.0.0**, macOS |
+| Harness | local loopback fixture server, request log as primary evidence |
+| Cases | 16 — benign load, same-frame `location.href`, `location.replace`, anchor click, `parent.location`, `top.location`, `window.open`, redirect chain, `about:blank`, `about:srcdoc`, `data:`, `blob:`, `javascript:`, cross-origin navigation, inner subresource request, and a real trusted click |
+| Result | **Zero requests reached the fixture in every case** |
+
+The browser's own console recorded the enforcement:
+
+```text
+Framing 'http://127.0.0.1:PORT/dest.html' violates the following Content
+Security Policy directive: "frame-src 'none'". The request has been blocked.
+Framing 'http://localhost:PORT/' violates ... "frame-src 'none'". The request has been blocked.
+Framing '' violates ... "frame-src 'none'". The request has been blocked.   [about:blank, about:srcdoc]
+Unsafe attempt to initiate navigation ... from frame with URL 'about:srcdoc'. The
+  frame attempting navigation is sandboxed, and is therefore disallowed from
+  navigating its ancestors.                                              [parent]
+Unsafe attempt to initiate navigation of the top-level window ... 'allow-top-navigation'
+  is not set.                                                            [top]
+Blocked opening ... in a new window because ... 'allow-popups' permission is not set.
+Loading the image '.../beacon?from=inner-subresource' violates ... "img-src data: blob:".
+```
+
+The `from frame with URL 'about:srcdoc'` entries are also the positive proof
+that the generated document loaded and its JavaScript executed.
+
+### 12.4 The implemented repair, measured
+
+The committed Playwright fixture was rebuilt to use the **production**
+`buildSandboxDocument()` **and** `buildSandboxWrapperDocument()`, and the
+committed spec now asserts the **repaired** boundary. It was executed against
+the same browser engine.
+
+| | |
+|---|---|
+| Browser | **Google Chrome 156.0.0.0**, macOS |
+| Cases executed | **24** scripted cases, plus one interaction case driven with real trusted clicks |
+| Navigation requests reaching the fixture | **0** |
+| Destination documents ever loaded | **0** — no replacement document ran, so no beacon could be emitted |
+| Parent navigation / popups | none, for every case |
+| Bridge, wrong session | **rejected** — only the frame's own `resize` was accepted |
+| Bridge, correct session | **accepted** — `send_prompt` and `resize` |
+| Bridge, unknown action | **ignored** — never partially applied |
+| Every bridge message origin | `"null"`, from the wrapper's `contentWindow` |
+
+Ordinary generated-interface behaviour was re-verified in the same run:
+
+| Property | Observed |
+|---|---|
+| Inline HTML renders | `hello` |
+| CSS applies | computed `color: rgb(1, 2, 3)` |
+| Inline JavaScript executes | the generated script ran (it set the document title) |
+| Button responds to input | `#out` became `clicked` after a real trusted click |
+| Text input remains usable | the field held `typed` |
+| `send_prompt` reaches the composer-prefill pathway | the host received `please help` |
+| Frame resizes within bounds | `resize` accepted |
+
+### 12.5 Playwright execution status
+
+**BLOCKED, separately attributed.** The committed command was run:
+
+```
+PW_START_WEBSERVER=false pnpm --dir frontend/src exec playwright test \
+  --config playwright.config.ts \
+  tests/playwright/generative-ui-navigation-containment.spec.ts \
+  --output=<path that does not exist yet>
+```
+
+The runner works and collects the suite — **29 tests** in the repaired spec. The
+**browser cannot start**: the host's macOS seatbelt sandbox refuses Chromium's
+Mach port rendezvous, with the browser's own output:
+
+```text
+sandbox_extension_issue_file_to_process failed for /Applications/MiniMax Code.app: 1 (Operation not permitted)
+FATAL:base/apple/mach_port_rendezvous_mac.cc:159] Check failed: kr == KERN_SUCCESS.
+  bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer.<pid>: Permission denied (1100)
+```
+
+All tests therefore fail during browser launch, **including the liveness
+tests**. That is the intended behaviour: the suite contains no `test.fail()`,
+so an environment that cannot start a browser reports red rather than green.
+
+**Playwright qualification is not claimed.** The evidence in 12.4 comes from
+executing the identical committed fixture against Chrome 156 over the DevTools
+Protocol. The committed Playwright suite must still be run once in an
+environment that can start a browser.
+
+### 12.6 Disposition
+
+**PASS for the repair, on Chrome 156 evidence.** The original FAIL finding is
+resolved: the network boundary now survives navigation, and the failure mode is
+closed at the browser-enforced level rather than by a static check or by
+after-the-fact teardown.
+
+| Claim | Level of evidence |
+|---|---|
+| The pre-repair escape reached the network | **Proven** (sections 2–6) and **preserved** as the historical record |
+| The repaired configuration blocks every navigation-attempted request | **Proven in Chrome 156** against the production wrapper (24 cases, 0 requests) |
+| The repaired configuration preserves ordinary widget behaviour | **Proven in Chrome 156** |
+| The committed Playwright suite passes | **Not claimed** — it cannot launch a browser on this host and reports red |
+| Cross-browser containment equivalence | **Not claimed.** Only Chrome 156 was tested. Safari, WebKit, mobile, and Tauri hosts are **not** proven and must not be presented as proven |
+| The E4 relative-resource misclassification | **Still open**, and out of scope for this repair |
+
+### 12.7 Security invariant checks
+
+| Invariant | Status |
+|---|---|
+| Generated programs remain untrusted | Held — the generated document is still untrusted, sandboxed, and opaque-origin |
+| No unrestricted network access | **Restored** — the request log records zero requests for every navigation case |
+| No host DOM or storage access | Held — the wrapper and the generated frame are separate opaque-origin documents; the host document is unreachable from either |
+| No Guardian credentials in generated content | Held — no credential travels the bridge |
+| No Tauri native authority | Held — unchanged |
+| No added sandbox permissions | Held — `allow-scripts` only on both frames; nothing added |
+| No new bridge actions | Held — `resize` and `send_prompt` only; the wrapper forwards nothing else |
+| No automatic saving or execution escalation | Held — unchanged |
+| Session-bound message authorization | Held — and now enforced at **both** hops |
+| No unproven release claims | Held — release gate remains `HOLD`; no runtime support is claimed |
+
+### 12.8 What is deferred
+
+1. **Cross-browser qualification.** Only Chrome 156 was exercised. A WebKit/Safari
+   and a desktop/Tauri host run of the committed suite is still required before
+   the repair may be described as host-portable.
+2. **The Playwright suite itself** must be run once where a browser can start.
+3. **The E4 relative-resource classification** remains a separate correction,
+   as recorded in section 10. It does not depend on this repair, but it must be
+   fixed before Saved Widget persistence, because a candidate that depends on a
+   relative resource is not a working widget.
+4. **The E4 navigation-intent gap** is unchanged: E4 still cannot see a dynamic
+   navigation statement. The repair makes that gap harmless at runtime, because
+   the runtime boundary now holds regardless — but E4 remains a packaging
+   filter, never the control.
