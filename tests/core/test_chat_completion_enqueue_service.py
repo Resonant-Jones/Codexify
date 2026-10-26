@@ -149,6 +149,10 @@ def test_success_preserves_queue_event_and_serialization_contract(
     monkeypatch, immediate_redis
 ):
     task = _task()
+    # A caller may not choose the accepted turn identity: the server resolves
+    # it. Seed a deliberately incorrect pre-enqueue value so the corrected
+    # expectation below also proves that the server overrides it.
+    task.turn_id = "caller-supplied-turn"
     captured: dict[str, object] = {}
     lock = _lock(task, turn_id="turn-1")
     expected_payload = task.to_dict()
@@ -157,6 +161,11 @@ def test_success_preserves_queue_event_and_serialization_contract(
         "profile_id": None,
         "profile_revision": None,
     }
+    # Accepted enqueue assigns the server-resolved turn identity before queue
+    # serialization (agent-tool-loop-contract.md, "Accepted Turn Identity
+    # Through Queue and Persistence"), so the expected payload carries the
+    # accepted turn id rather than the caller's pre-enqueue value.
+    expected_payload["turn_id"] = "turn-1"
     monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
     monkeypatch.setattr(
         service,
@@ -183,6 +192,11 @@ def test_success_preserves_queue_event_and_serialization_contract(
     assert result.task_id == task.task_id
     assert captured["queue_name"] == "codexify:queue:chat"
     assert captured["payload"] == expected_payload
+    # The accepted turn identity survives acceptance and the queue boundary.
+    assert captured["payload"]["turn_id"] == "turn-1"
+    assert "caller-supplied-turn" not in captured["payload"].values()
+    assert task.turn_id == "turn-1"
+    assert task_from_dict(captured["payload"]).turn_id == "turn-1"
     assert captured["payload"]["type"] == "chat_completion"
     assert "hosted" + "_room" not in captured["payload"]
     assert "actor" + "_ref" not in captured["payload"]
@@ -981,12 +995,16 @@ def test_server_captures_after_lock_into_actual_queue_payload(
     payload = redis_queue._deserialize(raw)
     expected = {"profile_id": profile_id, "profile_revision": revision}
     assert payload["persona_selection_snapshot"] == expected
+    # The real serialization path carries the accepted turn identity, and the
+    # server-owned persona selection snapshot is unchanged by it.
+    assert payload["turn_id"] == "turn-1"
     assert publish.call_args.args[2]["persona_selection_snapshot"] == expected
     assert result.queue_accepted is True
     canonical_thread.update(active_profile_id="later", active_profile_revision=7)
     assert task_from_dict(
         payload
     ).persona_selection_snapshot == PersonaSelectionSnapshot(profile_id, revision)
+    assert task_from_dict(payload).turn_id == "turn-1"
 
 
 @pytest.mark.parametrize(
