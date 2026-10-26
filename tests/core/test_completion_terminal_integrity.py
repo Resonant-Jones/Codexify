@@ -11,6 +11,7 @@ from guardian.core.completion_terminal import (
     CompletionTerminalError,
     require_successful_terminal,
 )
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
@@ -305,12 +306,16 @@ def test_tool_loop_obeys_terminal_gate(monkeypatch):
         )
 
 
-def _seed_worker_terminal_harness(monkeypatch):
+def _seed_worker_terminal_harness(
+    monkeypatch,
+    task,
+    *,
+    terminal_write_acknowledged: bool = True,
+):
     published: list[tuple[str, dict]] = []
     effects: list[str] = []
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -345,11 +350,55 @@ def _seed_worker_terminal_harness(monkeypatch):
             create_message=lambda *_args, **_kwargs: effects.append("persist"),
         ),
     )
-    return published, effects
+
+    # Durable-authority seams. The worker reads its durable attempt before any
+    # accepted work, and may publish a newly generated terminal event only
+    # after the matching durable terminal write has been acknowledged. The
+    # identity below is exact: request, task, thread and turn.
+    terminal_writes: list[tuple] = []
+    observations: list[str] = []
+
+    def _read_attempt(_db, backend_task_id):
+        observations.append(backend_task_id)
+        return {
+            "request_id": task.request_id,
+            "backend_task_id": task.task_id,
+            "thread_id": task.thread_id,
+            "turn_id": chat_worker._extract_turn_id(task),
+            "completed_message_id": None,
+            "terminal_event_type": None,
+            "terminal_outcome": None,
+            "deadline_snapshot": None,
+        }
+
+    def _record_terminal(
+        _db, *, request_id, backend_task_id, thread_id, turn_id, event_type, **_kwargs
+    ):
+        terminal_writes.append(
+            (request_id, backend_task_id, thread_id, turn_id, event_type)
+        )
+        return terminal_write_acknowledged
+
+    def _observe(_db, *, request_id, backend_task_id, thread_id, turn_id, **_kwargs):
+        return ChatAttemptReconciliation(None, None, None, None)
+
+    monkeypatch.setattr(
+        chat_worker, "get_chat_completion_attempt_by_task_id", _read_attempt
+    )
+    monkeypatch.setattr(
+        chat_worker, "record_chat_completion_attempt_terminal_event", _record_terminal
+    )
+    monkeypatch.setattr(
+        chat_worker, "observe_chat_completion_attempt_terminal", _observe
+    )
+    return published, effects, terminal_writes, observations
 
 
 def test_incomplete_output_publishes_failed_without_completion_effects(monkeypatch):
-    published, effects = _seed_worker_terminal_harness(monkeypatch)
+    task = _task()
+    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
+        monkeypatch, task
+    )
     error = CompletionTerminalError(
         _evidence(
             CompletionTerminalStatus.STREAM_INCOMPLETE,
@@ -363,12 +412,23 @@ def test_incomplete_output_publishes_failed_without_completion_effects(monkeypat
         lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
 
-    chat_worker._run_chat_task(_task())
+    chat_worker._run_chat_task(task)
 
     event_types = [event_type for event_type, _payload in published]
     assert "task.failed" in event_types
     assert "task.completed" not in event_types
     assert effects == []
+    # The terminal event is published because the durable terminal write
+    # was acknowledged, with exact identity.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.failed",
+        )
+    ]
     failed = next(
         payload for event_type, payload in published if event_type == "task.failed"
     )
@@ -377,7 +437,10 @@ def test_incomplete_output_publishes_failed_without_completion_effects(monkeypat
 
 
 def test_cancelled_output_publishes_cancelled_without_persistence(monkeypatch):
-    published, effects = _seed_worker_terminal_harness(monkeypatch)
+    task = _task()
+    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
+        monkeypatch, task
+    )
     cancelled = chat_completion_service.ChatTaskCancelled(
         provider="local",
         model="test-model",
@@ -389,13 +452,75 @@ def test_cancelled_output_publishes_cancelled_without_persistence(monkeypatch):
         lambda *_args, **_kwargs: (_ for _ in ()).throw(cancelled),
     )
 
-    chat_worker._run_chat_task(_task())
+    chat_worker._run_chat_task(task)
 
     event_types = [event_type for event_type, _payload in published]
     assert "task.cancelled" in event_types
     assert "task.completed" not in event_types
     assert effects == []
+    # The terminal event is published because the durable terminal write
+    # was acknowledged, with exact identity.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.cancelled",
+        )
+    ]
     payload = next(
         item for event_type, item in published if event_type == "task.cancelled"
     )
     assert payload["terminal_evidence"]["visible_output_emitted"] is True
+
+
+def test_unconfirmed_durable_authority_infers_no_terminal_outcome(monkeypatch):
+    """A rejected durable write plus an uncertain read must publish nothing.
+
+    The worker's local exception is not authority. With neither the durable
+    write acknowledged nor an existing durable outcome confirmed, the worker
+    infers no terminal event, and it manufactures no completion.
+    """
+    task = _task()
+    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
+        monkeypatch, task, terminal_write_acknowledged=False
+    )
+    error = CompletionTerminalError(
+        _evidence(
+            CompletionTerminalStatus.STREAM_INCOMPLETE,
+            visible=True,
+            failure_kind="missing_stream_terminal",
+        )
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    def _uncertain_observation(*_args, **_kwargs):
+        raise RuntimeError("injected lost durable acknowledgement")
+
+    monkeypatch.setattr(
+        chat_worker, "observe_chat_completion_attempt_terminal", _uncertain_observation
+    )
+
+    chat_worker._run_chat_task(task)
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.failed" not in event_types
+    assert "task.cancelled" not in event_types
+    assert "task.completed" not in event_types
+    assert effects == []
+    # The durable write was attempted with exact identity, and it was not
+    # acknowledged, so nothing was published.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.failed",
+        )
+    ]
