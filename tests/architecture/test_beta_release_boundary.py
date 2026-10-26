@@ -528,9 +528,21 @@ _ACTIVE_HOLD_DECLARATION = re.compile(
     re.IGNORECASE,
 )
 
-# The declaration must be about a release gate, not about any HOLD mention.
-_RELEASE_GATE_MENTION = re.compile(
-    r"\bgate\b|\brelease\s+posture\b",
+# The declaration must name the *release* gate or release posture. A gate of
+# another kind (a model gate, say) does not prove the release gate.
+_RELEASE_GATE_SUBJECT = re.compile(
+    r"\brelease\s+gate\b|\brelease\s+posture\b",
+    re.IGNORECASE,
+)
+
+# A release gate that is not on HOLD. Such a clause contradicts the HOLD
+# contract even when another clause declares HOLD.
+_RELEASE_GATE_NEGATIVE = re.compile(
+    r"\b(?:not|never|no\s+longer|isn't|is\s+no\s+longer)\b[^\n.;]{0,30}?\bhold\b"
+    r"|\bhold\b[^\n.;]{0,30}?\b(?:lifted|cleared|removed|dropped|waived|"
+    r"rescinded|retired)\b"
+    r"|\b(?:is|are)\s+(?:open|lifted|ready|released)\b"
+    r"|\bno\s+longer\s+on\s+hold\b",
     re.IGNORECASE,
 )
 
@@ -555,10 +567,18 @@ _NEGATION = re.compile(
 # for something else.
 
 # Ordinary, bounded wording for an obligation that is still outstanding.
-_UNRESOLVED_OBLIGATION = re.compile(
+# These markers are affirmative: a preceding negation ("is not pending") means
+# the obligation is NOT outstanding and must not satisfy the contract.
+_UNRESOLVED_AFFIRMATIVE = re.compile(
     r"\b(?:missing|pending|outstanding|unresolved|incomplete)\b"
-    r"|\b(?:is|are|remains?|stays?)\s+open\b"
-    r"|\bnot\s+(?:yet\s+)?(?:been\s+)?"
+    r"|\b(?:is|are|remains?|stays?)\s+open\b",
+    re.IGNORECASE,
+)
+
+# A negated completion ("has not been completed") is itself a statement that
+# the obligation is still outstanding.
+_UNRESOLVED_NEGATED_COMPLETION = re.compile(
+    r"\bnot\s+(?:yet\s+)?(?:been\s+)?"
     r"(?:complete|completed|done|proven|qualified|resolved)\b",
     re.IGNORECASE,
 )
@@ -569,6 +589,30 @@ _COMPLETION_CLAIM = re.compile(
     r"closed|cleared)\b",
     re.IGNORECASE,
 )
+
+
+# The canonical supported installation path: the local Docker Compose profile
+# `v1-local-core-web-mcp`. The contract requires a positive declaration that
+# associates the two, so a statement declaring the profile unsupported cannot
+# satisfy it.
+_SUPPORTED_PROFILE_NAME = "v1-local-core-web-mcp"
+_COMPOSE_INSTALL_PATH = "local Docker Compose"
+
+_SUPPORTED_CLAIM = re.compile(
+    r"\bsupported\s+install(?:ation)?\s+path\b"
+    r"|\b(?:is|are|remains?)\s+(?:the\s+)?(?:named\s+)?supported\b"
+    r"|\bsupports?\b",
+    re.IGNORECASE,
+)
+
+_UNSUPPORTED_CLAIM = re.compile(
+    r"\b(?:do\s+not|does\s+not|doesn't|don't|never)\s+support\b"
+    r"|\bunsupported\b|\bnot\s+supported\b|\bno\s+longer\s+supported\b",
+    re.IGNORECASE,
+)
+
+# A Markdown list marker: "-", "*", "+", "1." or "1)".
+_LIST_MARKER = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
 
 
 def _clauses(text: str) -> list[str]:
@@ -603,20 +647,81 @@ def _promotes_release_readiness(text: str) -> bool:
 
 
 def _active_release_gate_is_hold(text: str) -> bool:
-    """True when an active, unnegated release gate is declared on HOLD."""
+    """True when the release gate itself is affirmatively declared on HOLD.
+
+    The clause must name the release gate or release posture: a gate of some
+    other kind (a model gate, say) does not prove the release gate.
+    """
     for clause in _clauses(text):
-        if not _RELEASE_GATE_MENTION.search(clause):
+        if not _RELEASE_GATE_SUBJECT.search(clause):
             continue
         if _ACTIVE_HOLD_DECLARATION.search(clause):
             return True
     return False
 
 
+def _contradicts_release_hold(text: str) -> bool:
+    """True when a release-gate clause denies or lifts the HOLD gate.
+
+    A contradictory clause fails the contract even when another clause
+    declares HOLD.
+    """
+    for clause in _clauses(text):
+        if not _RELEASE_GATE_SUBJECT.search(clause):
+            continue
+        if _RELEASE_GATE_NEGATIVE.search(clause):
+            return True
+    return False
+
+
+def _has_unresolved_state(clause: str) -> bool:
+    """True when the clause states the obligation is still outstanding.
+
+    An affirmative marker must not be negated: "is not pending" states the
+    opposite of outstanding and must not satisfy the contract. A negated
+    completion ("has not been completed") is itself an outstanding state.
+    """
+    if _UNRESOLVED_NEGATED_COMPLETION.search(clause):
+        return True
+    for match in _UNRESOLVED_AFFIRMATIVE.finditer(clause):
+        if not _NEGATION.search(clause[: match.start()]):
+            return True
+    return False
+
+
+def _supported_compose_profile_declared(section: str) -> bool:
+    """True when the section positively declares the supported Compose profile.
+
+    The declaration must associate the local Docker Compose install path with
+    the ``v1-local-core-web-mcp`` profile and must assert support. A clause
+    declaring the profile unsupported fails the contract outright.
+    """
+    clauses = _clauses(section)
+    for clause in clauses:
+        if _COMPOSE_INSTALL_PATH in clause and _UNSUPPORTED_CLAIM.search(clause):
+            return False
+        if (
+            _SUPPORTED_PROFILE_NAME in clause
+            and _COMPOSE_INSTALL_PATH in clause
+            and _UNSUPPORTED_CLAIM.search(clause)
+        ):
+            return False
+    for clause in clauses:
+        if (
+            _SUPPORTED_PROFILE_NAME in clause
+            and _COMPOSE_INSTALL_PATH in clause
+            and _SUPPORTED_CLAIM.search(clause)
+        ):
+            return True
+    return False
+
+
 def _blocker_bullets(section: str) -> list[str]:
+    """Return the list items of a section, for any standard Markdown marker."""
     return [
         line.strip()
         for line in section.splitlines()
-        if line.strip().startswith("-")
+        if _LIST_MARKER.match(line.strip())
     ]
 
 
@@ -639,7 +744,7 @@ def _require_unresolved_obligation(
                 f"Active blockers must not record the {label} obligation as "
                 f"complete"
             )
-            assert _UNRESOLVED_OBLIGATION.search(clause), (
+            assert _has_unresolved_state(clause), (
                 f"Active blockers must record the {label} obligation as "
                 f"unresolved"
             )
@@ -674,7 +779,10 @@ def _assert_beta_release_current_state_contract(text: str) -> None:
         "Current phase must record local-first Beta hardening"
     )
     assert _active_release_gate_is_hold(current_phase), (
-        "Current phase must declare an active, unnegated release gate on HOLD"
+        "Current phase must declare the release gate itself on HOLD"
+    )
+    assert not _contradicts_release_hold(current_phase), (
+        "Current phase must not negate, lift or open the release gate"
     )
     assert not _HOLD_NEGATED.search(current_phase), (
         "Current phase must not negate or lift the HOLD release gate"
@@ -682,12 +790,9 @@ def _assert_beta_release_current_state_contract(text: str) -> None:
     assert not _promotes_release_readiness(current_phase), (
         "Current phase must not promote the release gate to readiness"
     )
-    assert "local Docker Compose" in supported_reality, (
-        "Supported reality must record the local Docker Compose install path"
-    )
-    assert "v1-local-core-web-mcp" in supported_reality, (
-        "Supported reality must record v1-local-core-web-mcp as the "
-        "supported profile"
+    assert _supported_compose_profile_declared(supported_reality), (
+        "Supported reality must positively declare the local Docker Compose "
+        "install path for profile v1-local-core-web-mcp"
     )
     _require_unresolved_obligation(
         active_blockers,
@@ -833,12 +938,151 @@ def _synthetic_current_state(
     )
 
 
+# Table-driven cases for the PFP-01C3R2 review findings: the release gate
+# must be bound to the release subject, the unresolved state must be
+# affirmative, the supported profile must be positively declared, and
+# standard Markdown list markers must be recognised.
+_RELEASE_GATE_SUBJECT_CASES = [
+    # P1-1: an unrelated gate on HOLD cannot prove the release HOLD.
+    (
+        "`main` remains in local-first Beta hardening. The model gate remains "
+        "HOLD; the release gate is OPEN.",
+        False,
+    ),
+    # Requirement 5: a contradictory release-gate claim fails even when
+    # another clause declares HOLD.
+    (
+        "`main` remains in local-first Beta hardening. The current release "
+        "gate remains `HOLD`; the release gate is OPEN.",
+        False,
+    ),
+    # The release subject must be named explicitly.
+    (
+        "`main` remains in local-first Beta hardening. The model gate remains "
+        "HOLD.",
+        False,
+    ),
+    # Truthful release-gate declarations pass.
+    (
+        "`main` remains in local-first Beta hardening. The current release "
+        "gate remains `HOLD`.",
+        True,
+    ),
+    (
+        "`main` remains in local-first Beta hardening. The release gate is "
+        "HOLD.",
+        True,
+    ),
+]
+
+_NEGATED_UNRESOLVED_CASES = [
+    "- The current-tip supported-Compose qualification is not pending.",
+    "- The current-tip supported-Compose qualification is not missing.",
+    "- The current-tip supported-Compose qualification is no longer unresolved.",
+    "- The current-tip supported-Compose qualification is not outstanding.",
+]
+
+_SUPPORTED_PROFILE_CASES = [
+    # P1-3: an explicitly unsupported profile cannot satisfy the requirement.
+    (
+        "- Do not support local Docker Compose profile v1-local-core-web-mcp.",
+        False,
+    ),
+    (
+        "- The v1-local-core-web-mcp profile is unsupported.",
+        False,
+    ),
+    (
+        "- local Docker Compose profile v1-local-core-web-mcp is not "
+        "supported.",
+        False,
+    ),
+    # A positive declaration passes.
+    (
+        "- The named supported install path is local Docker Compose profile "
+        "`v1-local-core-web-mcp` with `LLM_PROVIDER=local`.",
+        True,
+    ),
+]
+
+_LIST_MARKER_CASES = ["-", "*", "+", "1.", "1)"]
+
+
 def test_beta_release_contract_accepts_typographic_apostrophe_heading() -> None:
     """Canonical current-state writes the weekly heading with U+2019."""
     text = _synthetic_current_state(
         priorities_heading="## This week’s priorities"
     )
     _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("phase,accepted", _RELEASE_GATE_SUBJECT_CASES)
+def test_beta_release_contract_release_gate_subject_cases(
+    phase: str, accepted: bool
+) -> None:
+    """The HOLD assertion must be bound to the release gate subject."""
+    text = _synthetic_current_state(phase=phase)
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("bullet", _NEGATED_UNRESOLVED_CASES)
+def test_beta_release_contract_rejects_a_negated_unresolved_state(
+    bullet: str,
+) -> None:
+    """A negated unresolved marker states the opposite of outstanding."""
+    text = _synthetic_current_state(
+        blockers=(
+            bullet,
+            "- The natural import-to-recall scope proof remain open.",
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("supported,accepted", _SUPPORTED_PROFILE_CASES)
+def test_beta_release_contract_supported_profile_cases(
+    supported: str, accepted: bool
+) -> None:
+    """The supported install path must be positively declared."""
+    text = _synthetic_current_state(supported=supported)
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("marker", _LIST_MARKER_CASES)
+def test_beta_release_contract_recognises_standard_list_markers(
+    marker: str,
+) -> None:
+    """Active blockers may use any standard Markdown list marker."""
+    text = _synthetic_current_state(
+        blockers=(
+            f"{marker} A fresh current-tip supported-Compose qualification is "
+            f"missing.",
+            f"{marker} The natural import-to-recall scope proof remain open.",
+        )
+    )
+    _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_ignores_blockers_outside_the_section() -> None:
+    """A blocker outside Active blockers does not satisfy the contract."""
+    text = _synthetic_current_state(
+        blockers=("- Nothing relevant is recorded here.",),
+        recent=(
+            "* A fresh current-tip supported-Compose qualification is missing.",
+            "* The natural import-to-recall scope proof remain open.",
+        ),
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
 
 
 @pytest.mark.parametrize("phase,accepted", _HOLD_GATE_CASES)
