@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-25
+2026-10-26
 
 ## Interpretation rule
 
@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. No commit has landed on local `main` since the 2026-10-24 audit; no fresh supported-path runtime qualification or default Beta widening is established. The current release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, only saved-widget architecture review and acceptance changes landed; no fresh supported-path runtime qualification or default Beta widening is established. The current release gate remains `HOLD`.
 
 ## What changed recently
 
@@ -26,6 +26,7 @@ This file is authoritative for:
 - Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
 - Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
 - Accepted the saved-widget identity/revision architecture (ADR-102, accepted 2026-10-25); acceptance is architecture only, with no saved-widget persistence, listing, invocation, editing, deletion, or export path implemented and the Library Widgets filter still unavailable.
+- Resolved the saved-widget contract review findings and synchronized the accepted ADR, contract, ADR index, and KB projections; this remains architecture-only evidence.
 - Added personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture is unchanged since the prior audit.
 
