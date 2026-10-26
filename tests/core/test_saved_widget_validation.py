@@ -37,7 +37,9 @@ from guardian.core.saved_widget_validation import (
     REASON_KIND_NOT_SANDBOX,
     REASON_MISSING_EXECUTABLE_CODE,
     REASON_SIZE_LIMIT_EXCEEDED,
+    REASON_UNAVAILABLE_LOCAL_DEPENDENCY,
     WidgetCandidateStatus,
+    assess_saved_widget_candidate,
     decode_ui_artifact_payload,
     evaluate_eligibility,
     extract_ui_artifact_markers,
@@ -398,7 +400,14 @@ def test_external_module_specifier_fails_e4() -> None:
     assert REASON_EXTERNAL_DEPENDENCY in reasons
 
 
-def test_relative_and_local_dependencies_are_self_contained() -> None:
+def test_unavailable_local_dependencies_fail_e4() -> None:
+    """A local-looking reference is not a self-contained reference.
+
+    Generated UI ships no asset package and the runtime serves no additional
+    files, so a scheme-less reference cannot resolve to anything the frame
+    could load. It is therefore a known *unavailable* dependency, not a
+    dependency that happens to be local and therefore fine.
+    """
     artifact = validate_ui_artifact(
         _sandbox(
             html="<script src='./local.js'></script><img src='data:image/png;base64,AA'>",
@@ -408,9 +417,217 @@ def test_relative_and_local_dependencies_are_self_contained() -> None:
     )
     assert artifact is not None
     reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert REASON_UNAVAILABLE_LOCAL_DEPENDENCY in reasons
     assert REASON_EXTERNAL_DEPENDENCY not in reasons
     assert REASON_AMBIGUOUS_DEPENDENCY not in reasons
+    assert findings
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        # Root-relative
+        ("html", "<img src='/assets/logo.png'>"),
+        # Dot-relative
+        ("html", "<script src='./local.js'></script>"),
+        # Parent-relative
+        ("html", "<img src='../shared/module.js'>"),
+        # Bare filename
+        ("html", "<img src='logo.png'>"),
+        # Bare module specifier
+        ("js", "import { thing } from 'lodash';"),
+        # Query-relative asset path
+        ("html", "<img src='?resource=module.js'>"),
+        # Relative stylesheet import on the CSS surface
+        ("css", "@import url('./base.css');"),
+        # Relative stylesheet import on the HTML link surface
+        ("html", "<link rel='stylesheet' href='./base.css'>"),
+        # Relative CSS url()
+        ("css", "body { background: url('./bg.png'); }"),
+        # Relative JavaScript module import
+        ("js", "import { thing } from './mod.js';"),
+        # Relative JavaScript require()
+        ("js", "const mod = require('./helper.js');"),
+        # Inline style resource reference
+        ("html", "<div style=\"background: url('./bg.png')\"></div>"),
+    ],
+)
+def test_every_unsupported_local_resource_category_fails_e4(
+    field: str, value: str
+) -> None:
+    """Each supported relative-resource category is rejected by E4.
+
+    The list mirrors the declaration surfaces the validator already inspected.
+    A new surface is not added here; the correction only changes how a
+    scheme-less reference on an existing surface is classified.
+    """
+    artifact = validate_ui_artifact(_sandbox(**{field: value}))
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert REASON_UNAVAILABLE_LOCAL_DEPENDENCY in reasons
+    assert REASON_EXTERNAL_DEPENDENCY not in reasons
+    assert REASON_AMBIGUOUS_DEPENDENCY not in reasons
+    assert findings
+    assert all(finding.kind == "unavailable_local" for finding in findings)
+
+
+def test_an_unavailable_local_resource_reports_its_own_reason_and_finding() -> None:
+    """The failure names what is actually wrong.
+
+    An unavailable local resource is neither external (it names no other
+    origin) nor ambiguous (its status is known), so it gets its own reason
+    code and its own finding kind.
+    """
+    artifact = validate_ui_artifact(_sandbox(html="<img src='./logo.png'>"))
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert reasons == (REASON_UNAVAILABLE_LOCAL_DEPENDENCY,)
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.kind == "unavailable_local"
+    assert finding.reference == "./logo.png"
+    assert finding.surface == "html"
+    assert finding.detail == "img[src]"
+    assert set(finding.as_dict()) == {"surface", "detail", "reference", "kind"}
+
+
+def test_external_and_unavailable_local_dependencies_are_reported_separately() -> None:
+    """The two known-unsupported cases keep distinct reason codes."""
+    artifact = validate_ui_artifact(
+        _sandbox(
+            html="<script src='https://cdn.example.com/lib.js'></script>",
+            css="@import url('./base.css');",
+        )
+    )
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert REASON_EXTERNAL_DEPENDENCY in reasons
+    assert REASON_UNAVAILABLE_LOCAL_DEPENDENCY in reasons
+    assert {finding.kind for finding in findings} == {
+        "external",
+        "unavailable_local",
+    }
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        # A same-document fragment consumes no additional document.
+        "<img src='#icon'>",
+        "<link rel='stylesheet' href='#theme'>",
+        # Local schemes that carry their own content.
+        "<img src='data:image/png;base64,AA'>",
+        "<img src='blob:https://example.com/id'>",
+    ],
+)
+def test_same_document_and_self_carrying_references_remain_eligible(
+    html: str,
+) -> None:
+    """The correction does not sweep up references that need nothing loaded."""
+    artifact = validate_ui_artifact(_sandbox(html=html))
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert reasons == ()
     assert findings == ()
+
+
+def test_incidental_relative_paths_are_not_dependencies() -> None:
+    """A relative path in prose, a comment, or a string is not a declaration."""
+    artifact = validate_ui_artifact(
+        _sandbox(
+            html="<p>Read ./docs/guide.md for details.</p><!-- see ./docs/guide.md -->",
+            js="var p = './docs/guide.md'; void p;",
+        )
+    )
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert REASON_UNAVAILABLE_LOCAL_DEPENDENCY not in reasons
+    assert findings == ()
+
+
+def test_incidental_relative_path_in_a_javascript_comment_is_not_a_dependency() -> None:
+    artifact = validate_ui_artifact(_sandbox(js="// see ./docs/guide.md\nvoid 0;"))
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert REASON_UNAVAILABLE_LOCAL_DEPENDENCY not in reasons
+    assert findings == ()
+
+
+def test_anchor_hrefs_are_not_treated_as_resource_dependencies() -> None:
+    """The correction does not widen the inspected surface.
+
+    An ``a[href]`` is navigation, not a resource load, so it stays outside
+    the dependency gate even when it is relative.
+    """
+    artifact = validate_ui_artifact(_sandbox(html="<a href='./other.html'>go</a>"))
+    assert artifact is not None
+    reasons, findings = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert reasons == ()
+    assert findings == ()
+
+
+def test_unavailable_local_dependency_evaluation_is_deterministic() -> None:
+    artifact = validate_ui_artifact(_sandbox(html="<img src='./logo.png'>"))
+    assert artifact is not None
+    first = evaluate_eligibility(artifact, decoded_payload=artifact)
+    second = evaluate_eligibility(artifact, decoded_payload=artifact)
+    assert first == second
+    assert first[0] == (REASON_UNAVAILABLE_LOCAL_DEPENDENCY,)
+
+
+def test_an_e4_rejected_artifact_is_ineligible_after_provenance_is_proven(
+    monkeypatch,
+) -> None:
+    """E4 still fires once E5 has been established.
+
+    The provenance lookup is stubbed so this suite stays database-free; the
+    artifact-side evaluation and the reason-to-status mapping are the real
+    production code. A structurally valid artifact with an unavailable
+    relative dependency is *ineligible*, not structurally invalid.
+    """
+    core_db = pytest.importorskip("guardian.core.db")
+
+    artifact_payload = _sandbox(html="<img src='./logo.png'>")
+    content = _marker(artifact_payload)
+
+    def _stub_provenance(chatlog_db, *, thread_id, message_id, account_id):
+        return {
+            "resolved": True,
+            "content": content,
+            "thread_id": thread_id,
+            "message_id": message_id,
+            "attempts": [
+                {
+                    "request_id": "req-e4-unavailable-local",
+                    "accepted_at": "2026-10-26T00:00:00+00:00",
+                    "terminal_event_type": None,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        core_db,
+        "read_saved_widget_source_provenance",
+        _stub_provenance,
+        raising=True,
+    )
+
+    assessment = assess_saved_widget_candidate(
+        None,
+        account_id="saved-widget-account-a",
+        thread_id=1,
+        message_id=2,
+    )
+
+    assert assessment.status is WidgetCandidateStatus.INELIGIBLE
+    assert assessment.status is not WidgetCandidateStatus.STRUCTURALLY_INVALID
+    assert assessment.reasons == (REASON_UNAVAILABLE_LOCAL_DEPENDENCY,)
+    # E5 was proven; only the artifact-side gate failed.
+    assert assessment.lineage is not None
+    assert [
+        (finding.kind, finding.reference)
+        for finding in assessment.dependency_findings
+    ] == [("unavailable_local", "./logo.png")]
 
 
 def test_incidental_url_in_an_html_comment_is_not_a_dependency() -> None:

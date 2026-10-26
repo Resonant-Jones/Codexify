@@ -521,6 +521,7 @@ _HTML_TAG_SCOPED_ATTRIBUTES = {
 class _ReferenceKind(str, Enum):
     SELF_CONTAINED = "self_contained"
     EXTERNAL = "external"
+    UNAVAILABLE_LOCAL = "unavailable_local"
     AMBIGUOUS = "ambiguous"
 
 
@@ -545,9 +546,22 @@ class DependencyFinding:
 def _classify_reference(raw: str) -> _ReferenceKind:
     """Classify one declared dependency target.
 
-    Returns SELF_CONTAINED for relative paths, fragments and local schemes;
-    EXTERNAL for anything that names another origin; AMBIGUOUS when the
-    declaration itself cannot be classified, which fails closed.
+    Returns:
+
+    * ``SELF_CONTAINED`` for a same-document fragment reference and for the
+      local schemes ``data:``, ``blob:`` and ``about:``. A fragment reference
+      names a resource inside the document that is already loaded, so it
+      consumes no additional document.
+    * ``EXTERNAL`` for anything that names another origin.
+    * ``UNAVAILABLE_LOCAL`` for a scheme-less reference. Generated UI ships no
+      asset package and serves no additional files, so a local path cannot
+      resolve to anything the frame could load. Being local-looking is not
+      the same as being self-contained.
+    * ``AMBIGUOUS`` when the declaration itself cannot be classified, which
+      fails closed.
+
+    This is a packaging filter, not a network-security control. The runtime
+    CSP is what denies network access; see the Saved Widget Contract.
     """
     value = _js_trim(raw)
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
@@ -567,7 +581,9 @@ def _classify_reference(raw: str) -> _ReferenceKind:
         if scheme.group(1).lower() in _SELF_CONTAINED_SCHEMES:
             return _ReferenceKind.SELF_CONTAINED
         return _ReferenceKind.EXTERNAL
-    return _ReferenceKind.SELF_CONTAINED
+    # Scheme-less. The frame is served from a document, not from an asset
+    # package, so there is nothing for this reference to resolve to.
+    return _ReferenceKind.UNAVAILABLE_LOCAL
 
 
 def _findings_for(
@@ -873,6 +889,7 @@ REASON_SIZE_LIMIT_EXCEEDED = "artifact_size_limit_exceeded"
 REASON_KIND_NOT_SANDBOX = "artifact_kind_not_sandbox"
 REASON_MISSING_EXECUTABLE_CODE = "artifact_missing_executable_code"
 REASON_EXTERNAL_DEPENDENCY = "artifact_external_dependency"
+REASON_UNAVAILABLE_LOCAL_DEPENDENCY = "artifact_unavailable_local_dependency"
 REASON_AMBIGUOUS_DEPENDENCY = "artifact_ambiguous_dependency"
 REASON_PROVENANCE_UNPROVEN = "source_provenance_unproven"
 REASON_PROVENANCE_NOT_ACCEPTED = "source_provenance_not_accepted"
@@ -1064,6 +1081,10 @@ def evaluate_eligibility(
     findings = tuple(_collect_dependency_findings(artifact))
     if any(finding.kind == _ReferenceKind.EXTERNAL.value for finding in findings):
         reasons.append(REASON_EXTERNAL_DEPENDENCY)
+    if any(
+        finding.kind == _ReferenceKind.UNAVAILABLE_LOCAL.value for finding in findings
+    ):
+        reasons.append(REASON_UNAVAILABLE_LOCAL_DEPENDENCY)
     if any(finding.kind == _ReferenceKind.AMBIGUOUS.value for finding in findings):
         reasons.append(REASON_AMBIGUOUS_DEPENDENCY)
 

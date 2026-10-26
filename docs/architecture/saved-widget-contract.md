@@ -534,7 +534,12 @@ reach the wrapper's CSP or its relay logic.
 
 This is a property of the **runtime boundary**, not of E4. E4 remains a packaging filter over declared
 dependencies, and it still cannot see a dynamic navigation statement. The relative-resource misclassification
-in E4 is a separate, still-open correction.
+in E4 has since been corrected: a scheme-less resource reference is a **known unavailable local dependency**,
+not a self-contained one, because Generated UI ships no asset package and serves no additional files for such
+a reference to resolve to. It is reported under its own reason code, `artifact_unavailable_local_dependency`,
+which keeps it distinct from both an external dependency and an ambiguous declaration. That correction is a
+packaging judgement only; it claims no network-security property and does not widen the Chrome-only
+qualification boundary of the runtime containment proof.
 
 ### Saving grants no new capability
 
