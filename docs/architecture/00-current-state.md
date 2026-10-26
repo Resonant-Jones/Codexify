@@ -25,7 +25,8 @@ This file is authoritative for:
 - Admitted the existing `share` route alongside `direct_messages` in the private-preview profile; this does not widen default Beta support.
 - Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
 - Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
-- Added saved-widget identity/revision architecture and personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
+- Accepted the saved-widget identity/revision architecture (ADR-102, accepted 2026-10-25); acceptance is architecture only, with no saved-widget persistence, listing, invocation, editing, deletion, or export path implemented and the Library Widgets filter still unavailable.
+- Added personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture is unchanged since the prior audit.
 
 ## Current supported reality
@@ -45,6 +46,7 @@ This file is authoritative for:
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
 - Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
+- Do not treat the accepted saved-widget architecture (ADR-102) as implemented, runtime-qualified, or release-supported: Saved Widget storage, authoritative listing, cross-thread invocation, conversational revision editing, deletion behavior, widget export/restore, and Library Widgets filter availability do not exist, and Web Audio or canvas widget compatibility remains unqualified pending real-browser proof.
 - Do not promote account-owned connectors, direct messaging/share, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
 - Do not treat the saved-widget contract or personal-fact pipeline baseline as accepted product scope, or focused candidate/search tests as live release proof.
 - Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.

@@ -17,11 +17,63 @@ aliases:
 
 ## Status
 
-Proposed. Not accepted. Acceptance requires a separate explicit human architecture decision.
+Accepted 2026-10-25 by Resonant Jones.
 
 ## Date
 
-2026-10-23
+2026-10-25
+
+## Acceptance
+
+- Accepted: 2026-10-25
+- Human approver: Resonant Jones
+- Evidence posture: architecture decision only. Acceptance records the governing design; it does not imply that
+  any of the accepted capabilities are implemented, runtime-qualified, or release-supported.
+
+### Accepted architecture
+
+Acceptance applies to the following decisions:
+
+1. **Saved Widget classification** — Presentation Artifact, Widget Candidate, and Saved Widget as distinct
+   resource categories, orthogonal to the `native`/`sandbox` execution-mechanism axis, with explicit human
+   promotion as the only sufficient trust decision.
+2. **Canonical account ownership** — one canonical widget identity, one server-resolved account owner, and
+   Project or thread placement that never becomes an alternative ownership authority.
+3. **Server-owned provenance** — generated provenance established by server-owned completion-attempt linkage, never
+   by a client-supplied role or metadata field, and captured as a snapshot that survives source-thread deletion.
+4. **Immutable widget-scoped revision identity** — revisions keyed by `(widget_id, revision)`, immutable snapshots,
+   a forward-only current-revision pointer, explicit edit-base conflict detection, and create-on-restore rather
+   than rewind.
+5. **Pinned cross-thread invocation references** — invocation as a canonical transcript record carrying a resolved
+   reference, rendered host-side through the existing renderer and containment, never a replayed artifact or a
+   fabricated assistant response.
+6. **Explicit human save authority** — no model output can create, save, revise, install, publish, or authorize a
+   Saved Widget.
+7. **Restricted conversational editing** — source-bearing edit turns as inference-only candidate-generation
+   operations with no exposed tools, connectors, retrieval, delegated execution, or privileged actions, failing
+   closed where that isolation cannot be enforced.
+8. **Existing sandbox containment** — opaque origin, restrictive CSP, unchanged bridge action set, host-chrome save
+   control, explicit launch, and cleanup on dismissal.
+9. **Deletion and tombstone semantics** — immutable transcript references preserved, executable source withdrawn
+   from every read path, honest unavailable/tombstone rendering, and independence from source-thread deletion.
+10. **Library projection boundaries** — read-only projection, source-family-qualified identity, proven provenance,
+    honest completeness outcomes, and the continued unavailability of the Widgets filter until implementation and
+    proof.
+
+### Not implied by acceptance
+
+Acceptance is a decision about architecture. It does **not** implement or qualify any of the above. Specifically, the
+following remain **unimplemented and unproven**:
+
+- Saved Widget storage, persistence, and authoritative listing;
+- save, list, invoke, revise, delete, and export/restore API surfaces;
+- cross-thread invocation and conversational revision editing;
+- real-browser qualification of Web Audio or canvas behavior;
+- deletion and tombstone runtime behavior;
+- Library Widgets filter availability;
+- any Saved Widget release-support or Beta-support claim.
+
+All implementation details this ADR deferred remain deferred, and the release gate remains HOLD.
 
 ## Companion contract
 
@@ -95,21 +147,24 @@ result, and remains useful outside the conversation that produced it.
 ### 2. Classification never grants the model authority over its own trust
 
 Eligibility is evaluated by the **server** against the artifact payload, as a set of necessary conditions: the
-envelope parses and validates; the kind is `sandbox`; the executable payload is present; the payload shows no
-external-origin indicators; the size is within the existing caps; and the source message is linked by the server to a
-completed, accepted Guardian completion attempt.
+envelope parses and validates; the kind is `sandbox`; the executable payload is present; supported declarative
+resource dependencies are self-contained; the size is within the existing caps; and the source message is linked by
+the server to a completed, accepted Guardian completion attempt.
 
 Those conditions sit on **three separate boundaries**, which this decision keeps apart. Structural envelope
 validation — envelope form, kind, executable payload presence, and size — is decidable exactly by parsing.
-Self-containment eligibility, judged from external-origin indicators, is a **heuristic filter derived from static
-inspection, not a proof**. Runtime CSP enforcement is the actual network-denial boundary, and it is unchanged here.
+Self-containment eligibility rejects known declarative dependencies an offline widget cannot satisfy; it does not
+reject a harmless comment merely for containing a URL-like string, and it is a **heuristic filter derived from
+static inspection, not a proof**. Runtime CSP enforcement is the actual network-denial boundary, and it is unchanged
+here.
 
 **Static inspection cannot prove that arbitrary JavaScript is network-independent.** A payload can assemble a URL at
 runtime, or derive one from encoded data, through a channel no string scan would flag. A clean self-containment
-check therefore means "no obvious external-origin reference", **not** "cannot make a network request". That is
-acceptable only because the runtime CSP (`default-src 'none'`, `connect-src 'none'`) denies the attempt when it
-happens. The CSP is the security control; the static check is not. Any future render path that cannot rely on the CSP
-must fail closed rather than fall back on static inspection.
+check therefore means "no known unsupported dependency", **not** "cannot make a network request". That is acceptable
+only because the runtime CSP (`default-src 'none'`, `connect-src 'none'`) denies the attempt when it happens. The
+CSP is the security control; the static check is not, and it neither replaces nor weakens that containment. Any
+unsupported or ambiguous packaging form fails eligibility rather than assuming safety. Any future render path that
+cannot rely on the CSP must fail closed rather than fall back on static inspection.
 
 Passing those conditions makes an artifact **offerable**. It does not make it saved.
 
@@ -147,6 +202,12 @@ reference can still fetch and run the program. A historical invocation of a dele
 **unavailable / tombstone state** — the entry and the reference remain, and the surface states plainly that the
 widget was deleted. It must not render a successful widget, a cached or mirrored copy, or a blank frame that looks
 like a working program.
+
+Deletion must also invalidate any host-side cached resolution used for later rendering, prevent new launches from
+historical references, and terminate active instances under the application's control; the server must not
+re-authorize reads of deleted executable source, and a stale authorized read must not resolve deleted source. This
+does not retract program bytes already disclosed before deletion or retroactively undo prior execution — it stops
+future availability. These are future lifecycle requirements, not evidence that such invalidation already exists.
 
 **Source-thread deletion and Saved Widget deletion are independent operations.** Deleting the thread a widget was
 generated in does not delete the widget; deleting the widget does not delete the thread. Neither implies the other.
@@ -191,13 +252,14 @@ copied into the message row. The server resolves the widget, verifies account au
 revision on write, because a client-forged reference is untrusted input.
 
 **`extra_meta` is not automatically provider-visible context.** It is a message-record field; the inference path
-reads message *content*. A reference held in `extra_meta` reaches the provider only if the inference assembly
-deliberately renders a descriptor for it, and is otherwise invisible to the model. Any inference descriptor must be
-**server-resolved, authorization-checked, bounded, and canonicalized** — derived from the authoritative record at
-assembly time rather than from the stored client claim — and it states only the widget display name and revision
-number, length-capped and rendered as text. **Client-supplied metadata cannot establish authority**: a forged
-reference is resolved against the record, and an unresolvable one yields no descriptor at all. Normal inference
-**never receives widget program source**; supplying the source is the separately authorized edit path.
+reads message *content*. A reference held in `extra_meta` reaches the provider only if a Guardian-owned inference
+projection explicitly reads the stored reference, re-resolves the authorized widget and pinned revision, and
+renders a descriptor. Any such descriptor must be **server-resolved, authorization-checked, bounded, and
+canonicalized** — derived from the authoritative record at assembly time rather than from the stored client claim —
+and it states only the widget display name and revision number, length-capped, sanitized, and rendered as text.
+**Client-supplied metadata cannot establish authority**: a forged reference is resolved against the record, and a
+missing, unauthorized, or deleted resource is not represented to the provider as an available program. Normal
+inference **never receives widget program source**; supplying the source is the separately authorized edit path.
 
 The widget is rendered by the **host** from the authoritative record, through the **existing** renderer and the
 **existing** sandbox frame, in the user-side transcript surface alongside the established document-context tile.
@@ -230,13 +292,18 @@ Widget source is untrusted and may contain instructions. Two gates protect the s
 gates**: the **persistence gate** is human approval, and the **execution-context gate** is authority isolation.
 Human approval does not protect the model's own context, so this decision does not rely on it alone.
 
-A source-bearing edit turn is therefore constrained as an **inference-only candidate-generation operation**:
-widget source enters as delimited, labelled untrusted data; it does not participate in instruction selection; and it
-**must not grant, request, or influence authority** for tools, connectors, retrieval, or any privileged action. The
-turn's authority posture is fixed before the source is attached and is never derived from it. Where that isolation
-cannot be enforced, the operation **fails closed** rather than proceeding with source attached or degrading into a
-lesser capability. This does not invent a second Guardian control plane: it is a property of how the edit turn is
-assembled, not a new authority registry.
+For V1, the **source-bearing edit turn is inference-only candidate generation**. Guardian must construct that turn
+with **no exposed tools, connector calls, retrieval operations, delegated execution, or privileged actions**, and
+widget source cannot confer any of those authorities through its text. Source enters as delimited, labelled
+untrusted data; it does not participate in instruction selection, and labelling identifies data rather than
+authorizing it. The turn's authority posture is fixed before the source is attached and is never derived from it,
+and the source and its embedded instructions cannot expand the execution envelope or select a more powerful lane.
+
+If the selected provider, adapter, or execution path cannot enforce that posture, the edit **fails closed before
+source reaches the model** — it offers no candidate, does not proceed with source attached, and does not degrade into
+a lesser capability. This is a restriction using Guardian's existing capability and request-authority boundaries: it
+is not a new control plane, and it is not a relaxation of ordinary chat policy. The source-bearing turn inherits no
+broader authority from the thread it occurs in.
 
 ### 7. Runtime containment is unchanged, and saving grants no capability
 
@@ -255,17 +322,19 @@ explicit launch affordance starts it, and a running instance is destroyed on dis
 denies the frame access to host storage, cookies, `document`, and host APIs, "a reopened widget starts with fresh
 runtime state" is a containment-derived property and not only a policy.
 
-Web Audio synthesizers and canvas games are the motivating examples. Neither needs a sandbox permission widened to
-attempt, and **no CSP change is made here** — but "needs no permission change" is not the same as "works".
+Web Audio synthesizers and canvas games are motivating **unqualified use cases**, not proven compatibility claims.
+Neither needs a sandbox permission widened to attempt, and **no CSP change is made here** — but "needs no permission
+change" is not the same as "works".
 
 Synthesizer compatibility is **unproven**. Browser autoplay rules require a user activation to start an
-`AudioContext`, and a host-side launch click is **not** established to be a user activation inside a newly created
-sandboxed iframe. Explicit launch is therefore a **necessary condition for a future audio widget, not a sufficient
-one**. Calling synthesizer support proven requires real-browser evidence of `AudioContext` creation and
-initialization inside the frame, user-initiated playback and resume, containment while audio runs, and teardown when
-the instance is dismissed. If that evidence shows a permission the sandbox does not grant, the expansion is
-**separately gated** and needs its own ADR. Canvas does not depend on an autoplay activation policy and inherits
-the same containment, explicit launch, and cleanup rules as every other saved widget.
+`AudioContext`, and **host-side iframe launch does not necessarily transfer user activation into a sandboxed
+frame**; user interaction inside the frame may be required. Explicit launch is therefore a **necessary condition for
+a future audio widget, not a sufficient one**. Calling synthesizer support proven requires real-browser evidence of
+`AudioContext` creation and initialization inside the frame, user-initiated playback and any necessary `resume()`
+behavior, containment while audio runs, and teardown when the instance is dismissed. If that evidence shows a
+permission the sandbox does not grant, the expansion is **separately gated** and needs its own ADR. Canvas games are
+likewise unqualified pending browser proof of interaction, rendering, containment, and cleanup on dismissal. No CSP
+or iframe-permission expansion is authorized.
 
 ### 8. Library semantics are preserved, including unavailable versus empty
 
@@ -392,8 +461,9 @@ govern the Library projection and its unavailable-versus-empty semantics unchang
 8. Invocation is a canonical transcript record carrying a resolved resource reference, rendered by the host through
    the existing renderer and containment, and never by replaying an artifact into message content or fabricating an
    assistant response.
-9. The source-supplying edit path is a separate, explicitly authorized, per-turn context assembly, and normal
-   history continues to strip generated source.
+9. The source-supplying edit path is a separate, explicitly authorized, inference-only candidate-generation turn
+   without exposed tools, connector calls, retrieval, delegated execution, or privileged actions; any inability to
+   enforce the restriction fails closed. Normal history continues to strip generated source.
 10. Saving a widget grants no new capability, the bridge action set is unchanged, and the save control is host
     chrome outside the iframe.
 11. A saved widget's runtime starts only on explicit launch and is destroyed on dismissal.
@@ -405,17 +475,23 @@ govern the Library projection and its unavailable-versus-empty semantics unchang
     boundaries. The runtime CSP is the network-denial control; a static self-containment check is an eligibility
     filter and is never a security guarantee.
 16. A source-bearing edit turn is an inference-only candidate-generation operation. Widget source must not grant,
-    request, or influence authority for tools, connectors, retrieval, or privileged actions, and the operation fails
-    closed where that isolation cannot be enforced. Human approval remains required before revision persistence.
-17. Synthesizer compatibility is unproven pending real-browser evidence of `AudioContext` creation, user-initiated
-    playback and resume, containment, and cleanup on dismissal. Explicit launch is a necessary condition, not a
-    sufficient one.
+    request, or influence authority for tools, connectors, retrieval, delegated execution, or privileged actions, and
+    the operation fails closed before source reaches the model where that isolation cannot be enforced. Human
+    approval remains required before revision persistence.
+17. Web Audio and canvas remain **unqualified** pending browser proof. Synthesizer support requires real-browser
+    evidence of `AudioContext` creation, user-initiated playback and any necessary `resume()`, containment, and
+    cleanup on dismissal; canvas requires proof of interaction, rendering, containment, and cleanup. Launch alone does
+    not prove audio activation, and explicit launch is a necessary condition, not a sufficient one.
 18. Explicit widget deletion preserves the historical transcript reference while withdrawing the executable source.
     A deleted widget's historical invocations render an honest unavailable/tombstone state and never a successful
-    rendering.
-19. `extra_meta` is not automatically provider-visible context. Any inference descriptor is server-resolved,
-    authorization-checked, bounded, and canonicalized, and client-supplied metadata cannot establish authority.
-    Normal inference never receives widget program source.
+    rendering. Deletion invalidates host-side cached resolutions, prevents new launches from historical references,
+    terminates active instances, and stops the server re-authorizing reads of deleted source; previously disclosed
+    bytes and past executions are not retroactively erased.
+19. `extra_meta` is not automatically provider-visible context. Any inference descriptor is a bounded, server-authorized
+    projection of persisted metadata — server-resolved, authorization-checked, bounded, and canonicalized — and never
+    a trusted client claim or an automatic injection of `extra_meta`. Client-supplied metadata cannot establish
+    authority, and a deleted or unauthorized resource is not described as an available program. Normal inference
+    never receives widget program source.
 
 ## Approved product intent versus unaccepted implementation architecture
 
@@ -476,5 +552,6 @@ None of the above is implemented. This ADR records architecture only.
   parameterized templates.
 - No model-initiated widget discovery or invocation.
 - No change to the sandbox, the CSP, the bridge, the artifact envelope, the artifact wire format, or any prompt.
-- No acceptance. This ADR is **Proposed**. It must not be read as an accepted decision, and it must not be marked
-  Accepted without a subsequent explicit human decision.
+- Acceptance of this ADR records the **architecture decision only**. It is not an implementation claim, not a
+  runtime-qualification claim, and not a release-support claim, and it must not be read as any of those. The
+  release gate remains HOLD.

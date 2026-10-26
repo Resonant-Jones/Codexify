@@ -1,10 +1,10 @@
 # Saved Widget Contract
 
 > Classification: architecture contract
-> Status: proposed
-> Implementation status: no saved-widget persistence, listing, invocation, revision, editing, or export path exists
+> Status: accepted 2026-10-25 by Resonant Jones
+> Implementation status: no saved-widget persistence, listing, invocation, revision, editing, deletion, or export path exists
 > Normative language: "must", "must not", "should", "proposed", "deferred", and "future" are intentional contract terms
-> Companion decision: [ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md)
+> Companion decision: [ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) — Accepted 2026-10-25
 
 Purpose: Define one coherent Codexify-native contract for promoting eligible generated UI into durable, account-owned, revisioned **Saved Widgets** that can be invoked from any thread and revised conversationally.
 
@@ -109,12 +109,12 @@ the artifact payload itself. These are **necessary conditions**, not a sufficien
 | E1 | The envelope parses and validates under the existing envelope rules: known `version`, known `kind`, size within the existing caps. | A saved widget is durable. A payload the renderer would reject must never be stored as promotable. |
 | E2 | `kind` is `sandbox`. | The native registry holds first-party components, not user-owned programs. |
 | E3 | The executable payload is present and non-empty after normalization. | Informational HTML cards have no behavior to reuse. |
-| E4 | The payload shows **no external-origin indicators**: no literal `http:`, `https:`, protocol-relative `//`, `ws:`, or `wss:` reference in markup, styles, or script. | A saved widget should be self-contained. This is an *eligibility indicator*, not a proof of network independence — see [Three separate boundaries](#three-separate-boundaries). |
+| E4 | Supported declarative resource dependencies in the payload must be self-contained. Known required external assets, imports, or unsupported dependencies make the artifact ineligible, and unclear dependency declarations fail the eligibility gate. | This is a conservative packaging requirement, **not** proof that arbitrary JavaScript cannot construct or attempt a network request. Runtime network denial belongs to the existing sandbox CSP. |
 | E5 | The source message is an assistant message that the server can link to a **completed, accepted Guardian completion attempt**. | Generated provenance must be server-proven, not client-asserted. See [Provenance](#provenance). |
 | E6 | The artifact fits the existing artifact size caps. | A durable record must fit the bounds the renderer already enforces. |
 
-E1, E2, E3, and E6 are structural properties of the payload and its envelope. E4 is an indicator derived from
-static inspection. E5 is a property of the source message's lineage.
+E1, E2, E3, and E6 are structural properties of the payload and its envelope. E4 is an eligibility judgement derived
+from the payload's declared dependencies. E5 is a property of the source message's lineage.
 
 ### Three separate boundaries
 
@@ -124,23 +124,26 @@ Three different questions are easy to conflate here, and this contract keeps the
    It is decidable by parsing, and it is decidable exactly. A payload that fails it is not storable, not promotable,
    and not renderable.
 2. **Self-contained resource eligibility** (E4) asks whether the program is *plausibly* self-contained, judged from
-   static indicators in the payload. It is a **heuristic filter, not a proof**.
-3. **Runtime CSP enforcement** is the actual network-denial boundary. The sandbox CSP — `default-src 'none'`,
-   `connect-src 'none'` — is what denies network access when a widget runs, and it is unchanged by this contract.
+   the dependencies it declares. It rejects known declarative dependencies an offline widget cannot satisfy. It does
+   **not** reject a harmless comment merely for containing a URL-like string. It is a **heuristic filter, not a
+   proof**, and it cannot establish that every possible JavaScript execution path is network-free.
+3. **Runtime CSP enforcement** is the actual network-denial boundary. The existing opaque-origin sandbox and its
+   `default-src 'none'` / `connect-src 'none'` CSP deny network access when a widget runs, and it is unchanged by
+   this contract.
 
 The limit of (2) must be stated plainly, because getting it wrong would weaken the real boundary in (3):
 
 > **Static inspection cannot prove that arbitrary JavaScript is network-independent.**
 
 A payload can assemble a URL at runtime, derive one from encoded data, or reach the network through a channel no
-string scan would flag. A clean E4 therefore means "no obvious external-origin reference", **not** "cannot make a
+string scan would flag. A clean E4 therefore means "no known unsupported dependency", **not** "cannot make a
 network request".
 
-That is acceptable only because (3) exists and is not weakened. E4 keeps ordinary self-contained widgets free of
-pointless failed requests and keeps obviously-offsite programs out of the candidate pool; it does not guarantee
-network independence, and it is not the security control. **The runtime CSP is the security control.** If a future
-implementation ever renders a saved widget on a path that cannot rely on (3), that path must fail closed rather than
-fall back on E4.
+That is acceptable only because (3) exists and is not weakened. The static classifier neither replaces nor weakens
+that containment; attempted dynamic network access remains denied at runtime. Any unsupported or ambiguous packaging
+form **fails eligibility** rather than assuming safety. **The runtime CSP is the security control**, and E4 is not.
+If a future implementation ever renders a saved widget on a path that cannot rely on (3), that path must fail closed
+rather than fall back on E4.
 
 ### What the server cannot decide
 
@@ -345,25 +348,27 @@ Invocation is a **canonical transcript record of an ordinary user turn** with an
   resolved revision number, and the display name — and is machine-readable only. The
   **inference** form is a bounded descriptor line carrying the widget display name and the
   revision number.
-- `extra_meta` is **not automatically provider-visible context**. It is a message-record field, and
-  the inference path reads message *content*. A reference sitting in `extra_meta` therefore reaches
-  the provider only if the inference assembly deliberately renders a descriptor for it, and the
-  reference is otherwise invisible to the model. Nothing about the field's presence implies
-  disclosure.
-- An inference descriptor must be **server-resolved, authorization-checked, bounded, and
-  canonicalized**. It is derived from the authoritative record at assembly time, not from the
-  stored client-supplied claim. It states only the widget display name and the revision number, it
-  is length-capped and control-character-stripped, and it is rendered as text rather than markup.
-  **Client-supplied metadata cannot establish authority**: a forged reference is resolved against
-  the record, and an unresolvable one yields no descriptor at all rather than a descriptor the
-  client wrote.
-- The inference form is what lets the model know that a widget is present in the conversation,
+- Persisted `chat_messages.extra_meta` is **not automatically provider-visible context**. It is a
+  message-record field, and the inference path reads message *content*. A reference held in
+  `extra_meta` therefore reaches the provider only if a Guardian-owned inference projection
+  explicitly reads the stored reference, re-resolves the authorized widget and pinned revision, and
+  renders a descriptor. Nothing about the field's presence implies disclosure.
+- That projection must be **server-resolved, authorization-checked, bounded, and canonicalized**. It
+  is derived from the authoritative record at assembly time, not from the stored client-supplied
+  claim. It states only the widget display name and the revision number, it is length-capped and
+  control-character-stripped, and it is rendered as text rather than markup. **Client-supplied
+  metadata cannot establish authority**: a forged reference is resolved against the record, and a
+  missing, unauthorized, or deleted resource yields no descriptor at all rather than a descriptor
+  the client wrote. A deleted revision is never described to the provider as an available program.
+- A valid descriptor is what lets the model know that a widget is present in the conversation,
   which is what conversational editing depends on. Because it is part of the invoking turn's
-  rendered inference content, it stays present in that thread's later turns.
+  rendered inference content, it may remain visible in that thread's later turns under the normal
+  bounded conversation-history policy.
 - The inference assembler drops any message whose rendered inference content is empty
-  (`guardian/core/chat_completion_service.py:5511`). An invocation turn therefore always renders
-  a bounded, non-empty descriptor rather than an empty user turn, and a turn that carries no
-  reference and no text contributes nothing to the provider context at all.
+  (`guardian/core/chat_completion_service.py:5511`). The authorized projection must emit a bounded,
+  non-empty descriptor for a valid invocation; attaching metadata without that explicit projection
+  does not do so. A turn that has neither rendered text nor a valid descriptor contributes nothing to
+  the provider context at all.
 
 Normal inference **never receives widget program source**. That is the whole point of the split: the
 model learns *that* a named widget revision is in play and can refer to it, while the executable
@@ -475,19 +480,25 @@ V1 therefore constrains a source-bearing edit turn as follows:
 
 1. It is an **inference-only candidate-generation operation**. It produces candidate output and nothing else.
 2. Widget source enters the turn as **delimited, labelled untrusted data**. It does not participate in instruction
-   selection, and it does not establish or influence authorization.
-3. Widget source **must not grant, request, or influence authority** for tools, connectors, retrieval, or any
-   privileged action. The turn's authority posture is fixed before the source is attached, and is never derived from
-   the source.
-4. Where this isolation **cannot be enforced**, the operation **fails closed**. It does not proceed with source
-   attached, and it does not degrade into a lesser capability.
+   selection, and it does not establish or influence authorization. Labelling identifies data; it is **not** an
+   authorization mechanism.
+3. Widget source **must not grant, request, or influence authority** for tools, connectors, retrieval, delegated
+   execution, or any privileged action. Guardian constructs that turn with **no model-exposed tools, connector calls,
+   retrieval operations, delegated execution, or privileged actions**. The source and its embedded instructions cannot
+   expand the execution envelope or select a more powerful lane. The turn's authority posture is fixed before the
+   source is attached, and is never derived from the source.
+4. Where this isolation **cannot be enforced**, the operation **fails closed**. Guardian fails closed *before*
+   providing the source, offers no edit candidate, and does not proceed with source attached or degrade into a lesser
+   capability. Ordinary chat policies remain separate: the source-bearing edit turn inherits no broader authority from
+   the thread it occurs in.
 
 This does not invent a second Guardian control plane. The isolation is a property of *how the edit turn is
-assembled*, not a new authority registry: the turn runs under the completion path's ordinary authority posture, with
-no tool, connector, retrieval, or privileged-action authority attributable to the source itself.
+assembled*, enforced through Guardian's existing capability and request-authority boundaries, not a new authority
+registry: the turn runs under the completion path's ordinary authority posture, with no tool, connector, retrieval,
+delegated-execution, or privileged-action authority attributable to the source itself.
 
-The widget's display name is the one piece of user-authored text that reaches the provider through the descriptor
-path, so it is length-capped, control-character-stripped, and treated as text rather than markup.
+The widget's display name is the only widget-owned user text in the normal descriptor projection, so it is
+length-capped, control-character-stripped, and treated as text rather than markup.
 
 ## Runtime containment and security
 
@@ -526,28 +537,20 @@ This also makes "a reopened widget starts with fresh runtime state" a **containm
 only a policy: the opaque origin denies the frame access to host storage, cookies, `document`, and any host API, so
 there is no durable per-widget runtime store for state to persist into.
 
-### Future-proofing for audio and canvas
+### Audio and canvas qualification
 
-Web Audio synthesizers and small canvas games are the motivating examples, and neither needs a CSP change. What
-that means, precisely, is that **no sandbox permission has to be widened to attempt them** — not that they are
-proven to work.
+Web Audio synthesizers and small canvas games are motivating examples, **not yet proven runtime capabilities**.
+The current sandbox may permit their self-contained implementations without expanding CSP, but that claim
+requires real-browser validation rather than inference from the policy text alone.
 
-#### Web Audio: unproven
+#### Web Audio
 
-Synthesizer compatibility is **unproven** and must not be claimed as working.
-
-- Browser autoplay rules require a **user activation** to start an `AudioContext`. An explicit launch affordance
-  is a host-side click, but **a host-side click is not the same thing as a user activation inside a newly created
-  sandboxed iframe**, and this contract does not assert that it is. Whether the launch gesture carries into the
-  frame, and whether an `AudioContext` can be created and resumed from inside it, is **not established here**.
+- Web Audio requires proof of `AudioContext` initialization, user-initiated playback, any necessary `resume()`
+  behavior, sandbox containment, and cleanup on dismissal. Browser autoplay rules require a **user activation** to
+  start an `AudioContext`, and a click that launches a new iframe in the host **does not necessarily provide user
+  activation inside the frame** — user interaction inside the frame may be required.
 - The explicit-launch requirement is therefore a **necessary condition for a future audio widget, not a sufficient
   one**. It guarantees the program is started deliberately; it does not guarantee audio can start.
-- Synthesizer compatibility requires **real-browser evidence** of all of the following before it may be called
-  proven:
-  1. `AudioContext` creation and initialization inside the sandboxed frame;
-  2. user-initiated playback and, where suspended, successful resume;
-  3. containment — the frame remains opaque-origin, network-denied, and free of host API access while audio runs;
-  4. cleanup — the audio context and its output are torn down when the running instance is dismissed.
 - Until that evidence exists, a synthesizer is a **candidate program whose runtime behavior is unverified**. A
   candidate that cannot start its audio context must degrade honestly rather than appear to work.
 - If the evidence shows that an audio widget genuinely needs a permission the sandbox does not grant, that
@@ -556,17 +559,17 @@ Synthesizer compatibility is **unproven** and must not be claimed as working.
 
 #### Canvas
 
-- Canvas drawing and pixel readback inside the frame require no additional permission under the current CSP, and
-  `img-src data: blob:` already permits data-URL output. Canvas is **not** subject to the audio caveat above,
-  because it does not depend on an autoplay user-activation policy.
+- Canvas games require proof of interaction, rendering, containment, and cleanup on dismissal in the actual browser
+  host. Canvas is **not** exempt from qualification simply because it does not depend on an autoplay user-activation
+  policy.
 - Canvas still inherits the same containment, the same explicit launch, and the same cleanup-on-dismissal rules as
-  every other saved widget.
+  every other saved widget. Data-backed assets remain subject to the existing CSP.
 
 #### Shared boundary
 
-Neither case requires `allow-same-origin`, `connect-src`, or `eval`, and none of those may be added for this
-purpose. Any future need that would actually widen the boundary — `MediaRecorder`, persistent storage, network
-access, or `allow-same-origin` — requires a **separate ADR** and is **not** authorized by this contract.
+Neither case authorizes `allow-same-origin`, `connect-src`, `eval`, or a new bridge action, and none of those may be
+added for this purpose. Any future need that would actually widen the boundary — `MediaRecorder`, persistent storage,
+network access, or `allow-same-origin` — requires a **separate ADR** and is **not** authorized by this contract.
 
 ## Library participation
 
@@ -614,7 +617,7 @@ The following is the **intended future behavior**. None of it is implemented by 
 | **Listing** | An account-authorized, project/thread/unscoped-scoped listing over the saved-widget source, reporting completeness honestly. |
 | **Invocation** | A human-initiated reference from Library, resolved to an immutable revision, rendered through the existing containment. |
 | **Revision history** | Any revision is addressable by widget and revision number, and its snapshot is immutable. |
-| **Widget deletion** | Deletion is an explicit, authorized lifecycle action that moves the widget to `deleted`. The widget leaves the account's Library and becomes unservable, while the canonical identity and the historical transcript references survive as a tombstone. See [Deletion and historical references](#deletion-and-historical-references). |
+| **Widget deletion** | Deletion is an explicit, authorized lifecycle action that moves the widget to `deleted`. It removes the widget from the account's Library and revokes access to its executable revisions, while the canonical identity and the historical transcript references survive as a tombstone. Previously disclosed bytes or past executions cannot be retroactively erased. See [Deletion and historical references](#deletion-and-historical-references). |
 | **Source-thread deletion** | Does not delete, alter, or un-provenance the Saved Widget. The provenance snapshot survives; the referents may not. |
 | **Export and restore** | **Not supported.** Widget export and restore are not considered supported until separately implemented and proven, and until the account export and restore contract is amended to cover them. |
 
@@ -639,7 +642,14 @@ Therefore:
 - It **must not** render a successful widget, a cached or mirrored copy of the old program, a stored snapshot of the
   deleted source, or an empty frame that looks like a working program. Degrading to a visible tombstone is
   required; silently degrading to a blank or a broken frame is not.
-- Deletion does not rewrite unrelated historical records, and it does not un-provenance anything else.
+- Deletion must also **invalidate any host-side cached resolution** used for later rendering, **prevent new launches**
+  from historical references, and **terminate active instances** under the application's control. The server must
+  **not re-authorize reads** of deleted executable source, and a stale authorized read must not resolve deleted
+  source.
+- Deletion does not rewrite unrelated historical records, and it does not un-provenance anything else. **Previously
+  disclosed bytes and past executions cannot be retroactively erased**, and deletion does not retroactively undo
+  prior execution — it stops future availability.
+- These are future lifecycle requirements, not evidence that such invalidation already exists.
 
 **Source-thread deletion is a separate operation and remains independent.** Deleting the thread a widget was
 generated in does not delete the widget; deleting the widget does not delete the thread. They are independent
@@ -688,8 +698,11 @@ recommendation for scoping, not authorization.
 
 This contract is recorded by
 [ADR-102: Saved Widget Identity, Classification, and Revision Boundary](./adr/102-saved-widget-identity-and-revision-boundary.md),
-which is **Proposed**. Acceptance requires a separate explicit human architecture decision and does not follow from
-this document's existence.
+which is **Accepted as of 2026-10-25** by Resonant Jones.
+
+Acceptance is a decision about **architecture only**. It does not implement or runtime-qualify anything described
+here: Saved Widget storage, listing, invocation, revision editing, deletion, and export/restore remain unimplemented
+and unproven, the Library Widgets filter remains unavailable, and the release gate remains HOLD.
 
 No accepted ADR is superseded by this contract. ADR-003, ADR-069, ADR-077, ADR-081, ADR-082, and ADR-091 remain in
 force, and this contract is written to preserve them.
