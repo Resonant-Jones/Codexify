@@ -880,52 +880,24 @@ def test_concurrent_duplicate_requests_publish_once(monkeypatch, immediate_redis
     assert failures[0].reason == "turn_in_flight"
 
 
-def test_stale_terminal_lock_is_recovered(monkeypatch, immediate_redis):
-    task = _task()
-    stale = build_turn_lock_envelope(1, "stale-task", turn_id="old-turn")
-    fresh = _lock(task, turn_id="turn-1")
-    acquire_calls = 0
-    cleared: list[tuple[int, object]] = []
-    orphan_events: list[tuple[str, dict[str, object]]] = []
-
-    def acquire(*_args, **_kwargs):
-        nonlocal acquire_calls
-        acquire_calls += 1
-        return None if acquire_calls == 1 else fresh
-
-    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
-    monkeypatch.setattr(service, "get_turn_lock", lambda *_: stale)
-    monkeypatch.setattr(service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        service,
-        "_task_terminal_event",
-        lambda *_: {"state": "terminal", "reason": "completed"},
-    )
-    monkeypatch.setattr(
-        service,
-        "clear_turn_lock",
-        lambda thread_id, expected=None: cleared.append((thread_id, expected)) or True,
-    )
-    monkeypatch.setattr(
-        service.event_bus,
-        "emit_event",
-        lambda name, payload: orphan_events.append((name, payload)),
-    )
-    monkeypatch.setattr(service, "enqueue", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        service.task_events,
-        "publish_with_visibility",
-        lambda *_a, **_k: _event_result(task),
-    )
-
-    result = service.enqueue_chat_completion(task, thread_id=1, turn_id="turn-1")
-
-    assert result.acceptance_status == AcceptanceStatus.ACCEPTED.value
-    assert acquire_calls == 2
-    assert len(cleared) == 1
-    assert orphan_events[0][0] == "chat.orphaned_turn_recovered"
-
-
+# The former `test_stale_terminal_lock_is_recovered` case was removed here.
+# It asserted the pre-2026-10-04 recovery contract: that a lease-margin-stale
+# turn lock plus a terminal task event proved recoverability, that the lock was
+# cleared with `clear_turn_lock`, and that recovery emitted an operator-
+# observable `chat.orphaned_turn_recovered` event.
+#
+# That contract was deliberately retired, not broken. The durable-terminal
+# recovery redesign replaced lock-staleness and worker-heartbeat inference with
+# the durable attempt outcome and its receipts, removed the non-atomic clear and
+# the unbounded recovery audit write, and stopped emitting an orphan event for a
+# task merely because its lock was cleaned. The rationale and the evidence
+# limits are recorded in
+# `docs/architecture/proofs/supported-compose/2026-10-04-chat-recovery-controller.md`.
+#
+# The current contract is covered by `tests/core/test_turn_lock_recovery.py`,
+# which proves that durable terminal truth releases the lock, that a heartbeat
+# alone never infers recovery, that a mismatched attempt/lock binding fails
+# closed, and that the enqueue path recovers with only the new queue identity.
 def test_queue_failure_releases_lock_and_returns_safe_typed_failure(
     monkeypatch, immediate_redis
 ):
