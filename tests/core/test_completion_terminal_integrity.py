@@ -11,6 +11,7 @@ from guardian.core.completion_terminal import (
     CompletionTerminalError,
     require_successful_terminal,
 )
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
@@ -305,12 +306,44 @@ def test_tool_loop_obeys_terminal_gate(monkeypatch):
         )
 
 
-def _seed_worker_terminal_harness(monkeypatch):
+def _seed_worker_terminal_harness(monkeypatch, *, durable_terminal_recorded: bool = True):
     published: list[tuple[str, dict]] = []
     effects: list[str] = []
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    # Durable-attempt seams. The worker owns accepted-turn identity, so it must
+    # observe a live accepted attempt that carries no terminal truth yet, and
+    # its durable terminal write must be acknowledged before it may publish the
+    # live terminal event. These are the same seams
+    # tests/workers/test_chat_worker_streaming_chunks.py uses.
+    monkeypatch.setattr(
+        chat_worker,
+        "_read_attempt_for_worker",
+        lambda task: {
+            "backend_task_id": task.task_id,
+            "request_id": task.request_id,
+            "thread_id": task.thread_id,
+            "turn_id": chat_worker._extract_turn_id(task),
+            "completed_message_id": None,
+            "terminal_event_type": None,
+            "terminal_outcome": None,
+            "deadline_snapshot": None,
+        },
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_record_chat_completion_attempt_terminal",
+        lambda *_args, **_kwargs: durable_terminal_recorded,
+    )
+    # No durable terminal truth exists yet, so turn-lock cleanup must not be
+    # attempted: release_terminal_attempt_turn_lock is reachable only with
+    # acknowledged durable terminal truth and the preserved lease token. The
+    # retired release_turn_lock symbol is removed rather than replaced.
+    monkeypatch.setattr(
+        chat_worker,
+        "observe_chat_completion_attempt_terminal",
+        lambda *_args, **_kwargs: ChatAttemptReconciliation(None, None, None, None),
+    )
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -399,3 +432,52 @@ def test_cancelled_output_publishes_cancelled_without_persistence(monkeypatch):
         item for event_type, item in published if event_type == "task.cancelled"
     )
     assert payload["terminal_evidence"]["visible_output_emitted"] is True
+
+
+@pytest.mark.parametrize("terminal", ["failure", "cancellation"])
+def test_unconfirmed_durable_terminal_write_manufactures_no_terminal_authority(
+    monkeypatch, terminal
+):
+    """A failed durable acknowledgment must not become terminal authority.
+
+    The worker's durable terminal write is the authority for a request-bearing
+    accepted attempt. When that write is not acknowledged, the worker must
+    fail closed: it must not publish an authoritative failure or cancellation,
+    and it must not persist an assistant message or schedule completion
+    effects.
+
+    This is the control for the two cases above. Those assert that the
+    terminal event is published *because* the durable write was acknowledged;
+    here the same scenario runs with the write withheld, and the terminal
+    event must disappear.
+    """
+    published, effects = _seed_worker_terminal_harness(
+        monkeypatch, durable_terminal_recorded=False
+    )
+    if terminal == "failure":
+        outcome = CompletionTerminalError(
+            _evidence(
+                CompletionTerminalStatus.STREAM_INCOMPLETE,
+                visible=True,
+                failure_kind="missing_stream_terminal",
+            )
+        )
+    else:
+        outcome = chat_completion_service.ChatTaskCancelled(
+            provider="local",
+            model="test-model",
+            visible_output_emitted=True,
+        )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(outcome),
+    )
+
+    chat_worker._run_chat_task(_task())
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.failed" not in event_types
+    assert "task.cancelled" not in event_types
+    assert "task.completed" not in event_types
+    assert effects == []
