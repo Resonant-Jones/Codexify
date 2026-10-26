@@ -83,6 +83,7 @@ function conversation(
   relationshipId: string,
   peer: DirectMessageSocialProfile,
   preview: string | null,
+  unreadCount = 0,
 ): DirectMessageConversation {
   return {
     conversation_id: id,
@@ -107,6 +108,7 @@ function conversation(
           created_at: "2026-09-01T01:00:00Z",
         }
       : null,
+    unread_count: unreadCount,
   };
 }
 
@@ -587,5 +589,182 @@ describe("people search", () => {
       ).toBeInTheDocument(),
     );
     expect(screen.queryByText("No profiles match that username.")).toBeNull();
+  });
+});
+
+describe("recipient-local unread state", () => {
+  it("renders an unread badge for a conversation with unread messages", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      conversation("c-unread", "rel-ab", bob, "hello", 3),
+    ]);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
+    );
+    const badge = screen.getByTestId("conversation-unread-badge");
+    expect(badge.textContent).toBe("3");
+    expect(badge.getAttribute("aria-label")).toBe("3 unread messages");
+  });
+
+  it("renders no badge for a conversation the reader has already read", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      conversation("c-read", "rel-ab", bob, "hello", 0),
+    ]);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
+    );
+    expect(screen.queryByTestId("conversation-unread-badge")).toBeNull();
+  });
+
+  it("caps the badge at 99+", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      conversation("c-many", "rel-ab", bob, "hello", 250),
+    ]);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("conversation-unread-badge").textContent).toBe("99+");
+  });
+
+  it("recovers the unread state after a reload", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      conversation("c-reload", "rel-ab", bob, "hello", 2),
+    ]);
+
+    const first = renderInbox();
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge").textContent).toBe("2"),
+    );
+    first.unmount();
+
+    // A fresh mount (the reload path) reads the same durable unread state.
+    renderInbox();
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge").textContent).toBe("2"),
+    );
+  });
+
+  it("clears the reader's badge after the conversation is opened", async () => {
+    const unread = conversation("c-open", "rel-ab", bob, "hello", 1);
+    const read = conversation("c-open", "rel-ab", bob, "hello", 0);
+    mockedFetchConversations
+      .mockResolvedValueOnce([unread])
+      .mockResolvedValue([read]);
+    vi.mocked(fetchDirectMessageConversation).mockResolvedValue(read);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("conversation-row"));
+
+    // Opening the conversation is the reader's own read action.
+    await waitFor(() =>
+      expect(fetchDirectMessageConversation).toHaveBeenCalledWith("c-open"),
+    );
+    // The refreshed projection no longer reports unread for this reader.
+    await waitFor(() =>
+      expect(screen.queryByTestId("conversation-unread-badge")).toBeNull(),
+    );
+  });
+
+  it("refreshes unread state while the Inbox is open", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockedFetchConversations
+        .mockResolvedValueOnce([
+          conversation("c-poll", "rel-ab", bob, "hello", 0),
+        ])
+        .mockResolvedValue([
+          conversation("c-poll", "rel-ab", bob, "hello", 4),
+        ]);
+
+      renderInbox(makeState({ peopleOpen: true, activeTab: "inbox" }));
+
+      await waitFor(() =>
+        expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
+      );
+      expect(screen.queryByTestId("conversation-unread-badge")).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("conversation-unread-badge").textContent).toBe(
+          "4",
+        ),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not poll while the People surface is closed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockedFetchConversations.mockResolvedValue([
+        conversation("c-closed", "rel-ab", bob, "hello", 0),
+      ]);
+
+      renderInbox(makeState({ peopleOpen: false, activeTab: "inbox" }));
+
+      await waitFor(() =>
+        expect(screen.getAllByTestId("conversation-row")).toHaveLength(1),
+      );
+      const callsAfterMount = mockedFetchConversations.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(45_000);
+
+      expect(mockedFetchConversations.mock.calls.length).toBe(callsAfterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never advances the read cursor from the unread refresh alone", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockedFetchConversations.mockResolvedValue([
+        conversation("c-cursor", "rel-ab", bob, "hello", 5),
+      ]);
+
+      renderInbox(makeState({ peopleOpen: true, activeTab: "inbox" }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+      );
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await waitFor(() =>
+        expect(mockedFetchConversations.mock.calls.length).toBeGreaterThan(1),
+      );
+
+      // Refreshing unread state must not mark anything as read.
+      expect(fetchDirectMessageConversation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the surface usable when an unread refresh fails", async () => {
+    mockedFetchConversations.mockResolvedValue([
+      conversation("c-error", "rel-ab", bob, "hello", 1),
+    ]);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+    );
+    expect(screen.getAllByTestId("conversation-row")).toHaveLength(1);
   });
 });

@@ -130,6 +130,7 @@ Rooms, not project threads.
 | `direct_message_conversations` | one discussion inside a Relationship | `relationship_id` required FK (cascade); `kind` is `direct`; immutable origin provenance `created_by_profile_id` / `origin_project_id` / `origin_thread_id` (nullable, `SET NULL` on source deletion); `latest_activity_at` tracks durable activity; multiple Conversations per Relationship |
 | `direct_message_conversation_placements` | participant-local Project organization | unique `(conversation_id, profile_id)`; `project_id` nullable (`SET NULL` on source deletion); placement Profile must be a Relationship participant |
 | `direct_messages` | durable plain-text messages | stable `id`; `conversation_id`; `sender_node_id` + `sender_profile_id`; `content_type` is `text/plain`; non-blank bounded body; unique `(conversation_id, sender_profile_id, client_message_key)` for idempotency |
+| `direct_message_read_cursors` | **recipient-local** read position for one Conversation (ADR-103) | unique `(conversation_id, profile_id)` where `profile_id` is the **reading** profile; `last_read_message_id` nullable FK to `direct_messages` (`SET NULL`); stores no counter, preview, or body; never observable by the other participant |
 
 Conversation identity must not depend on username, display name, email,
 Project placement, origin provenance, or current endpoint.
@@ -157,6 +158,52 @@ does not grant the peer Project or Thread access; placement does not
 grant Project membership or retrieval authority; no source transcript is
 copied and no DM embedding/KB is created.  Future retrieval and future
 disclosure authority remain separate concepts with no state today.
+
+### Recipient-local read state (ADR-103)
+
+Read state is **recipient-local**.  One cursor row per reading profile per
+Conversation records how far *that* profile has read.  The other participant
+can never observe it: it is not in any payload, and no endpoint reports
+another participant's cursor, position, or timing.
+
+The durable message store remains the single authority for what exists.  The
+cursor stores no counter, preview, or body, and the unread count is
+**derived** on read, never stored — there is no second message store and no
+counter to drift.
+
+Unread derivation is normative:
+
+```text
+unread(profile, conversation)
+  = count of messages in the conversation
+    where sender != profile
+      and (created_at, id) > cursor(profile, conversation)
+    with no cursor => every peer-authored message is unread
+```
+
+The `(created_at, id)` ordering is the canonical chronological order used by
+the transcript and the chronological index, so the cursor and the transcript
+always agree on which message is last.  A profile's own messages are never
+unread for that profile: sending a message never raises the sender's own
+count.
+
+Reading a Conversation — the authenticated participant's own read of it —
+advances **only that participant's** cursor to the Conversation's latest
+message and reports the resulting caller-local `unread_count`.  The cursor
+never moves backwards and repeated reads are idempotent.  Participation is
+authorized through canonical Relationship membership **before** any cursor
+write, so a non-participant can neither read the Conversation nor advance
+anybody's cursor.
+
+Explicitly **not** implied:
+
+- no sender-visible read receipt, read timing, or attention disclosure;
+- no shared relationship state — two participants of one Conversation hold two
+  independent cursors;
+- no cross-node or federated read state;
+- no push, email, or operating-system notification, and no delivery receipt;
+- no change to request acceptance, decline, directional suppression, account
+  isolation, or conversation authorization.
 
 Postgres owns durable conversation/message truth.  Transport, WebSocket
 delivery, realtime notification, federation relay, and frontend state do
@@ -201,8 +248,8 @@ caller may act only through a profile they own.
 | List relationships | `GET /api/direct-messages/relationships` | caller-participating Relationships, safe peer social identity, ordered by durable `updated_at` |
 | List relationship conversations | `GET /api/direct-messages/relationships/{relationship_id}/conversations` | participants only; every Conversation in the Relationship; stable activity ordering; caller-local placement and caller-visible origin only (peer's private placement never revealed) |
 | Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | accepted or historical pair consent required; optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
-| List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity |
-| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement |
+| List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity; each row carries the **caller's own** `unread_count` (ADR-103) |
+| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement; this is the reader's own read action, so it advances **only the caller's** read cursor to the Conversation's latest message and reports the resulting caller-local `unread_count` (ADR-103) |
 | Read messages | `GET /api/direct-messages/conversations/{conversation_id}/messages` | deterministic `(created_at, id)` ascending, bounded pagination via `before_id` |
 | Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | established consent required; `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
 | Move placement | `PATCH /api/direct-messages/conversations/{conversation_id}/placement` | `project_id` or `null`; caller-local only; validates Project authority; never rewrites origin, peer placement, or Relationship membership |
@@ -239,6 +286,11 @@ authority.
   creating profile; supplying an origin grants the peer nothing.
 - Placement is participant-local; moving placement validates the
   caller's Project authority and touches only the caller's row.
+- Read state is participant-local (ADR-103): a read cursor may be read or
+  advanced only by the profile that owns it, and only for a Conversation
+  that profile participates in.  A non-participant cannot observe or advance
+  any cursor, and no cursor, read position, or read timing is ever
+  disclosed to the other participant.
 - Foreign profile impersonation is denied.
 - Self-DM is rejected.
 - Nonlocal destinations are rejected as unsupported; no federation
@@ -391,6 +443,22 @@ bounded query per listing page — never a per-row history fetch — and
 no new table, column, or cached summary exists.  Conversations without
 messages project `latest_message: null`.
 
+### Unread projection
+
+Each conversation row also carries the **caller's own** `unread_count`, derived
+per §4a from the durable message store and the caller's read cursor.  It is a
+caller-local value: the peer never receives it, and the row exposes no
+counter, preview, or timestamp belonging to anyone else.
+
+The Inbox renders the count as an in-app badge on the conversation row and
+clears it for that caller when they open the conversation — the read that
+advances their own cursor.  While the Inbox is open it re-reads the
+conversation projection so a message arriving elsewhere surfaces without a
+manual reload; that refresh never advances a cursor, only opening a
+conversation does.  Because the cursor is durable, the cleared state is
+recovered after a reload or a new session, and a later incoming message
+becomes unread again.
+
 ### General creation
 
 The Inbox "Find People" flow uses deliberate username discovery and
@@ -429,10 +497,15 @@ duplication.
 
 ### Inbox non-goals
 
-Unread/read state, read cursors, receipts, realtime/SSE/polling,
-presence, typing indicators, Share Sheet UX, Project Scope Offer /
-invitation, placement editing, origin editing, Guardian/model/
-retrieval/memory coupling, and any Beta-support widening.
+Receipts, realtime/SSE delivery, cross-node read state, presence, typing
+indicators, Share Sheet UX, Project Scope Offer / invitation, placement
+editing, origin editing, Guardian/model/retrieval/memory coupling, and any
+Beta-support widening.
+
+Recipient-local read state and read cursors are **not** in this list: they
+are implemented per §4a and ADR-103.  What remains excluded is everything on
+the *receipt* side of that line — the sender never learns that the recipient
+read anything.
 
 
 ## 14. Message requests and ordinary messaging consent (ADR-097)

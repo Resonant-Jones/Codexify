@@ -55,6 +55,10 @@ type DirectMessageInboxProps = {
   state: PeopleMessagingState;
 };
 
+/** How often the open Inbox re-reads the conversation projection so a message
+ *  that arrives elsewhere surfaces as unread without a manual reload. */
+const UNREAD_REFRESH_INTERVAL_MS = 15_000;
+
 function profileSubtitle(profile: DirectMessageSocialProfile | null): string {
   if (!profile) return "";
   return profile.username ? `@${profile.username}` : "";
@@ -170,6 +174,23 @@ export default function DirectMessageInbox({
     }
   }, [state]);
 
+  /**
+   * Refresh only the conversation projection so recipient-local unread
+   * counts stay current while the Inbox is open.  It never advances a read
+   * cursor: only opening a conversation does that, server-side.
+   */
+  const refreshUnread = useCallback(async () => {
+    try {
+      const conversationRows = await fetchDirectMessageConversations();
+      setConversations(conversationRows);
+      conversationRows.forEach((conversation) =>
+        state.cacheConversationMeta(conversation),
+      );
+    } catch {
+      // A failed unread refresh must never disturb the visible Inbox.
+    }
+  }, [state]);
+
   const openAcceptedConversation = useCallback(
     async (conversationId: string) => {
       const conversation = await fetchDirectMessageConversation(conversationId);
@@ -180,10 +201,46 @@ export default function DirectMessageInbox({
     [reload, state],
   );
 
+  /**
+   * Reading a conversation is the reader's own action: the server advances
+   * the caller's recipient-local cursor on the conversation read, and the
+   * projection is then re-read so the caller's own unread badge clears.
+   * The peer can never observe this.
+   */
+  const markConversationRead = useCallback(
+    async (conversationId: string) => {
+      try {
+        const conversation = await fetchDirectMessageConversation(conversationId);
+        state.cacheConversationMeta(conversation);
+        await refreshUnread();
+      } catch {
+        // A failed read or refresh must never break the visible Inbox.
+      }
+    },
+    [refreshUnread, state],
+  );
+
   useEffect(() => {
     if (!messagingEnabled) return;
     void reload();
   }, [messagingEnabled, reload]);
+
+  // Poll the conversation projection while the Inbox is visible so a message
+  // that arrives in another session surfaces as unread without a manual
+  // reload.  The poll is inert once the surface is closed.
+  useEffect(() => {
+    if (!messagingEnabled) return;
+    if (!state.peopleOpen || state.activeTab !== "inbox") return;
+    const timer = window.setInterval(() => {
+      void refreshUnread();
+    }, UNREAD_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [
+    messagingEnabled,
+    refreshUnread,
+    state.peopleOpen,
+    state.activeTab,
+  ]);
 
   const filterOptions = useMemo(
     () => buildPeerFilterOptions(conversations),
@@ -556,18 +613,23 @@ export default function DirectMessageInbox({
           {visibleConversations.map((conversation) => {
             const peer = conversation.peer;
             const peerLabel = peerPresentationLabel(peer);
+            const unreadCount = Math.max(
+              0,
+              Number(conversation.unread_count ?? 0) || 0,
+            );
             return (
               <button
                 key={conversation.conversation_id}
                 type="button"
                 data-testid="conversation-row"
                 className="mb-1 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
-                onClick={() =>
+                onClick={() => {
                   state.openConversation(
                     conversation.conversation_id,
                     conversation,
-                  )
-                }
+                  );
+                  void markConversationRead(conversation.conversation_id);
+                }}
               >
                 <span
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-xs font-semibold text-[var(--accent)]"
@@ -580,8 +642,21 @@ export default function DirectMessageInbox({
                     <span className="truncate text-sm font-medium text-[var(--text)]">
                       {peerLabel}
                     </span>
-                    <span className="shrink-0 text-[11px] text-[var(--text-subtle)]">
-                      {formatActivity(conversation.latest_activity_at)}
+                    <span className="flex shrink-0 items-center gap-2">
+                      {unreadCount > 0 ? (
+                        <span
+                          data-testid="conversation-unread-badge"
+                          aria-label={`${unreadCount} unread message${
+                            unreadCount === 1 ? "" : "s"
+                          }`}
+                          className="inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-contrast,#fff)]"
+                        >
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
+                      <span className="text-[11px] text-[var(--text-subtle)]">
+                        {formatActivity(conversation.latest_activity_at)}
+                      </span>
                     </span>
                   </span>
                   {profileSubtitle(peer) ? (

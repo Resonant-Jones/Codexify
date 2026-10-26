@@ -464,7 +464,14 @@ def get_conversation(
     conversation_id: str,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    """Read one conversation (authenticated participants only)."""
+    """Read one conversation (authenticated participants only).
+
+    Opening a conversation is the participant's own read action, so this read
+    advances **the caller's** recipient-local read cursor and reports the
+    resulting unread count.  The cursor is not a read receipt: the other
+    participant can neither observe nor advance it, and a non-participant can
+    neither read the conversation nor move anyone's cursor.
+    """
     db = _db()
     with db.get_session() as session:
         owner_id = _require_owner_id(request_user_scope, session)
@@ -478,11 +485,10 @@ def get_conversation(
                     "message": "conversation not found",
                 },
             )
-        caller_node_id, caller_profile_id = _profile_address(profile)
         return {
             "ok": True,
-            "conversation": service.conversation_payload(
-                session, conversation, caller_node_id, caller_profile_id
+            "conversation": service.read_conversation_for_participant(
+                session, conversation, profile
             ),
         }
 

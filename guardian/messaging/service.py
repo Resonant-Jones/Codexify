@@ -17,14 +17,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from guardian.db.models import (
     DirectMessage,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
     DirectMessageConsent,
+    DirectMessageReadCursor,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
     Project,
@@ -747,6 +749,9 @@ def list_conversations_for_relationship(
     latest_by_conversation = latest_message_for_conversations(
         session, [conversation.id for conversation in conversations]
     )
+    unread_by_conversation = unread_counts_for_conversations(
+        session, profile, [conversation.id for conversation in conversations]
+    )
     return [
         conversation_payload(
             session,
@@ -754,6 +759,7 @@ def list_conversations_for_relationship(
             profile.node_id,
             profile.profile_id,
             latest_message=latest_by_conversation.get(conversation.id),
+            unread_count=unread_by_conversation.get(conversation.id, 0),
         )
         for conversation in conversations
     ]
@@ -834,6 +840,9 @@ def list_conversations_for_profile(
     latest_by_conversation = latest_message_for_conversations(
         session, [conversation.id for conversation in conversations]
     )
+    unread_by_conversation = unread_counts_for_conversations(
+        session, profile, [conversation.id for conversation in conversations]
+    )
     return [
         conversation_payload(
             session,
@@ -841,6 +850,7 @@ def list_conversations_for_profile(
             profile.node_id,
             profile.profile_id,
             latest_message=latest_by_conversation.get(conversation.id),
+            unread_count=unread_by_conversation.get(conversation.id, 0),
         )
         for conversation in conversations
     ]
@@ -1011,6 +1021,7 @@ def conversation_payload(
     caller_profile_id: str,
     *,
     latest_message: DirectMessage | None = None,
+    unread_count: int | None = None,
 ) -> dict[str, Any]:
     """Safe participant-visible conversation payload."""
     require_participant(session, conversation, caller_node_id, caller_profile_id)
@@ -1041,6 +1052,10 @@ def conversation_payload(
         latest_message = latest_message_for_conversations(
             session, [conversation.id]
         ).get(conversation.id)
+    if unread_count is None:
+        unread_count = unread_counts_for_conversations(
+            session, caller_profile, [conversation.id]
+        ).get(conversation.id, 0)
     participants = _participant_social_payloads(session, conversation)
     peer = next(
         (
@@ -1074,7 +1089,174 @@ def conversation_payload(
             if latest_message is not None
             else None
         ),
+        "unread_count": int(unread_count),
     }
+
+
+# ── Recipient-local read state ────────────────────────────────────────────
+#
+# A read cursor records how far ONE profile has read ONE conversation.  It is
+# participant-local by construction and is never a read receipt: the other
+# participant can neither observe nor advance it, and no cursor state is
+# written into the shared Relationship, Conversation, or Message authority.
+#
+# Unread counts are DERIVED from the durable message store and the reading
+# profile's cursor.  There is no second message store and no stored counter.
+
+
+def _latest_message_ordinal(
+    session, conversation_id: str
+) -> tuple[datetime, str] | None:
+    """Return the (created_at, id) ordinal of a conversation's latest message.
+
+    The ordering matches the canonical chronological index
+    ``(conversation_id, created_at, id)`` so the cursor and the transcript
+    always agree on which message is last.
+    """
+    row = session.execute(
+        select(DirectMessage.created_at, DirectMessage.id)
+        .where(DirectMessage.conversation_id == conversation_id)
+        .order_by(DirectMessage.created_at.desc(), DirectMessage.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
+def unread_counts_for_conversations(
+    session,
+    profile: UserProfile,
+    conversation_ids: list[str],
+) -> dict[str, int]:
+    """Derive recipient-local unread counts from durable messages and cursor.
+
+    A message counts as unread for this profile when it was authored by the
+    *other* participant and it sorts after this profile's read cursor in the
+    canonical chronological order.  With no cursor, every peer-authored
+    message is unread.  The profile's own messages are never unread for that
+    profile, so sending a message never raises the sender's own count.
+    """
+    ids = [cid for cid in dict.fromkeys(conversation_ids) if cid]
+    if not ids:
+        return {}
+    peer_profile_id = profile.profile_id
+
+    total_rows = session.execute(
+        select(DirectMessage.conversation_id, func.count(DirectMessage.id))
+        .where(
+            DirectMessage.conversation_id.in_(ids),
+            DirectMessage.sender_profile_id != peer_profile_id,
+        )
+        .group_by(DirectMessage.conversation_id)
+    ).all()
+    totals = {str(cid): int(count) for cid, count in total_rows}
+
+    cursor_message = aliased(DirectMessage)
+    read_rows = session.execute(
+        select(DirectMessage.conversation_id, func.count(DirectMessage.id))
+        .select_from(DirectMessage)
+        .join(
+            DirectMessageReadCursor,
+            and_(
+                DirectMessageReadCursor.conversation_id == DirectMessage.conversation_id,
+                DirectMessageReadCursor.profile_id == peer_profile_id,
+            ),
+        )
+        .join(
+            cursor_message,
+            cursor_message.id == DirectMessageReadCursor.last_read_message_id,
+        )
+        .where(
+            DirectMessage.conversation_id.in_(ids),
+            DirectMessage.sender_profile_id != peer_profile_id,
+            or_(
+                DirectMessage.created_at < cursor_message.created_at,
+                and_(
+                    DirectMessage.created_at == cursor_message.created_at,
+                    DirectMessage.id <= cursor_message.id,
+                ),
+            ),
+        )
+        .group_by(DirectMessage.conversation_id)
+    ).all()
+    read_counts = {str(cid): int(count) for cid, count in read_rows}
+
+    return {
+        cid: max(totals.get(cid, 0) - read_counts.get(cid, 0), 0) for cid in ids
+    }
+
+
+def advance_read_cursor(
+    session,
+    profile: UserProfile,
+    conversation: DirectMessageConversation,
+) -> str | None:
+    """Advance THIS profile's read cursor to the conversation's latest message.
+
+    Only the caller's own cursor row is written, and the cursor never moves
+    backwards.  Returns the message id the cursor now points at, or None when
+    the conversation holds no messages yet.
+    """
+    latest = _latest_message_ordinal(session, conversation.id)
+    if latest is None:
+        return None
+    latest_created_at, latest_id = latest
+
+    existing = session.get(
+        DirectMessageReadCursor, (conversation.id, profile.profile_id)
+    )
+    if existing is not None and existing.last_read_message_id:
+        current = session.execute(
+            select(DirectMessage.created_at, DirectMessage.id).where(
+                DirectMessage.id == existing.last_read_message_id
+            )
+        ).first()
+        if current is not None and (current[0], current[1]) >= (
+            latest_created_at,
+            latest_id,
+        ):
+            return existing.last_read_message_id
+
+    if existing is None:
+        session.add(
+            DirectMessageReadCursor(
+                conversation_id=conversation.id,
+                profile_id=profile.profile_id,
+                last_read_message_id=latest_id,
+            )
+        )
+    else:
+        existing.last_read_message_id = latest_id
+        existing.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return latest_id
+
+
+def read_conversation_for_participant(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+) -> dict[str, Any]:
+    """Read one conversation for a participant and advance their own cursor.
+
+    Participation is authorized first, so a non-participant can neither read
+    the conversation nor advance anybody's cursor.  The returned payload
+    reports the unread count *after* the advance, so the recipient sees the
+    conversation they just opened as read.
+    """
+    node_id = profile.node_id
+    profile_id = profile.profile_id
+    require_participant(session, conversation, node_id, profile_id)
+    advance_read_cursor(session, profile, conversation)
+    unread = unread_counts_for_conversations(session, profile, [conversation.id])
+    return conversation_payload(
+        session,
+        conversation,
+        node_id,
+        profile_id,
+        unread_count=unread.get(conversation.id, 0),
+    )
 
 
 # ── Messages ──────────────────────────────────────────────────────────────
@@ -1261,9 +1443,11 @@ __all__ = [
     "DirectMessage",
     "DirectMessageConversation",
     "DirectMessageConversationPlacement",
+    "DirectMessageReadCursor",
     "DirectMessageRelationship",
     "ThreadSpaceNode",
     "UserProfile",
+    "advance_read_cursor",
     "claim_username",
     "conversation_payload",
     "create_conversation",
@@ -1282,10 +1466,12 @@ __all__ = [
     "normalize_search_query",
     "participant_addresses",
     "participant_pair_key",
+    "read_conversation_for_participant",
     "relationship_payload",
     "require_participant",
     "resolve_or_create_relationship",
     "search_profiles",
     "set_conversation_placement",
     "social_profile_payload",
+    "unread_counts_for_conversations",
 ]

@@ -89,6 +89,12 @@ export type DirectMessageConversation = {
   placement: DirectMessageConversationPlacement;
   /** Additive read projection: bounded latest-message preview or null. */
   latest_message: LatestMessageProjection | null;
+  /**
+   * Recipient-local unread count for the CALLER. Derived by the server from
+   * the durable message store and the caller's own read cursor; the peer can
+   * never observe it, so it is not a read receipt.
+   */
+  unread_count: number;
 };
 
 export type DirectMessageEnvelope = {

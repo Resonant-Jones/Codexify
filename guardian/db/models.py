@@ -2382,6 +2382,52 @@ class DirectMessage(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class DirectMessageReadCursor(Base):
+    """Recipient-local read cursor for one direct Conversation.
+
+    The cursor records how far **this** profile has read a conversation.  It
+    is participant-local by construction: the row is keyed by the reading
+    profile, and the other participant can never observe it, advance it, or
+    derive anything from it.  It is not a read receipt, and it is not shared
+    relationship state.
+
+    Unread count is *derived* from the durable message store and this cursor;
+    the cursor stores no counts, no previews, and no message bodies.
+    """
+
+    __tablename__ = "direct_message_read_cursors"
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    last_read_message_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("direct_messages.id", ondelete="SET NULL"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_direct_message_read_cursors_profile",
+            "profile_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Delegations
 # =========================
