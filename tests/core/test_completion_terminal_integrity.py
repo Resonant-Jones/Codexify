@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,10 @@ from guardian.core.db import ChatAttemptReconciliation
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
+
+# The original persisted lock capability of a durably completed attempt. A
+# mutable packet field can never stand in for it.
+_DURABLE_ORIGINAL_LOCK_TOKEN = "durable-original-token"
 
 
 def _task(*, provider: str = "local") -> ChatCompletionTask:
@@ -311,10 +316,12 @@ def _seed_worker_terminal_harness(
     task,
     *,
     terminal_write_acknowledged: bool = True,
+    durable_completion_message_id: int | None = None,
+    cancelled: bool = False,
 ):
     published: list[tuple[str, dict]] = []
     effects: list[str] = []
-    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
+    monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: cancelled)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
@@ -355,8 +362,15 @@ def _seed_worker_terminal_harness(
     # accepted work, and may publish a newly generated terminal event only
     # after the matching durable terminal write has been acknowledged. The
     # identity below is exact: request, task, thread and turn.
+    #
+    # `durable_completion_message_id` models an attempt that is already
+    # durably complete. That durable truth outranks any later local outcome,
+    # and it carries the original persisted lock capability that cleanup is
+    # allowed to use. `cancelled` models a cancellation signal that is present
+    # while the worker runs.
     terminal_writes: list[tuple] = []
     observations: list[str] = []
+    releases: list[tuple] = []
 
     def _read_attempt(_db, backend_task_id):
         observations.append(backend_task_id)
@@ -365,7 +379,7 @@ def _seed_worker_terminal_harness(
             "backend_task_id": task.task_id,
             "thread_id": task.thread_id,
             "turn_id": chat_worker._extract_turn_id(task),
-            "completed_message_id": None,
+            "completed_message_id": durable_completion_message_id,
             "terminal_event_type": None,
             "terminal_outcome": None,
             "deadline_snapshot": None,
@@ -380,7 +394,17 @@ def _seed_worker_terminal_harness(
         return terminal_write_acknowledged
 
     def _observe(_db, *, request_id, backend_task_id, thread_id, turn_id, **_kwargs):
-        return ChatAttemptReconciliation(None, None, None, None)
+        if durable_completion_message_id is None:
+            # No durable terminal truth exists, so there is no persisted
+            # capability and cleanup must not be attempted.
+            return ChatAttemptReconciliation(None, None, None, None)
+        return ChatAttemptReconciliation(
+            durable_completion_message_id, None, None, _DURABLE_ORIGINAL_LOCK_TOKEN
+        )
+
+    def _release(thread_id, *, owner_task_id, lease_token):
+        releases.append((thread_id, owner_task_id, lease_token))
+        return True
 
     monkeypatch.setattr(
         chat_worker, "get_chat_completion_attempt_by_task_id", _read_attempt
@@ -391,13 +415,14 @@ def _seed_worker_terminal_harness(
     monkeypatch.setattr(
         chat_worker, "observe_chat_completion_attempt_terminal", _observe
     )
-    return published, effects, terminal_writes, observations
+    monkeypatch.setattr(chat_worker, "release_terminal_attempt_turn_lock", _release)
+    return published, effects, terminal_writes, observations, releases
 
 
 def test_incomplete_output_publishes_failed_without_completion_effects(monkeypatch):
     task = _task()
-    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
-        monkeypatch, task
+    published, effects, terminal_writes, _observations, _releases = (
+        _seed_worker_terminal_harness(monkeypatch, task)
     )
     error = CompletionTerminalError(
         _evidence(
@@ -433,13 +458,16 @@ def test_incomplete_output_publishes_failed_without_completion_effects(monkeypat
         payload for event_type, payload in published if event_type == "task.failed"
     )
     assert failed["terminal_evidence"]["status"] == "stream_incomplete"
+    # The visible output that was already produced is preserved in the
+    # terminal evidence rather than dropped with the incomplete stream.
+    assert failed["terminal_evidence"]["visible_output_emitted"] is True
     assert failed["first_output_observed"] is True
 
 
 def test_cancelled_output_publishes_cancelled_without_persistence(monkeypatch):
     task = _task()
-    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
-        monkeypatch, task
+    published, effects, terminal_writes, _observations, _releases = (
+        _seed_worker_terminal_harness(monkeypatch, task)
     )
     cancelled = chat_completion_service.ChatTaskCancelled(
         provider="local",
@@ -483,8 +511,10 @@ def test_unconfirmed_durable_authority_infers_no_terminal_outcome(monkeypatch):
     infers no terminal event, and it manufactures no completion.
     """
     task = _task()
-    published, effects, terminal_writes, _observations = _seed_worker_terminal_harness(
-        monkeypatch, task, terminal_write_acknowledged=False
+    published, effects, terminal_writes, _observations, _releases = (
+        _seed_worker_terminal_harness(
+            monkeypatch, task, terminal_write_acknowledged=False
+        )
     )
     error = CompletionTerminalError(
         _evidence(
@@ -524,3 +554,111 @@ def test_unconfirmed_durable_authority_infers_no_terminal_outcome(monkeypatch):
             "task.failed",
         )
     ]
+
+
+def test_durable_completion_outranks_late_cancellation(monkeypatch):
+    """A durable completion outranks a cancellation that arrives late.
+
+    The accepted attempt is already durably complete, so the worker must
+    project that durable truth and must never reach the cancellation branch.
+    A cancellation seen afterwards may not rewrite a completion that already
+    happened, and it may not cause provider work to run again.
+    """
+    task = _task()
+    # A mutable packet field names a replacement lock. It grants no cleanup
+    # authority.
+    task.turn_lock_owner = "mutable-replacement-owner"
+    task.turn_lock = {"lease_token": "mutable-replacement-token"}
+    published, effects, terminal_writes, _observations, releases = (
+        _seed_worker_terminal_harness(
+            monkeypatch,
+            task,
+            durable_completion_message_id=42,
+            cancelled=True,
+        )
+    )
+    run_completion = Mock()
+    monkeypatch.setattr(chat_worker, "run_chat_completion_task", run_completion)
+
+    chat_worker._run_chat_task(task)
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.cancelled" not in event_types
+    assert "task.failed" not in event_types
+    assert "task.completed" in event_types
+    # The provider was not asked to run again for an already durable result,
+    # and no execution identity was created for it.
+    run_completion.assert_not_called()
+    assert "task.running" not in event_types
+    # No assistant message, evaluation or audio effect is repeated.
+    assert effects == []
+    # The durable completion was not rewritten by the late cancellation.
+    assert terminal_writes == []
+    completed = next(
+        payload for event_type, payload in published if event_type == "task.completed"
+    )
+    assert completed["message_id"] == 42
+    assert completed["reason"] == "durable_completion_recorded"
+    # The durable completion identity is unchanged.
+    assert completed["request_id"] == task.request_id
+    assert completed["task_id"] == task.task_id
+    assert completed["thread_id"] == task.thread_id
+    assert completed["turn_id"] == chat_worker._extract_turn_id(task)
+    # Cleanup used the original persisted lock capability, not the mutable
+    # packet fields.
+    assert releases == [(task.thread_id, task.task_id, _DURABLE_ORIGINAL_LOCK_TOKEN)]
+
+
+def test_rejected_cancellation_write_manufactures_no_terminal_authority(monkeypatch):
+    """A rejected durable cancellation write cannot become terminal authority.
+
+    The worker's own durable terminal write is the authority for a
+    request-bearing accepted attempt. When the cancellation write is not
+    acknowledged and the durable observation is still pending, the worker
+    must fail closed: it must not publish a cancellation, a failure or a
+    completion, and it must not persist an assistant message or schedule
+    completion effects.
+
+    This is the cancellation counterpart of the rejected-failure case above.
+    That case withholds the acknowledgement and makes the durable read
+    uncertain; here the read is merely pending, so the two cover the
+    distinct ways a durable outcome can stay unresolved.
+    """
+    task = _task()
+    published, effects, terminal_writes, _observations, releases = (
+        _seed_worker_terminal_harness(
+            monkeypatch, task, terminal_write_acknowledged=False
+        )
+    )
+    cancelled = chat_completion_service.ChatTaskCancelled(
+        provider="local",
+        model="test-model",
+        visible_output_emitted=True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(cancelled),
+    )
+
+    chat_worker._run_chat_task(task)
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.cancelled" not in event_types
+    assert "task.failed" not in event_types
+    assert "task.completed" not in event_types
+    # No assistant message, evaluation or audio effect was produced.
+    assert effects == []
+    # The rejected write carried the exact attempt identity.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.cancelled",
+        )
+    ]
+    # Without durable terminal truth there is no persisted capability, so no
+    # cleanup is attempted.
+    assert releases == []
