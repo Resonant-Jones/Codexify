@@ -107,6 +107,31 @@ decide that a run is genuinely abandoned. The evidence for that investigation is
 in
 `docs/architecture/proofs/runtime/2026-10-23-guardian-coding-restart-reconciliation-proof.md`.
 
+### Reading a claim-fenced terminal result
+
+A terminal coding result is now written by one atomic database decision: the
+recorded worker instance and claim must still own the run. The terminal status,
+the coding-result artifact, the Guardian delivery state, and the source-thread
+result message commit together, or none of them do.
+
+| What you see | What it means | What it does **not** mean |
+|---|---|---|
+| The run is terminal, the artifact exists, and a source-thread result was posted | The claim owned the run when it finished. The result is authoritative. | That the Redis event was published. Database persistence is authoritative; the event is transport. |
+| The run is terminal but **no** source-thread result was posted | The delivery was deferred, degraded, or suppressed by the existing contract. The terminal outcome still stands. | That the result was lost. Read the artifact and the run's error field. |
+| The run is terminal with **no matching Redis event** | The durable result committed and the event publication failed, or the event has not been observed yet. | That the execution did not finish. The durable row is the truth; the event is not. |
+| The run is still `running`, with **no terminal result**, and the worker reported ownership lost | A stale worker's terminalization was refused: the claim no longer owned the run. Nothing was written -- no status, no artifact, no message, no terminal event. | That the execution failed. The refusal is deliberately **not** a terminal outcome; only an operator may decide what happens next. |
+| The run is `escalated` and a worker later reported success | Another authority disposed of the run; the late worker completion was refused. No artifact, no source-thread result, and no `task.completed` event came from that worker. | That the worker's work was worthless. The external side effects it may have produced are unknown and are **not** fenced. |
+| A worktree or patch artifact exists for a run with no terminal result | The worker mutated something before it lost or never reached its terminal outcome. | That the mutation was rolled back. The database fence protects canonical state only; the filesystem is not fenced. |
+| The run is `running` with no terminal result and no worker activity | The execution is unresolved. | That it may be re-dispatched. |
+
+**None of these observations authorizes a re-dispatch.** The runtime performs no
+automatic re-drive, takeover, or retry on any of them, and neither should an
+operator: a re-dispatch mints a new attempt without fencing, and duplicate
+execution effects are not idempotent. In particular, an orphaned worktree
+mutation or patch artifact is an *external* side effect the runtime cannot
+contain -- it has to be inspected and cleaned up by a human before anything is
+re-dispatched.
+
 ## Pi Runtime Readiness Gate
 
 The source-Compose coding worker uses a dedicated

@@ -282,9 +282,6 @@ guarantee:
   claimed from this mechanism.
 - It does not authorize execution, retry, requeue, escalation, or takeover. No
   expiry rule, no quarantine decision, and no classifier reads it.
-- Terminal results are **not** fenced by it. A stale worker may still attempt a
-  terminal write; claim-fenced terminal persistence and stale-result rejection
-  are the next dependent slice.
 - It does not implement restart reconciliation. Nothing reads the heartbeat at
   startup.
 
@@ -294,6 +291,90 @@ readable, acquires no synthetic heartbeat, and is **never** escalated because a
 heartbeat is missing. The gate below is unchanged in substance: reconciliation
 still requires a *demonstrated*-dead worker, and a stale heartbeat still cannot
 authorize replay.
+
+### Claim-fenced terminalization
+
+Durable ownership says *who* holds a run. The heartbeat says that the holder was
+still reporting. Neither says that only the holder may **finish** it. That is
+the terminal authority boundary, and it is now enforced in the database.
+
+**The terminal claim.** `AgentStore.claim_coding_run_terminal()` performs one
+conditional update:
+
+```
+UPDATE agent_runs
+   SET status = :terminal_status,
+       ended_at = now(),
+       error = :error
+ WHERE run_id = :run_id
+   AND status = 'running'
+   AND coding_worker_instance_id = :worker_instance_id
+   AND coding_worker_claim_id = :worker_claim_id
+```
+
+The worker instance and claim come from the durable acceptance, never from
+model output, a queue payload, a tool result, or an HTTP request. The database
+-- not an application-level check performed earlier -- decides who may write
+the terminal status. The deployment lineage is checked in the same transaction:
+a deployment that has been rewritten to contradict the run it accepted is not
+an authority for finalizing it.
+
+The operation distinguishes four outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| `terminal_accepted` | the claim still owned the run; the terminal transition was written |
+| `terminal_rejected` | the claim did not match the run, or the run was disposed of by another authority (`escalated`) |
+| `terminal_already_terminal` | the run already carried a terminal status; nothing was rewritten |
+| `terminal_unavailable` | persistence could not be reached; the caller fails closed |
+
+**One transaction.** The terminal decision and the canonical result writes that
+belong to it -- the AgentRun terminal state, the coding-result artifact, the
+Guardian delegation delivery state, and the source-thread result message --
+commit together or not at all. `AgentStore.finalize_claimed_coding_result()`
+opens one transaction, stages the delivery and the artifact on it, performs the
+terminal claim, and commits only when the claim was accepted. A failure in any
+of those writes rolls the whole terminal decision back: the run stays
+`running`, no artifact exists, and no message was delivered.
+
+This is the ordering repair. The earlier path delivered the source-thread
+result first, committed it on its own, and only then wrote the terminal status
+through an unguarded update -- so a result-side effect could outlive the
+terminal decision that should have authorised it, and a stale worker could
+deliver a message and publish `task.completed` for a run it no longer owned.
+
+**Rejection produces nothing.** A rejected terminal claim writes no terminal
+status, no coding-result artifact, no source-thread result, no terminal task
+event, no execution attempt, and no credential lease. The worker reports the
+refusal through the existing **non-terminal** ownership-lost event
+(`EXECUTION_OWNERSHIP_LOST`) and stops. It does not replace the claim, mint a
+new owner, issue another credential lease, grant a retry, or turn the refusal
+into a successful execution.
+
+**Terminal events follow the durable decision.** `task.completed`,
+`task.failed`, and `task.cancelled` are published only after an accepted
+terminal decision. A terminal event is never published merely because an
+adapter returned successfully, and a rejected terminalization never publishes
+one. Database persistence remains authoritative: the Redis event publication is
+a separate transport operation, and no cross-system atomicity is claimed. If the
+durable result is committed but the event is lost, the durable result stands.
+
+**Idempotent readback.** An identical duplicate finalization after a committed
+result observes the existing receipt. It does not reapply the terminal status,
+create another artifact or message, publish another terminal event, refresh
+`ended_at`, or grant another execution.
+
+**Compatibility.** A run that was never accepted by this worker has no claim
+and keeps the legacy behaviour. The established source-thread delivery key, the
+identity checks, the sanitization, the deferred-delivery behaviour, the
+degraded-delivery classification, and the visibility vocabulary are unchanged.
+
+**What the fence does not provide.** A database terminal fence protects
+canonical Codexify state. It does not terminate an already-running Pi
+invocation, a provider request, a subprocess, an ongoing filesystem mutation,
+or an external network operation. The worktree and mutation guard remain
+independent boundaries, and a future recovery mechanism must still treat
+uncertain external side effects conservatively.
 
 ### Restart reconciliation of abandoned executions
 
@@ -458,6 +539,7 @@ Recommended `source_type` values for coding v1:
 - A side-effecting coding execution may not begin until its acceptance is durably recorded in canonical PostgreSQL. Missing or unreachable persistence is never permission to execute, and a refused or duplicated acceptance never overwrites another worker's run, artifact, or source-thread result.
 - A coding run records the worker instance that accepted it and the unique claim it made, atomically with acceptance. Worker identity is executor metadata: it is not an account, a principal, or a credential owner, and a queue payload cannot choose it. A persisted owner is not proof of liveness, and a claim identity grants no retry authority.
 - Only the recorded owner and claim may renew a coding run's heartbeat, and renewal is a single conditional database update. A heartbeat is evidence of reported activity, never authority to execute, retry, escalate, or take over. A stale heartbeat is not proof of worker death, and a missing heartbeat on a historical run is not evidence of abandonment.
+- Only the recorded owner and claim may finalize an accepted coding run, and the terminal decision is a single conditional database update committed together with the result writes that belong to it. A rejected claim writes no terminal status, no coding-result artifact, no source-thread result, and no terminal event. A terminal or escalated run cannot be reopened, and a heartbeat never authorizes a terminal write by itself.
 - A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals

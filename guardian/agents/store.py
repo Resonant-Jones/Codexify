@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -154,6 +155,55 @@ _CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH = 64
 RUN_HEARTBEAT_RENEWED = "renewed"
 RUN_HEARTBEAT_NOT_ELIGIBLE = "not_eligible"
 RUN_HEARTBEAT_UNAVAILABLE = "unavailable"
+
+#: Outcomes of a claim-fenced terminal decision for an accepted coding run.
+#:
+#: ``terminal_accepted`` -- the recorded worker instance and claim still owned
+#: the run, and the terminal transition was written by the database.
+#: ``terminal_rejected`` -- the claim no longer matches the canonical run. The
+#: row was not updated, and the caller must not produce a terminal artifact, a
+#: source-thread result, or a terminal event.
+#: ``terminal_already_terminal`` -- the run already carries a terminal status,
+#: so there was nothing to decide.
+#: ``terminal_unavailable`` -- persistence could not be reached. The caller must
+#: fail closed.
+RUN_TERMINAL_ACCEPTED = "terminal_accepted"
+RUN_TERMINAL_REJECTED = "terminal_rejected"
+RUN_TERMINAL_ALREADY_TERMINAL = "terminal_already_terminal"
+RUN_TERMINAL_UNAVAILABLE = "terminal_unavailable"
+
+
+class _SharedTransactionSession:
+    """A session view whose ``commit()`` defers to the transaction owner.
+
+    A claim-fenced terminalization must commit the terminal decision and the
+    canonical result writes that belong to it together. The delivery helpers
+    are established code with their own commit points, and the established
+    delivery contract patches one of those commit points directly. Rather
+    than rewriting every commit point, a helper that is handed an existing
+    session receives this view instead: its commits flush into the caller's
+    transaction, and the owner commits once, at the end.
+
+    Everything except ``commit()`` reaches the real session, including
+    ``rollback()`` -- an error inside the shared transaction still aborts the
+    whole terminal decision.
+    """
+
+    def __init__(self, session: Any) -> None:
+        self._session = session
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+    def commit(self) -> None:
+        """Flush the pending writes into the caller's transaction.
+
+        The writes become visible to the owning transaction -- and their
+        generated keys become available -- but they are not committed. The
+        owner commits them together with the terminal decision that
+        authorised them, or rolls them back with it.
+        """
+        self._session.flush()
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
@@ -1387,6 +1437,107 @@ class AgentStore:
             )
             return RUN_HEARTBEAT_UNAVAILABLE
 
+    def claim_coding_run_terminal(
+        self,
+        *,
+        session: Any,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> str:
+        """Atomically claim the terminal transition of an accepted coding run.
+
+        This is the terminal authority boundary. A worker may finalize a run
+        only while the worker instance and claim recorded at durable
+        acceptance still own that run. The decision is a single conditional
+        UPDATE, so the database -- not an application-level check performed
+        earlier -- decides who may write the terminal status.
+
+        The update is deliberately not committed here: the caller commits the
+        terminal transition together with the canonical result writes that
+        belong to it, so a failure in any of them rolls the whole terminal
+        decision back.
+
+        The caller passes the worker instance and claim from trusted worker
+        state established during acceptance. They are never taken from model
+        output, a queue payload, a tool result, or an HTTP request.
+        """
+        normalized_status = _normalize_agent_run_status(status)
+        if not str(run_id or "").strip():
+            return RUN_TERMINAL_REJECTED
+        if not str(worker_instance_id or "").strip():
+            return RUN_TERMINAL_REJECTED
+        if not str(claim_id or "").strip():
+            return RUN_TERMINAL_REJECTED
+        try:
+            run_row = (
+                session.query(AgentRun).filter_by(run_id=str(run_id)).first()
+            )
+        except Exception:
+            logger.exception(
+                "[agent-store] terminal claim read failed run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+        if run_row is None:
+            return RUN_TERMINAL_REJECTED
+        if not self._coding_run_lineage_matches(session, run_row):
+            logger.warning(
+                "[agent-store] terminal claim rejected run_id=%s: "
+                "the deployment lineage contradicts the persisted run",
+                run_id,
+            )
+            return RUN_TERMINAL_REJECTED
+        try:
+            values: dict[str, Any] = {
+                "status": normalized_status,
+                # The database clock is the canonical time source for the
+                # durable run row.
+                "ended_at": func.now(),
+            }
+            if error is not None:
+                values["error"] = error
+            updated = (
+                session.query(AgentRun)
+                .filter(
+                    AgentRun.run_id == str(run_id),
+                    AgentRun.status == "running",
+                    AgentRun.coding_worker_instance_id
+                    == str(worker_instance_id),
+                    AgentRun.coding_worker_claim_id == str(claim_id),
+                )
+                .update(values, synchronize_session=False)
+            )
+        except Exception:
+            logger.exception(
+                "[agent-store] terminal claim failed run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+        if updated == 1:
+            return RUN_TERMINAL_ACCEPTED
+        # Zero rows updated: the claim did not match. Read the canonical row
+        # back to tell an already-terminal run from a stale claim.
+        try:
+            row = session.query(AgentRun).filter_by(run_id=str(run_id)).first()
+        except Exception:
+            logger.exception(
+                "[agent-store] terminal claim readback failed run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+        if row is None:
+            return RUN_TERMINAL_REJECTED
+        if _is_terminal_agent_run_status(row.status):
+            # An escalated run was disposed of by another authority. The
+            # worker's late completion is refused, not merely redundant.
+            if _normalize_agent_run_status(row.status) == "escalated":
+                return RUN_TERMINAL_REJECTED
+            return RUN_TERMINAL_ALREADY_TERMINAL
+        return RUN_TERMINAL_REJECTED
+
     def create_step(
         self,
         *,
@@ -1561,29 +1712,27 @@ class AgentStore:
         step_index: int | None,
         artifact_type: str,
         content_json: dict[str, Any],
+        session: Any = None,
     ) -> None:
         if self._has_db():
-            with self.db.get_session() as session:
-                run_row = (
-                    session.query(AgentRun).filter_by(run_id=run_id).first()
-                )
-                if run_row is None:
-                    return
-                step_row = None
-                if step_index is not None:
-                    step_row = (
-                        session.query(AgentRunStep)
-                        .filter_by(run_id=run_row.id, step_index=step_index)
-                        .first()
-                    )
-                row = AgentRunArtifact(
-                    run_id=run_row.id,
-                    run_step_id=step_row.id if step_row else None,
+            if session is not None:
+                self._insert_artifact(
+                    session=session,
+                    run_id=run_id,
+                    step_index=step_index,
                     artifact_type=artifact_type,
-                    content_json=dict(content_json or {}),
+                    content_json=content_json,
                 )
-                session.add(row)
-                session.commit()
+                return
+            with self.db.get_session() as owned_session:
+                self._insert_artifact(
+                    session=owned_session,
+                    run_id=run_id,
+                    step_index=step_index,
+                    artifact_type=artifact_type,
+                    content_json=content_json,
+                )
+                owned_session.commit()
                 return
         self._mem_artifacts.append(
             {
@@ -1594,30 +1743,38 @@ class AgentStore:
             }
         )
 
-    def store_coding_result(
+    def _insert_artifact(
         self,
         *,
+        session: Any,
         run_id: str,
-        coding_task_id: str,
-        attempt_id: str,
-        result_json: dict[str, Any],
-    ) -> dict[str, Any]:
-        payload = {
-            "run_id": run_id,
-            "coding_task_id": coding_task_id,
-            "attempt_id": attempt_id,
-            "result_json": dict(result_json or {}),
-        }
-        if self._has_db():
-            self.add_artifact(
-                run_id=run_id,
-                step_index=None,
-                artifact_type="coding_result",
-                content_json=payload,
+        step_index: int | None,
+        artifact_type: str,
+        content_json: dict[str, Any],
+    ) -> None:
+        """Insert one artifact row on the caller's session.
+
+        The caller owns the transaction. When the artifact belongs to a
+        claim-fenced terminal decision, the artifact and the terminal status
+        must commit together or not at all.
+        """
+        run_row = session.query(AgentRun).filter_by(run_id=run_id).first()
+        if run_row is None:
+            return
+        step_row = None
+        if step_index is not None:
+            step_row = (
+                session.query(AgentRunStep)
+                .filter_by(run_id=run_row.id, step_index=step_index)
+                .first()
             )
-            return payload
-        self._mem_coding_results.append(payload)
-        return payload
+        row = AgentRunArtifact(
+            run_id=run_row.id,
+            run_step_id=step_row.id if step_row else None,
+            artifact_type=artifact_type,
+            content_json=dict(content_json or {}),
+        )
+        session.add(row)
 
     def list_coding_results(
         self, *, run_id: str | None = None
@@ -1829,56 +1986,92 @@ class AgentStore:
         run_id: str,
         step_index: int | None = None,
         artifact_type: str | None = None,
+        session: Any = None,
     ) -> list[dict[str, Any]]:
         if self._has_db():
-            with self.db.get_session() as session:
-                run_row = (
-                    session.query(AgentRun).filter_by(run_id=run_id).first()
+            if session is not None:
+                return self._list_artifacts(
+                    session=session,
+                    run_id=run_id,
+                    step_index=step_index,
+                    artifact_type=artifact_type,
                 )
-                if run_row is None:
-                    return []
-                query = session.query(AgentRunArtifact).filter_by(
-                    run_id=run_row.id
+            with self.db.get_session() as owned_session:
+                return self._list_artifacts(
+                    session=owned_session,
+                    run_id=run_id,
+                    step_index=step_index,
+                    artifact_type=artifact_type,
                 )
-                if artifact_type is not None:
-                    query = query.filter_by(artifact_type=artifact_type)
-                rows = query.order_by(AgentRunArtifact.created_at.asc()).all()
-                out: list[dict[str, Any]] = []
-                for row in rows:
-                    resolved_step_index = None
-                    if row.run_step_id is not None:
-                        step_row = (
-                            session.query(AgentRunStep)
-                            .filter_by(id=row.run_step_id)
-                            .first()
-                        )
-                        resolved_step_index = (
-                            step_row.step_index if step_row else None
-                        )
-                    if (
-                        step_index is not None
-                        and resolved_step_index != step_index
-                    ):
-                        continue
-                    out.append(
-                        {
-                            "step_index": resolved_step_index,
-                            "artifact_type": row.artifact_type,
-                            "content_json": dict(row.content_json or {}),
-                        }
-                    )
-                return out
-
         rows = [
-            item for item in self._mem_artifacts if item["run_id"] == run_id
+            artifact
+            for artifact in self._mem_artifacts
+            if str(artifact.get("run_id")) == str(run_id)
+            and (
+                step_index is None
+                or artifact.get("step_index") == step_index
+            )
+            and (
+                artifact_type is None
+                or artifact.get("artifact_type") == artifact_type
+            )
         ]
-        if step_index is not None:
-            rows = [row for row in rows if row["step_index"] == step_index]
+        return [
+            {
+                "run_id": artifact.get("run_id"),
+                "step_index": artifact.get("step_index"),
+                "artifact_type": artifact.get("artifact_type"),
+                "content_json": artifact.get("content_json"),
+            }
+            for artifact in rows
+        ]
+
+    def _list_artifacts(
+        self,
+        *,
+        session: Any,
+        run_id: str,
+        step_index: int | None,
+        artifact_type: str | None,
+    ) -> list[dict[str, Any]]:
+        """List a run's artifacts on the caller's session.
+
+        A claim-fenced terminalization reads on the session that owns the
+        terminal decision, so the artifact-existence check sees the same
+        transaction as the writes it belongs to.
+        """
+        run_row = session.query(AgentRun).filter_by(run_id=run_id).first()
+        if run_row is None:
+            return []
+        query = session.query(AgentRunArtifact).filter_by(run_id=run_row.id)
         if artifact_type is not None:
-            rows = [
-                row for row in rows if row["artifact_type"] == artifact_type
-            ]
-        return rows
+            query = query.filter_by(artifact_type=artifact_type)
+        rows = query.order_by(AgentRunArtifact.created_at.asc()).all()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            resolved_step_index = None
+            if row.run_step_id is not None:
+                step_row = (
+                    session.query(AgentRunStep)
+                    .filter_by(id=row.run_step_id)
+                    .first()
+                )
+                resolved_step_index = (
+                    step_row.step_index if step_row else None
+                )
+            if (
+                step_index is not None
+                and resolved_step_index != step_index
+            ):
+                continue
+            out.append(
+                {
+                    "step_index": resolved_step_index,
+                    "artifact_type": row.artifact_type,
+                    "content_json": dict(row.content_json or {}),
+                }
+            )
+        return out
 
     def list_confidence_reports(
         self,
@@ -2011,10 +2204,18 @@ class AgentStore:
         merge_ready: bool | None = None,
         human_review_required: bool | None = None,
         require_human_review_before_merge: bool | None = None,
+        session: Any = None,
     ) -> dict[str, Any]:
         """Store coding result and inject into source thread.
 
         Per ADR-020: results must return through Guardian before user-visible output.
+
+        When ``session`` is supplied the canonical writes -- the source-thread
+        result message, the Guardian delegation delivery state, and the
+        coding-result artifact -- are staged on that session instead of on
+        their own. The caller owns the transaction, so a claim-fenced
+        terminalization can commit the terminal decision and the result writes
+        that belong to it together, or roll both back.
         """
         normalized_status = _normalize_coding_result_status(result_status)
         persist_message = _should_persist_coding_result_message(
@@ -2301,6 +2502,7 @@ class AgentStore:
                 files_changed=normalized_files_changed,
                 validation_results=validation_results,
                 commit_hash=resolved_commit_hash,
+                session=session,
             )
             delivery_ok = (
                 message_id is not None and delivery_status == "delivered"
@@ -2358,6 +2560,7 @@ class AgentStore:
                 lease_branch_name=resolved_lease_branch_name,
                 lease_worktree_path=resolved_lease_worktree_path,
                 patch_artifact=patch_artifact,
+                session=session,
             )
             delivery_ok = message_id is not None
             delivery_status = "delivered" if delivery_ok else "degraded"
@@ -2395,13 +2598,24 @@ class AgentStore:
         else:
             terminal_run_status = "failed"
 
-        run_status_updated = self.update_run_status(
-            run_id=run_id,
-            status=terminal_run_status,
-            error=error_message
+        terminal_error = (
+            error_message
             or delivery_reason_code
-            or (errors[0] if errors else None),
+            or (errors[0] if errors else None)
         )
+        if session is not None:
+            # A claim-fenced terminalization owns the status: the terminal
+            # claim writes it under the worker/claim condition, in the same
+            # transaction as the result writes that belong to it. Writing the
+            # status here as well would create a second, unfenced terminal
+            # decision.
+            run_status_updated = True
+        else:
+            run_status_updated = self.update_run_status(
+                run_id=run_id,
+                status=terminal_run_status,
+                error=terminal_error,
+            )
 
         artifact_payload = dict(result_payload)
         artifact_payload["message_id"] = message_id
@@ -2420,7 +2634,9 @@ class AgentStore:
         if self._has_db():
             existing_artifact = None
             for row in self.list_artifacts(
-                run_id=run_id, artifact_type="coding_result"
+                run_id=run_id,
+                artifact_type="coding_result",
+                session=session,
             ):
                 content = row.get("content_json")
                 if not isinstance(content, dict):
@@ -2437,53 +2653,43 @@ class AgentStore:
                     step_index=None,
                     artifact_type="coding_result",
                     content_json=artifact_payload,
+                    session=session,
                 )
 
-            if resolved_work_order_id is not None:
-                try:
-                    from guardian.agents.work_order_store import WorkOrderStore
-
-                    WorkOrderStore(db=self.db).mark_latest_run(
-                        resolved_work_order_id,
-                        run_id=run_id,
-                        lease_id=resolved_worktree_lease_id,
-                        receipt_id=(
-                            str(message_id) if message_id is not None else None
-                        ),
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "[agent-store] failed to update work-order run markers: %s",
-                        exc,
-                    )
-
-            self._record_campaign_execution_attempt(
-                run=run,
-                run_id=run_id,
-                attempt_id=attempt_id,
-                coding_task_id=coding_task_id,
-                campaign_id=resolved_campaign_id,
-                goal_id=resolved_goal_id,
-                work_order_id=resolved_work_order_id,
-                adapter_kind=adapter_kind,
-                result_status=normalized_status,
-                error_code=error_code,
-                error_message=error_message,
-                validation_results=validation_results,
-                validation_attempt_count=validation_attempt_count,
-                validation_attempts=validation_attempts,
-                final_validation_status=final_validation_status,
-                final_fail_signature=final_fail_signature,
-                best_validation_result=best_validation_result,
-                max_validation_attempts=max_validation_attempts,
-                commit_hash=resolved_commit_hash,
-                delivery_ok=delivery_ok,
-                message_id=message_id,
-                delivery_reason=delivery_reason_code,
-                source_thread_id=expected_thread_id,
-                source_message_id=expected_source_message_id,
-                result_payload=result_payload,
-            )
+            if session is None:
+                # Legacy path: the campaign and work-order evidence are
+                # best-effort side stores with their own transactions. Under a
+                # claim-fenced terminalization they must not be written until
+                # the terminal decision has been accepted, so the fenced
+                # caller records them after the commit.
+                self._record_coding_result_side_evidence(
+                    run=run,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    coding_task_id=coding_task_id,
+                    campaign_id=resolved_campaign_id,
+                    goal_id=resolved_goal_id,
+                    work_order_id=resolved_work_order_id,
+                    adapter_kind=adapter_kind,
+                    result_status=normalized_status,
+                    error_code=error_code,
+                    error_message=error_message,
+                    validation_results=validation_results,
+                    validation_attempt_count=validation_attempt_count,
+                    validation_attempts=validation_attempts,
+                    final_validation_status=final_validation_status,
+                    final_fail_signature=final_fail_signature,
+                    best_validation_result=best_validation_result,
+                    max_validation_attempts=max_validation_attempts,
+                    commit_hash=resolved_commit_hash,
+                    delivery_ok=delivery_ok,
+                    message_id=message_id,
+                    delivery_reason=delivery_reason_code,
+                    source_thread_id=expected_thread_id,
+                    source_message_id=expected_source_message_id,
+                    result_payload=result_payload,
+                    worktree_lease_id=resolved_worktree_lease_id,
+                )
         else:
             self._mem_coding_results.append(
                 {
@@ -2512,6 +2718,7 @@ class AgentStore:
             "source_message_id": expected_source_message_id,
             "terminal_run_status": terminal_run_status,
             "terminal_run_status_updated": run_status_updated,
+            "terminal_error": terminal_error,
             "files_changed": normalized_files_changed,
             "artifacts_count": len(artifact_rows),
             "commit_hash": resolved_commit_hash,
@@ -2533,6 +2740,323 @@ class AgentStore:
             "result_payload": result_payload,
         }
 
+    def finalize_claimed_coding_result(
+        self,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        **result_kwargs: Any,
+    ) -> dict[str, Any]:
+        """Finalize an accepted Guardian coding run under its ownership claim.
+
+        This is the terminal authority boundary for an accepted run. The
+        terminal decision and the canonical result writes that belong to it --
+        the source-thread result message, the Guardian delegation delivery
+        state, and the coding-result artifact -- commit together or not at
+        all. A worker whose claim no longer owns the run writes nothing.
+
+        The worker instance and claim come from trusted worker state
+        established during durable acceptance. They are never taken from model
+        output, a queue payload, a tool result, or an HTTP request.
+
+        The returned receipt always carries ``terminal_claim``:
+
+        ``terminal_accepted``
+            The claim owned the run and the terminal result was committed.
+        ``terminal_already_terminal``
+            The run already carried a terminal status. The caller may read
+            the existing result, but nothing was rewritten.
+        ``terminal_rejected``
+            The claim did not match the canonical run. No terminal status, no
+            artifact, no source-thread message, and no execution attempt were
+            written.
+        ``terminal_unavailable``
+            Persistence could not be reached. The caller must fail closed.
+        """
+        if not self._has_db():
+            logger.exception(
+                "[agent-store] terminal finalization unavailable run_id=%s",
+                run_id,
+            )
+            return self._terminal_rejection_receipt(
+                run_id=run_id,
+                claim=RUN_TERMINAL_UNAVAILABLE,
+                reason="terminal_persistence_unavailable",
+            )
+
+        with self.db.get_session() as session:
+            try:
+                receipt = self.store_coding_result(
+                    run_id=run_id,
+                    session=session,
+                    **result_kwargs,
+                )
+            except Exception:
+                # Nothing was committed: the terminal decision and the result
+                # writes share this transaction.
+                session.rollback()
+                logger.exception(
+                    "[agent-store] claimed terminal result failed run_id=%s",
+                    run_id,
+                )
+                raise
+
+            outcome = self.claim_coding_run_terminal(
+                session=session,
+                run_id=run_id,
+                worker_instance_id=worker_instance_id,
+                claim_id=claim_id,
+                status=str(receipt.get("terminal_run_status") or "failed"),
+                error=receipt.get("terminal_error"),
+            )
+            if outcome != RUN_TERMINAL_ACCEPTED:
+                session.rollback()
+                logger.warning(
+                    "[agent-store] terminal claim rejected run_id=%s claim=%s",
+                    run_id,
+                    outcome,
+                )
+                return self._terminal_rejection_receipt(
+                    run_id=run_id,
+                    claim=outcome,
+                    reason=(
+                        "coding_run_already_terminal"
+                        if outcome == RUN_TERMINAL_ALREADY_TERMINAL
+                        else "coding_run_terminal_claim_rejected"
+                    ),
+                )
+
+            session.commit()
+
+        receipt["terminal_claim"] = RUN_TERMINAL_ACCEPTED
+        receipt["terminal_accepted"] = True
+        receipt["terminal_run_status_updated"] = True
+        # The campaign and work-order evidence follows the canonical decision:
+        # a rejected terminalization must leave no execution attempt behind.
+        payload = dict(receipt.get("result_payload") or {})
+        self._record_coding_result_side_evidence(
+            run=None,
+            run_id=run_id,
+            attempt_id=str(payload.get("attempt_id") or ""),
+            coding_task_id=str(payload.get("coding_task_id") or ""),
+            campaign_id=payload.get("campaign_id"),
+            goal_id=None,
+            work_order_id=payload.get("work_order_id"),
+            adapter_kind=payload.get("adapter_kind"),
+            result_status=str(payload.get("status") or ""),
+            error_code=payload.get("error_code"),
+            error_message=payload.get("error_message"),
+            validation_results=payload.get("validation_results"),
+            validation_attempt_count=payload.get("validation_attempt_count"),
+            validation_attempts=payload.get("validation_attempts"),
+            final_validation_status=payload.get("final_validation_status"),
+            final_fail_signature=payload.get("final_fail_signature"),
+            best_validation_result=payload.get("best_validation_result"),
+            max_validation_attempts=payload.get("max_validation_attempts"),
+            commit_hash=payload.get("commit_hash"),
+            delivery_ok=bool(receipt.get("delivery_ok")),
+            message_id=receipt.get("message_id"),
+            delivery_reason=receipt.get("delivery_reason"),
+            source_thread_id=receipt.get("thread_id"),
+            source_message_id=receipt.get("source_message_id"),
+            result_payload=payload,
+            worktree_lease_id=payload.get("worktree_lease_id"),
+        )
+        return receipt
+
+    def _coding_run_lineage_matches(self, session: Any, run_row: Any) -> bool:
+        """Whether the persisted deployment still agrees with the run's lineage.
+
+        A terminal decision is authorized only while the run's durable
+        lineage still matches the deployment that authorised it. A deployment
+        that has been rewritten to contradict the run is not an authority for
+        finalizing it.
+        """
+        if run_row.deployment_id is None:
+            return True
+        deployment_row = (
+            session.query(AgentDeployment)
+            .filter_by(id=run_row.deployment_id)
+            .first()
+        )
+        if deployment_row is None:
+            return False
+        spec = deployment_row.spec_json
+        if not isinstance(spec, dict):
+            return True
+        asserted_thread = _coerce_positive_int(
+            spec.get("source_thread_id") or spec.get("thread_id")
+        )
+        if asserted_thread is not None and run_row.thread_id is not None:
+            if int(asserted_thread) != int(run_row.thread_id):
+                return False
+        asserted_user = str(spec.get("user_id") or "").strip()
+        if asserted_user and run_row.account_origin_user_id:
+            if asserted_user != str(run_row.account_origin_user_id):
+                return False
+        return True
+
+    def finalize_claimed_run_status(
+        self,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> str:
+        """Claim a run's terminal status under its ownership claim.
+
+        This is the status-only terminalization: the conditional update, in
+        one transaction, that moves the canonical run row to a terminal status
+        while the recorded worker instance and claim still own it. A worker
+        whose claim no longer owns the run moves nothing.
+        """
+        if not self._has_db():
+            logger.exception(
+                "[agent-store] terminal status unavailable run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+        try:
+            with self.db.get_session() as session:
+                outcome = self.claim_coding_run_terminal(
+                    session=session,
+                    run_id=run_id,
+                    worker_instance_id=worker_instance_id,
+                    claim_id=claim_id,
+                    status=status,
+                    error=error,
+                )
+                if outcome == RUN_TERMINAL_ACCEPTED:
+                    session.commit()
+                else:
+                    session.rollback()
+                return outcome
+        except Exception:
+            logger.exception(
+                "[agent-store] terminal status failed run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+
+    def _terminal_rejection_receipt(
+        self,
+        *,
+        run_id: str,
+        claim: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """A receipt for a terminalization that did not happen.
+
+        It reports that nothing was written. The caller must not treat it as
+        a successful execution.
+        """
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "status": None,
+            "message_id": None,
+            "result_message_id": None,
+            "delivery_ok": False,
+            "delivery_status": "rejected",
+            "delivery_reason": reason,
+            "delivery_reason_code": reason,
+            "source_thread_delivery_suppressed": True,
+            "visibility_status": None,
+            "thread_id": None,
+            "source_message_id": None,
+            "terminal_run_status": None,
+            "terminal_run_status_updated": False,
+            "terminal_error": reason,
+            "terminal_claim": claim,
+            "terminal_accepted": False,
+            "files_changed": [],
+            "artifacts_count": 0,
+            "result_payload": {},
+        }
+
+    def _record_coding_result_side_evidence(
+        self,
+        *,
+        run: dict[str, Any] | None,
+        run_id: str,
+        attempt_id: str,
+        coding_task_id: str,
+        campaign_id: str | None,
+        goal_id: str | None,
+        work_order_id: str | None,
+        adapter_kind: str | None,
+        result_status: str,
+        error_code: str | None,
+        error_message: str | None,
+        validation_results: Any | None,
+        validation_attempt_count: Any | None,
+        validation_attempts: Any | None,
+        final_validation_status: Any | None,
+        final_fail_signature: Any | None,
+        best_validation_result: Any | None,
+        max_validation_attempts: Any | None,
+        commit_hash: str | None,
+        delivery_ok: bool,
+        message_id: int | None,
+        delivery_reason: str | None,
+        source_thread_id: int | None,
+        source_message_id: int | None,
+        result_payload: dict[str, Any],
+        worktree_lease_id: str | None,
+    ) -> None:
+        """Record the campaign and work-order evidence of a coding result.
+
+        These are best-effort side stores with their own transactions. They are
+        evidence, not canonical run state, so they follow the terminal
+        decision rather than joining it.
+        """
+        if work_order_id is not None:
+            try:
+                from guardian.agents.work_order_store import WorkOrderStore
+
+                WorkOrderStore(db=self.db).mark_latest_run(
+                    work_order_id,
+                    run_id=run_id,
+                    lease_id=worktree_lease_id,
+                    receipt_id=(str(message_id) if message_id is not None else None),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[agent-store] failed to update work-order run markers: %s",
+                    exc,
+                )
+
+        self._record_campaign_execution_attempt(
+            run=run,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            coding_task_id=coding_task_id,
+            campaign_id=campaign_id,
+            goal_id=goal_id,
+            work_order_id=work_order_id,
+            adapter_kind=adapter_kind,
+            result_status=result_status,
+            error_code=error_code,
+            error_message=error_message,
+            validation_results=validation_results,
+            validation_attempt_count=validation_attempt_count,
+            validation_attempts=validation_attempts,
+            final_validation_status=final_validation_status,
+            final_fail_signature=final_fail_signature,
+            best_validation_result=best_validation_result,
+            max_validation_attempts=max_validation_attempts,
+            commit_hash=commit_hash,
+            delivery_ok=delivery_ok,
+            message_id=message_id,
+            delivery_reason=delivery_reason,
+            source_thread_id=source_thread_id,
+            source_message_id=source_message_id,
+            result_payload=result_payload,
+        )
+
     def _deliver_guardian_delegation_result_to_thread(
         self,
         *,
@@ -2551,6 +3075,7 @@ class AgentStore:
         files_changed: list[str],
         validation_results: Any | None,
         commit_hash: str | None,
+        session: Any = None,
     ) -> tuple[int | None, str, str | None, str | None]:
         if not self._has_db():
             return (
@@ -2571,7 +3096,17 @@ class AgentStore:
                 None,
             )
 
-        with self.db.get_session() as session:
+        # A claim-fenced terminalization hands this helper the session that
+        # already holds the terminal decision, so the delivery and the
+        # decision commit together. The delivery's own commit points then
+        # defer to that owner.
+        if session is None:
+            session_ctx = self.db.get_session()
+        else:
+            session_ctx = contextlib.nullcontext(
+                _SharedTransactionSession(session)
+            )
+        with session_ctx as session:
             intent = (
                 session.query(GuardianDelegationIntent)
                 .with_for_update()
@@ -2607,7 +3142,9 @@ class AgentStore:
                     GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
                 )
                 intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
-                session.commit()
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     None,
                     "degraded",
@@ -2626,7 +3163,9 @@ class AgentStore:
             ):
                 if not str(intent.result_delivery_key or "").strip():
                     intent.result_delivery_key = delivery_key
-                    session.commit()
+                    self._commit_guardian_delegation_delivery(
+                        session,
+                    )
                 return (
                     int(intent.result_message_id),
                     "delivered",
@@ -2647,7 +3186,9 @@ class AgentStore:
                 intent.result_delivery_key = delivery_key
                 intent.result_delivered_at = intent.result_delivered_at or _utc_now()
                 intent.delivery_error = None
-                self._commit_guardian_delegation_delivery(session)
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     int(existing.id),
                     "delivered",
@@ -2661,7 +3202,9 @@ class AgentStore:
                     GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
                 )
                 intent.delivery_error = "source_thread_missing"
-                session.commit()
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     None,
                     "degraded",
@@ -2673,7 +3216,9 @@ class AgentStore:
                     GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
                 )
                 intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
-                session.commit()
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     None,
                     "degraded",
@@ -2688,7 +3233,9 @@ class AgentStore:
                     GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
                 )
                 intent.delivery_error = _GUARDIAN_DELEGATION_SCOPE_MISMATCH_REASON
-                session.commit()
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     None,
                     "degraded",
@@ -2706,7 +3253,9 @@ class AgentStore:
                     GuardianDelegationVisibilityStatus.DELIVERY_DEGRADED.value
                 )
                 intent.delivery_error = "source_message_missing"
-                session.commit()
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     None,
                     "degraded",
@@ -2742,7 +3291,9 @@ class AgentStore:
                 intent.result_delivery_key = delivery_key
                 intent.result_delivered_at = intent.result_delivered_at or _utc_now()
                 intent.delivery_error = None
-                self._commit_guardian_delegation_delivery(session)
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
                 return (
                     int(existing.id),
                     "delivered",
@@ -2816,7 +3367,9 @@ class AgentStore:
             intent.result_delivery_key = delivery_key
             intent.delivery_error = None
             try:
-                self._commit_guardian_delegation_delivery(session)
+                self._commit_guardian_delegation_delivery(
+                    session,
+                )
             except IntegrityError as exc:
                 session.rollback()
                 recovered = self._recover_guardian_delegation_delivery_after_integrity_error(
@@ -2853,7 +3406,9 @@ class AgentStore:
             intent.delivery_error = (
                 _GUARDIAN_DELEGATION_LINEAGE_INCOMPLETE_REASON
             )
-            self._commit_guardian_delegation_delivery(session)
+            self._commit_guardian_delegation_delivery(
+                session,
+            )
             return (
                 None,
                 "degraded",
@@ -2866,7 +3421,9 @@ class AgentStore:
                 GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
             )
             intent.delivery_error = _GUARDIAN_DELEGATION_RUN_MISMATCH_REASON
-            self._commit_guardian_delegation_delivery(session)
+            self._commit_guardian_delegation_delivery(
+                session,
+            )
             return (
                 None,
                 "stale_suppressed",
@@ -2882,7 +3439,9 @@ class AgentStore:
                 GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
             )
             intent.delivery_error = _GUARDIAN_DELEGATION_SUPERSEDED_REASON
-            self._commit_guardian_delegation_delivery(session)
+            self._commit_guardian_delegation_delivery(
+                session,
+            )
             return (
                 None,
                 "stale_suppressed",
@@ -2897,7 +3456,9 @@ class AgentStore:
                 GuardianDelegationVisibilityStatus.STALE_SUPPRESSED.value
             )
             intent.delivery_error = _GUARDIAN_DELEGATION_CANCELLED_REASON
-            self._commit_guardian_delegation_delivery(session)
+            self._commit_guardian_delegation_delivery(
+                session,
+            )
             return (
                 None,
                 "stale_suppressed",
@@ -3156,11 +3717,18 @@ class AgentStore:
         lease_branch_name: str | None = None,
         lease_worktree_path: str | None = None,
         patch_artifact: dict[str, Any] | None = None,
+        session: Any = None,
     ) -> tuple[int | None, str | None]:
         if not self._has_db():
             return None, "delivery_database_unavailable"
 
-        with self.db.get_session() as session:
+        if session is None:
+            session_ctx = self.db.get_session()
+        else:
+            session_ctx = contextlib.nullcontext(
+                _SharedTransactionSession(session)
+            )
+        with session_ctx as session:
             existing = _find_existing_coding_result_message(
                 session,
                 thread_id=thread_id,
@@ -3344,7 +3912,9 @@ class AgentStore:
                 extra_meta=extra_meta,
             )
             session.add(message)
-            session.commit()
+            self._commit_guardian_delegation_delivery(
+                session,
+            )
             return message.id, None
 
 

@@ -33,6 +33,7 @@ from guardian.agents.store import (
     RUN_ACCEPTANCE_UNAVAILABLE,
     RUN_HEARTBEAT_NOT_ELIGIBLE,
     RUN_HEARTBEAT_UNAVAILABLE,
+    RUN_TERMINAL_ACCEPTED,
     AgentStore,
     store,
 )
@@ -2108,6 +2109,11 @@ class CodingWorker:
         # per-worker, never process-global, and every terminal path removes
         # its entry, so a reporter cannot leak into a later task.
         self._coding_run_heartbeats: dict[str, _CodingRunHeartbeat] = {}
+        # The ownership claim this worker holds for each run it accepted. It is
+        # the fence for terminalization: only the recorded worker instance and
+        # claim may write a terminal result. The claim comes from the durable
+        # acceptance, never from the task payload or from model output.
+        self._coding_run_claims: dict[str, str] = {}
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if processed."""
@@ -2195,6 +2201,66 @@ class CodingWorker:
         """
         self._stop_all_coding_run_heartbeats()
 
+    def _coding_run_claim(self, run_id: str) -> str | None:
+        """The ownership claim this worker holds for a run, if any.
+
+        A run that was never accepted by this worker has no claim, and its
+        terminal paths keep their existing behaviour.
+        """
+        return self._coding_run_claims.get(str(run_id or ""))
+
+    def _store_coding_result(
+        self,
+        task: CodingExecutionTask,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Persist a coding result under the run's ownership claim.
+
+        When this worker accepted the run, the terminal decision is fenced by
+        the recorded worker instance and claim: the canonical result writes
+        commit only while that claim still owns the run. A stale worker
+        therefore produces no terminal status, no coding-result artifact, and
+        no source-thread result.
+        """
+        claim_id = self._coding_run_claim(task.run_id)
+        if claim_id is not None:
+            return self.store.finalize_claimed_coding_result(
+                run_id=task.run_id,
+                worker_instance_id=self.worker_instance_id,
+                claim_id=claim_id,
+                **kwargs,
+            )
+        return self.store.store_coding_result(run_id=task.run_id, **kwargs)
+
+    def _finalize_claimed_run_status(
+        self,
+        task: CodingExecutionTask,
+        *,
+        status: str,
+        error: str | None = None,
+    ) -> str:
+        """Write a terminal status under the run's ownership claim.
+
+        The status is written by the same conditional database update the
+        terminal result uses, so a worker whose claim no longer owns the run
+        cannot move it to a terminal status of its own.
+        """
+        claim_id = self._coding_run_claim(task.run_id)
+        if claim_id is None:
+            self.store.update_run_status(
+                run_id=task.run_id,
+                status=status,
+                error=error,
+            )
+            return RUN_TERMINAL_ACCEPTED
+        return self.store.finalize_claimed_run_status(
+            run_id=task.run_id,
+            worker_instance_id=self.worker_instance_id,
+            claim_id=claim_id,
+            status=status,
+            error=error,
+        )
+
     def _coding_run_ownership_lost(self, run_id: str) -> bool:
         """Whether the database reported this run's claim as no longer eligible.
 
@@ -2262,8 +2328,8 @@ class CodingWorker:
                 "lease_required": lease_required,
             }
         ]
-        self.store.store_coding_result(
-            run_id=task.run_id,
+        terminal_receipt = self._store_coding_result(
+            task,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
             request_id=task.request_id or None,
@@ -2294,6 +2360,7 @@ class CodingWorker:
             branch_name=branch_name,
             worktree_path=worktree_path,
             lease_required=lease_required,
+            terminal_receipt=terminal_receipt,
         )
 
     def _resolve_lease_context(
@@ -2571,6 +2638,7 @@ class CodingWorker:
         # worker instance under this claim, so the worker starts reporting
         # claim-scoped liveness for it. The report is evidence, not authority:
         # it never permits execution, retry, or recovery on its own.
+        self._coding_run_claims[str(task.run_id or "")] = ownership_claim_id
         self._start_coding_run_heartbeat(task, claim_id=ownership_claim_id)
 
         (
@@ -2992,8 +3060,8 @@ class CodingWorker:
                     *result_artifact_payload,
                 ]
 
-            delivery = self.store.store_coding_result(
-                run_id=task.run_id,
+            delivery = self._store_coding_result(
+                task,
                 coding_task_id=task.coding_task_id,
                 attempt_id=task.attempt_id,
                 campaign_id=task.campaign_id,
@@ -3035,6 +3103,20 @@ class CodingWorker:
             # renews it, and a terminal run can no longer be renewed anyway.
             self._stop_coding_run_liveness(task)
 
+            if str(delivery.get("terminal_claim") or "") not in (
+                "",
+                RUN_TERMINAL_ACCEPTED,
+            ):
+                # The claim did not authorize this terminalization. No
+                # terminal status, artifact, or source-thread result was
+                # written, and no terminal event may be published for it.
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt=delivery,
+                )
+                return
+
             if _is_success_like_coding_result(result_status) and not bool(
                 delivery.get("delivery_ok", False)
             ):
@@ -3050,6 +3132,7 @@ class CodingWorker:
                     worktree=normalized_worktree,
                     result_captured_by_guardian=True,
                     mutation_guard=mutation_guard,
+                    terminal_receipt=delivery,
                 )
                 return
 
@@ -4153,8 +4236,8 @@ class CodingWorker:
     ) -> None:
         """Store and emit an isolated-worktree pre-execution failure."""
         normalized_worktree = _normalize_worktree_metadata(worktree)
-        self.store.store_coding_result(
-            run_id=task.run_id,
+        terminal_receipt = self._store_coding_result(
+            task,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
             request_id=task.request_id or None,
@@ -4183,6 +4266,7 @@ class CodingWorker:
             error_code=error_code,
             worktree=normalized_worktree,
             result_captured_by_guardian=True,
+            terminal_receipt=terminal_receipt,
         )
 
     def _emit_attempt_started(
@@ -4657,6 +4741,42 @@ class CodingWorker:
                 exc,
             )
 
+    def _report_terminal_claim_rejected(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        receipt: dict[str, Any],
+    ) -> None:
+        """Report a terminalization that the run's claim did not authorize.
+
+        No terminal status, no coding-result artifact, no source-thread result
+        and no terminal event were produced. The refusal is published through
+        the existing non-terminal ownership-lost event: the run's result is
+        unknown, and only an operator may decide what happens next.
+        """
+        claim = str(receipt.get("terminal_claim") or "")
+        if claim == "terminal_already_terminal":
+            # The run was already terminal. Nothing was rewritten, and no
+            # second terminal event may be published for it.
+            logger.warning(
+                "[coding-worker] terminalization skipped run_id=%s: "
+                "the run was already terminal",
+                task.run_id,
+            )
+        else:
+            self._emit_ownership_lost(
+                task,
+                adapter_kind=adapter_kind,
+                reason=str(
+                    receipt.get("delivery_reason")
+                    or "coding_run_terminal_claim_rejected"
+                ),
+            )
+        # The run is terminal from the canonical store's point of view, so
+        # stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
+
     def _emit_failure(
         self,
         task: CodingExecutionTask,
@@ -4672,13 +4792,39 @@ class CodingWorker:
         worktree_path: str | None = None,
         lease_required: bool | None = None,
         mutation_guard: dict[str, Any] | None = None,
+        terminal_receipt: dict[str, Any] | None = None,
     ) -> None:
-        """Emit task.failed event for unrecoverable errors."""
-        self.store.update_run_status(
-            run_id=task.run_id,
-            status="failed",
-            error=error_message,
-        )
+        """Emit task.failed event for unrecoverable errors.
+
+        The terminal status is written under the run's ownership claim. When
+        the claim no longer owns the run, no terminal status is written and no
+        terminal event is published: the refusal is reported through the
+        existing non-terminal ownership-lost event instead.
+        """
+        if terminal_receipt is not None:
+            # The caller already made the fenced terminal decision.
+            if str(terminal_receipt.get("terminal_claim") or "") != (
+                RUN_TERMINAL_ACCEPTED
+            ):
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt=terminal_receipt,
+                )
+                return
+        else:
+            outcome = self._finalize_claimed_run_status(
+                task,
+                status="failed",
+                error=error_message,
+            )
+            if outcome != RUN_TERMINAL_ACCEPTED:
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt={"terminal_claim": outcome},
+                )
+                return
         payload = {
             **build_coding_result_lineage_payload(
                 run_id=task.run_id,
@@ -4728,8 +4874,23 @@ class CodingWorker:
         self._stop_coding_run_liveness(task)
 
     def _emit_cancelled(self, task: CodingExecutionTask) -> None:
-        """Emit task.cancelled event."""
-        self.store.update_run_status(run_id=task.run_id, status="canceled")
+        """Emit task.cancelled event.
+
+        The terminal status is written under the run's ownership claim, so a
+        worker whose claim no longer owns the run cannot cancel it, and no
+        terminal event is published for a cancellation that did not happen.
+        """
+        outcome = self._finalize_claimed_run_status(
+            task,
+            status="canceled",
+        )
+        if outcome != RUN_TERMINAL_ACCEPTED:
+            self._report_terminal_claim_rejected(
+                task,
+                adapter_kind=None,
+                receipt={"terminal_claim": outcome},
+            )
+            return
         try:
             task_events.publish_with_visibility(
                 task.run_id,
@@ -4766,6 +4927,10 @@ class CodingWorker:
         renewal requires the run to still be ``running``.
         """
         self._stop_coding_run_heartbeat(str(task.run_id or ""))
+        # The terminal decision has been made, so this worker no longer holds
+        # the run's claim. Keeping it would let a later task in this worker
+        # present a claim it no longer owns.
+        self._coding_run_claims.pop(str(task.run_id or ""), None)
 
 
 def _initialize_worker() -> None:
