@@ -477,30 +477,260 @@ def test_adr_069_names_coding_loop_and_hosted_rooms_qualification_pending():
         )
 
 
-def test_current_state_preserves_supported_path_hold_and_active_blockers():
-    text = _read(CURRENT_STATE_PATH)
-    current_phase = _section_between(
-        text,
-        "## Current phase",
-        "## What changed recently",
-    )
-    supported_reality = _section_between(
-        text,
-        "## Current supported reality",
-        "## Not yet true / do not assume",
-    )
-    active_blockers = _section_between(
-        text,
-        "## Active blockers",
-        "## This week's priorities",
+# The canonical current-state heading is written with a typographic
+# apostrophe ("This week’s priorities"). Current-state section extraction
+# therefore normalizes apostrophes. ADR section extraction above is left
+# untouched so no other parsing requirement is weakened.
+_TYPOGRAPHIC_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
+
+
+def _current_state_section(text: str, start: str, end: str) -> str:
+    """Extract a canonical current-state section.
+
+    Apostrophes are normalized so a heading written with a typographic
+    apostrophe still matches the ASCII form used by the contract.
+    """
+    return _section_between(text.translate(_TYPOGRAPHIC_APOSTROPHES), start, end)
+
+
+# The two foundational proof obligations that must remain observable as
+# unresolved inside the Active blockers section. They are matched by topic,
+# not by an exact historical sentence, so current-state can keep evolving.
+_COMPOSE_QUALIFICATION_OBLIGATION = re.compile(
+    r"supported-compose\s+qualification",
+    re.IGNORECASE,
+)
+_IMPORT_TO_RECALL_OBLIGATION = re.compile(r"import-to-recall", re.IGNORECASE)
+
+# Wording that marks an obligation as still outstanding.
+_UNRESOLVED_OBLIGATION = re.compile(
+    r"\b(?:missing|pending|unresolved|incomplete|"
+    r"remain(?:s)?\s+open|still\s+open|"
+    r"not\s+(?:yet\s+)?(?:complete|completed|proven|qualified|resolved))\b",
+    re.IGNORECASE,
+)
+
+# Release-readiness promotion. The canonical current phase states the gate
+# positively ("The current release gate remains `HOLD`"), so any phrasing that
+# promotes the gate to readiness contradicts the HOLD contract.
+_RELEASE_READY_CLAIM = re.compile(
+    r"\brelease[-\s]ready\b"
+    r"|\bready\s+for\s+release\b"
+    r"|\bgenerally\s+available\b"
+    r"|\bpromoted\s+to\s+(?:ready|release)\b"
+    r"|\bno\s+longer\s+(?:on\s+)?hold\b"
+    r"|\brelease\s+gate\s+is\s+(?:open|lifted|ready)\b",
+    re.IGNORECASE,
+)
+
+
+def _blocker_bullets(section: str) -> list[str]:
+    return [
+        line.strip()
+        for line in section.splitlines()
+        if line.strip().startswith("-")
+    ]
+
+
+def _require_unresolved_obligation(
+    section: str, topic: re.Pattern[str], label: str
+) -> None:
+    """Require ``topic`` to be recorded as an unresolved blocker.
+
+    The obligation must appear inside the Active blockers section, and must
+    still be marked outstanding: a blocker described as completed no longer
+    proves the gap, and wording that only appears elsewhere in the document
+    does not satisfy the contract.
+    """
+    bullets = _blocker_bullets(section)
+    matching = [bullet for bullet in bullets if topic.search(bullet)]
+    assert matching, f"Active blockers must record the {label} obligation"
+    assert any(_UNRESOLVED_OBLIGATION.search(bullet) for bullet in matching), (
+        f"Active blockers must record the {label} obligation as unresolved, "
+        f"not as completed"
     )
 
-    assert "local-first Beta hardening" in current_phase
-    assert "`HOLD`" in current_phase
-    assert "local Docker Compose" in supported_reality
-    assert "`v1-local-core-web-mcp`" in supported_reality
-    assert "complete supported-Compose qualification" in active_blockers
-    assert "fresh isolated natural import-to-recall run" in active_blockers
+
+def _assert_beta_release_current_state_contract(text: str) -> None:
+    """Assert the canonical current-state Beta release contract.
+
+    The contract is structural and semantic rather than a transcription of
+    historical prose: the current phase declares local-first Beta hardening
+    behind a HOLD gate, the supported-reality section names the local Docker
+    Compose profile ``v1-local-core-web-mcp``, and the Active blockers
+    section still records both foundational proof obligations — the
+    current-tip supported-Compose qualification and the natural
+    import-to-recall proof — as unresolved.
+    """
+    current_phase = _current_state_section(
+        text, "## Current phase", "## What changed recently"
+    )
+    supported_reality = _current_state_section(
+        text, "## Current supported reality", "## Not yet true / do not assume"
+    )
+    active_blockers = _current_state_section(
+        text, "## Active blockers", "## This week's priorities"
+    )
+
+    assert "local-first Beta hardening" in current_phase, (
+        "Current phase must record local-first Beta hardening"
+    )
+    assert re.search(r"\bHOLD\b", current_phase), (
+        "Current phase must record the release gate as HOLD"
+    )
+    assert not _RELEASE_READY_CLAIM.search(current_phase), (
+        "Current phase must not promote the release gate to readiness"
+    )
+    assert "local Docker Compose" in supported_reality, (
+        "Supported reality must record the local Docker Compose install path"
+    )
+    assert "v1-local-core-web-mcp" in supported_reality, (
+        "Supported reality must record v1-local-core-web-mcp as the "
+        "supported profile"
+    )
+    _require_unresolved_obligation(
+        active_blockers,
+        _COMPOSE_QUALIFICATION_OBLIGATION,
+        "current-tip supported-Compose qualification",
+    )
+    _require_unresolved_obligation(
+        active_blockers,
+        _IMPORT_TO_RECALL_OBLIGATION,
+        "natural import-to-recall proof",
+    )
+
+
+def test_current_state_preserves_supported_path_hold_and_active_blockers():
+    _assert_beta_release_current_state_contract(_read(CURRENT_STATE_PATH))
+
+
+# ---------------------------------------------------------------------------
+# 16b. Negative proof: the release contract must fail closed
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_current_state(
+    *,
+    phase: str = (
+        "`main` remains in local-first Beta hardening. The current release "
+        "gate remains `HOLD`."
+    ),
+    supported: str = (
+        "- The named supported install path is local Docker Compose profile "
+        "`v1-local-core-web-mcp` with `LLM_PROVIDER=local`."
+    ),
+    blockers: tuple[str, ...] = (
+        "- A fresh current-tip supported-Compose qualification is missing.",
+        "- The natural import-to-recall scope proof remain open.",
+    ),
+    recent: tuple[str, ...] = ("- Nothing yet.",),
+    priorities_heading: str = "## This week's priorities",
+) -> str:
+    """Build a minimal synthetic canonical current-state document."""
+    return "\n".join(
+        [
+            "## Current phase",
+            "",
+            phase,
+            "",
+            "## What changed recently",
+            "",
+            *recent,
+            "",
+            "## Current supported reality",
+            "",
+            supported,
+            "",
+            "## Not yet true / do not assume",
+            "",
+            "- Do not assume unsupported capabilities.",
+            "",
+            "## Active blockers",
+            "",
+            *blockers,
+            "",
+            priorities_heading,
+            "",
+            "1. Do the thing.",
+            "",
+        ]
+    )
+
+
+def test_beta_release_contract_accepts_typographic_apostrophe_heading() -> None:
+    """Canonical current-state writes the weekly heading with U+2019."""
+    text = _synthetic_current_state(
+        priorities_heading="## This week’s priorities"
+    )
+    _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_hold_is_removed() -> None:
+    text = _synthetic_current_state(
+        phase="`main` remains in local-first Beta hardening."
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_hold_is_promoted_to_readiness() -> None:
+    text = _synthetic_current_state(
+        phase=(
+            "`main` remains in local-first Beta hardening. The current release "
+            "gate is READY and is no longer on HOLD."
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_without_the_supported_compose_profile() -> None:
+    text = _synthetic_current_state(
+        supported="- The supported install path is a local native install."
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_the_compose_blocker_is_omitted() -> None:
+    text = _synthetic_current_state(
+        blockers=("- The natural import-to-recall scope proof remain open.",)
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_the_import_blocker_is_omitted() -> None:
+    text = _synthetic_current_state(
+        blockers=(
+            "- A fresh current-tip supported-Compose qualification is missing.",
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_a_blocker_claims_completion() -> None:
+    text = _synthetic_current_state(
+        blockers=(
+            "- The current-tip supported-Compose qualification is complete.",
+            "- The natural import-to-recall scope proof remain open.",
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_fails_when_blocker_language_is_outside_the_section() -> None:
+    text = _synthetic_current_state(
+        blockers=("- Something else entirely is unresolved.",),
+        recent=(
+            "- A fresh current-tip supported-Compose qualification is missing.",
+            "- The natural import-to-recall scope proof remain open.",
+        ),
+    )
+    with pytest.raises(AssertionError):
+        _assert_beta_release_current_state_contract(text)
 
 
 # ---------------------------------------------------------------------------
