@@ -339,10 +339,20 @@ def list_fact_candidates(
     db = _get_chatlog_db()
     limit = max(1, min(limit, 200))
 
+    # Archival and activation are separate dimensions. The normal archive path
+    # sets ``status="archived"`` *and* ``is_active=False``, so an explicitly
+    # requested archived read must not also apply the active-only predicate,
+    # or the archived population would be invisible while the route still
+    # advertises it. Every other status keeps the existing active-only
+    # behaviour, and the same effective value is used for the page and for the
+    # count so ``total`` always describes the population the page is drawn
+    # from.
+    active_only = status != "archived"
+
     page = db.list_facts(
         current_user,
         status=status,
-        active_only=True,
+        active_only=active_only,
         limit=limit,
         offset=offset,
         thread_id=thread_id,
@@ -351,7 +361,7 @@ def list_fact_candidates(
     counted = db.count_facts(
         current_user,
         status=status,
-        active_only=True,
+        active_only=active_only,
         thread_id=thread_id,
     )
     total = counted if isinstance(counted, int) else len(page)

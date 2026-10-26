@@ -34,6 +34,8 @@ API_KEY = "pfp01-test-api-key"
 
 CANDIDATE_COUNT_A = 253
 CANDIDATE_COUNT_B = 3
+ARCHIVED_COUNT_A = 5
+ARCHIVED_COUNT_B = 3
 
 THREAD_ID = 4242
 OTHER_THREAD_ID = 9999
@@ -95,6 +97,56 @@ def seeded(database_url: str) -> dict[str, Any]:
         )
         session.commit()
 
+    # Archived records. The normal archive path (guardian/core/db.py
+    # deactivate_fact) sets status="archived" *and* is_active=False, so the
+    # archived population is invisible to an active-only listing. These rows
+    # are created outside the 253-candidate population so the candidate
+    # regression is unaffected.
+    archived_a_ids: list[int] = []
+    archived_b_ids: list[int] = []
+    for index in range(ARCHIVED_COUNT_A):
+        archived_a_ids.append(
+            db.create_fact(
+                ACCOUNT_A,
+                f"archived_key_{index}",
+                f"synthetic-archived-value-{index}",
+                status="candidate",
+                confidence=0.5,
+            )
+        )
+    for index in range(ARCHIVED_COUNT_B):
+        archived_b_ids.append(
+            db.create_fact(
+                ACCOUNT_B,
+                f"archived_key_b{index}",
+                f"synthetic-archived-value-b{index}",
+                status="candidate",
+                confidence=0.5,
+            )
+        )
+
+    from guardian.db.models import PersonalFact
+
+    with db._sa_session() as session:
+        for fact_id in archived_a_ids + archived_b_ids:
+            fact = session.query(PersonalFact).filter_by(id=fact_id).first()
+            fact.status = "archived"
+            fact.is_active = False
+            session.add(fact)
+        session.commit()
+
+    # Thread-scoped evidence on one archived fact of account A, so the
+    # archived thread read can prove evidence attachment still works.
+    db.add_fact_evidence(
+        archived_a_ids[0],
+        source_message_id=None,
+        excerpt="synthetic excerpt",
+        modality="text",
+        confidence=0.5,
+        source_type="user_stated",
+        evidence_meta={"thread_id": THREAD_ID, "source": "chat"},
+    )
+
     # Thread-scoped evidence for a subset of account A's candidates. One fact
     # receives two matching evidence rows to prove the filter cannot
     # duplicate a fact.
@@ -131,6 +183,8 @@ def seeded(database_url: str) -> dict[str, Any]:
     return {
         "a_ids": a_ids,
         "b_ids": b_ids,
+        "archived_a_ids": archived_a_ids,
+        "archived_b_ids": archived_b_ids,
         "db": db,
     }
 
@@ -393,6 +447,151 @@ def test_thread_filter_pagination_is_truthful(
     first_ids = {fact["id"] for fact in first["facts"]}
     second_ids = {fact["id"] for fact in second["facts"]}
     assert not first_ids & second_ids
+
+
+# ── Archived facts ───────────────────────────────────────────────────────────
+#
+# Archival sets status="archived" AND is_active=False, so an active-only
+# listing made the route's advertised archived status unobservable. Reading an
+# archived fact must not activate, approve, or promote it.
+
+
+def test_archived_status_returns_inactive_archived_facts(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    body = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=200"
+    ).json()
+    assert body["ok"] is True
+    assert body["total"] == ARCHIVED_COUNT_A
+    assert len(body["facts"]) == ARCHIVED_COUNT_A
+    archived_ids = set(seeded["archived_a_ids"])
+    assert {fact["id"] for fact in body["facts"]} == archived_ids
+
+
+def test_archived_records_stay_inactive_and_unpromoted(
+    candidates_client: TestClient,
+) -> None:
+    body = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=200"
+    ).json()
+    assert body["facts"]
+    for fact in body["facts"]:
+        assert fact["status"] == "archived"
+        assert fact["is_active"] is False
+
+
+def test_reading_archived_facts_does_not_activate_them(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    """A read must not change activation, status, or promotion state."""
+    candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=200"
+    )
+    db = seeded["db"]
+    rows = db.list_facts(
+        ACCOUNT_A, status="archived", active_only=False, limit=200
+    )
+    assert len(rows) == ARCHIVED_COUNT_A
+    for row in rows:
+        assert row["status"] == "archived"
+        assert row["is_active"] is False
+
+
+def test_archived_total_counts_the_archived_population(
+    candidates_client: TestClient,
+) -> None:
+    body = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=1"
+    ).json()
+    # total must describe the whole archived population, not the page.
+    assert body["total"] == ARCHIVED_COUNT_A
+    assert len(body["facts"]) == 1
+
+
+def test_default_candidate_read_excludes_archived_records(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    body = candidates_client.get("/personal-facts/candidates?limit=200").json()
+    assert body["total"] == CANDIDATE_COUNT_A
+    archived_ids = set(seeded["archived_a_ids"])
+    assert not {fact["id"] for fact in body["facts"]} & archived_ids
+
+
+def test_other_status_filters_remain_unchanged(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    archived_ids = set(seeded["archived_a_ids"])
+    for status in ("candidate", "verified", "disputed"):
+        body = candidates_client.get(
+            f"/personal-facts/candidates?status={status}&limit=200"
+        ).json()
+        assert not {fact["id"] for fact in body["facts"]} & archived_ids
+    body = candidates_client.get("/personal-facts/candidates?limit=200").json()
+    assert not {fact["id"] for fact in body["facts"]} & archived_ids
+
+
+def test_archived_api_alias_matches(
+    candidates_client: TestClient,
+) -> None:
+    plain = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=200"
+    ).json()
+    aliased = candidates_client.get(
+        "/api/personal-facts/candidates?status=archived&limit=200"
+    ).json()
+    assert plain == aliased
+
+
+def test_account_b_cannot_list_account_as_archive(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    _as(candidates_client, ACCOUNT_B)
+    body = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=200"
+    ).json()
+    assert body["total"] == ARCHIVED_COUNT_B
+    assert {fact["user_id"] for fact in body["facts"]} == {ACCOUNT_B}
+    assert not {fact["id"] for fact in body["facts"]} & set(
+        seeded["archived_a_ids"]
+    )
+
+
+def test_account_b_cannot_count_account_as_archive(
+    candidates_client: TestClient,
+) -> None:
+    _as(candidates_client, ACCOUNT_B)
+    body = candidates_client.get(
+        "/personal-facts/candidates?status=archived&limit=1"
+    ).json()
+    assert body["total"] == ARCHIVED_COUNT_B
+    assert body["total"] != ARCHIVED_COUNT_A
+
+
+def test_archived_thread_read_attaches_correct_evidence(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    body = candidates_client.get(
+        f"/personal-facts/candidates?status=archived&thread_id={THREAD_ID}"
+        "&limit=200"
+    ).json()
+    assert body["total"] == 1
+    assert len(body["facts"]) == 1
+    fact = body["facts"][0]
+    assert fact["id"] == seeded["archived_a_ids"][0]
+    assert fact["is_active"] is False
+    assert fact["_evidence"]["evidence_meta"]["thread_id"] == THREAD_ID
+
+
+def test_archived_thread_read_omits_facts_without_matching_evidence(
+    candidates_client: TestClient, seeded: dict[str, Any]
+) -> None:
+    body = candidates_client.get(
+        f"/personal-facts/candidates?status=archived&thread_id={OTHER_THREAD_ID}"
+        "&limit=200"
+    ).json()
+    assert body["total"] == 0
+    assert body["facts"] == []
 
 
 # ── Account isolation ───────────────────────────────────────────────────────

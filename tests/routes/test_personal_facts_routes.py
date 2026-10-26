@@ -399,6 +399,72 @@ def test_read_without_thread_id_does_not_load_evidence(
     assert not mock_facts_db.list_fact_evidence_for_facts.called
 
 
+# ── Archived status visibility ──────────────────────────────────────────────
+#
+# Archival sets status="archived" and is_active=False, so an active-only
+# listing hid the very status the route advertises. An explicitly requested
+# archived read must drop the active-only predicate, and the page and the
+# count must use the same effective value.
+
+
+def test_archived_status_disables_the_active_only_predicate(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    response = facts_test_client.get(
+        "/personal-facts/candidates?status=archived", headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert mock_facts_db.list_facts.call_args.kwargs["active_only"] is False
+    assert mock_facts_db.count_facts.call_args.kwargs["active_only"] is False
+
+
+def test_archived_status_keeps_page_and_count_filters_identical(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    facts_test_client.get(
+        "/personal-facts/candidates?status=archived", headers=auth_headers
+    )
+    list_kwargs = mock_facts_db.list_facts.call_args.kwargs
+    count_kwargs = mock_facts_db.count_facts.call_args.kwargs
+    assert list_kwargs["active_only"] == count_kwargs["active_only"]
+    assert list_kwargs["status"] == count_kwargs["status"] == "archived"
+
+
+@pytest.mark.parametrize("status", ["candidate", "verified", "disputed"])
+def test_other_statuses_keep_the_active_only_predicate(
+    facts_test_client, auth_headers, mock_facts_db, status
+):
+    response = facts_test_client.get(
+        f"/personal-facts/candidates?status={status}", headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert mock_facts_db.list_facts.call_args.kwargs["active_only"] is True
+    assert mock_facts_db.count_facts.call_args.kwargs["active_only"] is True
+
+
+def test_default_read_keeps_the_active_only_predicate(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    response = facts_test_client.get(
+        "/personal-facts/candidates", headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert mock_facts_db.list_facts.call_args.kwargs["active_only"] is True
+    assert mock_facts_db.count_facts.call_args.kwargs["active_only"] is True
+
+
+def test_archived_thread_read_uses_the_same_effective_filter(
+    facts_test_client, auth_headers, mock_facts_db
+):
+    response = facts_test_client.get(
+        "/personal-facts/candidates?status=archived&thread_id=42",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert mock_facts_db.list_facts.call_args.kwargs["active_only"] is False
+    assert mock_facts_db.count_facts.call_args.kwargs["active_only"] is False
+
+
 # ── Failure diagnostics must not disclose backend exception content ──────────
 #
 # A storage exception can carry connection strings, credentials, tokens or
