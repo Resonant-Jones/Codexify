@@ -237,20 +237,20 @@ export default function DirectMessageInbox({
   // rendered, using the last rendered message as the read watermark.  Waiting
   // for the transcript is what keeps the watermark honest: a message that
   // arrived after the transcript was fetched is not marked read.
-  const markedWatermark = useRef<string | null>(null);
+  //
+  // The watermark is remembered per conversation, so reopening a conversation
+  // whose transcript has not changed yet does not re-post a stale watermark;
+  // the refreshed transcript posts its own once it renders.
+  const markedWatermarks = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const conversationId = state.selectedConversationId;
-    if (!conversationId) {
-      markedWatermark.current = null;
-      return;
-    }
+    if (!conversationId) return;
     if (!state.loadedByConversationId[conversationId]) return;
     const rendered = state.messagesByConversationId[conversationId] ?? [];
     const watermark = rendered.length > 0 ? rendered[rendered.length - 1].message_id : null;
     if (watermark === null) return;
-    const marker = `${conversationId}:${watermark}`;
-    if (markedWatermark.current === marker) return;
-    markedWatermark.current = marker;
+    if (markedWatermarks.current.get(conversationId) === watermark) return;
+    markedWatermarks.current.set(conversationId, watermark);
     void markConversationRead(conversationId, watermark);
   }, [
     markConversationRead,

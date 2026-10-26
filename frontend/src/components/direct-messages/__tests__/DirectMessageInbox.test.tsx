@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import DirectMessageInbox from "@/components/direct-messages/DirectMessageInbox";
+import { useDirectMessageTranscript } from "@/features/contacts/useDirectMessageTranscript";
 import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import {
   createDirectMessageConversation,
   fetchDirectMessageConversation,
+  fetchDirectMessageMessages,
   markDirectMessageConversationRead,
   sendMessageRequest,
   fetchOwnSocialIdentity,
@@ -34,6 +36,7 @@ vi.mock("@/lib/direct-messages", async (importOriginal) => {
     resolveDirectMessageRelationship: vi.fn(),
     createDirectMessageConversation: vi.fn(),
     fetchDirectMessageConversation: vi.fn(),
+    fetchDirectMessageMessages: vi.fn(),
     markDirectMessageConversationRead: vi.fn(),
     sendMessageRequest: vi.fn(),
     fetchThreadProjectScope: vi.fn(),
@@ -848,5 +851,231 @@ describe("recipient-local unread state", () => {
       expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
     );
     expect(screen.getAllByTestId("conversation-row")).toHaveLength(1);
+  });
+});
+
+describe("transcript refresh on reopen", () => {
+  function renderTranscript(
+    conversationId: string,
+    loaded: boolean,
+    replaceMessages: ReturnType<typeof vi.fn>,
+    markTranscriptLoaded: ReturnType<typeof vi.fn>,
+  ) {
+    return renderHook(
+      ({ id, isLoaded }: { id: string; isLoaded: boolean }) =>
+        useDirectMessageTranscript(
+          id,
+          [],
+          isLoaded,
+          replaceMessages,
+          markTranscriptLoaded,
+        ),
+      { initialProps: { id: conversationId, isLoaded: loaded } },
+    );
+  }
+
+  it("refetches the transcript when a conversation is reopened", async () => {
+    const first = [envelope("m-1")];
+    const refreshed = [envelope("m-1"), envelope("m-2")];
+    vi.mocked(fetchDirectMessageMessages)
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(refreshed);
+    const replaceMessages = vi.fn();
+    const markTranscriptLoaded = vi.fn();
+
+    // First activation.
+    const firstMount = renderTranscript(
+      "c-reopen",
+      true,
+      replaceMessages,
+      markTranscriptLoaded,
+    );
+    await waitFor(() =>
+      expect(fetchDirectMessageMessages).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(replaceMessages).toHaveBeenCalledWith("c-reopen", first),
+    );
+    firstMount.unmount();
+
+    // Reopening the same conversation refreshes even though it was loaded.
+    renderTranscript("c-reopen", true, replaceMessages, markTranscriptLoaded);
+    await waitFor(() =>
+      expect(fetchDirectMessageMessages).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(replaceMessages).toHaveBeenCalledWith("c-reopen", refreshed),
+    );
+  });
+
+  it("shares one fetch between concurrent holders of the same conversation", async () => {
+    vi.mocked(fetchDirectMessageMessages).mockResolvedValue([envelope("m-1")]);
+    const replaceMessages = vi.fn();
+    const markTranscriptLoaded = vi.fn();
+
+    // The People modal and the floating window can hold one conversation.
+    renderTranscript("c-shared", true, replaceMessages, markTranscriptLoaded);
+    renderTranscript("c-shared", true, replaceMessages, markTranscriptLoaded);
+
+    await waitFor(() =>
+      expect(replaceMessages).toHaveBeenCalledWith(
+        "c-shared",
+        [envelope("m-1")],
+      ),
+    );
+    expect(fetchDirectMessageMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fetch for an empty conversation", async () => {
+    const replaceMessages = vi.fn();
+    const markTranscriptLoaded = vi.fn();
+
+    renderTranscript("", true, replaceMessages, markTranscriptLoaded);
+
+    await waitFor(() => expect(markTranscriptLoaded).not.toHaveBeenCalled());
+    expect(fetchDirectMessageMessages).not.toHaveBeenCalled();
+  });
+
+  it("keeps the previous transcript and does not mark loaded when a refresh fails", async () => {
+    vi.mocked(fetchDirectMessageMessages).mockRejectedValue(
+      new Error("transcript unavailable"),
+    );
+    const replaceMessages = vi.fn();
+    const markTranscriptLoaded = vi.fn();
+
+    const { result } = renderTranscript(
+      "c-failed",
+      true,
+      replaceMessages,
+      markTranscriptLoaded,
+    );
+
+    await waitFor(() =>
+      expect(result.current.error).toBe("transcript unavailable"),
+    );
+    // The cached transcript is preserved and nothing is marked read.
+    expect(replaceMessages).not.toHaveBeenCalled();
+    expect(markTranscriptLoaded).not.toHaveBeenCalled();
+  });
+
+  it("does not refetch in a loop once a conversation is loaded", async () => {
+    vi.mocked(fetchDirectMessageMessages).mockResolvedValue([envelope("m-1")]);
+    const replaceMessages = vi.fn();
+    const markTranscriptLoaded = vi.fn();
+
+    const { rerender } = renderTranscript(
+      "c-loop",
+      false,
+      replaceMessages,
+      markTranscriptLoaded,
+    );
+    await waitFor(() =>
+      expect(fetchDirectMessageMessages).toHaveBeenCalledTimes(1),
+    );
+
+    // The shared cache becoming loaded re-runs the effect; it must not
+    // start another fetch.
+    rerender({ id: "c-loop", isLoaded: true });
+    await waitFor(() =>
+      expect(markTranscriptLoaded).toHaveBeenCalledWith("c-loop"),
+    );
+    expect(fetchDirectMessageMessages).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reopen and refreshed watermark", () => {
+  it("posts the refreshed watermark once the refreshed transcript renders", async () => {
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue(
+      conversation("c-refresh", "rel-ab", bob, "hello", 0),
+    );
+
+    const { rerender } = render(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({
+          selectedConversationId: "c-refresh",
+          loadedByConversationId: { "c-refresh": true },
+          messagesByConversationId: { "c-refresh": [envelope("m-1")] },
+        })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "c-refresh",
+        "m-1",
+      ),
+    );
+
+    // The transcript refreshes and a newer message renders.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({
+          selectedConversationId: "c-refresh",
+          loadedByConversationId: { "c-refresh": true },
+          messagesByConversationId: {
+            "c-refresh": [envelope("m-1"), envelope("m-2")],
+          },
+        })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "c-refresh",
+        "m-2",
+      ),
+    );
+  });
+
+  it("does not re-post an unchanged watermark when the conversation is reopened", async () => {
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue(
+      conversation("c-same", "rel-ab", bob, "hello", 0),
+    );
+
+    const state = makeState({
+      selectedConversationId: "c-same",
+      loadedByConversationId: { "c-same": true },
+      messagesByConversationId: { "c-same": [envelope("m-1")] },
+    });
+
+    const { rerender } = render(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+
+    // The recipient leaves and comes back before the transcript has changed.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState()}
+      />,
+    );
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({
+          selectedConversationId: "c-same",
+          loadedByConversationId: { "c-same": true },
+          messagesByConversationId: { "c-same": [envelope("m-1")] },
+        })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
   });
 });
