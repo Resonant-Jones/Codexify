@@ -47,10 +47,20 @@ def _send(client, conversation_id, body, key):
     return response.json()["message"]
 
 
-def _mark_read(client, conversation_id):
-    """The explicit read mutation — the only operation that advances a cursor."""
+def _mark_read(client, conversation_id, watermark="latest"):
+    """Mark read with a read watermark: the last message the caller saw.
+
+    ``"latest"`` fetches the transcript first, exactly as a real client does,
+    and marks read up to the last message it actually saw.
+    """
+    if watermark == "latest":
+        messages = client.get(
+            f"/api/direct-messages/conversations/{conversation_id}/messages"
+        ).json()["messages"]
+        watermark = messages[-1]["message_id"] if messages else None
     response = client.post(
-        f"/api/direct-messages/conversations/{conversation_id}/read"
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": watermark},
     )
     assert response.status_code == 200, response.text
     return response.json()["conversation"]
@@ -90,6 +100,88 @@ def test_senders_own_messages_never_raise_their_own_count(seeded):  # noqa: F811
 
 
 # ── 2. Retrieval is read-only; the explicit action advances the cursor ─────
+
+
+def test_a_message_arriving_after_the_read_watermark_stays_unread(seeded):  # noqa: F811
+    """The cursor advances to the caller's read watermark and never past it.
+
+    A message that arrives after the caller's transcript was fetched must not
+    be marked read without ever having been shown.
+    """
+    client_a, client_b, _, _, conversation = _started_conversation(seeded)
+    conversation_id = conversation["conversation_id"]
+    _send(client_a, conversation_id, "seen", "read-state-race-1")
+
+    # B fetches the transcript: it has now seen exactly one message.
+    seen = client_b.get(
+        f"/api/direct-messages/conversations/{conversation_id}/messages"
+    ).json()["messages"]
+    assert len(seen) == 1
+    watermark = seen[-1]["message_id"]
+
+    # A sends another message AFTER B's transcript was fetched.
+    _send(client_a, conversation_id, "arrived later", "read-state-race-2")
+
+    # B marks read with its watermark: the late message stays unread.
+    response = client_b.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": watermark},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["conversation"]["unread_count"] == 1
+    assert _row(client_b, conversation_id)["unread_count"] == 1
+
+    # The cursor points at the watermark, not at the later message.
+    rows = _cursor_rows(seeded, conversation_id)
+    assert len(rows) == 1
+    assert rows[0].last_read_message_id == watermark
+
+
+def test_a_null_watermark_advances_nothing(seeded):  # noqa: F811
+    client_a, client_b, _, _, conversation = _started_conversation(seeded)
+    conversation_id = conversation["conversation_id"]
+    _send(client_a, conversation_id, "from a", "read-state-null-1")
+
+    response = client_b.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": None},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["conversation"]["unread_count"] == 1
+    assert _cursor_rows(seeded, conversation_id) == []
+    assert _row(client_b, conversation_id)["unread_count"] == 1
+
+
+def test_a_watermark_that_is_not_in_this_conversation_is_refused(seeded):  # noqa: F811
+    """A watermark must be a message of this conversation.
+
+    An id that is unknown, or that belongs to another conversation, is refused
+    rather than silently ignored or used to advance the cursor.
+    """
+    client_a, client_b, _, _, conversation = _started_conversation(seeded)
+    conversation_id = conversation["conversation_id"]
+    _send(client_a, conversation_id, "from a", "read-state-watermark-1")
+
+    messages = client_b.get(
+        f"/api/direct-messages/conversations/{conversation_id}/messages"
+    ).json()["messages"]
+    good = messages[-1]["message_id"]
+
+    foreign = client_b.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": "not-a-real-message-id"},
+    )
+    assert foreign.status_code == 422
+    assert foreign.json()["detail"]["error"] == "read_watermark_invalid"
+    assert _cursor_rows(seeded, conversation_id) == []
+
+    # The valid watermark still works.
+    ok = client_b.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": good},
+    )
+    assert ok.status_code == 200, ok.text
+    assert len(_cursor_rows(seeded, conversation_id)) == 1
 
 
 def test_conversation_get_does_not_advance_the_cursor(seeded):  # noqa: F811
@@ -280,7 +372,8 @@ def test_nonparticipant_cannot_read_or_advance_the_cursor(seeded):  # noqa: F811
 
     # The explicit mutation is refused for a non-participant too.
     denied_read = outsider.post(
-        f"/api/direct-messages/conversations/{conversation_id}/read"
+        f"/api/direct-messages/conversations/{conversation_id}/read",
+        json={"last_read_message_id": None},
     )
     assert denied_read.status_code == 404
     assert denied_read.json()["detail"]["error"] == "conversation_not_found"

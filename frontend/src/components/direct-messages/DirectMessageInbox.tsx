@@ -198,11 +198,18 @@ export default function DirectMessageInbox({
    * re-read so the caller's own unread badge clears.  Fetching a conversation
    * is read-only and never marks anything read.  The peer can never observe
    * this.
+   *
+   * The cursor advances to the caller's **read watermark** — the last message
+   * they actually saw — and never past it, so a message that arrived after
+   * their transcript was fetched is not marked read without having been shown.
    */
   const markConversationRead = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, watermarkMessageId: string | null) => {
       try {
-        const conversation = await markDirectMessageConversationRead(conversationId);
+        const conversation = await markDirectMessageConversationRead(
+          conversationId,
+          watermarkMessageId,
+        );
         state.cacheConversationMeta(conversation);
         await refreshUnread();
       } catch {
@@ -216,16 +223,41 @@ export default function DirectMessageInbox({
     async (conversationId: string) => {
       const conversation = await fetchDirectMessageConversation(conversationId);
       state.cacheConversationMeta(conversation);
-      await markConversationRead(conversationId);
       state.openConversation(conversationId, conversation);
     },
-    [markConversationRead, state],
+    [state],
   );
 
   useEffect(() => {
     if (!messagingEnabled) return;
     void reload();
   }, [messagingEnabled, reload]);
+
+  // Mark the opened conversation read once its transcript has actually been
+  // rendered, using the last rendered message as the read watermark.  Waiting
+  // for the transcript is what keeps the watermark honest: a message that
+  // arrived after the transcript was fetched is not marked read.
+  const markedWatermark = useRef<string | null>(null);
+  useEffect(() => {
+    const conversationId = state.selectedConversationId;
+    if (!conversationId) {
+      markedWatermark.current = null;
+      return;
+    }
+    if (!state.loadedByConversationId[conversationId]) return;
+    const rendered = state.messagesByConversationId[conversationId] ?? [];
+    const watermark = rendered.length > 0 ? rendered[rendered.length - 1].message_id : null;
+    if (watermark === null) return;
+    const marker = `${conversationId}:${watermark}`;
+    if (markedWatermark.current === marker) return;
+    markedWatermark.current = marker;
+    void markConversationRead(conversationId, watermark);
+  }, [
+    markConversationRead,
+    state.loadedByConversationId,
+    state.messagesByConversationId,
+    state.selectedConversationId,
+  ]);
 
   // Poll the conversation projection while the Inbox is visible so a message
   // that arrives in another session surfaces as unread without a manual
@@ -625,13 +657,12 @@ export default function DirectMessageInbox({
                 type="button"
                 data-testid="conversation-row"
                 className="mb-1 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--panel-bg-hover,var(--panel-bg))]"
-                onClick={() => {
+                onClick={() =>
                   state.openConversation(
                     conversation.conversation_id,
                     conversation,
-                  );
-                  void markConversationRead(conversation.conversation_id);
-                }}
+                  )
+                }
               >
                 <span
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-xs font-semibold text-[var(--accent)]"

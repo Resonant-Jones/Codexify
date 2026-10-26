@@ -112,11 +112,19 @@ operations, and only the second one advances read state.
   choosing to open it. `GET` is expected to be safe, and it is.
 - **Marking read is an explicit mutation.** A dedicated authenticated
   `POST /api/direct-messages/conversations/{conversation_id}/read` advances
-  **that participant's** cursor to the conversation's latest message and
-  reports the resulting unread count. It is the only operation that advances
-  a read cursor.
+  **that participant's** cursor and reports the resulting unread count. It is
+  the only operation that advances a read cursor.
 
 The cursor never moves backwards, and repeating the mutation is idempotent.
+
+The mutation carries the caller's **read watermark** — the id of the last
+message they actually saw. The cursor advances to exactly that message and
+**never past it**. The server never infers the watermark from "the latest
+message at POST time": a message that arrived after the caller's transcript
+was fetched, but before the POST landed, would be marked read without ever
+having been shown. A watermark that is not a message of that conversation is
+refused rather than silently ignored, and an absent watermark asserts
+"nothing was shown" and advances nothing.
 
 Opening a conversation therefore does two things: it advances the reader's own
 cursor through the explicit mutation, and it does so **only** for the reader. A
@@ -142,6 +150,9 @@ Explicitly **not** implied by this decision:
 - **No sender-visible read receipt.** The sender never learns that the
   recipient read a message, when, or how many times they read it.
 - **No read timing, read duration, or attention disclosure** of any kind.
+- **No message is marked read without having been shown to the reader.** The
+  cursor never advances past the caller's read watermark, so a message that
+  arrived after the caller's transcript was fetched stays unread.
 - **No shared relationship state.** The cursor is not part of the
   Relationship, the Conversation, or the Message authority model. Two
   participants of the same conversation hold two entirely separate cursors.

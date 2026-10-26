@@ -1104,26 +1104,6 @@ def conversation_payload(
 # profile's cursor.  There is no second message store and no stored counter.
 
 
-def _latest_message_ordinal(
-    session, conversation_id: str
-) -> tuple[datetime, str] | None:
-    """Return the (created_at, id) ordinal of a conversation's latest message.
-
-    The ordering matches the canonical chronological index
-    ``(conversation_id, created_at, id)`` so the cursor and the transcript
-    always agree on which message is last.
-    """
-    row = session.execute(
-        select(DirectMessage.created_at, DirectMessage.id)
-        .where(DirectMessage.conversation_id == conversation_id)
-        .order_by(DirectMessage.created_at.desc(), DirectMessage.id.desc())
-        .limit(1)
-    ).first()
-    if row is None:
-        return None
-    return row[0], row[1]
-
-
 def unread_counts_for_conversations(
     session,
     profile: UserProfile,
@@ -1191,17 +1171,32 @@ def advance_read_cursor(
     session,
     profile: UserProfile,
     conversation: DirectMessageConversation,
+    watermark_message_id: str | None,
 ) -> str | None:
-    """Advance THIS profile's read cursor to the conversation's latest message.
+    """Advance THIS profile's read cursor to a caller-asserted watermark.
+
+    The watermark is the id of the last message the caller actually saw.  The
+    cursor moves to exactly that message and **never past it**, so a message
+    that arrived after the caller's transcript was fetched cannot be marked
+    read without ever having been shown.
 
     Only the caller's own cursor row is written, and the cursor never moves
     backwards.  Returns the message id the cursor now points at, or None when
-    the conversation holds no messages yet.
+    there is no watermark or the conversation holds no messages yet.
     """
-    latest = _latest_message_ordinal(session, conversation.id)
-    if latest is None:
+    if not watermark_message_id:
         return None
-    latest_created_at, latest_id = latest
+
+    watermark = session.execute(
+        select(
+            DirectMessage.conversation_id,
+            DirectMessage.created_at,
+            DirectMessage.id,
+        ).where(DirectMessage.id == watermark_message_id)
+    ).first()
+    if watermark is None or watermark[0] != conversation.id:
+        return None
+    watermark_created_at, watermark_id = watermark[1], watermark[2]
 
     existing = session.get(
         DirectMessageReadCursor, (conversation.id, profile.profile_id)
@@ -1213,8 +1208,8 @@ def advance_read_cursor(
             )
         ).first()
         if current is not None and (current[0], current[1]) >= (
-            latest_created_at,
-            latest_id,
+            watermark_created_at,
+            watermark_id,
         ):
             return existing.last_read_message_id
 
@@ -1223,14 +1218,14 @@ def advance_read_cursor(
             DirectMessageReadCursor(
                 conversation_id=conversation.id,
                 profile_id=profile.profile_id,
-                last_read_message_id=latest_id,
+                last_read_message_id=watermark_id,
             )
         )
     else:
-        existing.last_read_message_id = latest_id
+        existing.last_read_message_id = watermark_id
         existing.updated_at = datetime.now(timezone.utc)
     session.commit()
-    return latest_id
+    return watermark_id
 
 
 def read_conversation_for_participant(
@@ -1256,18 +1251,40 @@ def mark_conversation_read(
     session,
     conversation: DirectMessageConversation,
     profile: UserProfile,
+    watermark_message_id: str | None,
 ) -> dict[str, Any]:
     """Explicitly mark one conversation read for the authenticated participant.
 
     This is the only operation that advances a read cursor.  Participation is
     authorized first, so a non-participant can neither read the conversation
     nor advance anybody's cursor, and only this profile's own cursor moves.
+
+    ``watermark_message_id`` is the id of the last message the caller
+    actually saw.  The cursor advances to exactly that message and never past
+    it, so a message that arrived after the caller's transcript was fetched
+    stays unread.  A watermark that is not a message of this conversation is
+    refused rather than silently ignored.
+
     The returned payload reports the unread count *after* the advance.
     """
     node_id = profile.node_id
     profile_id = profile.profile_id
     require_participant(session, conversation, node_id, profile_id)
-    advance_read_cursor(session, profile, conversation)
+
+    if watermark_message_id:
+        known = session.execute(
+            select(DirectMessage.conversation_id).where(
+                DirectMessage.id == watermark_message_id
+            )
+        ).first()
+        if known is None or known[0] != conversation.id:
+            raise _err(
+                422,
+                "read_watermark_invalid",
+                "read watermark is not a message in this conversation",
+            )
+
+    advance_read_cursor(session, profile, conversation, watermark_message_id)
     unread = unread_counts_for_conversations(session, profile, [conversation.id])
     return conversation_payload(
         session,

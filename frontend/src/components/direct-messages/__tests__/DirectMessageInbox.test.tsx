@@ -17,6 +17,7 @@ import {
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
   type DirectMessageConversation,
+  type DirectMessageEnvelope,
   type DirectMessageSocialProfile,
 } from "@/lib/direct-messages";
 
@@ -111,6 +112,18 @@ function conversation(
         }
       : null,
     unread_count: unreadCount,
+  };
+}
+
+function envelope(messageId: string): DirectMessageEnvelope {
+  return {
+    protocol_version: "1.0",
+    message_id: messageId,
+    conversation_id: "c-open",
+    source: { node_id: "node-alice", profile_id: "alice" },
+    destination: { node_id: "node-bob", profile_id: "bob" },
+    content: { type: "text/plain", body: "hello" },
+    created_at: "2026-09-01T01:00:00Z",
   };
 }
 
@@ -663,7 +676,7 @@ describe("recipient-local unread state", () => {
     vi.mocked(fetchDirectMessageConversation).mockResolvedValue(read);
     vi.mocked(markDirectMessageConversationRead).mockResolvedValue(read);
 
-    renderInbox();
+    const { rerender } = renderInbox();
 
     await waitFor(() =>
       expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
@@ -671,14 +684,61 @@ describe("recipient-local unread state", () => {
 
     fireEvent.click(screen.getByTestId("conversation-row"));
 
-    // Opening the conversation is the reader's own explicit read action.
+    // The read action fires once the transcript has actually been rendered,
+    // and carries the last rendered message as the read watermark.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({
+          selectedConversationId: "c-open",
+          loadedByConversationId: { "c-open": true },
+          messagesByConversationId: { "c-open": [envelope("m-1")] },
+        })}
+      />,
+    );
+
     await waitFor(() =>
-      expect(markDirectMessageConversationRead).toHaveBeenCalledWith("c-open"),
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "c-open",
+        "m-1",
+      ),
     );
     // The refreshed projection no longer reports unread for this reader.
     await waitFor(() =>
       expect(screen.queryByTestId("conversation-unread-badge")).toBeNull(),
     );
+  });
+
+  it("does not mark a conversation read before its transcript is rendered", async () => {
+    const unread = conversation("c-pending", "rel-ab", bob, "hello", 1);
+    mockedFetchConversations.mockResolvedValue([unread]);
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue(unread);
+
+    const { rerender } = renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("conversation-row"));
+
+    // The conversation is selected, but nothing has been rendered yet, so
+    // there is no watermark to advance to and no read may happen.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({ selectedConversationId: "c-pending" })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("direct-conversation-id")).toHaveTextContent(
+        "c-pending",
+      ),
+    );
+    expect(markDirectMessageConversationRead).not.toHaveBeenCalled();
   });
 
   it("never marks a conversation read by merely fetching it", async () => {

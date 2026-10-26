@@ -196,11 +196,20 @@ choosing to open it.
 Marking a Conversation read is the explicit mutation
 `POST /api/direct-messages/conversations/{conversation_id}/read`, the only
 operation that advances a cursor.  It advances **only that participant's**
-cursor to the Conversation's latest message and reports the resulting
-caller-local `unread_count`.  The cursor never moves backwards and repeating
-the mutation is idempotent.  Participation is authorized through canonical
-Relationship membership **before** any cursor write, so a non-participant can
-neither read the Conversation nor advance anybody's cursor.
+cursor and reports the resulting caller-local `unread_count`.  The cursor
+never moves backwards and repeating the mutation is idempotent.  Participation
+is authorized through canonical Relationship membership **before** any cursor
+write, so a non-participant can neither read the Conversation nor advance
+anybody's cursor.
+
+The mutation carries the caller's **read watermark** — the id of the last
+message they actually saw — and the cursor advances to exactly that message
+and never past it.  The server does not infer the watermark from "the latest
+message at POST time": a message that arrived after the caller's transcript
+was fetched would be marked read without ever having been shown.  A watermark
+that is not a message of that Conversation is refused (422
+`read_watermark_invalid`); an absent watermark asserts "nothing was shown" and
+advances nothing.
 
 Explicitly **not** implied:
 
@@ -257,7 +266,7 @@ caller may act only through a profile they own.
 | Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | accepted or historical pair consent required; optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
 | List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity; each row carries the **caller's own** `unread_count` (ADR-103) |
 | Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement; **read-only** — retrieval never advances a read cursor, and it reports the caller's current caller-local `unread_count` (ADR-103) |
-| Mark conversation read | `POST /api/direct-messages/conversations/{conversation_id}/read` | participants only; the **explicit** read action and the only operation that advances a cursor; advances **only the caller's** recipient-local cursor to the Conversation's latest message and reports the resulting caller-local `unread_count`; idempotent and monotonic (ADR-103) |
+| Mark conversation read | `POST /api/direct-messages/conversations/{conversation_id}/read` | participants only; the **explicit** read action and the only operation that advances a cursor; body carries the caller's read watermark (`last_read_message_id`, the last message they actually saw) and the cursor advances to exactly that message and never past it; advances **only the caller's** recipient-local cursor and reports the resulting caller-local `unread_count`; idempotent and monotonic (ADR-103) |
 | Read messages | `GET /api/direct-messages/conversations/{conversation_id}/messages` | deterministic `(created_at, id)` ascending, bounded pagination via `before_id` |
 | Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | established consent required; `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
 | Move placement | `PATCH /api/direct-messages/conversations/{conversation_id}/placement` | `project_id` or `null`; caller-local only; validates Project authority; never rewrites origin, peer placement, or Relationship membership |
@@ -460,10 +469,11 @@ counter, preview, or timestamp belonging to anyone else.
 
 The Inbox renders the count as an in-app badge on the conversation row and
 clears it for that caller when they open the conversation, by invoking the
-explicit read action.  While the Inbox is open it re-reads the conversation
-projection so a message arriving elsewhere surfaces without a manual reload;
-that refresh never advances a cursor, only the explicit read action does.
-Because the cursor is durable, the cleared state is
+explicit read action with the last message they actually saw as the read
+watermark.  While the Inbox is open it re-reads the conversation projection so
+a message arriving elsewhere surfaces without a manual reload; that refresh
+never advances a cursor, only the explicit read action does.  Because the
+cursor is durable, the cleared state is
 recovered after a reload or a new session, and a later incoming message
 becomes unread again.
 

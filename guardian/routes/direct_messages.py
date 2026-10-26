@@ -109,6 +109,14 @@ class SendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class MarkConversationReadRequest(BaseModel):
+    """The caller's read watermark: the last message they actually saw."""
+
+    last_read_message_id: str | None = Field(default=None, max_length=36)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # ── Social identity ───────────────────────────────────────────────────────
 
 
@@ -495,6 +503,7 @@ def get_conversation(
 @router.post("/api/direct-messages/conversations/{conversation_id}/read")
 def mark_conversation_read(
     conversation_id: str,
+    body: MarkConversationReadRequest = Body(...),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
     """Explicitly mark one conversation read for the authenticated participant.
@@ -504,6 +513,13 @@ def mark_conversation_read(
     Relationship-membership authorization, and it is idempotent: repeating it
     never moves the cursor backward.  The cursor is not a read receipt — the
     other participant can neither observe nor advance it.
+
+    ``last_read_message_id`` is the caller's **read watermark**: the id of the
+    last message they actually saw.  The cursor advances to exactly that
+    message and never past it, so a message that arrived after their
+    transcript was fetched is not marked read without ever having been shown.
+    Omitting it (or sending null) asserts "nothing was shown" and advances
+    nothing.
     """
     db = _db()
     with db.get_session() as session:
@@ -520,7 +536,12 @@ def mark_conversation_read(
             )
         return {
             "ok": True,
-            "conversation": service.mark_conversation_read(session, conversation, profile),
+            "conversation": service.mark_conversation_read(
+                session,
+                conversation,
+                profile,
+                body.last_read_message_id,
+            ),
         }
 
 
