@@ -1079,3 +1079,152 @@ describe("reopen and refreshed watermark", () => {
     );
   });
 });
+
+describe("failed read stays retryable", () => {
+  it("retries the read on reopen when the first mutation failed", async () => {
+    vi.mocked(markDirectMessageConversationRead)
+      .mockRejectedValueOnce(new Error("mark read unavailable"))
+      .mockResolvedValue(
+        conversation("c-retry", "rel-ab", bob, "hello", 0),
+      );
+
+    const state = makeState({
+      selectedConversationId: "c-retry",
+      loadedByConversationId: { "c-retry": true },
+      messagesByConversationId: { "c-retry": [envelope("m-1")] },
+    });
+
+    const { rerender } = render(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    // The first mutation fails and must not be remembered as recorded.
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "c-retry",
+        "m-1",
+      ),
+    );
+
+    // Reopening the same conversation with the same transcript retries.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState()}
+      />,
+    );
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(2),
+    );
+    expect(markDirectMessageConversationRead).toHaveBeenLastCalledWith(
+      "c-retry",
+      "m-1",
+    );
+  });
+
+  it("does not re-post a watermark that was recorded successfully", async () => {
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue(
+      conversation("c-once", "rel-ab", bob, "hello", 0),
+    );
+
+    const state = makeState({
+      selectedConversationId: "c-once",
+      loadedByConversationId: { "c-once": true },
+      messagesByConversationId: { "c-once": [envelope("m-1")] },
+    });
+
+    const { rerender } = render(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState()}
+      />,
+    );
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("does not issue concurrent duplicate mutations for one watermark", async () => {
+    let resolvePost: (value: unknown) => void = () => {};
+    vi.mocked(markDirectMessageConversationRead).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        }),
+    );
+
+    const state = makeState({
+      selectedConversationId: "c-once",
+      loadedByConversationId: { "c-once": true },
+      messagesByConversationId: { "c-once": [envelope("m-1")] },
+    });
+
+    const { rerender } = render(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={state}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+
+    // Re-render while the first mutation is still in flight.
+    rerender(
+      <DirectMessageInbox
+        capabilityState="available"
+        sourceThreadId={null}
+        state={makeState({
+          selectedConversationId: "c-once",
+          loadedByConversationId: { "c-once": true },
+          messagesByConversationId: { "c-once": [envelope("m-1")] },
+        })}
+      />,
+    );
+
+    expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1);
+    resolvePost(conversation("c-once", "rel-ab", bob, "hello", 0));
+    await waitFor(() =>
+      expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+  });
+});

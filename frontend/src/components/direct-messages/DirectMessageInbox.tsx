@@ -202,6 +202,10 @@ export default function DirectMessageInbox({
    * The cursor advances to the caller's **read watermark** — the last message
    * they actually saw — and never past it, so a message that arrived after
    * their transcript was fetched is not marked read without having been shown.
+   *
+   * Resolves to whether the read was recorded.  A failed read is left
+   * *retryable*: the caller only remembers a watermark once the mutation has
+   * actually succeeded, so reopening the conversation retries it.
    */
   const markConversationRead = useCallback(
     async (conversationId: string, watermarkMessageId: string | null) => {
@@ -212,8 +216,11 @@ export default function DirectMessageInbox({
         );
         state.cacheConversationMeta(conversation);
         await refreshUnread();
+        return true;
       } catch {
-        // A failed read or refresh must never break the visible Inbox.
+        // A failed read or refresh must never break the visible Inbox, and
+        // must never be mistaken for a recorded read.
+        return false;
       }
     },
     [refreshUnread, state],
@@ -241,7 +248,12 @@ export default function DirectMessageInbox({
   // The watermark is remembered per conversation, so reopening a conversation
   // whose transcript has not changed yet does not re-post a stale watermark;
   // the refreshed transcript posts its own once it renders.
+  //
+  // A watermark is remembered only once the mutation has actually SUCCEEDED.
+  // The mutation is idempotent, so a failed read stays retryable: the next
+  // reopen posts it again instead of leaving the badge stuck.
   const markedWatermarks = useRef<Map<string, string>>(new Map());
+  const pendingWatermarks = useRef<Set<string>>(new Set());
   useEffect(() => {
     const conversationId = state.selectedConversationId;
     if (!conversationId) return;
@@ -250,8 +262,15 @@ export default function DirectMessageInbox({
     const watermark = rendered.length > 0 ? rendered[rendered.length - 1].message_id : null;
     if (watermark === null) return;
     if (markedWatermarks.current.get(conversationId) === watermark) return;
-    markedWatermarks.current.set(conversationId, watermark);
-    void markConversationRead(conversationId, watermark);
+    const attemptKey = `${conversationId}:${watermark}`;
+    if (pendingWatermarks.current.has(attemptKey)) return;
+    pendingWatermarks.current.add(attemptKey);
+    void markConversationRead(conversationId, watermark).then((recorded) => {
+      pendingWatermarks.current.delete(attemptKey);
+      if (recorded) {
+        markedWatermarks.current.set(conversationId, watermark);
+      }
+    });
   }, [
     markConversationRead,
     state.loadedByConversationId,
