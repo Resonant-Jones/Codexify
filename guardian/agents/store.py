@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func
+from sqlalchemy import func, literal
 from sqlalchemy.exc import IntegrityError
 
 from guardian.agents.campaign_runner_store import (
@@ -930,6 +930,109 @@ class AgentStore:
             if spec_user_id and spec_user_id != str(user_id).strip():
                 return None
         return run
+
+    def get_coding_run_liveness_snapshot(
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+        observation_instant: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Read one coding run's canonical liveness evidence.
+
+        This is a **read-only** projection of the canonical ``agent_runs``
+        row. It observes; it never decides and never writes. It does not update
+        the run, renew a heartbeat, touch an execution lease, create a recovery
+        attempt, emit an event, create an escalation, or deliver a result.
+
+        It is deliberately *not* the WebUI coding-run projection
+        (``get_coding_run_snapshot``): that one is a read model assembled from
+        several separate reads, carries the latest result, and carries no
+        ownership or heartbeat facts. This one is a single consistent
+        PostgreSQL read of the liveness evidence and nothing else.
+
+        Every field is read from **one** statement, so the run's status,
+        ownership identities, heartbeat, and the observation instant come from
+        a single consistent PostgreSQL snapshot. Mixing timestamps from
+        separate reads could produce a misleading ordering.
+
+        ``observed_at`` is the **database** clock. The application host clock is
+        never the authoritative comparison clock. ``observation_instant`` exists
+        so a contract test can pin the observation instant and exercise the
+        staleness boundary exactly; production callers omit it.
+
+        The projection carries no credential material, no secret values, no raw
+        prompts, and no transcript content -- only the identity and timing
+        facts needed to classify liveness.
+
+        The optional ``user_id`` applies the same read-authorization boundary
+        the other account reads apply: when it is given, the deployment's
+        asserted user and the thread's user must both match, and a run that
+        does not belong to the reader is reported as absent rather than
+        classified.
+        """
+        if not self._has_db():
+            return None
+        if not str(run_id or "").strip():
+            return None
+        observed_at = (
+            func.now()
+            if observation_instant is None
+            else literal(observation_instant)
+        )
+        with self.db.get_session() as session:
+            row = (
+                session.query(
+                    AgentRun.run_id,
+                    AgentDeployment.deployment_id.label("deployment_id"),
+                    AgentRun.status,
+                    AgentRun.started_at,
+                    AgentRun.ended_at,
+                    AgentRun.coding_worker_instance_id,
+                    AgentRun.coding_worker_claim_id,
+                    AgentRun.coding_worker_last_heartbeat_at,
+                    observed_at.label("observed_at"),
+                    AgentRun.thread_id,
+                    AgentDeployment.spec_json,
+                    ChatThread.user_id.label("thread_user_id"),
+                )
+                .outerjoin(
+                    AgentDeployment,
+                    AgentDeployment.id == AgentRun.deployment_id,
+                )
+                .outerjoin(ChatThread, ChatThread.id == AgentRun.thread_id)
+                .filter(AgentRun.run_id == str(run_id))
+                .one_or_none()
+            )
+            if row is None:
+                return None
+            if user_id:
+                # The same read-authorization boundary the other account reads
+                # apply: the deployment's asserted user and the thread's user
+                # must both match the reader.
+                expected_user_id = str(user_id).strip()
+                spec = row.spec_json if isinstance(row.spec_json, dict) else {}
+                spec_user_id = str(spec.get("user_id") or "").strip()
+                if spec_user_id and spec_user_id != expected_user_id:
+                    return None
+                if (
+                    row.thread_user_id is not None
+                    and str(row.thread_user_id) != expected_user_id
+                ):
+                    return None
+            return {
+                "run_id": row.run_id,
+                "deployment_id": row.deployment_id,
+                "status": row.status,
+                "started_at": row.started_at,
+                "ended_at": row.ended_at,
+                "coding_worker_instance_id": row.coding_worker_instance_id,
+                "coding_worker_claim_id": row.coding_worker_claim_id,
+                "coding_worker_last_heartbeat_at": (
+                    row.coding_worker_last_heartbeat_at
+                ),
+                "observed_at": row.observed_at,
+            }
 
     def get_account_run(
         self,

@@ -376,6 +376,94 @@ or an external network operation. The worktree and mutation guard remain
 independent boundaries, and a future recovery mechanism must still treat
 uncertain external side effects conservatively.
 
+### Canonical per-run liveness observation
+
+Durable ownership says *who* holds a run; the claim-scoped heartbeat says that
+the holder was still reporting; terminal fencing says who may *finish* it. None
+of those is an interpretation. Guardian can now read the canonical evidence and
+classify it — conservatively, and without acting on it.
+
+**The snapshot.** `AgentStore.get_coding_run_liveness_snapshot()` reads one
+coding run's liveness evidence from **one** PostgreSQL statement: the run id,
+the deployment, the status, the start and end timestamps, the worker instance,
+the claim, the claim-scoped heartbeat, and an `observed_at` taken from the
+**database clock**. One statement means one consistent snapshot: mixing
+timestamps from separate reads could produce a misleading ordering. The
+application host clock is never the authoritative comparison clock.
+
+The snapshot is read-only. It does not update the run, renew a heartbeat, touch
+a lease, create a recovery attempt, emit an event, create an escalation, or
+deliver a result. It carries no credential material, no secret, no raw prompt,
+and no transcript content — only identity and timing facts. It is not a public
+endpoint; where it becomes callable, the existing account and operator
+read-authorization boundaries apply.
+
+**The staleness horizon.** One explicit observational horizon, derived from the
+cadence the worker actually implements:
+
+```
+stale_after_seconds = max(60, 3 * production_heartbeat_interval_seconds)
+```
+
+The production cadence is 15 seconds, so the horizon is **60 seconds**. It is an
+**observation threshold**, not an execution-lease expiry and not a death
+oracle. Crossing it means "recent liveness evidence is missing" — a statement
+about evidence, not about the worker process. No retry, escalation,
+cancellation, or takeover follows from it, and no persisted expiry, takeover
+timestamp, or death marker was added.
+
+**The distinctions.** The classification reuses the existing dispatch verdict
+vocabulary (`GuardianDispatchState`) and adds an explicit evidence label:
+
+| Evidence | Canonical record | Dispatch verdict | Meaning |
+|---|---|---|---|
+| `never_accepted` | `queued`, no claim | `dispatched` | execution was never durably accepted; **not** an abandoned execution |
+| `recently_observed` | `running`, owner + claim, heartbeat inside the horizon | `executing` | the claim recently renewed liveness; **not** proof that a process exists |
+| `stale_uncertain` | `running`, owner + claim, heartbeat older than the horizon | `uncertain` | recent liveness evidence is missing; the outcome is uncertain; **not** a determination that the worker died |
+| `missing_evidence` | `running` without a usable owner, claim, or heartbeat | `uncertain` | insufficient evidence; nothing is inferred about whether work started or side effects occurred |
+| `already_resolved` | `succeeded` / `failed` / `canceled` | `completed` / `failed` / `cancelled` | a canonical terminal disposition already exists |
+| `already_escalated` | `escalated` | `quarantined` | an authoritative escalation disposition already exists |
+| `inconsistent` | a record that contradicts itself | `uncertain` | the record requires inspection; it is never repaired automatically |
+| `unobservable` | no record, or unreachable persistence | *(none)* | no observation could be made |
+
+A record is inconsistent when it carries a partial ownership pair, when a
+queued run carries accepted ownership, when its timestamps are impossibly
+ordered, or when its heartbeat sits in the future. The run's timeline spans two
+clocks — `started_at` is stamped by the application, the heartbeat and
+`ended_at` by the database — so a comparison that spans them tolerates their
+difference, while a comparison inside one clock is exact.
+
+**Evidence, not decisions.** The classifier reports the observed state, the
+worker identity, the claim identity, the heartbeat, the observation instant, the
+computed heartbeat age, the threshold, whether evidence was available, the
+conservative verdict, and the reason for uncertainty. It does **not** decide
+whether to retry, requeue, terminate a process, revoke a credential, replace a
+binding, transfer ownership, or escalate. It produces evidence for a
+Guardian-owned decision that has not been made.
+
+**Cross-worker isolation.** Classification is scoped to one `run_id` and the one
+`(coding_worker_instance_id, coding_worker_claim_id)` pair recorded on it. One
+worker's silence never makes another worker's run look healthy, and a stale
+heartbeat never makes a peer run uncertain. A global coding-worker heartbeat
+would not be a substitute, and none was introduced.
+
+**It weakens nothing.** A liveness observation never changes a terminal run,
+never changes an escalated run, never overrides an accepted claim, never
+generates a terminal event, never publishes a source-thread result, and never
+reopens a completed execution. A stale classification does not invalidate a
+claim: only the governing persistence authority can accept or reject a terminal
+write.
+
+**What it cannot see.** A stale heartbeat says nothing about whether the
+external harness finished a provider request, mutated an isolated worktree,
+produced files, started a subprocess, made a network request, or committed an
+external change. The absence of a canonical result is not the absence of
+external side effects, and no provider-enforced sandbox conformance is claimed.
+
+**Restart reconciliation is still deferred.** Nothing reads this classification
+at startup. No worker-init, no poll loop, no recovery path consumes it, and
+`recover_dispatch()` is not activated for production runs.
+
 ### Restart reconciliation of abandoned executions
 
 The durable acceptance record makes an accepted run **distinguishable from a
@@ -392,29 +480,35 @@ establish that the accepted execution completed. A missing lease row does not
 establish that no execution occurred. A stale heartbeat cannot authorize task
 replay.
 
-**The gate still fails, on the liveness half.** Durable ownership now exists —
-`agent_runs.coding_worker_instance_id` records which instance took the claim —
-and per-run liveness *evidence* now exists as well
-(`agent_runs.coding_worker_last_heartbeat_at`). The *liveness* half is still
-unanswered, because evidence is not a verdict:
+**The gate still fails, on the liveness authority half.** Durable ownership now
+exists — `agent_runs.coding_worker_instance_id` records which instance took the
+claim — and per-run liveness *evidence* now exists as well
+(`agent_runs.coding_worker_last_heartbeat_at`). A conservative, read-only
+classification of that evidence now exists too. What is still missing is
+*authority*: the evidence cannot be turned into a verdict that authorises
+anything.
 
-- `agent_runs` now carries a heartbeat column, but it records only that the
+- `agent_runs` carries a heartbeat column, but it records only that the
   recorded owner last reported. Nothing converts a stale timestamp into a
-  liveness decision: there is no expiry rule, no threshold, no classifier, and
-  no startup path that reads it. The other liveness-adjacent fields
+  liveness decision: there is no expiry rule, no takeover, no death marker,
+  and no startup path that reads it. The other liveness-adjacent fields
   (`started_at`, the ownership identities) remain what they were.
 - `coding_worktree_leases` has exactly the right shape — `worker_id`,
   `last_heartbeat_at`, `expires_at` — but **no production code path creates a
   lease**, and the lease contract is worktree-scoped, so it cannot own a
   Guardian run that has no branch, no worktree path, and no work order.
-- The coding worker now publishes a **per-run, claim-scoped** heartbeat for the
-  run it owns. It is scoped to one run and one claim, and it stops when the
+- The coding worker publishes a **per-run, claim-scoped** heartbeat for the run
+  it owns. It is scoped to one run and one claim, and it stops when the
   execution ends — so it is not a global worker heartbeat, and a heartbeat that
   stops advancing does not, by itself, say why.
 - The dispatch record (`guardian/core/guardian_dispatch.py`) is a frozen,
   unpersisted value object with no worker-identity field. Its
   `last_heartbeat_at` and `lease_expires_at` are *inputs* to the classifier,
   not observations the runtime records.
+- The liveness classification reads the canonical evidence and reports a
+  conservative verdict — `stale_uncertain` is exactly "recent liveness
+  evidence is missing", and it authorises nothing. It is not wired into any
+  startup or dispatch path.
 - Fencing is absent by design, and stays absent.
 
 Consequently, **no restart reconciliation is implemented today**. A restarted
@@ -540,6 +634,7 @@ Recommended `source_type` values for coding v1:
 - A coding run records the worker instance that accepted it and the unique claim it made, atomically with acceptance. Worker identity is executor metadata: it is not an account, a principal, or a credential owner, and a queue payload cannot choose it. A persisted owner is not proof of liveness, and a claim identity grants no retry authority.
 - Only the recorded owner and claim may renew a coding run's heartbeat, and renewal is a single conditional database update. A heartbeat is evidence of reported activity, never authority to execute, retry, escalate, or take over. A stale heartbeat is not proof of worker death, and a missing heartbeat on a historical run is not evidence of abandonment.
 - Only the recorded owner and claim may finalize an accepted coding run, and the terminal decision is a single conditional database update committed together with the result writes that belong to it. A rejected claim writes no terminal status, no coding-result artifact, no source-thread result, and no terminal event. A terminal or escalated run cannot be reopened, and a heartbeat never authorizes a terminal write by itself.
+- A coding run's liveness may be classified from canonical evidence, and the classification is read-only. A stale heartbeat is evidence that recent liveness evidence is missing, never proof that the worker died; a recent heartbeat is evidence of recent activity, never proof that a process exists; a missing heartbeat on a historical run is evidence of nothing. The classification reports evidence and a conservative verdict; it never retries, requeues, terminates a process, revokes a credential, replaces a binding, transfers ownership, or escalates a run, and it never mutates canonical state.
 - A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals

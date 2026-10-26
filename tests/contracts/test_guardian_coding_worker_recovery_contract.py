@@ -13,18 +13,21 @@ distinction is the *worker-liveness authority*: durable evidence of which worker
 instance owns which run, and whether that owner is still alive.
 
 The gate is evaluated here, and it **still fails** — but now only on its
-*liveness* half. Durable worker ownership has since been added, so the
-canonical run records the worker instance that accepted it and the unique claim
-it made. What the runtime still cannot supply is a signal that the owner is
-*gone*: there is no coding-worker heartbeat, no expiry, and no fencing. Every
-remaining candidate signal is either a timestamp, Redis emptiness, or a table
-that no production code path ever writes.
+*liveness authority* half. Durable worker ownership and a claim-scoped
+heartbeat have since been added, so the canonical run records the worker
+instance that accepted it, the unique claim it made, and the last moment that
+claim renewed liveness. What the runtime still cannot supply is *authority*:
+there is no expiry, no takeover, no fencing, and no way to turn a stale
+heartbeat into a verdict. Every remaining candidate signal is either a
+timestamp, Redis emptiness, or a table that no production code path ever
+writes.
 
 These tests therefore assert three things, and only these three things:
 
-1. **The gate.** Ownership is now durable, but the durable records that would
-   carry *liveness* do not carry it, and the existing recovery contract's own
-   semantics leave an attempt with no liveness evidence alone.
+1. **The gate.** Ownership and liveness *evidence* are now durable, but the
+   durable records still carry no *authority*: there is no expiry, no takeover,
+   and the existing recovery contract's own semantics leave an attempt with no
+   liveness evidence alone.
 2. **The gap.** A worker restart performs no reconciliation: an accepted run
    left behind by a dead worker stays ``running`` with no escalation, no
    artifact, no requeued task, no credential lease, no provider invocation, and
@@ -114,13 +117,19 @@ def _columns(model: Any) -> set[str]:
     return {str(column.name) for column in model.__table__.columns}
 
 
-def test_the_canonical_run_record_carries_ownership_but_no_liveness_signal() -> None:
-    """``agent_runs`` says who owns a run, but not whether that owner is alive.
+def test_the_canonical_run_record_carries_ownership_and_liveness_evidence() -> None:
+    """``agent_runs`` carries the ownership and the liveness *evidence*.
 
-    Durable worker ownership has since been added, so the *ownership* half of
-    the liveness gate is closed: the canonical run records the worker instance
-    that accepted it and the unique claim it made. The *liveness* half is what
-    still fails, and it is what keeps reconciliation unimplemented.
+    The ownership half of the gate is closed: the canonical run records the
+    worker instance that accepted it and the unique claim it made. The liveness
+    half now has *evidence* too -- a claim-scoped heartbeat column, written
+    atomically with acceptance and renewed only by the recorded owner.
+
+    What is still missing is not evidence but **authority**. A heartbeat is a
+    report of activity. It is not proof that the owning process exists, it
+    cannot expire ownership, it cannot transfer it, and nothing in the runtime
+    may act on its staleness. The reconciliation that would consume this
+    evidence remains unimplemented.
     """
     columns = _columns(AgentRun)
 
@@ -128,15 +137,18 @@ def test_the_canonical_run_record_carries_ownership_but_no_liveness_signal() -> 
     assert "coding_worker_instance_id" in columns
     assert "coding_worker_claim_id" in columns
 
-    # The liveness half is not: there is no heartbeat, expiry, or lease signal.
-    for token in ("heartbeat", "expires", "lease"):
+    # The liveness half now has durable, claim-scoped evidence.
+    assert "coding_worker_last_heartbeat_at" in columns
+
+    # But evidence is not authority: there is still no expiry, no takeover,
+    # and no death marker that could stand in for a liveness verdict.
+    for token in ("expires", "lease", "takeover", "dead"):
         assert not any(token in column for column in columns), (
             f"agent_runs gained a {token!r} column; the liveness gate must be "
             "re-evaluated against the new authority"
         )
 
-    # The only liveness-adjacent field is the acceptance timestamp, which is a
-    # timestamp and therefore not a liveness signal.
+    # The timeline is still the run's own.
     assert "started_at" in columns
     assert "ended_at" in columns
 
@@ -196,13 +208,19 @@ def test_no_production_code_path_creates_a_worktree_lease() -> None:
     )
 
 
-def test_the_coding_worker_publishes_no_heartbeat() -> None:
-    """The coding worker has no liveness signal; the chat and voice workers do."""
+def test_the_coding_worker_publishes_no_redis_worker_heartbeat() -> None:
+    """The coding worker's liveness signal is durable, not a Redis key.
+
+    The worker reports liveness into the canonical ``agent_runs`` row, where
+    the claim-scoped heartbeat is fenced by the recorded owner. It publishes no
+    Redis worker heartbeat, so no other worker's activity can make one run
+    look healthy.
+    """
     coding_source = (
         _GUARDIAN_ROOT / "workers" / "coding_worker.py"
     ).read_text(encoding="utf-8", errors="replace")
 
-    # A worker *liveness* heartbeat. The worktree-lease heartbeat is a
+    # A Redis worker *liveness* heartbeat. The worktree-lease heartbeat is a
     # different thing: it refreshes a lease that the control plane created,
     # and the Guardian path has no lease.
     assert "WORKER_HEARTBEAT" not in coding_source.upper(), (
@@ -213,6 +231,12 @@ def test_the_coding_worker_publishes_no_heartbeat() -> None:
         "the coding worker now owns a worker heartbeat key; re-evaluate the "
         "liveness gate against it"
     )
+
+    # Its liveness signal is the durable, claim-scoped heartbeat instead: the
+    # worker renews the canonical run row under its own worker instance and
+    # claim, on an explicit cadence.
+    assert "CODING_RUN_HEARTBEAT_INTERVAL_SECONDS" in coding_source
+    assert "renew_coding_run_heartbeat" in coding_source
 
     # Contrast: the runtime does have an established heartbeat pattern for
     # other workers. It is the shape the prerequisite should follow.

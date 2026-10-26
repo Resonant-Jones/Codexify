@@ -1066,3 +1066,100 @@ def test_dispatch_refuses_a_revoked_service_credential(db: _TestDB) -> None:
     assert cause.detail == "credential_revoked_or_missing"
 
     assert dequeue_coding_execution(block=False) is None
+
+
+# ---------------------------------------------------------------------------
+# The liveness classification reuses this vocabulary; it does not replace it.
+# ---------------------------------------------------------------------------
+
+
+def test_the_coding_run_liveness_classifier_reuses_the_dispatch_vocabulary() -> None:
+    """The canonical liveness classification adds no new verdict vocabulary.
+
+    The classification of a coding run's liveness evidence is an extension of
+    the dispatch observation contract, not a competing service. Every verdict
+    it can reach is an existing ``GuardianDispatchState``, so a consumer that
+    already understands dispatch health needs no new vocabulary to read it.
+    """
+    from guardian.core.guardian_dispatch import (
+        CodingRunLivenessEvidence,
+        GuardianDispatchState,
+        classify_coding_run_liveness,
+    )
+
+    observed = datetime(2026, 10, 26, 12, 0, 0, tzinfo=timezone.utc)
+    states = {value.value for value in GuardianDispatchState}
+
+    snapshots = {
+        "never accepted": {
+            "run_id": "run-1",
+            "status": "queued",
+            "coding_worker_instance_id": None,
+            "coding_worker_claim_id": None,
+            "coding_worker_last_heartbeat_at": None,
+            "observed_at": observed,
+        },
+        "recently observed": {
+            "run_id": "run-2",
+            "status": "running",
+            "coding_worker_instance_id": "cwi-1",
+            "coding_worker_claim_id": "cwc-1",
+            "coding_worker_last_heartbeat_at": observed - timedelta(seconds=5),
+            "observed_at": observed,
+        },
+        "stale": {
+            "run_id": "run-3",
+            "status": "running",
+            "coding_worker_instance_id": "cwi-1",
+            "coding_worker_claim_id": "cwc-1",
+            "coding_worker_last_heartbeat_at": observed - timedelta(hours=1),
+            "observed_at": observed,
+        },
+        "resolved": {
+            "run_id": "run-4",
+            "status": "succeeded",
+            "coding_worker_instance_id": "cwi-1",
+            "coding_worker_claim_id": "cwc-1",
+            "coding_worker_last_heartbeat_at": observed - timedelta(hours=1),
+            "observed_at": observed,
+        },
+        "escalated": {
+            "run_id": "run-5",
+            "status": "escalated",
+            "coding_worker_instance_id": "cwi-1",
+            "coding_worker_claim_id": "cwc-1",
+            "coding_worker_last_heartbeat_at": observed - timedelta(hours=1),
+            "observed_at": observed,
+        },
+        "missing evidence": {
+            "run_id": "run-6",
+            "status": "running",
+            "coding_worker_instance_id": None,
+            "coding_worker_claim_id": None,
+            "coding_worker_last_heartbeat_at": None,
+            "observed_at": observed,
+        },
+        "inconsistent": {
+            "run_id": "run-7",
+            "status": "running",
+            "coding_worker_instance_id": "cwi-1",
+            "coding_worker_claim_id": None,
+            "coding_worker_last_heartbeat_at": observed - timedelta(hours=1),
+            "observed_at": observed,
+        },
+    }
+
+    expected = {
+        "never accepted": CodingRunLivenessEvidence.NEVER_ACCEPTED.value,
+        "recently observed": CodingRunLivenessEvidence.RECENTLY_OBSERVED.value,
+        "stale": CodingRunLivenessEvidence.STALE_UNCERTAIN.value,
+        "resolved": CodingRunLivenessEvidence.ALREADY_RESOLVED.value,
+        "escalated": CodingRunLivenessEvidence.ALREADY_ESCALATED.value,
+        "missing evidence": CodingRunLivenessEvidence.MISSING_EVIDENCE.value,
+        "inconsistent": CodingRunLivenessEvidence.INCONSISTENT.value,
+    }
+
+    for label, snapshot in snapshots.items():
+        verdict = classify_coding_run_liveness(snapshot)
+        assert verdict.evidence == expected[label], label
+        assert verdict.state in states, (label, verdict.state)

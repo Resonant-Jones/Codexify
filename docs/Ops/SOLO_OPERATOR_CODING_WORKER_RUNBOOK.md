@@ -132,6 +132,36 @@ mutation or patch artifact is an *external* side effect the runtime cannot
 contain -- it has to be inspected and cleaned up by a human before anything is
 re-dispatched.
 
+### Reading a coding run's liveness classification
+
+Guardian can now read a run's canonical ownership and heartbeat evidence and
+classify it. The classification is **observational**: it reports evidence and a
+conservative verdict, and it authorises nothing.
+
+| The classification says | What it establishes | What it does **not** establish |
+|---|---|---|
+| **recently observed** — the claim renewed liveness inside the horizon (60 seconds) | The recorded owner was still reporting, very recently. | That the worker process currently exists, that it will finish, or that its worktree is safe to touch. |
+| **stale and uncertain** — the last renewal is older than the horizon | Recent liveness evidence is **missing**. The worker may be between phases, blocked on a provider call, paused, or gone. | **Not** that the worker died. There is no expiry rule, no takeover, and nothing that acts on a stale heartbeat. |
+| **missing evidence** — a running run with no usable owner, claim, or heartbeat | There is not enough evidence to classify liveness. Typical of a historical row. | Not that the work never started, and **not** that no side effects occurred. |
+| **never accepted** — the run is `queued` with no claim | The execution was never durably accepted. | Not that it was abandoned. It is simply not running yet. |
+| **already resolved** — the run is `succeeded`, `failed` or `canceled` | A canonical terminal disposition already exists. | Not that its external effects are bounded. The terminal write was claim-fenced; the filesystem was not. |
+| **already escalated** — the run is `escalated` | An authoritative escalation disposition already exists. A classification never creates another one. | Not that the worker is dead, and not that the escalation says so. |
+| **inconsistent** — the record contradicts itself (a partial ownership pair, a queued run with accepted ownership, impossible timestamps, a heartbeat in the future) | The canonical record needs **human inspection** before anything is decided about the run. | Not that the run is fine, and not that it is lost. Anomalous records are never repaired automatically. |
+| **unobservable** — there is no record, or persistence is unreachable | Nothing could be read. | Nothing about the execution. |
+
+**A stale classification cannot authorize re-dispatch.** It is evidence of
+uncertainty, not a decision. No automatic retry, takeover, escalation, or
+cancellation follows from it, and neither should an operator: a re-dispatch
+mints a new attempt without fencing, and duplicate execution effects are not
+idempotent.
+
+**External side effects remain uncertain.** A stale heartbeat says nothing
+about whether the harness finished a provider request, mutated an isolated
+worktree, produced files, started a subprocess, made a network request, or
+committed an external change. The absence of a canonical result is **not** the
+absence of external side effects. Inspect the worktree and the repository
+before you re-drive anything.
+
 ## Pi Runtime Readiness Gate
 
 The source-Compose coding worker uses a dedicated
