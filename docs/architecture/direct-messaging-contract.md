@@ -187,13 +187,20 @@ always agree on which message is last.  A profile's own messages are never
 unread for that profile: sending a message never raises the sender's own
 count.
 
-Reading a Conversation — the authenticated participant's own read of it —
-advances **only that participant's** cursor to the Conversation's latest
-message and reports the resulting caller-local `unread_count`.  The cursor
-never moves backwards and repeated reads are idempotent.  Participation is
-authorized through canonical Relationship membership **before** any cursor
-write, so a non-participant can neither read the Conversation nor advance
-anybody's cursor.
+Retrieval and marking-read are separate operations.  Reading a
+Conversation's transcript — `GET /api/direct-messages/conversations/{id}`
+or `.../messages` — is **read-only** and never advances read state: a retry
+or a prefetch must not mark a Conversation read without the recipient
+choosing to open it.
+
+Marking a Conversation read is the explicit mutation
+`POST /api/direct-messages/conversations/{conversation_id}/read`, the only
+operation that advances a cursor.  It advances **only that participant's**
+cursor to the Conversation's latest message and reports the resulting
+caller-local `unread_count`.  The cursor never moves backwards and repeating
+the mutation is idempotent.  Participation is authorized through canonical
+Relationship membership **before** any cursor write, so a non-participant can
+neither read the Conversation nor advance anybody's cursor.
 
 Explicitly **not** implied:
 
@@ -249,7 +256,8 @@ caller may act only through a profile they own.
 | List relationship conversations | `GET /api/direct-messages/relationships/{relationship_id}/conversations` | participants only; every Conversation in the Relationship; stable activity ordering; caller-local placement and caller-visible origin only (peer's private placement never revealed) |
 | Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | accepted or historical pair consent required; optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
 | List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity; each row carries the **caller's own** `unread_count` (ADR-103) |
-| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement; this is the reader's own read action, so it advances **only the caller's** read cursor to the Conversation's latest message and reports the resulting caller-local `unread_count` (ADR-103) |
+| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement; **read-only** — retrieval never advances a read cursor, and it reports the caller's current caller-local `unread_count` (ADR-103) |
+| Mark conversation read | `POST /api/direct-messages/conversations/{conversation_id}/read` | participants only; the **explicit** read action and the only operation that advances a cursor; advances **only the caller's** recipient-local cursor to the Conversation's latest message and reports the resulting caller-local `unread_count`; idempotent and monotonic (ADR-103) |
 | Read messages | `GET /api/direct-messages/conversations/{conversation_id}/messages` | deterministic `(created_at, id)` ascending, bounded pagination via `before_id` |
 | Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | established consent required; `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
 | Move placement | `PATCH /api/direct-messages/conversations/{conversation_id}/placement` | `project_id` or `null`; caller-local only; validates Project authority; never rewrites origin, peer placement, or Relationship membership |
@@ -451,11 +459,11 @@ caller-local value: the peer never receives it, and the row exposes no
 counter, preview, or timestamp belonging to anyone else.
 
 The Inbox renders the count as an in-app badge on the conversation row and
-clears it for that caller when they open the conversation — the read that
-advances their own cursor.  While the Inbox is open it re-reads the
-conversation projection so a message arriving elsewhere surfaces without a
-manual reload; that refresh never advances a cursor, only opening a
-conversation does.  Because the cursor is durable, the cleared state is
+clears it for that caller when they open the conversation, by invoking the
+explicit read action.  While the Inbox is open it re-reads the conversation
+projection so a message arriving elsewhere surfaces without a manual reload;
+that refresh never advances a cursor, only the explicit read action does.
+Because the cursor is durable, the cleared state is
 recovered after a reload or a new session, and a later incoming message
 becomes unread again.
 

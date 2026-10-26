@@ -101,20 +101,27 @@ The durable message store remains the single authority for what exists. The
 cursor adds no second message store, no counter to drift, and no aggregate to
 backfill.
 
-### 3. Opening a conversation is the reader's own read action
+### 3. Marking a conversation read is an explicit action
 
-Reading a conversation — the authenticated participant's own GET of that
-conversation — advances **that participant's** cursor to the conversation's
-latest message, and reports the resulting unread count. This is the existing
-conversation-read endpoint; no new endpoint, no notification service, and no
-write path outside the direct-messaging subsystem is introduced.
+Reading a conversation's transcript and *marking it read* are two different
+operations, and only the second one advances read state.
 
-The cursor never moves backwards, and repeated reads are idempotent.
+- **Retrieval is read-only.** Fetching a conversation or its messages never
+  advances a cursor. A retry, a prefetch, a link preview, or a future
+  speculative fetch must not mark a conversation read without the recipient
+  choosing to open it. `GET` is expected to be safe, and it is.
+- **Marking read is an explicit mutation.** A dedicated authenticated
+  `POST /api/direct-messages/conversations/{conversation_id}/read` advances
+  **that participant's** cursor to the conversation's latest message and
+  reports the resulting unread count. It is the only operation that advances
+  a read cursor.
+
+The cursor never moves backwards, and repeating the mutation is idempotent.
 
 Opening a conversation therefore does two things: it advances the reader's own
-cursor, and it does so **only** for the reader. A participant who never opens
-a conversation keeps their cursor where it was, and their unread count keeps
-growing.
+cursor through the explicit mutation, and it does so **only** for the reader. A
+participant who never opens a conversation keeps their cursor where it was,
+and their unread count keeps growing.
 
 ### 4. Authorization is unchanged and fail-closed
 

@@ -35,6 +35,7 @@ import {
   fetchProjectLabelMap,
   fetchThreadProjectScope,
   filterConversationsByRelationship,
+  markDirectMessageConversationRead,
   normalizeDirectMessageError,
   normalizeUsernameSearchQuery,
   peerPresentationLabel,
@@ -191,26 +192,17 @@ export default function DirectMessageInbox({
     }
   }, [state]);
 
-  const openAcceptedConversation = useCallback(
-    async (conversationId: string) => {
-      const conversation = await fetchDirectMessageConversation(conversationId);
-      state.cacheConversationMeta(conversation);
-      await reload();
-      state.openConversation(conversationId, conversation);
-    },
-    [reload, state],
-  );
-
   /**
-   * Reading a conversation is the reader's own action: the server advances
-   * the caller's recipient-local cursor on the conversation read, and the
-   * projection is then re-read so the caller's own unread badge clears.
-   * The peer can never observe this.
+   * Marking a conversation read is the reader's own explicit action: it
+   * advances the caller's recipient-local cursor, and the projection is then
+   * re-read so the caller's own unread badge clears.  Fetching a conversation
+   * is read-only and never marks anything read.  The peer can never observe
+   * this.
    */
   const markConversationRead = useCallback(
     async (conversationId: string) => {
       try {
-        const conversation = await fetchDirectMessageConversation(conversationId);
+        const conversation = await markDirectMessageConversationRead(conversationId);
         state.cacheConversationMeta(conversation);
         await refreshUnread();
       } catch {
@@ -218,6 +210,16 @@ export default function DirectMessageInbox({
       }
     },
     [refreshUnread, state],
+  );
+
+  const openAcceptedConversation = useCallback(
+    async (conversationId: string) => {
+      const conversation = await fetchDirectMessageConversation(conversationId);
+      state.cacheConversationMeta(conversation);
+      await markConversationRead(conversationId);
+      state.openConversation(conversationId, conversation);
+    },
+    [markConversationRead, state],
   );
 
   useEffect(() => {

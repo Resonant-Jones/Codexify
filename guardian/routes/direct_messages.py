@@ -464,13 +464,12 @@ def get_conversation(
     conversation_id: str,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    """Read one conversation (authenticated participants only).
+    """Read one conversation (authenticated participants only).  **Read-only.**
 
-    Opening a conversation is the participant's own read action, so this read
-    advances **the caller's** recipient-local read cursor and reports the
-    resulting unread count.  The cursor is not a read receipt: the other
-    participant can neither observe nor advance it, and a non-participant can
-    neither read the conversation nor move anyone's cursor.
+    Retrieval never advances read state.  A retry or a prefetch of a transcript
+    must not mark a conversation read without the recipient choosing to open
+    it, so the read cursor is advanced only by the explicit
+    ``POST /api/direct-messages/conversations/{conversation_id}/read`` action.
     """
     db = _db()
     with db.get_session() as session:
@@ -490,6 +489,38 @@ def get_conversation(
             "conversation": service.read_conversation_for_participant(
                 session, conversation, profile
             ),
+        }
+
+
+@router.post("/api/direct-messages/conversations/{conversation_id}/read")
+def mark_conversation_read(
+    conversation_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Explicitly mark one conversation read for the authenticated participant.
+
+    This is the only operation that advances a recipient-local read cursor
+    (ADR-103).  It advances **only the caller's own** cursor, behind canonical
+    Relationship-membership authorization, and it is idempotent: repeating it
+    never moves the cursor backward.  The cursor is not a read receipt — the
+    other participant can neither observe nor advance it.
+    """
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        conversation = session.get(service.DirectMessageConversation, conversation_id)
+        if conversation is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "conversation_not_found",
+                    "message": "conversation not found",
+                },
+            )
+        return {
+            "ok": True,
+            "conversation": service.mark_conversation_read(session, conversation, profile),
         }
 
 

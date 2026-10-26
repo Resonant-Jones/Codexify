@@ -6,6 +6,7 @@ import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagin
 import {
   createDirectMessageConversation,
   fetchDirectMessageConversation,
+  markDirectMessageConversationRead,
   sendMessageRequest,
   fetchOwnSocialIdentity,
   fetchMessageRequests,
@@ -32,6 +33,7 @@ vi.mock("@/lib/direct-messages", async (importOriginal) => {
     resolveDirectMessageRelationship: vi.fn(),
     createDirectMessageConversation: vi.fn(),
     fetchDirectMessageConversation: vi.fn(),
+    markDirectMessageConversationRead: vi.fn(),
     sendMessageRequest: vi.fn(),
     fetchThreadProjectScope: vi.fn(),
     normalizeDirectMessageError: (error: unknown) =>
@@ -659,6 +661,7 @@ describe("recipient-local unread state", () => {
       .mockResolvedValueOnce([unread])
       .mockResolvedValue([read]);
     vi.mocked(fetchDirectMessageConversation).mockResolvedValue(read);
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue(read);
 
     renderInbox();
 
@@ -668,14 +671,32 @@ describe("recipient-local unread state", () => {
 
     fireEvent.click(screen.getByTestId("conversation-row"));
 
-    // Opening the conversation is the reader's own read action.
+    // Opening the conversation is the reader's own explicit read action.
     await waitFor(() =>
-      expect(fetchDirectMessageConversation).toHaveBeenCalledWith("c-open"),
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith("c-open"),
     );
     // The refreshed projection no longer reports unread for this reader.
     await waitFor(() =>
       expect(screen.queryByTestId("conversation-unread-badge")).toBeNull(),
     );
+  });
+
+  it("never marks a conversation read by merely fetching it", async () => {
+    const unread = conversation("c-fetch", "rel-ab", bob, "hello", 1);
+    mockedFetchConversations.mockResolvedValue([unread]);
+    vi.mocked(fetchDirectMessageConversation).mockResolvedValue(unread);
+
+    renderInbox();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument(),
+    );
+
+    // A plain fetch of the transcript is not a read action.
+    await fetchDirectMessageConversation("c-fetch");
+
+    expect(markDirectMessageConversationRead).not.toHaveBeenCalled();
+    expect(screen.getByTestId("conversation-unread-badge")).toBeInTheDocument();
   });
 
   it("refreshes unread state while the Inbox is open", async () => {
@@ -750,6 +771,7 @@ describe("recipient-local unread state", () => {
 
       // Refreshing unread state must not mark anything as read.
       expect(fetchDirectMessageConversation).not.toHaveBeenCalled();
+      expect(markDirectMessageConversationRead).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

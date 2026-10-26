@@ -47,6 +47,15 @@ def _send(client, conversation_id, body, key):
     return response.json()["message"]
 
 
+def _mark_read(client, conversation_id):
+    """The explicit read mutation — the only operation that advances a cursor."""
+    response = client.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read"
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["conversation"]
+
+
 def _cursor_rows(engine, conversation_id):
     with sessionmaker(bind=engine)() as session:
         return session.scalars(
@@ -80,7 +89,32 @@ def test_senders_own_messages_never_raise_their_own_count(seeded):  # noqa: F811
     assert _row(client_b, conversation_id)["unread_count"] == 2
 
 
-# ── 2. Opening advances the reader's cursor and clears their count ────────
+# ── 2. Retrieval is read-only; the explicit action advances the cursor ─────
+
+
+def test_conversation_get_does_not_advance_the_cursor(seeded):  # noqa: F811
+    """A GET is a safe read: fetching a transcript must not mark it read."""
+    client_a, client_b, _, _, conversation = _started_conversation(seeded)
+    conversation_id = conversation["conversation_id"]
+    _send(client_a, conversation_id, "from a", "read-state-get-1")
+    assert _row(client_b, conversation_id)["unread_count"] == 1
+
+    fetched = client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    assert fetched.status_code == 200, fetched.text
+    # The read still reports the caller's current unread count.
+    assert fetched.json()["conversation"]["unread_count"] == 1
+
+    # No cursor was created by the GET.
+    assert _cursor_rows(seeded, conversation_id) == []
+    assert _row(client_b, conversation_id)["unread_count"] == 1
+
+    # Reading the transcript again changes nothing.
+    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    client_b.get(
+        f"/api/direct-messages/conversations/{conversation_id}/messages"
+    )
+    assert _cursor_rows(seeded, conversation_id) == []
+    assert _row(client_b, conversation_id)["unread_count"] == 1
 
 
 def test_opening_advances_the_recipient_cursor_and_clears_unread(seeded):  # noqa: F811
@@ -91,9 +125,8 @@ def test_opening_advances_the_recipient_cursor_and_clears_unread(seeded):  # noq
     _send(client_a, conversation_id, "from a", "read-state-open-1")
     assert _row(client_b, conversation_id)["unread_count"] == 1
 
-    opened = client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
-    assert opened.status_code == 200, opened.text
-    assert opened.json()["conversation"]["unread_count"] == 0
+    opened = _mark_read(client_b, conversation_id)
+    assert opened["unread_count"] == 0
 
     # The cursor row exists for the READER only.
     rows = _cursor_rows(seeded, conversation_id)
@@ -113,12 +146,12 @@ def test_repeated_reads_are_idempotent_and_never_move_the_cursor_backwards(
     conversation_id = conversation["conversation_id"]
     _send(client_a, conversation_id, "from a", "read-state-repeat-1")
 
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
     first = _cursor_rows(seeded, conversation_id)[0]
     first_message_id = first.last_read_message_id
 
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
+    _mark_read(client_b, conversation_id)
 
     rows = _cursor_rows(seeded, conversation_id)
     assert len(rows) == 1
@@ -134,7 +167,7 @@ def test_cleared_state_survives_reload(seeded):  # noqa: F811
     conversation_id = conversation["conversation_id"]
     _send(client_a, conversation_id, "from a", "read-state-reload-1")
 
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
     assert _row(client_b, conversation_id)["unread_count"] == 0
 
     # A fresh list read (the reload path) still shows it as read.
@@ -147,7 +180,7 @@ def test_cleared_state_survives_a_new_session(seeded, tmp_path):  # noqa: F811
     client_a, client_b, _, _, conversation = _started_conversation(seeded)
     conversation_id = conversation["conversation_id"]
     _send(client_a, conversation_id, "from a", "read-state-session-1")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
 
     # The cursor is durable in the database, not in process memory.
     assert len(_cursor_rows(seeded, conversation_id)) == 1
@@ -163,13 +196,13 @@ def test_later_incoming_message_becomes_unread_again(seeded):  # noqa: F811
     conversation_id = conversation["conversation_id"]
 
     _send(client_a, conversation_id, "first", "read-state-again-1")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
     assert _row(client_b, conversation_id)["unread_count"] == 0
 
     _send(client_a, conversation_id, "second", "read-state-again-2")
     assert _row(client_b, conversation_id)["unread_count"] == 1
 
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
     assert _row(client_b, conversation_id)["unread_count"] == 0
 
 
@@ -196,7 +229,7 @@ def test_read_state_is_isolated_between_participants(seeded):  # noqa: F811
     conversation_id = conversation["conversation_id"]
 
     _send(client_a, conversation_id, "from a", "read-state-iso-1")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
 
     # A's own unread count is unaffected by B having read.
     assert _row(client_a, conversation_id)["unread_count"] == 0
@@ -211,7 +244,7 @@ def test_sender_cannot_observe_the_recipient_cursor(seeded):  # noqa: F811
     client_a, client_b, _, _, conversation = _started_conversation(seeded)
     conversation_id = conversation["conversation_id"]
     _send(client_a, conversation_id, "from a", "read-state-receipt-1")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
 
     payload = client_a.get(
         f"/api/direct-messages/conversations/{conversation_id}"
@@ -235,7 +268,7 @@ def test_nonparticipant_cannot_read_or_advance_the_cursor(seeded):  # noqa: F811
     )
     conversation_id = conversation["conversation_id"]
     _send(client_a, conversation_id, "from a", "read-state-auth-1")
-    client_b.get(f"/api/direct-messages/conversations/{conversation_id}")
+    _mark_read(client_b, conversation_id)
 
     cursor_before = _cursor_rows(seeded, conversation_id)
 
@@ -245,7 +278,14 @@ def test_nonparticipant_cannot_read_or_advance_the_cursor(seeded):  # noqa: F811
     assert denied.status_code == 404
     assert denied.json()["detail"]["error"] == "conversation_not_found"
 
-    # The reader's cursor is unchanged by the denied attempt.
+    # The explicit mutation is refused for a non-participant too.
+    denied_read = outsider.post(
+        f"/api/direct-messages/conversations/{conversation_id}/read"
+    )
+    assert denied_read.status_code == 404
+    assert denied_read.json()["detail"]["error"] == "conversation_not_found"
+
+    # The reader's cursor is unchanged by the denied attempts.
     cursor_after = _cursor_rows(seeded, conversation_id)
     assert [row.profile_id for row in cursor_after] == [
         row.profile_id for row in cursor_before

@@ -1238,12 +1238,31 @@ def read_conversation_for_participant(
     conversation: DirectMessageConversation,
     profile: UserProfile,
 ) -> dict[str, Any]:
-    """Read one conversation for a participant and advance their own cursor.
+    """Read one conversation for a participant.  **Read-only.**
 
-    Participation is authorized first, so a non-participant can neither read
-    the conversation nor advance anybody's cursor.  The returned payload
-    reports the unread count *after* the advance, so the recipient sees the
-    conversation they just opened as read.
+    Retrieval never advances read state: a retry or a prefetch of a transcript
+    must not mark a conversation read without the recipient choosing to open
+    it.  The returned payload reports the caller's *current* unread count.
+
+    Advancing the cursor is the explicit action in :func:`mark_conversation_read`.
+    """
+    node_id = profile.node_id
+    profile_id = profile.profile_id
+    require_participant(session, conversation, node_id, profile_id)
+    return conversation_payload(session, conversation, node_id, profile_id)
+
+
+def mark_conversation_read(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+) -> dict[str, Any]:
+    """Explicitly mark one conversation read for the authenticated participant.
+
+    This is the only operation that advances a read cursor.  Participation is
+    authorized first, so a non-participant can neither read the conversation
+    nor advance anybody's cursor, and only this profile's own cursor moves.
+    The returned payload reports the unread count *after* the advance.
     """
     node_id = profile.node_id
     profile_id = profile.profile_id
@@ -1462,6 +1481,7 @@ __all__ = [
     "list_messages",
     "list_relationships_for_profile",
     "local_node_id",
+    "mark_conversation_read",
     "message_payload",
     "normalize_search_query",
     "participant_addresses",

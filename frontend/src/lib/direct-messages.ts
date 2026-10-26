@@ -326,6 +326,30 @@ export async function fetchDirectMessageConversation(
   }
 }
 
+/**
+ * Explicitly mark one conversation read for the authenticated participant.
+ *
+ * This is the only operation that advances the recipient-local read cursor.
+ * Fetching a conversation is read-only: a retry or a prefetch must never mark
+ * a conversation read without the participant choosing to open it. The cursor
+ * is participant-local and is never a sender-visible read receipt.
+ */
+export async function markDirectMessageConversationRead(
+  conversationId: string,
+): Promise<DirectMessageConversation> {
+  try {
+    const response = await api.post<{
+      ok: boolean;
+      conversation: DirectMessageConversation;
+    }>(
+      `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}/read`,
+    );
+    return response.data.conversation;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
 export async function fetchDirectMessageMessages(
   conversationId: string,
   options: { limit?: number; beforeId?: string | null } = {},
