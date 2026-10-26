@@ -4,7 +4,7 @@ Purpose: give a solo operator the current truth surface for Guardian-mediated
 coding-worker work without implying autonomous convergence, commit behavior,
 or unbounded retry loops.
 
-Last updated: 2026-09-29
+Last updated: 2026-10-26
 
 Source anchors:
 - `docs/architecture/00-current-state.md`
@@ -208,6 +208,90 @@ either. Any re-dispatch needs separate authority and separate proof.
 worker is still reporting, the run already carries a different disposition, the
 claim no longer matches, or the evidence was re-read and found stale. Re-read
 the canonical state before assuming the run is abandoned.
+
+### Invoking the quarantine over HTTP
+
+The disposition above is reachable by an operator over HTTP, through the
+**existing** Guardian delegation route family:
+
+```
+POST /api/guardian/delegations/runs/{run_id}/quarantine
+```
+
+**This route is not enabled by default.** It lives on the `guardian_delegations`
+router, which is included only when the existing feature gate
+`CODEXIFY_ENABLE_GUARDIAN_DELEGATIONS_ROUTES` is explicitly enabled. That
+gate's default is off, the supported release profile quarantines the family,
+and nothing in this runbook changes either. A route proven with the gate
+enabled is **not** a deployment: it does not mean the supported Compose path
+exposes it.
+
+**The bounded workflow.**
+
+1. **Obtain the canonical liveness evidence.** Read the run's classification
+   first ("Reading a coding run's liveness classification"). You are looking
+   for **stale and uncertain**. Anything else — recently observed, missing
+   evidence, never accepted, already resolved, already escalated,
+   inconsistent, unobservable — is not a candidate, and the disposition will
+   refuse it.
+2. **Verify the intended run and worker claim.** Read
+   `coding_worker_instance_id` and `coding_worker_claim_id` from the canonical
+   run row. These are the values you will send. They are checked again inside
+   the transaction against the database clock, so if the worker renewed its
+   heartbeat after you read it, the disposition is refused.
+3. **Review possible external side effects.** Before disposing of anything,
+   look at the worktree, the repository, and any provider session the run may
+   have touched. A quarantine protects canonical state only.
+4. **Invoke the operator-only action.** One deliberate POST against one
+   identified run, with an explicit reason:
+
+   ```bash
+   curl -sS -X POST \
+     "http://<guardian-host>:<port>/api/guardian/delegations/runs/<run-id>/quarantine" \
+     -H "X-API-Key: ${GUARDIAN_API_KEY}" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "expected_worker_instance_id": "<worker-instance-id>",
+           "expected_worker_claim_id": "<worker-claim-id>",
+           "reason": "<why you are disposing of this run>"
+         }'
+   ```
+
+   Replace every placeholder. **Never** place a credential in the body, the
+   query string, or the path: the operator credential travels in the header
+   only, and the body carries only the two ownership values and your reason.
+   An operator-purpose session token in `Authorization: Bearer <token>` or in
+   the `gc_session` cookie works as well. Account and guest credentials never
+   authorize this, even when the run id and claim id are known.
+5. **Read back the committed escalation evidence.** The response is a bounded
+   receipt: `run_id`, `disposition`, `escalation_id`, `reason_code`,
+   `original_worker_instance_id`, `original_worker_claim_id`,
+   `operator_actor`, `already_quarantined`, and `recorded_at`. Then re-read the
+   canonical run row and the `agent_escalations` row in PostgreSQL to confirm
+   the committed state independently of the response.
+6. **Inspect the preserved worktree and external effects separately.** The
+   receipt does not tell you what the worker did. Do that yourself.
+
+**Reading the outcome.**
+
+| Response | What it means |
+|---|---|
+| `201` | Guardian committed the quarantine and its open escalation, together. |
+| `200` | An identical escalation already existed and was observed read-only. Nothing was duplicated, re-stamped, or rewritten. |
+| `401` | The operator credential was missing, expired, malformed, or was an account or guest credential. |
+| `404` | No such run. |
+| `409` | The run is not eligible: the ownership values do not match, the heartbeat is fresh, the run is already terminal, or it carries a conflicting disposition. Re-read the canonical state. |
+| `503` | The database was unreachable. Nothing was committed. |
+
+**What the receipt does not say.** It does not say the worker was stopped, that
+external effects were prevented, that the worktree was restored, that a
+provider session was cancelled, that a Git commit was undone, or that the
+execution outcome is known. Those remain yours to inspect.
+
+**There is no automatic path to this.** Nothing in the runtime calls this route
+on a timer, at startup, or in the background, and no heartbeat-age watcher
+watches for it. A run that goes unresolved while Guardian is down is still
+reconciled by you, deliberately.
 
 ## Pi Runtime Readiness Gate
 

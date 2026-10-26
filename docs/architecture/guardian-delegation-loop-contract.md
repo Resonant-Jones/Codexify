@@ -2,7 +2,7 @@
 
 Purpose: define v1 as a hybrid bridge: `Guardian-owned chat intake -> task normalization -> durable intent artifact -> existing coding-run backbone -> Guardian thread continuation -> Command Center transcript mirror`.
 
-Last updated: 2026-10-23
+Last updated: 2026-10-26
 
 Source anchors:
 - docs/architecture/00-current-state.md
@@ -77,6 +77,7 @@ What is not yet true:
 - Guardian delegation is therefore still **non-executable from a user's conversation**. Nothing in this slice makes a chat turn produce a delegated task.
 - The delegation route remains **flagged off by default** and quarantined by the supported profile, and no supported-profile or release-surface change has been made or authorized.
 - The dispatch recovery contract is **quarantine-and-escalate**: automated re-dispatch is refused because no fencing token exists in this runtime.
+- The operator quarantine **invocation path** exists and is proven in a disposable environment, but it is **not deployed**, **not enabled by default**, and **not part of the supported release surface**. The supported Compose path is unchanged.
 - Broad "answer as me" authority does not exist.
 - No new public release surface is implied by this contract.
 - Intent-spine unification does not exist.
@@ -572,6 +573,95 @@ operation. It deletes no worktree and no artifact. A quarantined run's external
 side effects remain uncertain and remain subject to operator inspection. No
 startup reconciliation is activated, and no worker-death determination is
 made.
+
+### The operator invocation path
+
+The quarantine above is now reachable by an explicitly authenticated
+operator, through the **existing** Guardian delegation route family. That adds
+an *invocation path*, not an authority.
+
+**The route.** One bounded, operator-only POST action:
+
+```
+POST /api/guardian/delegations/runs/{run_id}/quarantine
+```
+
+It lives on the existing `guardian/routes/guardian_delegations.py` router
+(`APIRouter(prefix="/api/guardian/delegations")`). No second router is
+introduced, and application-level router registration is unchanged. The `runs`
+path segment keeps the action out of the `{intent_id}` space, so it cannot
+collide with `/{intent_id}`, `/{intent_id}/approve`, or
+`/{intent_id}/cancel`.
+
+**The feature gate.** The whole router — this route included — is included
+through the existing gate `CODEXIFY_ENABLE_GUARDIAN_DELEGATIONS_ROUTES`,
+whose `default_enabled` is `False` and is **not** changed by this work. Under
+the default posture the route is absent and the supported release profile
+still quarantines the family. A feature-gated route proven in a disposable
+environment is not a deployment: it says nothing about the supported Compose
+path.
+
+**The authentication boundary.** The router already carries
+`dependencies=[Depends(require_operator_auth)]`, so the route requires
+operator authority before the handler runs. The route reads the credential
+material from the verified request — `X-API-Key`, `Authorization: Bearer`, or
+the `gc_session` cookie — and hands it to the service server-side. The
+service then performs its **own** authoritative verification; the dependency's
+returned display identity (`"operator-api-key"` or `"operator-session"`) is
+never used as authority. No credential material is read from the body, the
+query string, or the path, and none reaches the response, the exception
+detail, the application logs, the escalation evidence, or the Redis task
+events.
+
+**The request contract.** A strict model with `extra = "forbid"`:
+
+| Field | Bound | Meaning |
+|---|---|---|
+| `expected_worker_instance_id` | 1–64 | the worker the operator believes owns the run |
+| `expected_worker_claim_id` | 1–64 | the claim the operator believes owns the run |
+| `reason` | 1–2000 | the operator's explicit reason |
+
+The two identity values are **optimistic concurrency conditions**, not
+authority: the service still revalidates the canonical run, the ownership, the
+lineage, and the heartbeat condition inside the transaction. The model refuses
+an authorization boolean, a target run status, an escalation status, a new
+execution binding, a credential selection, a retry instruction, a worktree
+deletion instruction, a provider command, and a client-supplied escalation
+payload.
+
+**The receipt.** A successful invocation returns a bounded receipt grounded in
+committed database state: `run_id`, `disposition`, `escalation_id`,
+`reason_code`, `original_worker_instance_id`, `original_worker_claim_id`,
+`operator_actor`, `already_quarantined`, and `recorded_at`. A newly committed
+quarantine answers **201**; a repeated identical request observes the existing
+disposition read-only and answers **200**. Nothing else is returned: no raw
+prompts, no transcript content, no provider responses, no secret values, and
+no arbitrary escalation payload.
+
+**The mapping.** Ownership mismatch, fresh heartbeat, changed claim, terminal
+run, and conflicting existing escalation are **409**; an unknown run is
+**404**; an operator authentication or authorization failure is **401**; an
+unavailable database is **503**. The route never converts a persistence
+failure into a success. It performs **no** database write of its own: the
+service and `AgentStore.quarantine_coding_run_as_uncertain()` remain the sole
+implementation, the run's transition and its escalation evidence commit
+together or not at all, and no terminal task event and no source-thread result
+is published from the route.
+
+**No automatic recovery.** The route records an operator decision. It does not
+start, poll, schedule, or watch. `observe_liveness()`,
+`classify_dispatch_health()`, and `recover_dispatch()` are not wired into
+coding-worker startup, no heartbeat-age watcher is added, no automatic
+quarantine is scheduled, no task replay is implemented, and no ownership
+takeover is granted. A worker that dies while Guardian is down is still
+reconciled only by an operator, and the strict-xfail restart-reconciliation
+tripwire remains unresolved.
+
+**What the response means.** A 201 means Guardian durably recorded an
+authorized uncertain-outcome quarantine. It does not mean the previous worker
+was killed, that external effects were prevented, that the worktree was
+restored, that a provider session was cancelled, that a Git commit was undone,
+or that the execution outcome is known.
 
 ### Restart reconciliation of abandoned executions
 

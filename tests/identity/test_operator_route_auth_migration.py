@@ -102,6 +102,11 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("POST", "/api/guardian/delegations/{intent_id}/cancel", "cancel_guardian_delegation"),
         ("GET", "/api/guardian/delegations/{intent_id}", "get_guardian_delegation"),
         ("GET", "/api/guardian/delegations/{intent_id}/transcript", "get_guardian_delegation_transcript"),
+        # The operator-authorized uncertain coding-run quarantine. It reuses the
+        # same router, the same require_operator_auth gate, and the same
+        # default-off activation as every route above; it adds no new
+        # authority, only a new invocation path for the existing one.
+        ("POST", "/api/guardian/delegations/runs/{run_id}/quarantine", "quarantine_guardian_coding_run"),
     ),
     "guardian.routes.llm_overrides": (
         ("GET", "/api/llm/model-overrides", "list_model_overrides"),
@@ -200,9 +205,9 @@ def _sign_legacy(secret: str) -> str:
     return f"{encode(payload)}.{encode(signature)}"
 
 
-def test_frozen_operator_manifest_has_exactly_58_registrations_in_13_files():
+def test_frozen_operator_manifest_has_exactly_59_registrations_in_13_files():
     assert len(EXPECTED) == 13
-    assert sum(map(len, EXPECTED.values())) == 58
+    assert sum(map(len, EXPECTED.values())) == 59
 
     for module_name, registrations in EXPECTED.items():
         for method, path, handler in registrations:
@@ -224,7 +229,7 @@ def test_frozen_operator_manifest_has_exactly_58_registrations_in_13_files():
 
 def test_frozen_activation_ledger_and_supported_profile_posture():
     assert sum(len(EXPECTED[name]) for name in ENABLED_MODULES) == 24
-    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 29
+    assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 30
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
 

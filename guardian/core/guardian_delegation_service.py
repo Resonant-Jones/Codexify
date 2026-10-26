@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from guardian.db.models import (
     AgentDeployment,
+    AgentEscalation,
     AgentEvent,
     AgentRun,
     AgentRunArtifact,
@@ -710,9 +711,10 @@ class GuardianDelegationService:
         run_id: str,
         operator_api_key: str | None = None,
         operator_session_token: str | None = None,
+        operator_session_cookie: str | None = None,
         expected_worker_instance_id: str,
         expected_claim_id: str,
-        expected_account_user_id: str,
+        expected_account_user_id: str | None = None,
         reason: str,
         reason_code: str = "guardian_dispatch_liveness_unproven",
         severity: str = "hard",
@@ -749,7 +751,15 @@ class GuardianDelegationService:
         operator_actor = self._authenticate_operator(
             operator_api_key=operator_api_key,
             operator_session_token=operator_session_token,
+            operator_session_cookie=operator_session_cookie,
         )
+
+        account_user_id = str(expected_account_user_id or "").strip()
+        if not account_user_id:
+            # The account is canonical, never client-supplied: read it from the
+            # run row so the store's cross-account check still runs against the
+            # authoritative value inside the transaction.
+            account_user_id = self._canonical_account_user_id(str(run_id))
 
         snapshot = self.agent_store.get_coding_run_liveness_snapshot(
             str(run_id),
@@ -819,7 +829,7 @@ class GuardianDelegationService:
             run_id=str(run_id),
             expected_worker_instance_id=str(expected_worker_instance_id),
             expected_claim_id=str(expected_claim_id),
-            expected_account_user_id=str(expected_account_user_id),
+            expected_account_user_id=account_user_id,
             operator_actor=operator_actor,
             reason=str(reason),
             reason_code=str(reason_code),
@@ -828,6 +838,9 @@ class GuardianDelegationService:
             operator_decision_provenance=evidence[
                 "operator_decision_provenance"
             ],
+        )
+        receipt["recorded_at"] = self._escalation_recorded_at(
+            receipt.get("escalation_id")
         )
 
         outcome = str(receipt.get("outcome") or "")
@@ -858,6 +871,7 @@ class GuardianDelegationService:
         *,
         operator_api_key: str | None,
         operator_session_token: str | None,
+        operator_session_cookie: str | None = None,
     ) -> str:
         """Verify operator authority and return the verified actor.
 
@@ -887,7 +901,11 @@ class GuardianDelegationService:
                         else None
                     ),
                     authorization=authorization,
-                    gc_session=None,
+                    gc_session=(
+                        str(operator_session_cookie).strip()
+                        if str(operator_session_cookie or "").strip()
+                        else None
+                    ),
                     request=None,
                 )
             )
@@ -896,6 +914,44 @@ class GuardianDelegationService:
                 status_code=401,
                 detail="guardian_operator_authorization_required",
             ) from exc
+
+    def _canonical_account_user_id(self, run_id: str) -> str:
+        """The account that owns a run, read from the canonical row.
+
+        The account is never taken from the request. When a caller does not
+        state one, the canonical value is used so the store's cross-account
+        check still runs against the authoritative account inside the
+        transaction.
+        """
+        try:
+            with self._require_db().get_session() as session:
+                row = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(run_id))
+                    .first()
+                )
+                if row is None:
+                    return ""
+                return str(row.account_origin_user_id or "")
+        except Exception:
+            return ""
+
+    def _escalation_recorded_at(self, escalation_id: Any) -> str | None:
+        """When the escalation record was committed, in the database clock."""
+        if escalation_id is None:
+            return None
+        try:
+            with self._require_db().get_session() as session:
+                row = (
+                    session.query(AgentEscalation)
+                    .filter_by(id=escalation_id)
+                    .first()
+                )
+                if row is None or row.created_at is None:
+                    return None
+                return row.created_at.isoformat()
+        except Exception:
+            return None
 
     def cancel_intent(self, intent_id: str) -> dict[str, Any]:
         db = self._require_db()

@@ -421,6 +421,9 @@ def test_no_command_center_ui_or_extra_routes_added() -> None:
         "/api/guardian/delegations/{intent_id}/approve",
         "/api/guardian/delegations/{intent_id}/cancel",
         "/api/guardian/delegations/{intent_id}/transcript",
+        # The operator-authorized uncertain-run quarantine, on the same router
+        # and the same default-off gate as every route above.
+        "/api/guardian/delegations/runs/{run_id}/quarantine",
     }
     assert all("command-center" not in path for path in route_paths)
 

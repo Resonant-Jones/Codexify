@@ -962,6 +962,10 @@ def test_only_expected_guardian_delegation_routes_registered() -> None:
         ("/api/guardian/delegations/{intent_id}/approve", ("POST",)),
         ("/api/guardian/delegations/{intent_id}/cancel", ("POST",)),
         ("/api/guardian/delegations/{intent_id}/transcript", ("GET",)),
+        # The operator-authorized uncertain-run quarantine. It is a distinct
+        # path segment -- "runs" -- so it cannot collide with the {intent_id}
+        # routes above.
+        ("/api/guardian/delegations/runs/{run_id}/quarantine", ("POST",)),
     }
 
 
@@ -973,6 +977,9 @@ def test_guardian_api_route_is_flagged_off_by_default() -> None:
     }
     assert "/api/guardian/delegations" not in paths
     assert "/api/guardian/delegations/{intent_id}/transcript" not in paths
+    # The quarantine invocation path inherits the same gate: it is not part of
+    # the default supported release surface.
+    assert "/api/guardian/delegations/runs/{run_id}/quarantine" not in paths
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core.dependencies import require_operator_auth
@@ -104,6 +104,93 @@ async def cancel_guardian_delegation(intent_id: str) -> dict[str, Any]:
             status_code=exc.status_code,
             detail=exc.detail,
         ) from exc
+
+
+class GuardianDelegationQuarantineRequest(BaseModel):
+    """One operator's explicit intent to quarantine a single unresolved run.
+
+    The request carries the operator's *optimistic concurrency* values: the
+    worker instance and the claim the operator believes still own the run.
+    They do not grant authority -- the service revalidates the canonical run,
+    the ownership, the lineage, and the heartbeat condition inside the
+    persistence transaction.
+    """
+
+    expected_worker_instance_id: str = Field(min_length=1, max_length=64)
+    expected_worker_claim_id: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/runs/{run_id}/quarantine")
+async def quarantine_guardian_coding_run(
+    run_id: str = Path(min_length=1, max_length=64),
+    body: GuardianDelegationQuarantineRequest = ...,
+    request: Request = ...,
+    response: Response = ...,
+) -> dict[str, Any]:
+    """Record an operator-authorized uncertain-outcome quarantine.
+
+    This is an **explicit operator action**, never an automatic recovery. The
+    router already requires operator authority, and the service performs its
+    own authoritative verification from the presented credential material: no
+    caller-supplied boolean, actor name, or run knowledge can authorize the
+    disposition.
+
+    The route does not touch the database. The existing service and the
+    existing atomic quarantine persistence operation remain the only
+    implementation: the run's transition to ``escalated`` and its open
+    escalation record commit together, or not at all.
+
+    The receipt is bounded: it reports the committed disposition, the
+    escalation identity, the preserved ownership, and the verified operator
+    actor. It never echoes credential material, and it never claims the
+    execution's external effects were prevented or undone.
+    """
+    operator_api_key = request.headers.get("X-API-Key")
+    authorization = request.headers.get("Authorization") or ""
+    operator_session_token = None
+    if authorization.lower().startswith("bearer "):
+        operator_session_token = authorization[7:].strip() or None
+    operator_session_cookie = request.cookies.get("gc_session")
+
+    try:
+        receipt = _service.quarantine_uncertain_coding_run(
+            run_id=run_id,
+            # The credential material travels server-side, from the verified
+            # request to the service's own verification. It is never taken
+            # from the body, the query string, or the path.
+            operator_api_key=operator_api_key,
+            operator_session_token=operator_session_token,
+            operator_session_cookie=operator_session_cookie,
+            expected_worker_instance_id=body.expected_worker_instance_id,
+            expected_claim_id=body.expected_worker_claim_id,
+            reason=body.reason,
+        )
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from exc
+
+    already_quarantined = str(receipt.get("outcome") or "") == "already_disposed"
+    # A newly committed quarantine is a created disposition; a repeated
+    # request observes the existing one read-only.
+    response.status_code = 200 if already_quarantined else 201
+    return {
+        "run_id": receipt.get("run_id"),
+        "disposition": receipt.get("status") or "escalated",
+        "escalation_id": receipt.get("escalation_id"),
+        "reason_code": receipt.get("reason_code"),
+        "original_worker_instance_id": receipt.get(
+            "original_worker_instance_id"
+        ),
+        "original_worker_claim_id": receipt.get("original_worker_claim_id"),
+        "operator_actor": receipt.get("operator_actor"),
+        "already_quarantined": already_quarantined,
+        "recorded_at": receipt.get("recorded_at"),
+    }
 
 
 @router.get("/{intent_id}")
