@@ -306,7 +306,12 @@ def test_tool_loop_obeys_terminal_gate(monkeypatch):
         )
 
 
-def _seed_worker_terminal_harness(monkeypatch, *, durable_terminal_recorded: bool = True):
+def _seed_worker_terminal_harness(
+    monkeypatch,
+    *,
+    durable_terminal_recorded: bool = True,
+    durable_completion_message_id: int | None = None,
+):
     published: list[tuple[str, dict]] = []
     effects: list[str] = []
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
@@ -324,7 +329,7 @@ def _seed_worker_terminal_harness(monkeypatch, *, durable_terminal_recorded: boo
             "request_id": task.request_id,
             "thread_id": task.thread_id,
             "turn_id": chat_worker._extract_turn_id(task),
-            "completed_message_id": None,
+            "completed_message_id": durable_completion_message_id,
             "terminal_event_type": None,
             "terminal_outcome": None,
             "deadline_snapshot": None,
@@ -335,14 +340,19 @@ def _seed_worker_terminal_harness(monkeypatch, *, durable_terminal_recorded: boo
         "_record_chat_completion_attempt_terminal",
         lambda *_args, **_kwargs: durable_terminal_recorded,
     )
-    # No durable terminal truth exists yet, so turn-lock cleanup must not be
-    # attempted: release_terminal_attempt_turn_lock is reachable only with
-    # acknowledged durable terminal truth and the preserved lease token. The
-    # retired release_turn_lock symbol is removed rather than replaced.
+    # The durable observation reports exactly what the accepted attempt
+    # already holds: no terminal outcome, unless the attempt was already
+    # durably completed. No durable terminal truth exists yet, so turn-lock
+    # cleanup must not be attempted: release_terminal_attempt_turn_lock is
+    # reachable only with acknowledged durable terminal truth and the preserved
+    # lease token. The retired release_turn_lock symbol is removed rather than
+    # replaced.
     monkeypatch.setattr(
         chat_worker,
         "observe_chat_completion_attempt_terminal",
-        lambda *_args, **_kwargs: ChatAttemptReconciliation(None, None, None, None),
+        lambda *_args, **_kwargs: ChatAttemptReconciliation(
+            durable_completion_message_id, None, None, None
+        ),
     )
     monkeypatch.setattr(
         chat_worker,
@@ -406,6 +416,9 @@ def test_incomplete_output_publishes_failed_without_completion_effects(monkeypat
         payload for event_type, payload in published if event_type == "task.failed"
     )
     assert failed["terminal_evidence"]["status"] == "stream_incomplete"
+    # The visible output that was already produced is preserved in the
+    # terminal evidence rather than dropped with the incomplete stream.
+    assert failed["terminal_evidence"]["visible_output_emitted"] is True
     assert failed["first_output_observed"] is True
 
 
@@ -432,6 +445,41 @@ def test_cancelled_output_publishes_cancelled_without_persistence(monkeypatch):
         item for event_type, item in published if event_type == "task.cancelled"
     )
     assert payload["terminal_evidence"]["visible_output_emitted"] is True
+
+
+def test_cancelled_output_does_not_rewrite_an_existing_durable_completion(monkeypatch):
+    """A durable completion outranks a late cancellation observation.
+
+    The accepted attempt is already durably complete, so the worker must
+    project that durable truth and never reach the cancellation branch. A
+    cancellation seen afterwards may not rewrite a completion that already
+    happened.
+    """
+    published, effects = _seed_worker_terminal_harness(
+        monkeypatch, durable_completion_message_id=42
+    )
+    cancelled = chat_completion_service.ChatTaskCancelled(
+        provider="local",
+        model="test-model",
+        visible_output_emitted=True,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "run_chat_completion_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(cancelled),
+    )
+
+    chat_worker._run_chat_task(_task())
+
+    event_types = [event_type for event_type, _payload in published]
+    assert "task.cancelled" not in event_types
+    assert "task.completed" in event_types
+    assert effects == []
+    completed = next(
+        item for event_type, item in published if event_type == "task.completed"
+    )
+    assert completed["message_id"] == 42
+    assert completed["reason"] == "durable_completion_recorded"
 
 
 @pytest.mark.parametrize("terminal", ["failure", "cancellation"])
