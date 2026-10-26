@@ -162,6 +162,53 @@ committed an external change. The absence of a canonical result is **not** the
 absence of external side effects. Inspect the worktree and the repository
 before you re-drive anything.
 
+### Disposing of an uncertain coding run
+
+When a run is unresolved, Guardian can record an **operator-authorized
+quarantine**: the canonical run moves to `escalated` and one open escalation
+record explains why, committed together. This is a disposition, not a
+recovery.
+
+**How to read the evidence first.** A stale heartbeat means the owning claim
+has not renewed liveness recently. It does **not** mean the worker stopped: a
+worker between phases, blocked on a provider call, or paused by the host looks
+exactly the same. A fresh heartbeat means the worker is still reporting — and
+an active worker is not a recovery candidate, so the disposition is refused
+while the heartbeat is fresh. A run with no ownership record is
+ownership-unknown and belongs to a separate investigation, not to this
+disposition.
+
+**What an authorized quarantine changes.** The run's canonical status becomes
+`escalated`; one open escalation record is written with the run, the original
+worker instance and claim, the last heartbeat, the database observation
+instant, the liveness verdict, the verified operator actor, and the recorded
+reason; the run's end timestamp is stamped. That is all.
+
+**What it does not change.** It does not stop the worker, the provider call, a
+subprocess, or a filesystem mutation that may already be in flight. It deletes
+no worktree and no artifact. It delivers **no** source-thread result and
+publishes **no** `task.failed` / `task.completed` / `task.cancelled` event. The
+run's outcome stays `unknown`; `escalated` is not `failed`, and it is not proof
+that the worker died. It grants no retry and no ownership transfer.
+
+**Why the worktree still needs inspection.** A quarantine protects canonical
+state only. The worker may already have modified an isolated worktree, left an
+untracked file, started a subprocess, or begun a commit. The disposition
+records whether a worktree was *known* to exist; when that cannot be
+established, the record says so rather than claiming preservation. Inspect the
+worktree and the repository yourself.
+
+**Why re-dispatch remains forbidden.** A re-dispatch mints a new attempt
+without fencing, and duplicate execution effects are not idempotent. A
+quarantine withholds canonical completion until the unresolved execution is
+investigated; it never re-drives anything, and it does not enable a re-drive
+either. Any re-dispatch needs separate authority and separate proof.
+
+**If the disposition is refused.** A refusal is a fact, not a failure: the
+worker is still reporting, the run already carries a different disposition, the
+claim no longer matches, or the evidence was re-read and found stale. Re-read
+the canonical state before assuming the run is abandoned.
+
 ## Pi Runtime Readiness Gate
 
 The source-Compose coding worker uses a dedicated

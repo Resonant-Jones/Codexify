@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +25,9 @@ from guardian.core.guardian_delegation_service import (
     build_guardian_delegation_result_message_content,
     sanitize_guardian_result_files_for_display,
     sanitize_guardian_validation_results_for_display,
+)
+from guardian.core.guardian_dispatch import (
+    CODING_RUN_LIVENESS_STALE_AFTER_SECONDS,
 )
 from guardian.db.models import (
     AgentConfidenceReport,
@@ -204,6 +207,13 @@ class _SharedTransactionSession:
         authorised them, or rolls them back with it.
         """
         self._session.flush()
+
+
+#: The canonical recovery reason for an execution whose liveness is unproven.
+#: It mirrors the reason the dispatch recovery contract already uses, so an
+#: escalation record speaks the existing recovery vocabulary rather than a
+#: new one.
+GUARDIAN_ESCALATION_LIVENESS_UNPROVEN = "guardian_dispatch_liveness_unproven"
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
@@ -1965,6 +1975,305 @@ class AgentStore:
             }
         )
 
+    def quarantine_coding_run_as_uncertain(
+        self,
+        *,
+        run_id: str,
+        expected_worker_instance_id: str,
+        expected_claim_id: str,
+        expected_account_user_id: str,
+        operator_actor: str,
+        reason: str,
+        reason_code: str = GUARDIAN_ESCALATION_LIVENESS_UNPROVEN,
+        severity: str = "hard",
+        stale_after_seconds: int = CODING_RUN_LIVENESS_STALE_AFTER_SECONDS,
+        operator_decision_provenance: dict[str, Any] | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record an authorized uncertain-outcome quarantine for one run.
+
+        This is the persistence half of the Guardian quarantine-and-escalate
+        contract. The **authorization** half lives in the delegation service:
+        this method takes a *verified* operator actor, and it takes no
+        boolean that could be asserted instead of proven.
+
+        Everything below happens in **one** transaction. The run's transition
+        to ``escalated`` and the open escalation record that explains it are
+        committed together or not at all: there is never an escalated run
+        without its escalation evidence, and never escalation evidence
+        attached to a run whose transition did not commit.
+
+        The transition is conditional on the canonical state:
+
+        - the run is still ``running``,
+        - the recorded worker instance and claim are exactly the expected
+          ones,
+        - the recorded heartbeat is **older** than the observation horizon,
+          evaluated by the database clock *inside this transaction*.
+
+        That last condition is what makes the operation safe against a worker
+        that resumed reporting between the operator's review and the commit:
+        a fresh heartbeat means the worker is alive, and a live worker is not
+        an abandoned-run recovery candidate.
+
+        The disposition grants no retry, requeue, credential, binding, or
+        ownership authority. It withholds canonical completion until an
+        operator investigates the unresolved execution.
+        """
+        if not self._has_db():
+            return {
+                "outcome": "unavailable",
+                "run_id": str(run_id),
+                "reason_code": "guardian_quarantine_persistence_unavailable",
+            }
+
+        horizon = max(0, int(stale_after_seconds))
+        bounded_evidence = dict(evidence or {})
+        with self.db.get_session() as session:
+            run_row = (
+                session.query(AgentRun).filter_by(run_id=str(run_id)).one_or_none()
+            )
+            if run_row is None:
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_run_not_found",
+                }
+
+            current_status = _normalize_agent_run_status(run_row.status)
+            if current_status == "escalated":
+                # Already disposed. An identical disposition is idempotent; a
+                # different one is a conflict, and neither rewrites the
+                # existing record.
+                session.rollback()
+                return self._existing_quarantine_disposition(
+                    session=session,
+                    run_row=run_row,
+                    expected_worker_instance_id=expected_worker_instance_id,
+                    expected_claim_id=expected_claim_id,
+                    operator_actor=operator_actor,
+                    reason_code=reason_code,
+                )
+            if current_status != "running":
+                session.rollback()
+                return {
+                    "outcome": "conflict",
+                    "run_id": str(run_id),
+                    "status": current_status,
+                    "reason_code": "guardian_quarantine_run_already_terminal",
+                }
+
+            if str(run_row.coding_worker_instance_id or "") != str(
+                expected_worker_instance_id or ""
+            ):
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_worker_identity_mismatch",
+                }
+            if str(run_row.coding_worker_claim_id or "") != str(
+                expected_claim_id or ""
+            ):
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_claim_mismatch",
+                }
+            if str(run_row.account_origin_user_id or "") != str(
+                expected_account_user_id or ""
+            ):
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_account_mismatch",
+                }
+            if run_row.deployment_id is None:
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_deployment_missing",
+                }
+            deployment_row = (
+                session.query(AgentDeployment)
+                .filter_by(id=run_row.deployment_id)
+                .one_or_none()
+            )
+            if deployment_row is None:
+                session.rollback()
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_deployment_missing",
+                }
+
+            # The guarded transition. The staleness condition is evaluated by
+            # the database clock, in this transaction, so a heartbeat that
+            # became fresh after the operator's review refuses the transition.
+            updated = (
+                session.query(AgentRun)
+                .filter(
+                    AgentRun.run_id == str(run_id),
+                    AgentRun.status == "running",
+                    AgentRun.coding_worker_instance_id
+                    == str(expected_worker_instance_id),
+                    AgentRun.coding_worker_claim_id == str(expected_claim_id),
+                    AgentRun.coding_worker_last_heartbeat_at.isnot(None),
+                    AgentRun.coding_worker_last_heartbeat_at
+                    <= func.now() - timedelta(seconds=horizon),
+                )
+                .update(
+                    {
+                        "status": "escalated",
+                        # The database clock is the canonical time source.
+                        "ended_at": func.now(),
+                    },
+                    synchronize_session=False,
+                )
+            )
+            if updated != 1:
+                # The guarded transition did not apply. Either the evidence
+                # became fresh, or another disposition committed first while
+                # this transaction waited on the row lock. Re-read the
+                # canonical row: a disposition that won the race must be
+                # reported, not overwritten and not misreported as fresh
+                # evidence.
+                session.rollback()
+                current = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(run_id))
+                    .one_or_none()
+                )
+                if current is not None and _normalize_agent_run_status(
+                    current.status
+                ) == "escalated":
+                    return self._existing_quarantine_disposition(
+                        session=session,
+                        run_row=current,
+                        expected_worker_instance_id=expected_worker_instance_id,
+                        expected_claim_id=expected_claim_id,
+                        operator_actor=operator_actor,
+                        reason_code=reason_code,
+                    )
+                return {
+                    "outcome": "rejected",
+                    "run_id": str(run_id),
+                    "reason_code": "guardian_quarantine_evidence_not_stale",
+                }
+
+            preserved_worktree = bool(
+                str(run_row.worktree_path or "").strip()
+                or str(run_row.worktree_id or "").strip()
+            )
+            payload = dict(bounded_evidence)
+            payload.update(
+                {
+                    "run_id": str(run_id),
+                    "deployment_id": str(deployment_row.deployment_id),
+                    "original_worker_instance_id": str(
+                        expected_worker_instance_id
+                    ),
+                    "original_worker_claim_id": str(expected_claim_id),
+                    "account_origin_user_id": str(expected_account_user_id),
+                    "original_execution_status": "running",
+                    "final_disposition": "escalated",
+                    "operator_actor": str(operator_actor),
+                    "operator_decision_provenance": dict(
+                        operator_decision_provenance or {}
+                    ),
+                    "execution_result": "unknown",
+                    "preserved_worktree": preserved_worktree,
+                    "worktree_presence": (
+                        "established" if preserved_worktree else "unknown"
+                    ),
+                }
+            )
+            row = self._insert_escalation(
+                session=session,
+                run_row=run_row,
+                step_index=None,
+                severity=severity,
+                reason_code=reason_code,
+                reason=reason,
+                preserved_worktree=preserved_worktree,
+                payload=payload,
+            )
+            session.commit()
+            return {
+                "outcome": "quarantined",
+                "run_id": str(run_id),
+                "status": "escalated",
+                "escalation_id": row.id,
+                "escalation_status": row.status,
+                "reason_code": reason_code,
+                "severity": severity,
+                "preserved_worktree": preserved_worktree,
+                "original_worker_instance_id": str(expected_worker_instance_id),
+                "original_worker_claim_id": str(expected_claim_id),
+                "operator_actor": str(operator_actor),
+                "payload": payload,
+            }
+
+    def _existing_quarantine_disposition(
+        self,
+        *,
+        session: Any,
+        run_row: Any,
+        expected_worker_instance_id: str,
+        expected_claim_id: str,
+        operator_actor: str,
+        reason_code: str,
+    ) -> dict[str, Any]:
+        """Describe the disposition an escalated run already carries.
+
+        An identical disposition is reported as read-only evidence. A
+        different one is a conflict: the existing disposition is never
+        rewritten, and its operator provenance is never replaced.
+        """
+        rows = (
+            session.query(AgentEscalation)
+            .filter_by(run_id=run_row.id)
+            .order_by(AgentEscalation.id.asc())
+            .all()
+        )
+        for row in rows:
+            payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+            identical = (
+                str(payload.get("original_worker_claim_id") or "")
+                == str(expected_claim_id)
+                and str(payload.get("operator_actor") or "") == str(operator_actor)
+                and str(row.reason_code or "") == str(reason_code)
+            )
+            if identical:
+                return {
+                    "outcome": "already_disposed",
+                    "run_id": str(run_row.run_id),
+                    "status": "escalated",
+                    "escalation_id": row.id,
+                    "escalation_status": row.status,
+                    "reason_code": row.reason_code,
+                    "severity": row.severity,
+                    "preserved_worktree": bool(row.preserved_worktree),
+                    "original_worker_instance_id": str(
+                        payload.get("original_worker_instance_id") or ""
+                    ),
+                    "original_worker_claim_id": str(
+                        payload.get("original_worker_claim_id") or ""
+                    ),
+                    "operator_actor": str(payload.get("operator_actor") or ""),
+                    "payload": dict(payload),
+                }
+        return {
+            "outcome": "conflict",
+            "run_id": str(run_row.run_id),
+            "status": "escalated",
+            "reason_code": "guardian_quarantine_already_disposed_differently",
+        }
+
     def add_escalation(
         self,
         *,
@@ -1983,25 +2292,16 @@ class AgentStore:
                 )
                 if run_row is None:
                     raise ValueError(f"Unknown run_id '{run_id}'")
-                step_row = None
-                if step_index is not None:
-                    step_row = (
-                        session.query(AgentRunStep)
-                        .filter_by(run_id=run_row.id, step_index=step_index)
-                        .first()
-                    )
-                row = AgentEscalation(
-                    run_id=run_row.id,
-                    run_step_id=step_row.id if step_row else None,
+                row = self._insert_escalation(
+                    session=session,
+                    run_row=run_row,
                     step_index=step_index,
                     severity=severity,
                     reason_code=reason_code,
                     reason=reason,
-                    status="open",
                     preserved_worktree=preserved_worktree,
-                    payload_json=dict(payload or {}),
+                    payload=payload,
                 )
-                session.add(row)
                 session.commit()
                 return {
                     "id": row.id,
@@ -2026,6 +2326,47 @@ class AgentStore:
         }
         self._mem_escalations.append(entry)
         return entry
+
+    def _insert_escalation(
+        self,
+        *,
+        session: Any,
+        run_row: Any,
+        step_index: int | None,
+        severity: str,
+        reason_code: str,
+        reason: str,
+        preserved_worktree: bool,
+        payload: dict[str, Any] | None,
+    ) -> Any:
+        """Insert one escalation row on the caller's session.
+
+        The caller owns the transaction. The public ``add_escalation`` keeps
+        its own session and commit; a disposition that must commit a run's
+        state change and its escalation evidence *together* uses this helper
+        instead, so the two can never be durable separately.
+        """
+        step_row = None
+        if step_index is not None:
+            step_row = (
+                session.query(AgentRunStep)
+                .filter_by(run_id=run_row.id, step_index=step_index)
+                .first()
+            )
+        row = AgentEscalation(
+            run_id=run_row.id,
+            run_step_id=step_row.id if step_row else None,
+            step_index=step_index,
+            severity=severity,
+            reason_code=reason_code,
+            reason=reason,
+            status="open",
+            preserved_worktree=preserved_worktree,
+            payload_json=dict(payload or {}),
+        )
+        session.add(row)
+        session.flush()
+        return row
 
     def list_attempts(
         self,

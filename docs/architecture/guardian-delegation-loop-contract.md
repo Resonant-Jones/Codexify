@@ -464,6 +464,115 @@ external side effects, and no provider-enforced sandbox conformance is claimed.
 at startup. No worker-init, no poll loop, no recovery path consumes it, and
 `recover_dispatch()` is not activated for production runs.
 
+### Operator-authorized uncertain-outcome quarantine
+
+Liveness classification produces *evidence*. The disposition that acts on that
+evidence is a separate, explicitly authorized decision, and it is persisted
+atomically.
+
+**The authority.** Guardian already has an operator authority:
+`require_operator_auth` accepts a configured Guardian API key or a
+current-format signed token carrying the operator purpose, and it rejects
+account and guest credentials *before* the API-key fallback, so a principal
+credential is never reinterpreted as operator material. The disposition uses
+that authority as-is. It does not accept a caller-supplied
+`operator_authorized=True`, a client-supplied role string, or anything derived
+from model output, a queue payload, or a tool result. The operator actor is
+*derived* by the verification, and it is distinct from the account owner, the
+worker instance, the execution claim, and the credential owner.
+
+**The sequence.**
+
+```
+canonical liveness evidence
+    -> operator reviews the uncertainty
+    -> Guardian verifies the operator authority
+    -> Guardian re-evaluates the existing quarantine contract
+    -> guarded PostgreSQL disposition
+```
+
+The classifier's `stale_uncertain` result is what the operator reviews. It is
+never the authorization, and it never triggers anything by itself.
+
+**Canonical preconditions.** The target must be a `running` run with a durable
+deployment, existing Guardian execution lineage, a recorded worker instance and
+claim, and a heartbeat **older than the observation horizon**. The expected
+worker, claim, and account must match. A fresh heartbeat is refused: an
+actively reporting worker is not an abandoned-run candidate. A historical
+ownership-unknown row is refused: it needs a separate operator investigation
+procedure, and its ownership is never backfilled or inferred.
+
+**One transaction.** The guarded transition and the escalation evidence commit
+together:
+
+```
+UPDATE agent_runs
+   SET status = 'escalated', ended_at = now()
+ WHERE run_id = :run
+   AND status = 'running'
+   AND coding_worker_instance_id = :worker
+   AND coding_worker_claim_id = :claim
+   AND coding_worker_last_heartbeat_at <= now() - :horizon
+```
+
+The staleness condition is evaluated by the **database clock, inside the
+transaction**, so a heartbeat that became fresh after the operator's review
+refuses the transition. The `AgentEscalation` row is inserted on the same
+session: `status = open`, the existing recovery reason
+`guardian_dispatch_liveness_unproven`, an appropriate severity, an
+evidence-backed `preserved_worktree`, and a bounded evidence payload. There is
+never an escalated run without its committed escalation evidence, and never
+escalation evidence attached to a run whose transition did not commit. The
+public `AgentStore.add_escalation()` keeps its existing behaviour; a
+narrow session-aware helper serves the guarded path.
+
+**Evidence, not verdicts.** The escalation records the run, the deployment, the
+original worker instance and claim, the last heartbeat, the database
+observation instant, the conservative liveness verdict, the recovery reason, the
+verified operator actor, the operator decision provenance, the original
+execution status, the final disposition, and the worktree preservation
+evidence. It carries no credential material, no raw prompt, and no transcript
+content. When the existence of a worktree cannot be established, the evidence
+records that uncertainty rather than claiming a worktree was preserved.
+
+**Three meanings stay distinct.**
+
+```
+classification = stale_uncertain
+disposition    = escalated
+result         = unknown
+```
+
+`escalated` is not `failed`, and `quarantined` is not proof that the previous
+worker stopped executing. A quarantine is an operator-visible decision to
+withhold canonical completion until the unresolved execution is investigated.
+No `task.failed`, `task.completed`, or `task.cancelled` is fabricated, and the
+disposition grants no retry, requeue, credential, binding, or ownership
+authority.
+
+**Races and duplicates.** A terminal decision that committed first is never
+overwritten: the quarantine refuses, the terminal status, its artifact, and
+its source-thread result are preserved, and no quarantine escalation is
+created. A quarantine that committed first blocks the late worker: the
+escalated status stands, exactly one escalation record exists, and the stale
+worker's terminalization is rejected by the claim fence — no artifact, no
+source-thread result, no terminal event. A repeated authorized request for the
+same run, claim, operator, and reason observes the existing disposition
+read-only: no second escalation, no reset timestamp, no replaced provenance, no
+reopened run. A run escalated for a different reason or by a different
+authority is a conflict, and its existing disposition is never rewritten.
+
+**Active peers.** A disposition is scoped to one run and its recorded owner. It
+never reads, classifies, modifies, or delivers anything for a peer worker's
+run, and a peer's activity never makes a stale run look healthy.
+
+**What a quarantine does not do.** It does not stop an already-running Pi
+invocation, provider request, subprocess, filesystem mutation, or network
+operation. It deletes no worktree and no artifact. A quarantined run's external
+side effects remain uncertain and remain subject to operator inspection. No
+startup reconciliation is activated, and no worker-death determination is
+made.
+
 ### Restart reconciliation of abandoned executions
 
 The durable acceptance record makes an accepted run **distinguishable from a
@@ -635,6 +744,7 @@ Recommended `source_type` values for coding v1:
 - Only the recorded owner and claim may renew a coding run's heartbeat, and renewal is a single conditional database update. A heartbeat is evidence of reported activity, never authority to execute, retry, escalate, or take over. A stale heartbeat is not proof of worker death, and a missing heartbeat on a historical run is not evidence of abandonment.
 - Only the recorded owner and claim may finalize an accepted coding run, and the terminal decision is a single conditional database update committed together with the result writes that belong to it. A rejected claim writes no terminal status, no coding-result artifact, no source-thread result, and no terminal event. A terminal or escalated run cannot be reopened, and a heartbeat never authorizes a terminal write by itself.
 - A coding run's liveness may be classified from canonical evidence, and the classification is read-only. A stale heartbeat is evidence that recent liveness evidence is missing, never proof that the worker died; a recent heartbeat is evidence of recent activity, never proof that a process exists; a missing heartbeat on a historical run is evidence of nothing. The classification reports evidence and a conservative verdict; it never retries, requeues, terminates a process, revokes a credential, replaces a binding, transfers ownership, or escalates a run, and it never mutates canonical state.
+- An uncertain coding run may be dispositioned only by a **verified** operator authority, and only while its recorded worker instance and claim still own it and its heartbeat is still older than the observation horizon. The disposition and its escalation evidence commit together; it preserves the original owner and claim; it creates no retry, requeue, credential, binding, or ownership authority; and a terminal or escalated decision that committed first is never overwritten.
 - A restart may not classify a coding execution as abandoned without durable evidence of worker ownership and liveness. An elapsed timestamp, an empty queue, or a missing lease row are not such evidence. Until that authority exists, an accepted run that never reached a terminal state stays unresolved rather than being escalated, retried, or declared lost.
 
 ## Deferred Phases / Non-Goals

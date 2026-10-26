@@ -704,6 +704,199 @@ class GuardianDelegationService:
                 run_status=self.project_run_status(run.get("status")),
             )
 
+    def quarantine_uncertain_coding_run(
+        self,
+        *,
+        run_id: str,
+        operator_api_key: str | None = None,
+        operator_session_token: str | None = None,
+        expected_worker_instance_id: str,
+        expected_claim_id: str,
+        expected_account_user_id: str,
+        reason: str,
+        reason_code: str = "guardian_dispatch_liveness_unproven",
+        severity: str = "hard",
+    ) -> dict[str, Any]:
+        """Record an operator-authorized uncertain-outcome quarantine.
+
+        This is the **trusted invocation boundary** for the disposition. The
+        operator's authority is *verified* here, from presented credential
+        material, using the established Guardian operator authority
+        (``require_operator_auth``). A caller-supplied boolean is not
+        accepted, and neither possession of a run id nor knowledge of a claim
+        is authority: the operator actor is derived from the verification, and
+        it is distinct from the account owner, the worker instance, the
+        execution claim, and the credential owner.
+
+        The liveness classification is **evidence for the review**, not the
+        authorization. The sequence is:
+
+            canonical liveness evidence
+                -> operator reviews the uncertainty
+                -> Guardian verifies the operator authority
+                -> Guardian re-evaluates the existing quarantine contract
+                -> guarded PostgreSQL disposition
+
+        The disposition itself is atomic: the run's transition to
+        ``escalated`` and the open escalation record that explains it commit
+        together, or not at all. It grants no retry, requeue, credential,
+        binding, or ownership authority, and it does not activate any startup
+        reconciliation.
+        """
+        # The service must have a durable store before it can disposition
+        # anything.
+        self._require_db()
+        operator_actor = self._authenticate_operator(
+            operator_api_key=operator_api_key,
+            operator_session_token=operator_session_token,
+        )
+
+        snapshot = self.agent_store.get_coding_run_liveness_snapshot(
+            str(run_id),
+        )
+
+        from guardian.core.guardian_dispatch import (
+            CODING_RUN_LIVENESS_STALE_AFTER_SECONDS,
+            CodingRunLivenessEvidence,
+            classify_coding_run_liveness,
+        )
+
+        verdict = None
+        if snapshot is not None:
+            verdict = classify_coding_run_liveness(snapshot)
+            already_disposed = str(snapshot.get("status") or "") == "escalated"
+            if (
+                not already_disposed
+                and verdict.evidence
+                != CodingRunLivenessEvidence.STALE_UNCERTAIN.value
+            ):
+                # The evidence does not show an unresolved execution. A live
+                # worker, a terminal run, and a record with no usable evidence
+                # are all refused here: none of them is an abandoned-run
+                # recovery candidate. An already-escalated run is *not*
+                # refused -- the disposition may simply be the same one
+                # requested again, and only the durable state can say.
+                raise GuardianDelegationValidationError(
+                    "guardian_quarantine_evidence_not_uncertain",
+                    status_code=409,
+                )
+
+        evidence = {
+            "liveness_evidence": (
+                verdict.evidence if verdict is not None else None
+            ),
+            "liveness_verdict": verdict.state if verdict is not None else None,
+            "liveness_reason_code": (
+                verdict.reason_code if verdict is not None else None
+            ),
+            "last_heartbeat_at": (
+                verdict.last_heartbeat_at.isoformat()
+                if verdict is not None and verdict.last_heartbeat_at is not None
+                else None
+            ),
+            "observed_at": (
+                verdict.observed_at.isoformat()
+                if verdict is not None and verdict.observed_at is not None
+                else None
+            ),
+            "heartbeat_age_seconds": (
+                verdict.heartbeat_age_seconds if verdict is not None else None
+            ),
+            "stale_after_seconds": (
+                verdict.stale_after_seconds
+                if verdict is not None
+                else CODING_RUN_LIVENESS_STALE_AFTER_SECONDS
+            ),
+            "operator_decision_provenance": {
+                "source": "guardian_delegation_service",
+                "decision": "quarantine_uncertain_coding_run",
+                "verified_operator_actor": operator_actor,
+                "authority_source": "guardian_operator_auth",
+            },
+        }
+
+        receipt = self.agent_store.quarantine_coding_run_as_uncertain(
+            run_id=str(run_id),
+            expected_worker_instance_id=str(expected_worker_instance_id),
+            expected_claim_id=str(expected_claim_id),
+            expected_account_user_id=str(expected_account_user_id),
+            operator_actor=operator_actor,
+            reason=str(reason),
+            reason_code=str(reason_code),
+            severity=str(severity),
+            evidence=evidence,
+            operator_decision_provenance=evidence[
+                "operator_decision_provenance"
+            ],
+        )
+
+        outcome = str(receipt.get("outcome") or "")
+        if outcome == "rejected":
+            reason = str(receipt.get("reason_code") or "guardian_quarantine_rejected")
+            if reason == "guardian_quarantine_run_not_found":
+                raise GuardianDelegationNotFoundError(reason)
+            raise GuardianDelegationValidationError(reason, status_code=409)
+        if outcome == "conflict":
+            raise GuardianDelegationError(
+                status_code=409,
+                detail=str(
+                    receipt.get("reason_code") or "guardian_quarantine_conflict"
+                ),
+            )
+        if outcome == "unavailable":
+            raise GuardianDelegationError(
+                status_code=503,
+                detail=str(
+                    receipt.get("reason_code")
+                    or "guardian_quarantine_persistence_unavailable"
+                ),
+            )
+        return receipt
+
+    def _authenticate_operator(
+        self,
+        *,
+        operator_api_key: str | None,
+        operator_session_token: str | None,
+    ) -> str:
+        """Verify operator authority and return the verified actor.
+
+        The established Guardian operator authority is used as-is: a configured
+        Guardian API key, or a current-format signed token carrying the
+        operator purpose. Account and guest credentials are rejected before
+        the API-key fallback, so they are never reinterpreted as operator
+        material.
+
+        The returned actor is a *derived* identity. A caller cannot supply it.
+        """
+        from fastapi import HTTPException
+
+        from guardian.core.dependencies import require_operator_auth
+
+        authorization = (
+            f"Bearer {str(operator_session_token).strip()}"
+            if str(operator_session_token or "").strip()
+            else None
+        )
+        try:
+            return str(
+                require_operator_auth(
+                    x_api_key=(
+                        str(operator_api_key).strip()
+                        if str(operator_api_key or "").strip()
+                        else None
+                    ),
+                    authorization=authorization,
+                    gc_session=None,
+                    request=None,
+                )
+            )
+        except HTTPException as exc:
+            raise GuardianDelegationError(
+                status_code=401,
+                detail="guardian_operator_authorization_required",
+            ) from exc
+
     def cancel_intent(self, intent_id: str) -> dict[str, Any]:
         db = self._require_db()
         with db.get_session() as session:
