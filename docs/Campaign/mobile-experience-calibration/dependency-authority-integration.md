@@ -53,13 +53,45 @@ modified.
 | `b8df26b7d` | `GuardianMobileSidebarAppMenu.test.tsx`: complete the `@/lib/authState` mock with `getAuthState` | `components/sidebar/useProjectsCache.ts` reads `getAuthState()` before it consults `checkAuthGate`; the mock omitted it, so the gate argument raised and the workspace fetch never happened. | 9 passed |
 | `ad510b8b7` | Five more shell suites: same mock completion | `GuardianMobileComposerSingleSurface`, `GuardianMobileHeaderTools`, `GuardianMobileFrameShell`, `GuardianChatWithSidebar.terminal-projection`, `AppShell.runtimeHealth` — all mock the auth module identically and all render the sidebar shell. | 35 passed across the six suites |
 
-## 4. CI state at merge
+## 4. CI state
+
+**On the PR head (`ad510b8b7`):**
 
 | Job | Conclusion | Note |
 |---|---|---|
 | Architecture Contracts | **pass** | The branch realigned the DLG node hashes (`4b3f9dc80`), which also clears the red that was inherited on `main`. |
 | Frontend Quality | **pass** | Lint ✓, Build ✓, Test ✓. |
 | Backend Tests (Python 3.11) | **fail** | Inherited mainline debt — see §5. |
+
+**On the merge commit (`6e0fb06d220f`) — the revision the canonical Node 20 /
+pnpm 9 qualification must describe:**
+
+| Job | Conclusion | Note |
+|---|---|---|
+| Architecture Contracts | **pass** | |
+| Frontend Quality | **fail** — 2 failed / 2285 passed / 1 skipped (2288) | Both failures are in `features/chat/__tests__/GuardianChat.turn-lock-lifecycle.test.tsx`: *"projects a global canonical orphan distinctly without automatically retrying"* and *"projects owned global command failure completion.error: tool_command_blocked through the actual hook"*. |
+| Backend Tests (Python 3.11) | **fail** | The chat-worker chain — see §5. |
+
+**The remaining frontend failure is the suite's known load-dependent identity,
+not a regression.** `GuardianChat.turn-lock-lifecycle.test.tsx` **passes in
+isolation — 76/76**. The same test failed at the same parametrized branch
+(`…tool_command_blocked through the actual hook`) in PR #891's CI on 2026-10-23,
+before this branch existed, and it is one of the identities this campaign's own
+register already characterised as varying between runs. The mock error visible
+in the job log — `No "buildAuthenticatedFetchInit" export is defined on the
+"@/lib/api" mock` — belongs to the same family of incomplete module mocks: 54
+of the 60 `@/lib/api` mocks in the frontend omit that export, and only the
+ones whose production path reads it are affected.
+
+## 4a. Qualification state on the merged mainline
+
+The canonical Node 20 / pnpm 9 qualification against the integrated mainline
+has **not** been established. The merge commit's own CI run *is* the canonical
+environment, and it reports lint ✓, build ✓, and a frontend suite with two
+load-dependent failures in one file that passes in isolation. A qualification
+verdict therefore requires the chat-worker migration in §5 to land first, so
+that the backend job's result is attributable rather than dominated by
+inherited debt.
 
 ## 5. The remaining backend failure — exact inventory
 
