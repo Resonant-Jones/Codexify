@@ -25,6 +25,7 @@ This file is authoritative for:
 - Admitted the existing `share` route alongside `direct_messages` in the private-preview profile; this does not widen default Beta support.
 - Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
 - Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
+- Qualified same-node private-preview messaging end to end against the running preview at serving commit `57184dfbe`, using synthetic approved test accounts; the proof is same-node only and does not qualify default Beta, cross-node messaging, or share links (see `./proofs/private-preview-direct-messaging-e2e-proof.md`). The running preview is pinned to a tip that predates the `@`-sigil People-search fix, so that miss is still observable on the live origin until the serving worktree is re-reconciled.
 - Accepted the saved-widget identity/revision architecture (ADR-102, accepted 2026-10-25); acceptance is architecture only, with no saved-widget persistence, listing, invocation, editing, deletion, or export path implemented and the Library Widgets filter still unavailable.
 - Resolved the saved-widget contract review findings and synchronized the accepted ADR, contract, ADR index, and KB projections; this remains architecture-only evidence.
 - Added personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
@@ -37,7 +38,7 @@ This file is authoritative for:
 - Mainline has bounded evidence at evaluated tips for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - UMS ORM imports and migration-to-ORM parity are recorded; this does not establish complete UMS or supported-Compose qualification.
-- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes; neither is default Beta support or end-to-end qualified here.
+- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes. Same-node messaging now carries live end-to-end evidence on the running preview (see `./proofs/private-preview-direct-messaging-e2e-proof.md`); that proof qualifies same-node messaging only, and share-link bearer expiry/revocation, cross-node discovery and transport, unread indicators and persisted read state, and default Beta support remain unqualified.
 - The legacy continuity operator surface is fail-closed for remote, Preview, and multi-user execution because operator credentials do not establish account authority.
 
 ## Not yet true / do not assume
@@ -62,7 +63,7 @@ This file is authoritative for:
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap and natural import-to-recall scope proof remain open.
 - Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
-- Private-preview messaging/share admission has route-mount and focused-test evidence but lacks current end-to-end live proof; bearer-link expiry and revocation remain unresolved risks.
+- Private-preview same-node messaging is live end-to-end qualified on the running preview (two approved synthetic test accounts on one node: search, request, acceptance, reply, read-back, second message, reload persistence, decline, and prevented further contact). Still open: share-link bearer expiry and revocation, cross-node discovery/transport, and the unread indicator and persisted read state, which the direct-messaging product does not implement.
 - Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
 
 ## This week’s priorities
@@ -71,7 +72,7 @@ This file is authoritative for:
 2. Repair the stale migration-head expectation and execute the blocked Chronicle HTTP regression cases.
 3. Close the explicit-model rejection and delegated adapter contract contradictions before provider execution.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, and ordinary chat on one evaluated tip.
-5. Resolve export/restore/retention, import-to-recall, and private-preview messaging/share proof gaps.
+5. Resolve export/restore/retention and import-to-recall proof gaps; private-preview same-node messaging is closed by live proof, while share-link expiry/revocation and cross-node messaging remain open.
 
 ## Release definition right now
 
