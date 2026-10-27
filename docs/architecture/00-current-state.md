@@ -18,14 +18,15 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The latest merged work adds bounded saved-widget artifact validation and repairs a generated-UI navigation containment defect, but does not establish saved-widget support or fresh supported-path qualification. The current release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. The latest merged work adds bounded saved-widget artifact validation, repairs a generated-UI navigation containment defect, and lands the canonical Saved Widget storage foundation, but does not establish saved-widget support or fresh supported-path qualification. The current release gate remains `HOLD`.
 
 ## What changed recently
 
-- Added server-side saved-widget artifact parsing, provenance checks, eligibility evaluation, and rejection of unavailable local dependencies; focused tests are merged, not a persistence or release qualification.
+- Added server-side saved-widget artifact parsing, provenance checks, Guardian E1-E6 eligibility evaluation, and rejection of unavailable local dependencies; focused tests are merged, not a persistence or release qualification.
 - Repaired generated-UI same-frame navigation containment with a trusted outer wrapper and `frame-src 'none'`; Chrome 156 evidence records 24 blocked navigation attempts with zero fixture requests.
 - Corrected the committed navigation reproduction after a fixture defect; the pre-repair failure remains recorded separately from the repair result.
 - The repair is bounded to Chrome 156 evidence: the Playwright suite cannot launch on this host, and cross-browser, Tauri, and supported-release equivalence remain unproven.
+- Implemented the canonical Saved Widget storage foundation for the accepted ADR-102 identity/revision architecture: one account-owned widget record, immutable revision snapshots keyed `(widget_id, revision)`, a forward-only current-revision pointer, and snapshot provenance that survives source-thread deletion. Focused migration and persistence evidence was re-run against a disposable PostgreSQL instance; this is storage only, not a save capability, and it is not a supported-path qualification.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture remains unchanged.
 - Reconciled local audit history with `origin/main` through `f7e6a7f48`; no push was performed, and the stored `origin/main` is one commit ahead only because its 2026-10-22 accounting log is not present on local `main`.
 - Restored the four missing UMS ORM mappings and recorded focused evidence: 124 tests passed, with one inherited stale migration-head assertion remaining; Chronicle HTTP cases were collected but not executed.
@@ -39,7 +40,7 @@ This file is authoritative for:
 - The named supported install path is local Docker Compose profile `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The Beta Supported envelope covers local inference, ordinary chat, durable threads/messages/tasks, supported document ingestion and retrieval, account ownership, migrations, and operator diagnostics; qualification is a separate gate.
 - Mainline has bounded evidence at evaluated tips for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior.
-- Mainline has bounded saved-widget eligibility/provenance code and generated-UI containment evidence; this is not saved-widget lifecycle support or a default Beta claim.
+- Mainline has bounded saved-widget eligibility/provenance code, the canonical Saved Widget storage foundation with focused disposable-PostgreSQL evidence, and generated-UI containment evidence; this is not saved-widget lifecycle support or a default Beta claim.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - UMS ORM imports and migration-to-ORM parity are recorded; this does not establish complete UMS or supported-Compose qualification.
 - Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes; neither is default Beta support or end-to-end qualified here.
@@ -52,8 +53,8 @@ This file is authoritative for:
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
 - Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
-- Do not treat saved-widget artifact validation or the accepted saved-widget architecture (ADR-102) as lifecycle implementation, runtime qualification, or release support: storage, authoritative listing, cross-thread invocation, conversational revision editing, deletion behavior, widget export/restore, and Library Widgets filter availability remain unimplemented; Web Audio and canvas compatibility remain unqualified.
-- Do not treat the Chrome 156 containment repair as cross-browser, Tauri, Playwright, or supported-Compose proof; the committed Playwright suite remains blocked by browser launch failure on this host.
+- Do not treat saved-widget artifact validation, the canonical storage foundation, or the accepted saved-widget architecture (ADR-102) as lifecycle implementation, runtime qualification, or release support: an authenticated save API, explicit human promotion, authoritative listing, cross-thread invocation, conversational revision editing, deletion and archive transition APIs, widget export/restore, and Library Widgets filter availability remain unimplemented; Web Audio and canvas compatibility remain unqualified.
+- Do not treat the Chrome 156 containment repair as cross-browser, Tauri, Playwright, or supported-Compose proof; Chrome 156 is the only reported browser-specific containment qualification, the committed Playwright suite remains blocked by browser launch failure on the previously reported macOS host, and a launch failure is not a containment failure.
 - Do not promote account-owned connectors, direct messaging/share, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
 - Do not treat the saved-widget contract or personal-fact pipeline baseline as accepted product scope, or focused candidate/search tests as live release proof.
 - Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
@@ -63,13 +64,14 @@ This file is authoritative for:
 ## Active blockers
 
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
+- Cross-browser qualification of the integrated generative-ui containment repair is missing: the Chrome 156 CDP proof covers its evaluated revision, and the committed Playwright suite cannot launch Chromium in the reported host, so the repair is not qualified beyond the single evaluated browser.
 - The UMS/Chronicle lane retains one inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still requires execution against the corrected baseline.
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap and natural import-to-recall scope proof remain open.
 - Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
 - Private-preview messaging/share admission has route-mount and focused-test evidence but lacks current end-to-end live proof; bearer-link expiry and revocation remain unresolved risks.
-- The saved-widget lane remains blocked on lifecycle implementation and complete browser qualification; current evidence proves only bounded validation and a Chrome 156 containment repair.
+- The saved-widget lane remains blocked on an authorized human-promotion operation, authoritative listing, and complete browser qualification; current evidence proves bounded validation, the canonical storage foundation, and a Chrome 156 containment repair.
 - Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
 
 ## This week’s priorities

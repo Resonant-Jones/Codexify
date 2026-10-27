@@ -2,7 +2,7 @@
 
 > Classification: architecture contract
 > Status: accepted 2026-10-25 by Resonant Jones
-> Implementation status: no saved-widget persistence, listing, invocation, revision, editing, deletion, or export path exists
+> Implementation status: canonical Saved Widget identity and immutable revision persistence exist as an internal storage foundation, proven against disposable PostgreSQL. No saved-widget save, listing, invocation, revision-editing, deletion, or export path exists, and no product surface reaches the storage.
 > Normative language: "must", "must not", "should", "proposed", "deferred", and "future" are intentional contract terms
 > Companion decision: [ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) — Accepted 2026-10-25
 
@@ -32,8 +32,13 @@ This contract governs:
 - the security authority under which a saved widget executes;
 - how a future saved-widget source participates in the Library projection.
 
-This contract does **not** implement any of it. It creates no table, route, migration, frontend component, prompt
-change, or artifact wire-format change.
+This contract does **not** implement any of it. On its own it creates no table, route, migration, frontend
+component, prompt change, or artifact wire-format change. The canonical storage foundation described here — the
+widget record, the immutable revision snapshots, and the account-scoped ownership — has since been implemented
+and proven as a separate, explicitly authorized task, and it is documented in
+[Data and Storage](./data-and-storage.md). That implementation is storage only: it creates no route, no
+promotion action, no listing, and no invocation, so none of the capabilities this contract governs are
+available to the product yet.
 
 ## Vocabulary
 

@@ -7822,3 +7822,175 @@ class UserOnboardingState(Base):
         ),
         CheckConstraint("onboarding_version = 1", name="user_onboarding_version_check"),
     )
+
+
+# =========================
+# Saved Widgets
+# =========================
+
+
+SAVED_WIDGET_LIFECYCLE_ACTIVE = "active"
+SAVED_WIDGET_LIFECYCLE_ARCHIVED = "archived"
+SAVED_WIDGET_LIFECYCLE_DELETED = "deleted"
+SAVED_WIDGET_LIFECYCLE_VALUES = (
+    SAVED_WIDGET_LIFECYCLE_ACTIVE,
+    SAVED_WIDGET_LIFECYCLE_ARCHIVED,
+    SAVED_WIDGET_LIFECYCLE_DELETED,
+)
+SAVED_WIDGET_LIFECYCLE_VALUES_SQL = "','".join(SAVED_WIDGET_LIFECYCLE_VALUES)
+SAVED_WIDGET_LIFECYCLE_CHECK = (
+    "lifecycle_state IN ('" + SAVED_WIDGET_LIFECYCLE_VALUES_SQL + "')"
+)
+
+
+class SavedWidget(Base):
+    """Canonical account-owned Saved Widget record.
+
+    One widget has exactly one canonical, server-assigned identity and
+    exactly one account owner. Ownership is a property of the *widget*; it is
+    never a component of the revision key, and a Project or thread is never an
+    alternative ownership authority.
+
+    ``current_revision`` is a forward-only pointer into the widget's own
+    revision history. It is protected by a deferrable composite foreign key
+    so that the widget row and its first revision can be written in one
+    transaction without the database ever observing a pointer to a revision
+    that does not exist.
+    """
+
+    __tablename__ = "saved_widgets"
+
+    widget_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    current_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner: Mapped[User] = relationship("User")
+    revisions: Mapped[list[SavedWidgetRevision]] = relationship(
+        "SavedWidgetRevision",
+        back_populates="widget",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        # The widget/revision relationship is joined on the owning column only.
+        # The composite pointer and edit-base constraints are database
+        # invariants, not alternative relationship paths.
+        foreign_keys="SavedWidgetRevision.widget_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            SAVED_WIDGET_LIFECYCLE_CHECK, name="saved_widgets_lifecycle_state_check"
+        ),
+        CheckConstraint(
+            "current_revision > 0", name="saved_widgets_current_revision_check"
+        ),
+        # The pointer may only ever name a revision that exists. Deferred so
+        # that widget + revision 1 commit together, and checked at commit
+        # time so no intermediate state exposes a dangling pointer.
+        ForeignKeyConstraint(
+            ["widget_id", "current_revision"],
+            ["saved_widget_revisions.widget_id", "saved_widget_revisions.revision"],
+            name="fk_saved_widgets_current_revision",
+            deferrable=True,
+            initially="DEFERRED",
+            use_alter=True,
+        ),
+        Index("ix_saved_widgets_owner_user_id", "owner_user_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class SavedWidgetRevision(Base):
+    """Immutable Saved Widget revision snapshot.
+
+    Revision identity is ``(widget_id, revision)``. Two widgets owned by the
+    same account each number their own revisions from 1 without collision,
+    because ownership is a property of the widget and is not part of the key.
+
+    A revision is a *snapshot*, never a live join. The artifact, the
+    server-proven provenance, and the revision-creation context are denormalized
+    into the row at save time, because their referents cascade on source
+    deletion: deleting the source thread must not delete, alter, or
+    un-provenance a Saved Widget.
+    """
+
+    __tablename__ = "saved_widget_revisions"
+
+    widget_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("saved_widgets.widget_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    artifact_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    provenance_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    creation_context: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    edit_base_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    widget: Mapped[SavedWidget] = relationship(
+        "SavedWidget",
+        back_populates="revisions",
+        foreign_keys="SavedWidgetRevision.widget_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint("revision > 0", name="saved_widget_revisions_revision_check"),
+        # The edit base is null for an initial promotion and otherwise names a
+        # strictly earlier revision of this same widget.
+        CheckConstraint(
+            "edit_base_revision IS NULL OR "
+            "(edit_base_revision > 0 AND edit_base_revision < revision)",
+            name="saved_widget_revisions_edit_base_check",
+        ),
+        # The edit base must exist for this widget, not merely be a number.
+        ForeignKeyConstraint(
+            ["widget_id", "edit_base_revision"],
+            ["saved_widget_revisions.widget_id", "saved_widget_revisions.revision"],
+            name="fk_saved_widget_revisions_edit_base",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        Index(
+            "ix_saved_widget_revisions_widget_created_at",
+            "widget_id",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
