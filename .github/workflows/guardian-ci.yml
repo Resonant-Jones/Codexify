@@ -52,9 +52,6 @@ jobs:
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
-              - 'frontend/package.json'
-              - 'frontend/pnpm-lock.yaml'
-              - 'frontend/pnpm-workspace.yaml'
             backend:
               - 'guardian/**'
               - 'backend/**'
@@ -174,7 +171,7 @@ jobs:
           set -euxo pipefail
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r backend/requirements-ci.txt
-          python -m pip install -e .
+          python -m pip install -e ".[mcp-memory]"
 
       - name: Run backend tests
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
@@ -307,7 +304,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            frontend/pnpm-lock.yaml
 
       - name: Install dependencies
         if: ${{ needs.changes.outputs.run_frontend == 'true' }}

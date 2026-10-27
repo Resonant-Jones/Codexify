@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -12,6 +13,13 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.core import auth_dependencies as auth_dependencies_module
 from guardian.core import dependencies as dependency_module
+from guardian.core import session_store as session_store_module
+from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
+    OPERATOR_SESSION_PURPOSE,
+    get_verified_session_token_purpose,
+    issue_session_token,
+)
 from guardian.core.passwords import hash_password
 from guardian.core.session_store import SessionStore
 from guardian.db.models import PersonaProfile, User, UserProfile
@@ -140,6 +148,21 @@ def _build_test_client(auth_db: _ProfileAuthDb):
         ),
         patch.object(
             auth_dependencies_module,
+            "get_session_store",
+            return_value=session_store,
+        ),
+        # The account gate resolves the session store through a call-time
+        # import inside guardian.core.auth:
+        #
+        #     from guardian.core.session_store import get_session_store
+        #
+        # That lookup bypasses the two module-level patches above, so the
+        # account gate consulted a different store than the one login
+        # persisted the session into, and the stored mapping was invisible to
+        # it. Patching the source module makes every lookup -- module-level
+        # or call-time -- receive this same fake store instance.
+        patch.object(
+            session_store_module,
             "get_session_store",
             return_value=session_store,
         ),
@@ -720,3 +743,316 @@ def test_accent_update_does_not_mutate_persona_profiles(monkeypatch):
         "model_id": after_persona.model_id,
         "temperature": after_persona.temperature,
     } == before_snapshot
+
+
+# ── account-session rejection coverage ─────────────────────────────────────
+
+
+def test_login_issues_an_account_session_held_by_the_shared_fake_store(monkeypatch):
+    """The issued credential is a signed account session the fake store holds."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-issue-1"
+    username = "issued@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, session_store, fake_redis):
+        payload = _login(client, username=username, password=password)
+        token = payload["token"]
+
+        # Signed with the account-session purpose, not an operator purpose.
+        assert get_verified_session_token_purpose(token) == ACCOUNT_SESSION_PURPOSE
+        # And the fake store holds exactly this account's session mapping.
+        assert session_store.verify(token) == canonical_user_id
+        assert len(fake_redis._strings) == 1
+
+        response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["profile"]["user_id"] == canonical_user_id
+
+    # The profile row was created for Account A only.
+    _assert_profile_row(
+        auth_db,
+        user_id=canonical_user_id,
+        display_name=None,
+        avatar_url=None,
+        timezone=None,
+    )
+
+
+def test_profile_without_a_session_is_rejected_without_single_user_fallback(
+    monkeypatch,
+):
+    """A + F. No session is rejected, and the single-user fallback is unused."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-reject-1"
+    username = "anonymous@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        _disable_single_user_fallback(monkeypatch)
+
+        response = client.get("/api/user/profile")
+
+    assert response.status_code == 401
+    assert auth_db.get_user_profile(canonical_user_id) is None
+
+
+def test_malformed_session_is_rejected(monkeypatch):
+    """B. A token that is not a signed session is rejected."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-reject-2"
+    username = "malformed@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        _disable_single_user_fallback(monkeypatch)
+
+        response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": "Bearer not-a-signed-session-token"},
+        )
+
+    assert response.status_code == 401
+    assert auth_db.get_user_profile(canonical_user_id) is None
+
+
+def test_signed_but_unstored_session_is_rejected(monkeypatch):
+    """B. A correctly signed account session that was never stored is rejected."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-reject-3"
+    username = "unapproved@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, session_store, _fake_redis):
+        _disable_single_user_fallback(monkeypatch)
+
+        token, _expires_at = issue_session_token(
+            subject=canonical_user_id,
+            ttl_seconds=600,
+            purpose=ACCOUNT_SESSION_PURPOSE,
+        )
+        # The signature and purpose are valid; the session was never approved.
+        assert session_store.verify(token) is None
+
+        response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 401
+    assert auth_db.get_user_profile(canonical_user_id) is None
+
+
+def test_operator_purpose_session_cannot_access_the_account_profile(monkeypatch):
+    """C. An approved operator session is not account authority."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-reject-4"
+    username = "operator@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, session_store, _fake_redis):
+        _disable_single_user_fallback(monkeypatch)
+
+        token, _expires_at = issue_session_token(
+            subject=canonical_user_id,
+            ttl_seconds=600,
+            purpose=OPERATOR_SESSION_PURPOSE,
+        )
+        # The session itself is approved and stored; only its purpose is wrong.
+        session_store.store(token, canonical_user_id, 600)
+        assert session_store.verify(token) == canonical_user_id
+
+        response = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 401
+    assert auth_db.get_user_profile(canonical_user_id) is None
+
+
+def test_revoked_account_session_cannot_read_the_profile(monkeypatch):
+    """D. Revoking a valid account session removes its authority."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    canonical_user_id = "acct-reject-5"
+    username = "revoked@example.com"
+    password = "s3cret"
+    auth_db.seed_user(
+        user_id=canonical_user_id,
+        username=username,
+        password=password,
+    )
+
+    with _build_test_client(auth_db) as (client, session_store, _fake_redis):
+        payload = _login(client, username=username, password=password)
+        _disable_single_user_fallback(monkeypatch)
+        token = payload["token"]
+
+        before = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert before.status_code == 200
+
+        logout = client.post(
+            "/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert logout.status_code == 200
+        assert session_store.verify(token) is None
+
+        after = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert after.status_code == 401
+
+
+def test_account_session_cannot_resolve_or_modify_another_account_profile(
+    monkeypatch,
+):
+    """E. Account A's session resolves only Account A."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    user_a_id = "acct-reject-6a"
+    user_b_id = "acct-reject-6b"
+    auth_db.seed_user(
+        user_id=user_a_id,
+        username="alpha-reject@example.com",
+        password="s3cret",
+    )
+    auth_db.seed_user(
+        user_id=user_b_id,
+        username="beta-reject@example.com",
+        password="s3cret",
+    )
+
+    with _build_test_client(auth_db) as (client, _session_store, _fake_redis):
+        payload_a = _login(
+            client, username="alpha-reject@example.com", password="s3cret"
+        )
+        _disable_single_user_fallback(monkeypatch)
+
+        read_a = client.get(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload_a['token']}"},
+        )
+        assert read_a.status_code == 200
+        assert read_a.json()["profile"]["user_id"] == user_a_id
+
+        patch_a = client.patch(
+            "/api/user/profile",
+            headers={"Authorization": f"Bearer {payload_a['token']}"},
+            json={"display_name": "Alpha"},
+        )
+        assert patch_a.status_code == 200
+
+    assert read_a.json()["profile"]["user_id"] != user_b_id
+    assert auth_db.get_user_profile(user_b_id) is None
+    _assert_profile_row(
+        auth_db,
+        user_id=user_a_id,
+        display_name="Alpha",
+        avatar_url=None,
+        timezone=None,
+    )
+
+
+# ── fixture isolation cleanup ──────────────────────────────────────────────
+
+
+def test_test_client_restores_session_store_lookups_on_exit(monkeypatch):
+    """No fake session store may remain installed after the context closes."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    auth_db.seed_user(
+        user_id="acct-cleanup-1",
+        username="cleanup@example.com",
+        password="s3cret",
+    )
+
+    original_routes = auth_routes.get_session_store
+    original_dependencies = auth_dependencies_module.get_session_store
+    original_source = session_store_module.get_session_store
+    original_global_store = session_store_module._SESSION_STORE
+
+    with _build_test_client(auth_db) as (_client, session_store, _fake_redis):
+        assert auth_routes.get_session_store is not original_routes
+        assert auth_dependencies_module.get_session_store is not original_dependencies
+        assert session_store_module.get_session_store is not original_source
+        assert session_store_module.get_session_store() is session_store
+
+    assert auth_routes.get_session_store is original_routes
+    assert auth_dependencies_module.get_session_store is original_dependencies
+    assert session_store_module.get_session_store is original_source
+    # The patched lookup never wrote the fake store into the module global.
+    assert session_store_module._SESSION_STORE is original_global_store
+
+
+def test_test_client_restores_session_store_lookups_after_an_exception(monkeypatch):
+    """The fixture restores its patches even when the test body raises."""
+    _configure_remote_session_env(monkeypatch)
+
+    auth_db = _ProfileAuthDb()
+    auth_db.seed_user(
+        user_id="acct-cleanup-2",
+        username="cleanup-boom@example.com",
+        password="s3cret",
+    )
+
+    original_routes = auth_routes.get_session_store
+    original_dependencies = auth_dependencies_module.get_session_store
+    original_source = session_store_module.get_session_store
+    original_global_store = session_store_module._SESSION_STORE
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with _build_test_client(auth_db) as (_client, _session_store, _fake_redis):
+            raise RuntimeError("boom")
+
+    assert auth_routes.get_session_store is original_routes
+    assert auth_dependencies_module.get_session_store is original_dependencies
+    assert session_store_module.get_session_store is original_source
+    assert session_store_module._SESSION_STORE is original_global_store

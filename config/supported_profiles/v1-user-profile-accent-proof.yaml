@@ -53,6 +53,10 @@ route_posture:
     - notion_setup
     - google_drive_setup
     - memory_vault
+    # Direct messaging mirrors the default local profile: mounted for the
+    # internal runtime, but outside the Beta Supported release promise
+    # (ADR-069). Route availability is not release qualification.
+    - direct_messages
     - user_profile
   quarantined:
     - llm_overrides
