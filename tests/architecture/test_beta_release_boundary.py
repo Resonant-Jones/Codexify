@@ -423,6 +423,39 @@ def _section_between(text: str, start: str, end: str) -> str:
     return match.group("body")
 
 
+def _heading_pattern(heading: str) -> str:
+    """Regex source for a Markdown heading that tolerates apostrophe variants.
+
+    The canonical current-state document writes ``## This week's priorities``
+    with a typographic apostrophe (U+2019). A typographic apostrophe and an
+    ASCII apostrophe are the same semantic character in prose, so both name the
+    same heading. Every other character is matched literally, which keeps the
+    match anchored to this exact heading rather than to an arbitrary one.
+    """
+    parts = heading.replace("\u2019", "'").split("'")
+    return r"['\u2019]".join(re.escape(part) for part in parts)
+
+
+def _section_until(text: str, start: str, end_pattern: str) -> str:
+    """Extract the body of the section that starts at ``start`` and ends at a
+    heading matching ``end_pattern``.
+
+    ``start`` is still matched literally; only the closing heading is allowed to
+    carry a tolerant pattern. A missing start heading still fails the caller,
+    so a removed or renamed section can never be read as an empty one.
+    """
+    pattern = re.compile(
+        rf"^{re.escape(start)}\s*$\n(?P<body>[\s\S]+?){end_pattern}\s*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    assert match is not None, (
+        f"Missing canonical section starting at {start!r} "
+        f"and ending at {end_pattern!r}"
+    )
+    return match.group("body")
+
+
 def test_adr_069_contains_the_five_release_classes():
     text = _read(ADR_069_PATH)
     release_classes = _section_between(
@@ -477,8 +510,14 @@ def test_adr_069_names_coding_loop_and_hosted_rooms_qualification_pending():
         )
 
 
-def test_current_state_preserves_supported_path_hold_and_active_blockers():
-    text = _read(CURRENT_STATE_PATH)
+def _assert_current_state_release_contract(text: str) -> None:
+    """Assert the canonical release-truth contract against ``text``.
+
+    ``docs/architecture/00-current-state.md`` is the authority. Every check is
+    bounded to the section that owns the claim, so a phrase elsewhere in the
+    document cannot satisfy a blocker requirement, and each requirement is
+    stated semantically rather than as one fixed piece of prose.
+    """
     current_phase = _section_between(
         text,
         "## Current phase",
@@ -489,18 +528,99 @@ def test_current_state_preserves_supported_path_hold_and_active_blockers():
         "## Current supported reality",
         "## Not yet true / do not assume",
     )
-    active_blockers = _section_between(
+    active_blockers = _section_until(
         text,
         "## Active blockers",
-        "## This week's priorities",
+        _heading_pattern("## This week's priorities"),
     )
 
-    assert "local-first Beta hardening" in current_phase
-    assert "`HOLD`" in current_phase
-    assert "local Docker Compose" in supported_reality
-    assert "`v1-local-core-web-mcp`" in supported_reality
-    assert "complete supported-Compose qualification" in active_blockers
-    assert "fresh isolated natural import-to-recall run" in active_blockers
+    assert "local-first Beta hardening" in current_phase, (
+        "Current phase must still describe local-first Beta hardening"
+    )
+    assert "`HOLD`" in current_phase, (
+        "Current phase must still record the HOLD release gate"
+    )
+    assert "local Docker Compose" in supported_reality, (
+        "Supported reality must still name the local Docker Compose install path"
+    )
+    assert "`v1-local-core-web-mcp`" in supported_reality, (
+        "Supported reality must still name the supported Compose profile"
+    )
+
+    # A fresh current-tip supported-Compose qualification is still missing.
+    assert re.search(
+        r"fresh[^.\n]*supported-Compose qualification[^.\n]*\bmissing\b",
+        active_blockers,
+        re.IGNORECASE,
+    ), (
+        "Active blockers must state that a fresh current-tip supported-Compose "
+        "qualification is still missing"
+    )
+
+    # The natural import-to-recall scope proof is still an open blocker.
+    assert re.search(
+        r"natural import-to-recall[^.\n]*?"
+        r"\b(?:remain(?:s)?\s+open|is\s+open|still\s+open|unresolved)\b",
+        active_blockers,
+        re.IGNORECASE,
+    ), (
+        "Active blockers must still identify the open natural import-to-recall proof"
+    )
+
+
+def test_current_state_preserves_supported_path_hold_and_active_blockers():
+    _assert_current_state_release_contract(_read(CURRENT_STATE_PATH))
+
+
+def _without_lines_containing(text: str, needle: str) -> str:
+    """Controlled substitution: drop every line that mentions ``needle``."""
+    return "\n".join(line for line in text.splitlines() if needle not in line)
+
+
+def test_release_contract_rejects_a_missing_active_blockers_section():
+    """A missing Active blockers heading must still fail the contract."""
+    text = _read(CURRENT_STATE_PATH)
+    without_heading = text.replace("## Active blockers\n", "")
+    assert without_heading != text, "controlled substitution must apply"
+
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_current_state_release_contract(without_heading)
+    assert "Missing canonical section" in str(excinfo.value)
+
+
+def test_release_contract_rejects_a_missing_supported_compose_blocker():
+    """A removed fresh-qualification blocker must still fail the contract."""
+    text = _read(CURRENT_STATE_PATH)
+    without_blocker = _without_lines_containing(
+        text, "fresh current-tip supported-Compose qualification"
+    )
+    assert without_blocker != text, "controlled substitution must apply"
+
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_current_state_release_contract(without_blocker)
+    assert "fresh current-tip supported-Compose" in str(excinfo.value)
+
+
+def test_release_contract_rejects_a_missing_import_to_recall_blocker():
+    """A removed import-to-recall blocker must still fail the contract."""
+    text = _read(CURRENT_STATE_PATH)
+    without_blocker = _without_lines_containing(text, "natural import-to-recall")
+    assert without_blocker != text, "controlled substitution must apply"
+
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_current_state_release_contract(without_blocker)
+    assert "natural import-to-recall" in str(excinfo.value)
+
+
+def test_release_contract_rejects_a_missing_hold_release_posture():
+    """A removed HOLD release posture must still fail the contract."""
+    text = _read(CURRENT_STATE_PATH)
+    without_hold = text.replace("`HOLD`", "released")
+    assert without_hold != text, "controlled substitution must apply"
+
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_current_state_release_contract(without_hold)
+    assert "HOLD release gate" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

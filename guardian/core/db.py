@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, func, inspect, or_, text
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -1527,26 +1527,93 @@ class _PostgresGuardianDB:
             ),
         }
 
+    def _fact_filter_query(
+        self,
+        session: Session,
+        user_id: str,
+        status: Optional[str] = None,
+        active_only: bool = True,
+        thread_id: Optional[int] = None,
+    ):
+        """Build the canonical Personal Fact read filter.
+
+        ``list_facts`` and ``count_facts`` must agree on this predicate so a
+        reported ``total`` always describes the same population the page is
+        drawn from.
+        """
+        query = session.query(PersonalFact).filter_by(user_id=user_id)
+        if status:
+            query = query.filter_by(status=status)
+        if active_only:
+            query = query.filter_by(is_active=True)
+        if thread_id is not None:
+            # Thread membership lives in the evidence metadata, so restrict on
+            # the evidence table instead of scanning every fact's evidence
+            # rows in Python. ``->>`` yields the JSON scalar as text, which
+            # matches both numeric and string encodings of the thread id.
+            thread_fact_ids = select(PersonalFactEvidence.fact_id).where(
+                PersonalFactEvidence.evidence_meta["thread_id"].astext
+                == str(thread_id)
+            )
+            query = query.filter(PersonalFact.id.in_(thread_fact_ids))
+        return query
+
     def list_facts(
         self,
         user_id: str,
         status: Optional[str] = None,
         active_only: bool = True,
         limit: int = 100,
+        offset: int = 0,
+        thread_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """List personal facts for a user."""
+        """List personal facts for a user.
+
+        ``offset`` and ``thread_id`` are applied in SQL so a caller can page
+        through a population larger than a single fetch window. Ordering is
+        ``updated_at DESC, id DESC`` so that repeated pages over an unchanged
+        dataset are deterministic.
+        """
         with self.get_session() as session:
-            query = session.query(PersonalFact).filter_by(user_id=user_id)
-            if status:
-                query = query.filter_by(status=status)
-            if active_only:
-                query = query.filter_by(is_active=True)
-            facts = (
-                query.order_by(PersonalFact.updated_at.desc())
-                .limit(limit)
-                .all()
+            query = self._fact_filter_query(
+                session,
+                user_id,
+                status=status,
+                active_only=active_only,
+                thread_id=thread_id,
             )
+            query = query.order_by(
+                PersonalFact.updated_at.desc(), PersonalFact.id.desc()
+            )
+            if limit is not None:
+                query = query.limit(limit)
+            if offset:
+                query = query.offset(offset)
+            facts = query.all()
             return [self._fact_to_dict(fact) for fact in facts]
+
+    def count_facts(
+        self,
+        user_id: str,
+        status: Optional[str] = None,
+        active_only: bool = True,
+        thread_id: Optional[int] = None,
+    ) -> int:
+        """Count the personal facts a caller would page through.
+
+        Uses the same predicate as :meth:`list_facts` and is independent of any
+        page-size limit.
+        """
+        with self.get_session() as session:
+            query = self._fact_filter_query(
+                session,
+                user_id,
+                status=status,
+                active_only=active_only,
+                thread_id=thread_id,
+            )
+            total = query.with_entities(func.count(PersonalFact.id)).scalar()
+            return int(total or 0)
 
     def create_fact(
         self,
@@ -1705,6 +1772,35 @@ class _PostgresGuardianDB:
                 .all()
             )
             return [self._evidence_to_dict(row) for row in evidence]
+
+    def list_fact_evidence_for_facts(
+        self, fact_ids: List[int]
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """List evidence rows for a set of facts in one query.
+
+        Returns a mapping of fact id to its evidence rows, ordered by
+        ``created_at`` ascending. Used to attach matching evidence to a page
+        of candidates without issuing one query per fact.
+        """
+        wanted = [int(fact_id) for fact_id in fact_ids or []]
+        if not wanted:
+            return {}
+        with self.get_session() as session:
+            rows = (
+                session.query(PersonalFactEvidence)
+                .filter(PersonalFactEvidence.fact_id.in_(wanted))
+                .order_by(
+                    PersonalFactEvidence.fact_id.asc(),
+                    PersonalFactEvidence.created_at.asc(),
+                )
+                .all()
+            )
+            grouped: Dict[int, List[Dict[str, Any]]] = {}
+            for row in rows:
+                grouped.setdefault(int(row.fact_id), []).append(
+                    self._evidence_to_dict(row)
+                )
+            return grouped
 
     def add_fact_evidence(
         self,
