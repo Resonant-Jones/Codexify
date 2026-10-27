@@ -354,6 +354,9 @@ class _SyntheticDurableAttempt:
         self.confirmed = confirmed
         self.read_attempts: list[str] = []
         self.recorded_terminals: list[str] = []
+        # Exact identity of every acknowledged durable terminal write:
+        # (request_id, backend_task_id, thread_id, turn_id, event_type).
+        self.recorded_terminal_writes: list[tuple[str, str, int, str, str]] = []
         self.observed_authorities: list[ChatAttemptReconciliation] = []
 
     @property
@@ -393,6 +396,11 @@ class _SyntheticDurableAttempt:
         if (request_id, backend_task_id, thread_id, turn_id) != self.identity:
             return False
         self.recorded_terminals.append(event_type)
+        # The write is recorded only because the durable port acknowledged
+        # this exact identity, never because an event was later published.
+        self.recorded_terminal_writes.append(
+            (request_id, backend_task_id, thread_id, turn_id, event_type)
+        )
         return True
 
     def observe_terminal(
@@ -520,13 +528,13 @@ def test_incomplete_output_publishes_failed_without_completion_effects(
     assert effects == []
     # The terminal event is published because the durable terminal write
     # was acknowledged, with exact identity.
-    assert terminal_writes == [
+    assert durable.recorded_terminal_writes == [
         (
             task.request_id,
             task.task_id,
             task.thread_id,
             chat_worker._extract_turn_id(task),
-            "task.failed",
+            TaskEventType.TASK_FAILED.value,
         )
     ]
     failed = next(
@@ -568,13 +576,13 @@ def test_cancelled_output_publishes_cancelled_without_persistence(
     assert effects == []
     # The terminal event is published because the durable terminal write
     # was acknowledged, with exact identity.
-    assert terminal_writes == [
+    assert durable.recorded_terminal_writes == [
         (
             task.request_id,
             task.task_id,
             task.thread_id,
             chat_worker._extract_turn_id(task),
-            "task.cancelled",
+            TaskEventType.TASK_CANCELLED.value,
         )
     ]
     payload = next(
@@ -643,3 +651,54 @@ def test_unconfirmed_durable_attempt_never_executes(monkeypatch):
     # No request or turn identity was synthesized into execution authority.
     assert task.request_id == "request-terminal-evidence"
     assert task.turn_id == _TERMINAL_TURN_ID
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        {"request_id": "request-other"},
+        {"backend_task_id": "task-other"},
+        {"thread_id": 999},
+        {"turn_id": "turn-other"},
+    ],
+)
+def test_durable_terminal_write_rejects_mismatched_identity(mismatch):
+    """Prove the durable terminal write checks the full attempt identity.
+
+    A write that does not carry the accepted attempt's identity is refused,
+    is acknowledged as nothing, and creates no terminal authority. The double
+    proves the contract the worker expects; it is not a PostgreSQL
+    transaction.
+    """
+    task = _worker_task()
+    durable = _SyntheticDurableAttempt(task=task)
+    identity = {
+        "request_id": task.request_id,
+        "backend_task_id": task.task_id,
+        "thread_id": task.thread_id,
+        "turn_id": task.turn_id,
+    }
+    accepted_write = (
+        task.request_id,
+        task.task_id,
+        task.thread_id,
+        chat_worker._extract_turn_id(task),
+        TaskEventType.TASK_FAILED.value,
+    )
+
+    # The accepted identity is acknowledged and recorded with its exact tuple.
+    accepted = {**identity, "event_type": TaskEventType.TASK_FAILED.value}
+    assert durable.record_terminal(None, **accepted) is True
+    assert durable.recorded_terminal_writes == [accepted_write]
+    assert durable.recorded_terminals == [TaskEventType.TASK_FAILED.value]
+
+    # A mismatched identity is refused and records no additional write.
+    rejected = {**identity, **mismatch, "event_type": TaskEventType.TASK_FAILED.value}
+    assert durable.record_terminal(None, **rejected) is False
+    assert durable.recorded_terminal_writes == [accepted_write]
+    assert durable.recorded_terminals == [TaskEventType.TASK_FAILED.value]
+
+    # A refused write creates no terminal authority.
+    assert durable.observed_authorities == []
+    with pytest.raises(ValueError):
+        durable.observe_terminal(None, **{**identity, **mismatch})
