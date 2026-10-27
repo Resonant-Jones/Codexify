@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -131,6 +132,33 @@ def _enable_consent(user_id: str, state: str = "enabled") -> dict:
     return iddb_settings_service.set_automatic_memory_suggestions_consent(
         user_id, state, actor_user_id=user_id
     )
+
+
+def test_consent_constraint_rejects_an_invalid_state(settings_session_factory):
+    Session = settings_session_factory
+    with pytest.raises(IntegrityError):
+        with Session() as session:
+            session.add(
+                UserSettings(
+                    user_id="u-bogus",
+                    automatic_memory_suggestions="bogus",
+                    consent_policy_version=iddb_settings_service.CONSENT_POLICY_VERSION,
+                    consent_recorded_by_user_id="u-bogus",
+                )
+            )
+            session.commit()
+
+    for state in ("unset", "enabled", "paused", "declined"):
+        with Session() as session:
+            session.add(
+                UserSettings(
+                    user_id=f"u-{state}",
+                    automatic_memory_suggestions=state,
+                    consent_policy_version=iddb_settings_service.CONSENT_POLICY_VERSION,
+                    consent_recorded_by_user_id=f"u-{state}",
+                )
+            )
+            session.commit()
 
 
 def test_consent_defaults_to_unset_and_is_not_effective(settings_session_factory):
