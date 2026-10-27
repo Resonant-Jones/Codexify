@@ -664,9 +664,28 @@ export default function DirectMessageInbox({
           {visibleConversations.map((conversation) => {
             const peer = conversation.peer;
             const peerLabel = peerPresentationLabel(peer);
+            // The badge reads the SHARED caller-local projection first.
+            //
+            // A read recorded by another surface — the floating window —
+            // updates that shared projection immediately, while this
+            // Inbox's own conversation rows are only refreshed by a
+            // refetch or the poll tick.  Preferring the shared entry keeps
+            // an already-visible badge honest without adding a second
+            // counter, a second store, or another request; the shared
+            // projection is a presentation copy of the same caller-local
+            // read state, never an authority.
+            //
+            // The Inbox's own row remains the fallback for a Conversation
+            // the shared projection does not carry yet.
+            const sharedConversation =
+              state.conversationMetaById[conversation.conversation_id];
             const unreadCount = Math.max(
               0,
-              Number(conversation.unread_count ?? 0) || 0,
+              Number(
+                sharedConversation?.unread_count ??
+                  conversation.unread_count ??
+                  0,
+              ) || 0,
             );
             return (
               <button

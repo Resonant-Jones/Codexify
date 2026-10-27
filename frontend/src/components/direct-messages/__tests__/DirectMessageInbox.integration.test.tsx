@@ -18,9 +18,10 @@
 
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DirectMessageInbox from "@/components/direct-messages/DirectMessageInbox";
+import ContactsLauncher from "@/features/contacts/ContactsLauncher";
 import FloatingConversation from "@/features/contacts/FloatingConversation";
 import {
   usePeopleMessagingState,
@@ -28,6 +29,7 @@ import {
 } from "@/features/contacts/usePeopleMessagingState";
 import {
   fetchDirectMessageConversations,
+  fetchDirectMessageMessages,
   fetchProjectLabelMap,
   markDirectMessageConversationRead,
   type DirectMessageConversation,
@@ -62,6 +64,28 @@ vi.mock("@/features/contacts/DirectConversation", () => ({
 
 vi.mock("@/components/direct-messages/MessageRequestPanel", () => ({
   default: () => null,
+}));
+
+// The launcher's badge only renders when the direct-messages route is
+// available, so the runtime capability store is pinned for this file.
+vi.mock("@/lib/runtimeRouteCapabilities", () => ({
+  useRuntimeRouteCapability: (label: string) => ({
+    mounted: ["direct_messages"],
+    declared: {},
+    ready: true,
+    state: label === "direct_messages" ? "available" : "unavailable",
+  }),
+  useRuntimeRouteCapabilities: () => ({
+    mounted: ["direct_messages"],
+    declared: {},
+    ready: true,
+    states: { direct_messages: "available" },
+  }),
+  ensureRuntimeRouteCapabilitiesLoaded: () => Promise.resolve(),
+  getRuntimeRouteCapabilityState: () => "available",
+  markRuntimeRouteUnavailable: () => {},
+  markRuntimeRouteUnavailableIfNotFound: () => false,
+  __resetRuntimeRouteCapabilitiesForTests: () => {},
 }));
 
 const conversation: DirectMessageConversation = {
@@ -331,5 +355,101 @@ describe("shared read cursor (real state owner)", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(markDirectMessageConversationRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The open Inbox and the floating window must show coherent caller-local
+ * unread state.
+ *
+ * The Inbox keeps its own conversation rows, and those rows are only
+ * refreshed by a projection refetch or the 15-second poll tick.  A read
+ * recorded by the floating window updates the SHARED caller-local projection
+ * immediately, so before this correction the launcher could show a cleared
+ * count while the already-visible Inbox badge still showed the previous one.
+ *
+ * The correction makes the Inbox badge read the shared projection first, so
+ * both surfaces render from one source.  The client cache stays a
+ * non-authoritative presentation projection of the server's cursor.
+ */
+describe("open Inbox badge coherence with the floating window", () => {
+  beforeEach(() => {
+    // The floating window needs a transcript to render, and therefore a
+    // read watermark to record.
+    vi.mocked(fetchDirectMessageMessages).mockResolvedValue([envelope("m-1")]);
+  });
+
+  afterEach(() => {
+    vi.mocked(fetchDirectMessageMessages).mockReset();
+  });
+
+  it("clears the visible badge when the floating window records the read", async () => {
+    vi.mocked(markDirectMessageConversationRead).mockResolvedValue({
+      ...conversation,
+      unread_count: 0,
+    } as unknown as DirectMessageConversation);
+
+    let captured: PeopleMessagingState | null = null;
+    const portal = document.createElement("div");
+    portal.id = "cfy-portal-root";
+    document.body.appendChild(portal);
+
+    const Harness = () => {
+      const state = usePeopleMessagingState();
+      captured = state;
+      return (
+        <>
+          <ContactsLauncher state={state} />
+          <DirectMessageInbox
+            capabilityState="available"
+            sourceThreadId={null}
+            state={state}
+          />
+          <FloatingConversation state={state} />
+        </>
+      );
+    };
+    render(<Harness />);
+
+    // Both surfaces show the same count, read from the shared owner.
+    await waitFor(() => {
+      expect(screen.getByTestId("conversation-unread-badge")).toHaveTextContent(
+        "2",
+      );
+    });
+    expect(
+      screen.getByTestId("contacts-launcher-unread-badge"),
+    ).toHaveTextContent("2");
+
+    const fetchesBeforeRead =
+      vi.mocked(fetchDirectMessageConversations).mock.calls.length;
+
+    // The same Conversation is opened in the floating window.
+    await act(async () => {
+      captured?.popOutConversation("conv-1", conversation);
+    });
+
+    // The floating window records the rendered watermark.
+    await waitFor(() => {
+      expect(markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "conv-1",
+        "m-1",
+      );
+    });
+
+    // The already-visible Inbox badge reflects the cleared count at once.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("conversation-unread-badge"),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("contacts-launcher-unread-badge"),
+    ).not.toBeInTheDocument();
+
+    // No refetch and no poll tick were needed to reach that state.
+    expect(
+      vi.mocked(fetchDirectMessageConversations).mock.calls.length,
+    ).toBe(fetchesBeforeRead);
   });
 });
