@@ -45,6 +45,24 @@ def _build_supported_profile_client(monkeypatch):
         importlib.reload(guardian_api)
 
 
+CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
+
+# The authenticated single-user identity the supported local profile resolves
+# for this deployment. The request body must match it; the body never grants
+# account authority by itself.
+CODING_TEST_ACCOUNT = "local"
+CODING_TEST_THREAD_ID = "4242"
+CODING_TEST_SOURCE_MESSAGE_ID = "9091"
+CODING_TEST_PROJECT_ID = "4242"
+CODING_TEST_PROVIDER_ID = "test-provider"
+CODING_TEST_MODEL_ID = "test-model-a"
+CODING_TEST_CREDENTIAL_REF = "credential-account-local"
+
+# Stands in for secret-bearing credential custody data. The accepted
+# execution binding must project safe authority metadata only.
+CODING_CREDENTIAL_SECRET_SENTINEL = "SECRET-SENTINEL-must-not-cross-the-task-boundary"
+
+
 def _incomplete_coding_execute_body() -> dict:
     """Return a coding-execution body that omits execution-binding identity.
 
@@ -71,24 +89,6 @@ def _incomplete_coding_execute_body() -> dict:
             "max_runtime_seconds": 30,
         },
     }
-
-
-CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
-
-# The authenticated single-user identity the supported local profile resolves
-# for this deployment. The request body must match it; the body never grants
-# account authority by itself.
-CODING_TEST_ACCOUNT = "local"
-CODING_TEST_THREAD_ID = "4242"
-CODING_TEST_SOURCE_MESSAGE_ID = "9091"
-CODING_TEST_PROJECT_ID = "4242"
-CODING_TEST_PROVIDER_ID = "test-provider"
-CODING_TEST_MODEL_ID = "test-model-a"
-CODING_TEST_CREDENTIAL_REF = "credential-account-local"
-
-# Stands in for secret-bearing credential custody data. The accepted
-# execution binding must project safe authority metadata only.
-CODING_CREDENTIAL_SECRET_SENTINEL = "SECRET-SENTINEL-must-not-cross-the-task-boundary"
 
 
 def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
@@ -504,26 +504,44 @@ def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
             _missing_validation_fields(response)
         )
 
-        # No coding task was accepted for the incomplete body.
+        # No coding task was accepted.
         body = response.json()
         assert body.get("ok") is not True
         assert body.get("status") != "accepted"
         assert "run_id" not in body
 
-        # A structurally complete body is accepted by the route. This proves the
-        # request contract only; authority is established separately.
+
+def test_coding_loop_execute_route_mounted_in_local_profile(
+    monkeypatch,
+) -> None:
+    """Prove a schema-valid Coding Loop request reaches the bounded accepted
+    response in the supported local operator profile.
+
+    This is a controlled route-contract test. The lineage, credential
+    authority, persistence, event, and queue effects are all replaced by the
+    test's own isolation, so it proves the request contract and the accepted
+    binding shape. It is not proof of live provider execution or of
+    production credential custody.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
         with _isolate_coding_execution(monkeypatch) as isolation:
-            accepted = client.post(
+            response = client.post(
                 CODING_EXECUTE_ROUTE,
                 headers=headers,
                 json=_coding_execute_body(),
             )
-            assert accepted.status_code == 200, accepted.text
-            accepted_body = accepted.json()
-            assert accepted_body.get("ok") is True
-            assert accepted_body.get("status") == "accepted"
-            assert accepted_body.get("run_id")
-            assert accepted_body.get("deployment_id")
+
+        # Route must accept the request (not 404).
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
+        body = response.json()
+        assert body.get("ok") is True
+        assert body.get("status") == "accepted"
+        assert body.get("run_id")
+        assert body.get("deployment_id")
 
         # Exactly one execution task was captured, and nothing reached Redis.
         assert len(isolation.queued) == 1
@@ -821,20 +839,22 @@ def test_agent_orchestration_chat_readback_enforced(
         assert wrong_key_response.json()["detail"] != "thread_not_found"
 
 
-def test_authenticated_read_user_rejects_unresolved_identities() -> None:
-    """Prove the readback identity helper fails closed.
+def test_authenticated_account_user_rejects_unresolved_identities() -> None:
+    """Prove the canonical readback identity helper fails closed.
 
     A missing, blank, or unresolved dependency identity must never be
-    treated as an account scope.
+    treated as an account scope. This is the behavior the retired
+    `_authenticated_read_user` helper proved; the assertions now target the
+    single canonical helper.
     """
     for unresolved in (None, "", "   ", "Depends(get_current_user)"):
         with pytest.raises(HTTPException) as excinfo:
-            agent_orchestration._authenticated_read_user(unresolved)
+            agent_orchestration._authenticated_account_user(unresolved)
         assert excinfo.value.status_code == 401
         assert excinfo.value.detail == "account_identity_missing"
 
     assert (
-        agent_orchestration._authenticated_read_user("account-a") == "account-a"
+        agent_orchestration._authenticated_account_user("account-a") == "account-a"
     )
 
 
@@ -1031,18 +1051,6 @@ def test_missing_route_does_not_regress_to_unclassified_404(
             response.status_code == 422
         ), f"Expected 422, got {response.status_code}: {response.text}"
         assert response.status_code != 404
-
-        # The same route must 200 for a structurally complete body, and it
-        # must enqueue exactly one execution task.
-        with _isolate_coding_execution(monkeypatch) as isolation:
-            accepted = client.post(
-                CODING_EXECUTE_ROUTE,
-                headers=headers,
-                json=_coding_execute_body(coding_task_id="regression-check"),
-            )
-            assert accepted.status_code == 200, accepted.text
-            assert accepted.json().get("status") == "accepted"
-            assert len(isolation.queued) == 1
 
 
 def test_coding_execute_incomplete_request_reaches_no_dispatch_boundary(

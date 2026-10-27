@@ -437,11 +437,11 @@ def _assert_scoped_to(store: _ScopedStore, account: str) -> None:
 def test_absent_requested_identity_resolves_to_authenticated_principal() -> None:
     """No caller-supplied identity: the authenticated principal is authority.
 
-    A route that carries no separate requested identity resolves it through
-    the read-scope helper, which never compares against a caller-supplied
-    identity: a resource ID identifies a resource, not its owner.
+    A route that carries no separate requested identity resolves it without
+    comparing against a caller-supplied identity: a resource ID identifies a
+    resource, not its owner.
     """
-    resolved = agent_orchestration._authenticated_read_user(ACCOUNT_OWNER)
+    resolved = agent_orchestration._resolved_request_user(ACCOUNT_OWNER)
     assert resolved == ACCOUNT_OWNER
 
 
@@ -472,7 +472,7 @@ def test_explicit_empty_requested_identity_is_rejected() -> None:
 def test_missing_authenticated_identity_is_rejected() -> None:
     for missing in ("", None, "   "):
         with pytest.raises(Exception) as excinfo:
-            agent_orchestration._authenticated_read_user(missing)
+            agent_orchestration._resolved_request_user(missing)
         assert getattr(excinfo.value, "status_code", None) == 401
         assert getattr(excinfo.value, "detail", None) == "account_identity_missing"
 
@@ -480,7 +480,7 @@ def test_missing_authenticated_identity_is_rejected() -> None:
 def test_unresolved_dependency_placeholder_is_rejected() -> None:
     placeholder = "Depends(get_current_user)"
     with pytest.raises(Exception) as excinfo:
-        agent_orchestration._authenticated_read_user(placeholder)
+        agent_orchestration._resolved_request_user(placeholder)
     assert getattr(excinfo.value, "status_code", None) == 401
     assert getattr(excinfo.value, "detail", None) == "account_identity_missing"
 

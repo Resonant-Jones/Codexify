@@ -100,28 +100,28 @@ def _authenticated_account_user(current_user: Any) -> str:
     return resolved
 
 
-def _authenticated_read_user(current_user: Any) -> str:
-    """Resolve the authenticated account identity for account-scoped reads.
+def _resolved_request_user(
+    current_user: Any,
+    requested_user: str | None = None,
+) -> str:
+    """Resolve the authenticated account identity for one request.
 
-    Readback handlers take their account scope from the authenticated
-    request context only. They never accept a caller-supplied user
-    identity, so there is no requested-identity comparison here: a resource
-    ID identifies a resource, not its owner.
+    ``requested_user`` is ``None`` when the route carries no separate
+    caller-supplied identity. The authenticated principal is then the only
+    authority, and its resolved identity is returned unchanged.
 
-    The identity arrives through `get_account_user`, which keeps the
-    existing account-session gate. A missing or unresolved identity fails
-    closed before any durable resource lookup.
+    When a route does carry an explicitly requested identity, that identity
+    must match the authenticated principal exactly. An explicitly supplied
+    empty string is a *conflicting* identity, not an absent one, so it is
+    rejected rather than silently resolved to the principal.
     """
     resolved = str(current_user or "").strip()
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
-    return resolved
-
-
-def _resolved_request_user(current_user: Any, requested_user: str) -> str:
-    resolved = _authenticated_account_user(current_user)
-    if str(requested_user or "").strip() != resolved:
-        raise HTTPException(status_code=403, detail="account_identity_mismatch")
+    if requested_user is not None:
+        requested = str(requested_user).strip()
+        if requested != resolved:
+            raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
 
 
@@ -798,7 +798,7 @@ async def cancel_run(
     HTTP 200 here would report a terminal cancellation that nothing
     observed.
     """
-    _authenticated_account_user(current_user)
+    _resolved_request_user(current_user)
     raise HTTPException(
         status_code=501,
         detail="agent_run_cancellation_not_implemented",
@@ -810,7 +810,7 @@ async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_read_user(current_user)
+    request_user = _authenticated_account_user(current_user)
     run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
@@ -822,7 +822,7 @@ async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_read_user(current_user)
+    request_user = _authenticated_account_user(current_user)
     if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
         run = _store.get_account_run(run_id, user_id=request_user)
     else:
@@ -894,7 +894,7 @@ async def list_thread_runs(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_read_user(current_user)
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_account_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
@@ -914,7 +914,7 @@ async def list_coding_runs_via_chat(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_read_user(current_user)
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
