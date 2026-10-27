@@ -79,6 +79,56 @@ Postgres, Redis, Neo4j, media, and model volumes are unchanged.
 | `personal_fact_evidence` | Evidence rows that tie facts back to messages or sources | fact delete cascades; message link may be nullable |
 | `personal_fact_revisions` | Fact history | supports auditability of memory changes |
 
+### Saved Widget canonical entities
+
+These two relations are the durable storage authority for Saved Widgets, as
+accepted in ADR-102. They are the *storage foundation only*: nothing in the
+product creates, lists, invokes, or serves a Saved Widget yet, and no HTTP
+route, tool command, or model-accessible entrypoint reaches them.
+
+| Entity | Why it matters | Key invariants |
+|---|---|---|
+| `saved_widgets` | One canonical widget identity with one account owner | `widget_id` is server-generated and opaque; `owner_user_id` references `users.id` and is the *only* ownership column; `lifecycle_state` is constrained to `active` / `archived` / `deleted`; `current_revision` is positive and forward-only |
+| `saved_widget_revisions` | Immutable revision snapshots | composite primary key `(widget_id, revision)`; artifact, provenance, and creation context are JSONB snapshots; `edit_base_revision` is null for an initial promotion and otherwise names a strictly earlier revision of the same widget; rows are protected from in-place update by a narrow database guard |
+
+**Identity model.** A widget's identity is its own server-assigned
+`widget_id`; it is never a thread id, a project id, a message id, or a title.
+Ownership is a property of the *widget* and resolves to the account the
+caller authenticated as. A Project or thread is never an alternative
+ownership authority, and there is no separate widget-owner binding table.
+
+**Revision keys.** Revision identity is `(widget_id, revision)`. Ownership is
+not part of the key, so two widgets owned by the same account each number
+their own revisions from 1 without collision. The current-revision pointer on
+`saved_widgets` is protected by a **deferrable composite foreign key** into
+`saved_widget_revisions`, so the widget row and its first revision can be
+written in one transaction while the database never observes a pointer to a
+revision that does not exist.
+
+**Provenance independence.** A revision *snapshots* its server-proven
+lineage — source thread id, source message id, completion-attempt request id,
+provenance classification, and capture time — instead of joining to the rows
+that produced it. There is deliberately no foreign key from a revision to
+`chat_threads`, `chat_messages`, or `chat_completion_attempts`. Deleting the
+originating thread therefore does not delete, alter, or un-provenance a Saved
+Widget; the referent is history, not a live dependency. A widget, in turn, is
+removed only by cascading with the account that owns it.
+
+**Lifecycle.** `active` is the initial state. `archived` and `deleted` are
+reachable states in the schema, but the transition operations are deferred
+until the invocation authorization path exists. A non-active widget is never
+returned as a servable program: its identity, ownership, and revision
+numbering stay addressable for audit and transcript truth, while its
+executable source is withheld.
+
+| Source anchors | |
+|---|---|
+| `guardian/db/models.py` | `SavedWidget`, `SavedWidgetRevision` |
+| `guardian/db/migrations/versions/a6b9d2e4f701_add_saved_widget_identity_and_revisions.py` | schema, constraints, immutability guard |
+| `guardian/core/saved_widget_store.py` | internal persistence operations |
+| `docs/architecture/saved-widget-contract.md` | normative contract |
+| `docs/architecture/adr/102-saved-widget-identity-and-revision-boundary.md` | accepted architecture |
+
 ### Unified Memory Store canonical entities (UMS)
 
 These are the canonical account-owned memory relations. They are **not** the
@@ -377,6 +427,11 @@ invariant is established.
   - imported media keeps the job ID, export fingerprint, source-relative path, message/thread identifiers, and append-only import-lineage evidence; deleting a job clears the direct FK without erasing media.
 - `personal_facts -> personal_fact_evidence/personal_fact_revisions`
   - fact mutation and evidence display rely on these dependent rows staying consistent.
+- `users -> saved_widgets -> saved_widget_revisions`
+  - the account owns the widget; the widget owns its revisions. Deleting the account cascades to the widget and then to its revisions.
+  - the `saved_widgets` current-revision pointer references `saved_widget_revisions` through a deferrable composite foreign key, so the pointer is checked at commit time and may never name a revision that does not exist.
+- `saved_widget_revisions` has **no** foreign key to `chat_threads`, `chat_messages`, or `chat_completion_attempts`.
+  - the source identifiers it records are snapshotted history, not live dependencies. Deleting the originating thread leaves the Saved Widget and its provenance snapshot intact.
 
 ## Invariants and Lifecycle Rules
 
@@ -395,6 +450,12 @@ invariant is established.
   - Permanent purge of one ordinary memory is atomic: the minimum non-content tombstone and the canonical deletion commit together, so `content absent + no tombstone` and `tombstone present + content still present` are both impossible across a commit boundary.
   - No current UMS vector, heat, summary, cache, queue, or graph-derived state exists to be deleted. The only `heat_score` column belongs to `imprints` (cognition), which is not a canonical memory relation.
   - Anchors: `guardian/services/memory_purge.py`, `guardian/db/models.py`
+- Postgres is the source of truth for canonical Saved Widget identity and immutable revisions.
+  - A widget's identity and its account owner live on the widget; its revisions are keyed `(widget_id, revision)` and are append-only. A stored revision is never updated in place, and a correction is a new revision.
+  - The current-revision pointer is a deferrable composite foreign key, so the pointer and the revision it names commit together and the pointer may never name a revision that does not exist.
+  - Provenance is snapshotted into the revision, not joined, so deleting the source thread does not destroy or un-provenance the Saved Widget.
+  - Storage existing is not capability. No route, tool, worker, or Library surface reaches these relations, and an eligible assessment remains a necessary condition rather than permission to promote.
+  - Anchors: `guardian/core/saved_widget_store.py`, `guardian/db/models.py`, `guardian/db/migrations/versions/a6b9d2e4f701_add_saved_widget_identity_and_revisions.py`
 - Postgres is the source of truth for account-import lifecycle and restart checkpoints.
   - Redis publication is required for route acceptance but is not the durable lifecycle record.
   - The dedicated worker re-enqueues `queued`/`running` jobs on startup because the shared Redis list dequeue is destructive.
