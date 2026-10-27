@@ -194,6 +194,25 @@ class PersonalFactStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class AutomaticMemorySuggestionsConsent(str, Enum):
+    """Canonical account consent states for automatic Personal Fact collection.
+
+    This is the single state vocabulary for collection consent and mirrors the
+    accepted UMS contract vocabulary
+    (``automatic_memory_suggestions = unset | enabled | paused | declined``).
+    No other module may define a parallel consent vocabulary.
+
+    Only ``ENABLED`` permits automatic collection. ``UNSET`` is the default for
+    every account that has not recorded a choice, so a missing preference
+    denies collection.
+    """
+
+    UNSET = "unset"
+    ENABLED = "enabled"
+    PAUSED = "paused"
+    DECLINED = "declined"
+
+
 class TraceSuppressionReason(str, Enum):
     ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = "assistant_vision_refusal_on_image_turn"
 
@@ -649,6 +668,9 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
 )
+AUTOMATIC_MEMORY_SUGGESTIONS_CONSENT_STATES: frozenset[str] = frozenset(
+    {state.value for state in AutomaticMemorySuggestionsConsent}
+)
 MEMORY_SEMANTIC_SPECIES_VALUES: frozenset[str] = frozenset(
     {species.value for species in MemorySemanticSpecies}
 )
@@ -890,6 +912,7 @@ __all__ = [
     "MemoryLifecycleState",
     "MemoryReviewState",
     "PersonalFactStatus",
+    "AutomaticMemorySuggestionsConsent",
     "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
@@ -946,6 +969,7 @@ __all__ = [
     "TEST_RESULT_STATUSES",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "AUTOMATIC_MEMORY_SUGGESTIONS_CONSENT_STATES",
     "MEMORY_SEMANTIC_SPECIES_VALUES",
     "MEMORY_PERSONA_LINK_KIND_VALUES",
     "TRACE_SUPPRESSION_REASONS",
