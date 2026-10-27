@@ -6,11 +6,13 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from guardian.agents.events import AgentEventPublisher
 from guardian.agents.store import AgentStore
 from guardian.connections.catalog import get_catalog
+from guardian.core import dependencies
 from guardian.routes import agent_orchestration
 
 
@@ -116,6 +118,69 @@ class _RecordingAgentStore:
     def create_run(self, **kwargs: Any) -> dict[str, Any]:
         self.runs.append(dict(kwargs))
         return self.inner.create_run(**kwargs)
+
+
+class _ReadbackStoreSpy:
+    """Records the account scope each Agent/Coding readback reader receives.
+
+    This is a route-to-store argument recorder, not durable ownership proof.
+    The account readers keep their own durable account-origin provenance and
+    canonical thread ownership requirements; the spy only shows which
+    account scope the route asked for.
+    """
+
+    def __init__(
+        self,
+        *,
+        coding_runs: list[dict[str, Any]] | None = None,
+        account_runs: list[dict[str, Any]] | None = None,
+        coding_snapshot: dict[str, Any] | None = None,
+        account_run: dict[str, Any] | None = None,
+        run: dict[str, Any] | None = None,
+    ) -> None:
+        self.coding_runs = coding_runs
+        self.account_runs = account_runs
+        self.coding_snapshot = coding_snapshot
+        self.account_run = account_run
+        self.run = run
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get_coding_run_snapshot(
+        self, run_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        self.calls.append(
+            ("get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id})
+        )
+        return self.coding_snapshot
+
+    def list_coding_runs_for_thread(
+        self, thread_id: int, *, user_id: str | None = None
+    ) -> list[dict[str, Any]] | None:
+        self.calls.append(
+            ("list_coding_runs_for_thread", {"thread_id": thread_id, "user_id": user_id})
+        )
+        return self.coding_runs
+
+    def get_account_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
+        self.calls.append(("get_account_run", {"run_id": run_id, "user_id": user_id}))
+        return self.account_run
+
+    def list_account_runs_for_thread(
+        self, thread_id: int, *, user_id: str
+    ) -> list[dict[str, Any]] | None:
+        self.calls.append(
+            ("list_account_runs_for_thread", {"thread_id": thread_id, "user_id": user_id})
+        )
+        return self.account_runs
+
+    def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
+        self.calls.append(("get_run", {"run_id": run_id, "user_id": user_id}))
+        return self.run
+
+    def list_runs_for_thread(self, thread_id: int) -> list[dict[str, Any]]:
+        raise AssertionError(
+            "Account readback must not fall back to the unscoped thread list"
+        )
 
 
 class _CodingExecutionIsolation:
@@ -583,6 +648,152 @@ def test_agent_orchestration_chat_readback_enforced(
             headers={"X-API-Key": "wrong-key"},
         )
         assert wrong_key_response.status_code in {401, 403}
+
+
+def test_authenticated_read_user_rejects_unresolved_identities() -> None:
+    """Prove the readback identity helper fails closed.
+
+    A missing, blank, or unresolved dependency identity must never be
+    treated as an account scope.
+    """
+    for unresolved in (None, "", "   ", "Depends(get_current_user)"):
+        with pytest.raises(HTTPException) as excinfo:
+            agent_orchestration._authenticated_read_user(unresolved)
+        assert excinfo.value.status_code == 401
+        assert excinfo.value.detail == "account_identity_missing"
+
+    assert (
+        agent_orchestration._authenticated_read_user("account-a") == "account-a"
+    )
+
+
+def test_agent_readback_uses_authenticated_account_scope(monkeypatch) -> None:
+    """Prove Agent/Coding readback asks the store for the authenticated
+    account rather than rejecting the request on an identity mismatch."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=[], account_runs=[])
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        coding_runs = client.get("/api/chat/7/coding-runs", headers=headers)
+        assert coding_runs.status_code == 200, coding_runs.text
+        agent_runs = client.get("/api/chat/7/agent-runs", headers=headers)
+        assert agent_runs.status_code == 200, agent_runs.text
+
+        # Both thread lists were read with the authenticated account scope.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+            (
+                "list_account_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_fails_closed_without_authenticated_identity(
+    monkeypatch,
+) -> None:
+    """Prove readback refuses to look up a resource without an account.
+
+    The request still authenticates with the API key; only the account
+    identity fails to resolve.
+    """
+    monkeypatch.setattr(dependencies, "get_single_user_id", lambda: "")
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=[], account_runs=[])
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get("/api/chat/7/coding-runs", headers=headers)
+
+        assert response.status_code == 401
+        # No durable resource lookup was attempted.
+        assert spy.calls == []
+
+
+def test_agent_readback_hides_unknown_resource_without_unscoped_fallback(
+    monkeypatch,
+) -> None:
+    """Prove an unknown resource stays existence-hidden and never falls
+    back to an unscoped store read."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        thread_response = client.get("/api/chat/7/coding-runs", headers=headers)
+        assert thread_response.status_code == 404
+        run_response = client.get("/api/agents/runs/missing-run/coding", headers=headers)
+        assert run_response.status_code == 404
+
+        # Only the account-scoped readers were used.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+            (
+                "get_coding_run_snapshot",
+                {"run_id": "missing-run", "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_rejects_foreign_account_selection(monkeypatch) -> None:
+    """Prove a forged X-User-Id header cannot select another account."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get(
+            "/api/chat/7/coding-runs",
+            headers={"X-API-Key": "test-api-key", "X-User-Id": "other-account"},
+        )
+
+        assert response.status_code == 404
+        # The forged header did not replace the authenticated account scope.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_preserves_local_operator_threadless_run(
+    monkeypatch,
+) -> None:
+    """Prove the local operator lane keeps its bounded threadless read.
+
+    A threadless operator-created run remains readable under the local
+    operator API key. This is the explicit local compatibility path, not
+    remote account authority.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        local_store = AgentStore()
+        deployment = local_store.create_deployment(
+            flow_id="operator-threadless",
+            thread_id=None,
+            spec_json={},
+            spec_hash="operator-threadless-spec",
+        )
+        run = local_store.create_run(
+            deployment_id=str(deployment["deployment_id"]),
+            thread_id=None,
+            status="running",
+        )
+        monkeypatch.setattr(agent_orchestration, "_store", local_store)
+
+        response = client.get(
+            f"/api/agents/runs/{run['run_id']}",
+            headers={"X-API-Key": "test-api-key"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["run"]["thread_id"] is None
 
 
 def test_missing_route_does_not_regress_to_unclassified_404(
