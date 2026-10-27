@@ -34,6 +34,7 @@ or execution adapter is contacted.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
@@ -48,6 +49,9 @@ ACCOUNT_OWNER = "owner@example.invalid"
 ACCOUNT_OTHER = "other@example.invalid"
 API_KEY = "test-api-key"
 RUN_ID = "run-1"
+THREADLESS_RUN_ID = "run-threadless"
+ORPHANED_RUN_ID = "run-orphaned"
+FOREIGN_RUN_ID = "run-foreign"
 THREAD_ID = 7
 
 CODING_ROUTE = "/api/agents/coding/execute"
@@ -58,23 +62,98 @@ CODING_ROUTE = "/api/agents/coding/execute"
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _RunRecord:
+    """One run, as the real `AgentStore` would see it.
+
+    ``deployment_user_id`` is the deployment spec's `user_id`, ``thread_user_id``
+    is the owner of the surviving canonical thread, ``account_origin_user_id``
+    is the durable account origin recorded on the run row, and
+    ``thread_survives`` says whether the canonical thread record still exists.
+    """
+
+    run_id: str
+    account_origin_user_id: str | None = None
+    thread_user_id: str | None = None
+    thread_survives: bool = True
+    deployment_user_id: str | None = None
+    thread_id: int | None = THREAD_ID
+
+
+# A run the account owns with full durable provenance. Both lookups find it.
+_OWNED_RUN = _RunRecord(
+    run_id=RUN_ID,
+    account_origin_user_id=ACCOUNT_OWNER,
+    thread_user_id=ACCOUNT_OWNER,
+    thread_survives=True,
+    deployment_user_id=ACCOUNT_OWNER,
+)
+
+# A run belonging to another account. Both lookups reject it.
+_FOREIGN_RUN = _RunRecord(
+    run_id=FOREIGN_RUN_ID,
+    account_origin_user_id=ACCOUNT_OTHER,
+    thread_user_id=ACCOUNT_OTHER,
+    thread_survives=True,
+    deployment_user_id=ACCOUNT_OTHER,
+)
+
+# A threadless, operator-created run. It has no thread and no deployment
+# owner, so the legacy lookup has no ownership evidence to check. The durable
+# account-origin lookup cannot join a canonical thread and rejects it.
+_THREADLESS_RUN = _RunRecord(
+    run_id=THREADLESS_RUN_ID,
+    account_origin_user_id=None,
+    thread_user_id=None,
+    thread_survives=False,
+    deployment_user_id=None,
+    thread_id=None,
+)
+
+# An orphaned run whose canonical thread was deleted. The legacy lookup skips
+# its thread check entirely; the durable lookup cannot join the thread.
+_ORPHANED_RUN = _RunRecord(
+    run_id=ORPHANED_RUN_ID,
+    account_origin_user_id=None,
+    thread_user_id=None,
+    thread_survives=False,
+    deployment_user_id=None,
+    thread_id=THREAD_ID,
+)
+
+DEFAULT_RUNS = {
+    record.run_id: record
+    for record in (_OWNED_RUN, _FOREIGN_RUN, _THREADLESS_RUN, _ORPHANED_RUN)
+}
+
+
 class _ScopedStore:
     """AgentStore double that records scoped lookups.
 
-    Every read is scoped to the recorded account id exactly as the real
-    `AgentStore` scopes its account reads: a lookup for an account that does
-    not own the resource resolves to `None`, which the routes translate into
-    the `404` that masks both "missing" and "not yours".
+    The double mirrors the real ownership difference between the two lookups,
+    because a double that treats them alike cannot detect a route that
+    authorizes a mutation with the weaker of the two:
+
+    * `get_run` is the legacy-compatible lookup. It rejects only on a
+      *positively proven* mismatch. A deployment without a `user_id` carries no
+      ownership evidence, a deleted thread record skips the thread check, and a
+      threadless run has no thread to check.
+    * `get_account_run` is the durable account-origin lookup. It requires the
+      recorded account origin, a surviving canonical thread owned by that
+      account, and deployment corroboration.
+
+    A lookup that resolves to `None` becomes the `404` that masks both
+    "missing" and "not yours".
     """
 
     def __init__(
         self,
         *,
         owner_account: str = ACCOUNT_OWNER,
-        existing_runs: frozenset[str] = frozenset({RUN_ID}),
+        runs: dict[str, _RunRecord] | None = None,
     ) -> None:
         self.owner_account = owner_account
-        self.existing_runs = set(existing_runs)
+        self.runs = dict(DEFAULT_RUNS if runs is None else runs)
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.mutations: list[tuple[str, dict[str, Any]]] = []
         self.db: Any = None
@@ -88,7 +167,52 @@ class _ScopedStore:
         return str(user_id or "").strip() == self.owner_account
 
     def _exists(self, run_id: str) -> bool:
-        return str(run_id) in self.existing_runs
+        return str(run_id) in self.runs
+
+    def _legacy_owns(self, record: _RunRecord, user_id: Any) -> bool:
+        """Mirror `AgentStore.get_run`'s ownership checks.
+
+        The legacy lookup rejects only when it can positively prove the caller
+        is not the owner: a deployment `user_id` that differs, or a *surviving*
+        thread owned by somebody else. A missing deployment owner and a
+        deleted thread are not evidence of anything, so they are not checked.
+        """
+        expected = str(user_id or "").strip()
+        spec_user_id = (record.deployment_user_id or "").strip()
+        if spec_user_id and spec_user_id != expected:
+            return False
+        if record.thread_id is not None and record.thread_survives:
+            if (record.thread_user_id or "").strip() != expected:
+                return False
+        return True
+
+    def _account_owns(self, record: _RunRecord, user_id: Any) -> bool:
+        """Mirror `AgentStore.get_account_run`'s ownership requirements.
+
+        Durable account origin, a surviving canonical thread owned by that
+        account, and deployment corroboration are all required. Threadless,
+        orphaned, and operator-created runs are not account resources.
+        """
+        account_id = str(user_id or "").strip()
+        if not account_id:
+            return False
+        if record.thread_id is None or not record.thread_survives:
+            return False
+        if (record.account_origin_user_id or "").strip() != account_id:
+            return False
+        if (record.thread_user_id or "").strip() != account_id:
+            return False
+        if (record.deployment_user_id or "").strip() != account_id:
+            return False
+        return True
+
+    def _payload(self, record: _RunRecord) -> dict[str, Any]:
+        return {
+            "run_id": record.run_id,
+            "deployment_id": "dep-1",
+            "thread_id": record.thread_id,
+            "status": "running",
+        }
 
     @property
     def call_names(self) -> list[str]:
@@ -100,25 +224,21 @@ class _ScopedStore:
         self, run_id: str, *, user_id: str | None = None
     ) -> dict[str, Any] | None:
         self._record("get_run", {"run_id": run_id, "user_id": user_id})
-        if not self._exists(run_id) or not self._owned(user_id):
+        record = self.runs.get(str(run_id))
+        if record is None:
             return None
-        return {
-            "run_id": run_id,
-            "deployment_id": "dep-1",
-            "thread_id": THREAD_ID,
-            "status": "running",
-        }
+        if user_id and not self._legacy_owns(record, user_id):
+            return None
+        return self._payload(record)
 
     def get_account_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
         self._record("get_account_run", {"run_id": run_id, "user_id": user_id})
-        if not self._exists(run_id) or not self._owned(user_id):
+        record = self.runs.get(str(run_id))
+        if record is None:
             return None
-        return {
-            "run_id": run_id,
-            "deployment_id": "dep-1",
-            "thread_id": THREAD_ID,
-            "status": "running",
-        }
+        if not self._account_owns(record, user_id):
+            return None
+        return self._payload(record)
 
     def get_coding_run_snapshot(
         self,
@@ -127,10 +247,15 @@ class _ScopedStore:
         user_id: str | None = None,
     ) -> dict[str, Any] | None:
         self._record("get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id})
-        if not self._exists(run_id) or not self._owned(user_id):
+        record = self.runs.get(str(run_id))
+        if record is None:
+            return None
+        # The real method delegates to the account-origin lookup whenever a
+        # user id is supplied, which is always the case on these routes.
+        if user_id is not None and not self._account_owns(record, user_id):
             return None
         return {
-            "run_id": run_id,
+            "run_id": record.run_id,
             "coding_task_id": "coding-task-1",
             "status": "running",
         }
@@ -557,6 +682,211 @@ def test_authenticated_principal_is_resolved_without_dependency_override(
 
     assert response.status_code == 200, response.text
     _assert_scoped_to(store, ACCOUNT_OWNER)
+
+
+# ---------------------------------------------------------------------------
+# Cancellation requires durable account ownership in account modes
+# ---------------------------------------------------------------------------
+
+
+def _enter_account_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the route into account mode without disturbing the auth gate.
+
+    ``is_private_preview`` also drives the authentication gate, so callers
+    that need to reach the route override the account-session dependency
+    separately through ``_client(bypass_account_session=True)``.
+    """
+    monkeypatch.setattr(
+        agent_orchestration.dependencies, "is_private_preview", lambda: True
+    )
+
+
+def test_legacy_lookup_finds_runs_that_account_lookup_rejects(
+    wired: SimpleNamespace,
+) -> None:
+    """The double must model the real difference, or the proofs prove nothing.
+
+    `AgentStore.get_run` rejects only on a positively proven mismatch, so it
+    still returns a threadless run and a run whose canonical thread was
+    deleted. `AgentStore.get_account_run` requires durable account origin and
+    a surviving canonical thread, so it rejects both.
+    """
+    store = wired.store
+
+    assert store.get_run(THREADLESS_RUN_ID, user_id=ACCOUNT_OWNER) is not None
+    assert store.get_account_run(THREADLESS_RUN_ID, user_id=ACCOUNT_OWNER) is None
+
+    assert store.get_run(ORPHANED_RUN_ID, user_id=ACCOUNT_OWNER) is not None
+    assert store.get_account_run(ORPHANED_RUN_ID, user_id=ACCOUNT_OWNER) is None
+
+    # A run with full durable provenance is found by both lookups.
+    assert store.get_run(RUN_ID, user_id=ACCOUNT_OWNER) is not None
+    assert store.get_account_run(RUN_ID, user_id=ACCOUNT_OWNER) is not None
+
+
+def test_account_mode_cancellation_authorizes_durable_account_owner(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A. Authorized account cancellation.
+
+    The remote account owns the run with durable provenance, the durable
+    account lookup succeeds, cancellation is permitted, and exactly the
+    intended run is mutated.
+    """
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(bypass_account_session=True) as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 200, response.text
+    assert store.call_names == ["get_account_run"]
+    _assert_scoped_to(store, ACCOUNT_OWNER)
+    assert store.mutations == [
+        ("update_run_status", {"run_id": RUN_ID, "status": "canceled"})
+    ]
+    assert publisher.events == [
+        {"run_id": RUN_ID, "event_type": "canceled", "payload": {"run_id": RUN_ID}}
+    ]
+
+
+def test_account_mode_cancellation_denies_cross_account_run(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B. Cross-account cancellation.
+
+    A different account knows the run id, the durable account lookup rejects
+    it, the response is 404, and nothing is mutated or emitted.
+    """
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account=ACCOUNT_OTHER, bypass_account_session=True) as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 404, response.text
+    assert store.call_names == ["get_account_run"]
+    _assert_scoped_to(store, ACCOUNT_OTHER)
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_account_mode_cancellation_denies_threadless_run(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C. Threadless / operator-created run.
+
+    The legacy lookup can discover this run, but the durable account lookup
+    must reject it, so no cancellation occurs.
+    """
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(bypass_account_session=True) as client:
+        response = client.post(
+            f"/api/agents/runs/{THREADLESS_RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 404, response.text
+    assert store.call_names == ["get_account_run"]
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_account_mode_cancellation_denies_orphaned_run(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D. Deleted-thread / missing-provenance run.
+
+    Durable account ownership cannot be established, so cancellation fails
+    closed with no status mutation and no event.
+    """
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(bypass_account_session=True) as client:
+        response = client.post(
+            f"/api/agents/runs/{ORPHANED_RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 404, response.text
+    assert store.call_names == ["get_account_run"]
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_local_operator_mode_still_cancels_threadless_run(
+    wired: SimpleNamespace,
+) -> None:
+    """E. Local operator compatibility is preserved, and stays local.
+
+    The legacy lookup remains available to the local operator path, so a
+    threadless run that account mode must reject is still cancellable
+    locally. This boundary must survive the correction.
+    """
+    store = wired.store
+    with _client() as client:
+        response = client.post(
+            f"/api/agents/runs/{THREADLESS_RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 200, response.text
+    assert store.call_names == ["get_run"]
+    assert store.mutations == [
+        ("update_run_status", {"run_id": THREADLESS_RUN_ID, "status": "canceled"})
+    ]
+
+
+def test_account_mode_cancellation_and_readback_authorize_identically(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancellation must use the same durable authority as account readback."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    with _client(bypass_account_session=True) as client:
+        readback = client.get(f"/api/agents/runs/{RUN_ID}", headers=_headers())
+        cancellation = client.post(
+            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert readback.status_code == 200, readback.text
+    assert cancellation.status_code == 200, cancellation.text
+    assert store.call_names == ["get_account_run", "get_account_run"]
+
+
+def test_account_mode_cancellation_without_authentication_never_looks_up(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F. Missing authentication fails before any lookup or mutation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account=ACCOUNT_OWNER) as client:
+        response = client.post(
+            f"/api/agents/runs/{RUN_ID}/cancel",
+            headers={"X-API-Key": "wrong-key"},
+        )
+
+    assert response.status_code in {401, 403}
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_account_mode_cancellation_with_unresolved_identity_never_looks_up(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F. An unresolved identity fails closed before any lookup or mutation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account="", bypass_account_session=True) as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 401, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
 
 
 # ---------------------------------------------------------------------------

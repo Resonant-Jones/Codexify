@@ -767,7 +767,19 @@ async def cancel_run(
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
     request_user = _resolved_request_user(current_user)
-    run = _store.get_run(run_id, user_id=request_user)
+    if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
+        # Cancellation mutates run state, so account mode requires the same
+        # durable account-origin authority as account-mode readback. The legacy
+        # lookup only rejects on a positively proven mismatch: a deployment
+        # without a user_id carries no ownership evidence, a deleted thread
+        # record skips the thread check, and a threadless run has no thread to
+        # check. Any of those would let an unrelated account that knows a run
+        # id cancel it.
+        run = _store.get_account_run(run_id, user_id=request_user)
+    else:
+        # Local mode's API key remains the existing operator authority for
+        # legacy run cancellation, matching the adjacent read route.
+        run = _store.get_run(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     _store.update_run_status(run_id=run_id, status="canceled")
