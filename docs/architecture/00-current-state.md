@@ -18,15 +18,18 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, only saved-widget architecture review and acceptance changes landed; no fresh supported-path runtime qualification or default Beta widening is established. The current release gate remains `HOLD`.
+`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Since the prior audit, saved-widget architecture review and acceptance changes, the generative-ui navigation-containment repair, the Guardian E4 relative-resource classification correction, and the canonical Saved Widget storage foundation have landed on local `main`; no fresh supported-path runtime qualification or default Beta widening is established. The current release gate remains `HOLD`.
 
 ## What changed recently
 
 - Admitted the existing `share` route alongside `direct_messages` in the private-preview profile; this does not widen default Beta support.
 - Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
 - Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
-- Accepted the saved-widget identity/revision architecture (ADR-102, accepted 2026-10-25); acceptance is architecture only, with no saved-widget persistence, listing, invocation, editing, deletion, or export path implemented and the Library Widgets filter still unavailable.
-- Resolved the saved-widget contract review findings and synchronized the accepted ADR, contract, ADR index, and KB projections; this remains architecture-only evidence.
+- Accepted the saved-widget identity/revision architecture (ADR-102, accepted 2026-10-25); the accepted normative requirements are unchanged, and the canonical storage foundation implementing them has since landed.
+- Resolved the saved-widget contract review findings and synchronized the accepted ADR, contract, ADR index, and KB projections; this was architecture-only evidence at the time.
+- Integrated the generative-ui navigation-containment repair into local `main`: a trusted outer wrapper with a restrictive frame-navigation policy now preserves network containment across same-frame navigation, proven in Chrome 156 against the revision it evaluated. Cross-browser qualification remains incomplete, the committed Playwright suite cannot launch Chromium in the reported host, and no fresh browser execution was performed against the integrated tip.
+- Corrected the Guardian E4 relative-resource classification on local `main`: a scheme-less resource reference is now a known unavailable local dependency and is rejected under its own reason code instead of being treated as self-contained. E4 remains a conservative packaging filter, not a network-security control.
+- Implemented and proved the canonical Saved Widget storage foundation on local `main`: one account-owned widget record, immutable revision snapshots keyed `(widget_id, revision)`, a forward-only current-revision pointer, and snapshot provenance that survives source-thread deletion. It is storage only, proven against disposable PostgreSQL; no promotion action, listing, invocation, revision editing, deletion, or export path exists, and Library Widgets remains unavailable.
 - Added personal-fact pipeline baseline documents; they are proposals and analysis, not accepted runtime scope.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture is unchanged since the prior audit.
 
@@ -47,7 +50,8 @@ This file is authoritative for:
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
 - Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
-- Do not treat the accepted saved-widget architecture (ADR-102) as implemented, runtime-qualified, or release-supported: Saved Widget storage, authoritative listing, cross-thread invocation, conversational revision editing, deletion behavior, widget export/restore, and Library Widgets filter availability do not exist, and Web Audio or canvas widget compatibility remains unqualified pending real-browser proof.
+- Do not treat the accepted saved-widget architecture (ADR-102) as implemented, runtime-qualified, or release-supported. The canonical storage foundation exists and is proven against disposable PostgreSQL, but the user-facing capabilities do not: an explicit human promotion action, authoritative listing, cross-thread invocation, conversational revision editing, deletion behavior, widget export/restore, and Library Widgets filter availability do not exist, and Web Audio or canvas widget compatibility remains unqualified pending real-browser proof.
+- Do not treat the integrated generative-ui containment repair as cross-browser qualified. The Chrome 156 CDP proof covers the revision it evaluated; the committed Playwright suite cannot launch Chromium in the reported host, and a launch failure is not a containment failure. No fresh browser execution was performed against the integrated tip, and the repair's code identity with the proven revision is not host qualification.
 - Do not promote account-owned connectors, direct messaging/share, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
 - Do not treat the saved-widget contract or personal-fact pipeline baseline as accepted product scope, or focused candidate/search tests as live release proof.
 - Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
@@ -57,6 +61,7 @@ This file is authoritative for:
 ## Active blockers
 
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
+- Cross-browser qualification of the integrated generative-ui containment repair is missing: the Chrome 156 CDP proof covers its evaluated revision, and the committed Playwright suite cannot launch Chromium in the reported host, so the repair is not qualified beyond the single evaluated browser.
 - The UMS/Chronicle lane retains one inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still requires execution against the corrected baseline.
 - The explicit-model worker/test contradiction must be resolved with fail-closed behavior and no silent substitution.
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
