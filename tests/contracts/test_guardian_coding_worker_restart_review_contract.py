@@ -210,6 +210,31 @@ def _result_message_count(db: Any, thread_id: int | None) -> int:
     return acceptance._coding_result_message_count(db, thread_id)
 
 
+def _attempt_count(db: Any, run_id: str) -> int:
+    """Count the attempts recorded against a run.
+
+    Attempts hang off the run's steps rather than off the run directly, so
+    the count joins through them.
+    """
+    from guardian.db.models import AgentRunAttempt, AgentRunStep
+
+    with db.get_session() as session:
+        row = session.query(AgentRun).filter_by(run_id=run_id).one()
+        step_ids = [
+            step.id
+            for step in session.query(AgentRunStep)
+            .filter_by(run_id=row.id)
+            .all()
+        ]
+        if not step_ids:
+            return 0
+        return (
+            session.query(AgentRunAttempt)
+            .filter(AgentRunAttempt.run_step_id.in_(step_ids))
+            .count()
+        )
+
+
 def _accepted_run(db: Any, *, instance_id: str = _INSTANCE_A, claim_id: str = _CLAIM_A):
     return liveness._accepted_run(
         db,
@@ -567,6 +592,85 @@ def test_an_escalated_execution_is_preserved(db: Any) -> None:
 # ---------------------------------------------------------------------------
 # 14-16: active worker safety.
 # ---------------------------------------------------------------------------
+
+
+def test_a_completed_run_keeps_its_result_authoritative(
+    db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that really completed keeps its result, even after its worker disappears.
+
+    This is the completed-run truth the slice requires: Worker A completes
+    Run A through the real claim-fenced terminalization -- which commits the
+    terminal decision, the coding-result artifact, and the source-thread
+    result together -- and then disappears. The startup review must not turn
+    that terminal run into a recovery candidate, and it must not disturb the
+    result the run already owns. The missing queue acknowledgement does not
+    override canonical terminal evidence.
+    """
+    from guardian.queue import task_events
+
+    published: list[Any] = []
+    original_publish = task_events.publish_with_visibility
+
+    def _capture(*args: Any, **kwargs: Any) -> Any:
+        published.append(args)
+        return original_publish(*args, **kwargs)
+
+    monkeypatch.setattr(task_events, "publish_with_visibility", _capture)
+
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    run_id = str(task.run_id)
+    assert acceptance._claim(
+        db,
+        task,
+        worker_instance_id=_INSTANCE_A,
+        claim_id=_CLAIM_A,
+    ) == acceptance._ACCEPTED
+
+    # The real completion: terminal decision, result artifact, and
+    # source-thread result committed together under the claim.
+    receipt = AgentStore(db=db).finalize_claimed_coding_result(
+        run_id=run_id,
+        worker_instance_id=_INSTANCE_A,
+        claim_id=_CLAIM_A,
+        coding_task_id=str(task.coding_task_id or ""),
+        attempt_id=str(task.attempt_id or ""),
+        request_id=task.request_id or None,
+        thread_id=task.thread_id,
+        source_message_id=task.source_message_id,
+        result_status="succeeded",
+        result_summary="Completed before the worker disappeared.",
+        adapter_kind="pi_codex_runner",
+        files_changed=["guardian/agents/store.py"],
+    )
+    assert receipt["terminal_accepted"] is True
+
+    # Worker A has now disappeared. The queue carries no acknowledgement of
+    # the completion; the canonical record does.
+    state_before = _run_row(db, run_id)
+    artifacts_before = _artifact_count(db, run_id)
+    messages_before = _result_message_count(db, task.thread_id)
+    attempts_before = _attempt_count(db, run_id)
+    published_before = len(published)
+
+    assert artifacts_before >= 1, "the completion must leave a result artifact"
+    assert messages_before >= 1, "the completion must leave a source-thread result"
+
+    # Worker B starts and reviews.
+    review = _review(db, instance_id="cwi_other_worker")
+
+    assert run_id not in review.run_ids
+    assert review.reviewed_count == 0
+    assert review.stale_uncertain_count == 0
+
+    assert _run_row(db, run_id) == state_before
+    assert _artifact_count(db, run_id) == artifacts_before
+    assert _result_message_count(db, task.thread_id) == messages_before
+    assert _attempt_count(db, run_id) == attempts_before
+    assert len(published) == published_before, (
+        "the review must not emit a duplicate terminal event"
+    )
 
 
 def test_an_active_peer_worker_remains_untouched(db: Any) -> None:

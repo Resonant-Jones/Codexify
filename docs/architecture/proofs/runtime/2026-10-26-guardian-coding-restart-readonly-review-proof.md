@@ -34,7 +34,7 @@ Source hashes (SHA-256), evaluated tree:
 |---|---|
 | `guardian/agents/store.py` | `a6a6bcfa5d58e293ac6de558556a37fec4a5e941a5c8fae43f2c6c71a3fd2338` |
 | `guardian/workers/coding_worker.py` | `e4118ead01b5742220b1bf4b67d8ff649fd9a4d4006a8e252891d9a45c83599c` |
-| `tests/contracts/test_guardian_coding_worker_restart_review_contract.py` | `01eb0ee1902521a2448df705b99887d2dae8cbf4f14d677a18c23ff04a9c4f25` |
+| `tests/contracts/test_guardian_coding_worker_restart_review_contract.py` | `c43c686a97475ae3ea6187976465358d8520b9f12b4462b823db2850f74f7b1b` |
 | `guardian/tests/workers/test_coding_worker.py` | `ee8c52fde6652d0ad8570725115e7555f31d7755957d9b18b9303443a2cab888` |
 | `docs/architecture/guardian-delegation-loop-contract.md` | `10c2ba2df77d2cddc5c7f3a092417d8c257f585be31987d33cae5ce78f006190` |
 | `docs/Ops/SOLO_OPERATOR_CODING_WORKER_RUNBOOK.md` | `0158a1625c1b65b9f6f500c86ced1fb1ee19f789e0e7f9d33e560f75757431db` |
@@ -233,9 +233,21 @@ candidate:
 | terminal failure | `test_a_terminal_failure_is_preserved` |
 | canceled execution | `test_a_canceled_execution_is_preserved` |
 | escalated execution | `test_an_escalated_execution_is_preserved` |
+| a run that **really completed** keeps its result | `test_a_completed_run_keeps_its_result_authoritative` |
 
 Each asserts the row is **unchanged**, and the escalated case additionally
 asserts the existing escalation is neither duplicated nor replaced.
+
+The completed-run case is the one the slice's "preserve completed-run truth"
+requirement calls for, and it is deliberately not a status flip. Worker A
+completes Run A through the **real claim-fenced terminalization**
+(`finalize_claimed_coding_result`), which commits the terminal decision, the
+coding-result artifact, and the source-thread result together; then Worker A
+disappears. The review must not turn that terminal run into a recovery
+candidate, must leave the artifact and the source-thread result untouched,
+must not emit a duplicate terminal event, and must not create another
+attempt. The missing queue acknowledgement does not override canonical
+terminal evidence.
 
 ## 13. Historical-row handling
 
@@ -370,20 +382,46 @@ visible rather than silently dropped.
 
 ## 19. Red-then-green evidence
 
-The **final** 32-case contract, run against the **unmodified** baseline
+The **final** contract, run against the **unmodified** baseline
 `80d46f86c` (the tracked changes were stashed; the new contract was kept in
 place so it could run against the baseline):
 
 | Run | Result |
 |---|---|
 | **RED** — the contract at baseline `80d46f86c` | **32 failed, 0 passed** |
-| **GREEN** — the contract at the evaluated tree | **32 passed** |
+| **GREEN** — the contract at the evaluated tree | **33 passed** |
 
 The RED condition is the missing startup review capability, and it is clean:
 every case fails at the baseline because neither
 `AgentStore.list_unresolved_guardian_coding_runs()` nor
 `CodingWorker.review_unresolved_coding_runs()` exists. No persistence
 capability was invented, and no previous slice's PASS was altered.
+
+**One honest gap in the RED.** The executed RED covered the **32**-case
+contract. A **33rd** case was added afterwards, to close the slice's
+"preserve completed-run truth" requirement, and a full 33-case RED run could
+**not** be executed: the host's Docker engine stopped serving after a VM
+reset during this session, and the disposable PostgreSQL container could not
+be recreated (no local PostgreSQL binary exists on this host, and the image
+cache was lost with the VM).
+
+The 33rd case's baseline behaviour was therefore established **without** a
+database, by direct inspection of the baseline source:
+
+```
+baseline_commit: 80d46f86caec66a239cb4e04daac5874bba4b74e
+guardian/workers/coding_worker.py contains 'review_unresolved_coding_runs': False
+guardian/agents/store.py contains 'list_unresolved_guardian_coding_runs': False
+contract baseline guard values:
+  partial='guardian_coding_run_review_partial'
+  unavailable='guardian_coding_run_review_unavailable'
+BASELINE CHECK PASSED: the startup-review capability is absent from
+80d46f86c, so the 33rd case fails there for the same reason the other 32 do.
+```
+
+The case cannot pass at the baseline: it calls the same missing method as
+every other case. The reason codes it asserts are identical in both trees, so
+the contract's baseline import guard takes its intended branch.
 
 The same source hashes, the same fixtures, and the same disposable
 infrastructure were used for both runs.
@@ -392,7 +430,7 @@ infrastructure were used for both runs.
 
 | Path | Result |
 |---|---|
-| `tests/contracts/test_guardian_coding_worker_restart_review_contract.py` | **32 passed** |
+| `tests/contracts/test_guardian_coding_worker_restart_review_contract.py` | **33 passed** |
 | `tests/contracts/test_guardian_coding_worker_recovery_contract.py` | 19 passed, 1 xfailed |
 | `tests/contracts/test_guardian_coding_run_liveness_contract.py` | 31 passed |
 | `tests/contracts/test_guardian_coding_run_uncertain_quarantine_contract.py` | 34 passed |
@@ -406,7 +444,7 @@ infrastructure were used for both runs.
 | `guardian/tests/workers/test_coding_worker_regression_guard.py` | 2 passed, 1 inherited failure |
 | `guardian/tests/agents/` | 107 passed |
 | `tests/agents/test_execution_ledger_store.py` | 11 passed |
-| **Focused sweep total** | **481 passed, 15 failed, 1 xfailed** (497 collected) |
+| **Focused sweep total** | **482 passed, 15 failed, 1 xfailed** (498 collected) |
 
 The sweep ran against disposable PostgreSQL with the worktree pinned on
 `PYTHONPATH`:
@@ -425,7 +463,24 @@ The monolithic backend gate is reported as **NOT RUN** to completion, for the
 same reason recorded by the previous slice: it was never run to a clean
 baseline, and a partial monolithic result is not a substitute for one.
 
-### The contract's 32 cases
+### An environment event during this session
+
+Partway through the session the host's Docker Desktop VM reset. The disposable
+PostgreSQL and Redis containers, the image cache, and the containers of the
+**Private Preview** stack were all lost, and the Docker engine did not return
+to service afterwards.
+
+Every validation number in this receipt was captured **before** that event,
+against the disposable infrastructure, and is unaffected by it. The
+consequences are recorded honestly:
+
+- the 33-case RED run could not be executed (§19);
+- the Private Preview stack was left down by the host's own failure. It was
+  not stopped by this work, and it was not restarted by it either — bringing
+  that environment back up is the operator's call, with their own compose
+  procedure.
+
+### The contract's 33 cases
 
 | # | Spec case | Test |
 |---|---|---|
@@ -461,6 +516,7 @@ baseline, and a partial monolithic result is not a substitute for one.
 | 30 | The strict-xfail restart-reconciliation tripwire remains unresolved | `test_the_restart_reconciliation_tripwire_remains_unresolved` |
 | — | A self-contradicting record is reported, never repaired | `test_an_inconsistent_record_is_reported_and_not_repaired` |
 | — | A worker without canonical persistence consumes nothing | `test_an_unreachable_store_stops_the_worker_before_it_consumes` |
+| — | A completed run keeps its result authoritative | `test_a_completed_run_keeps_its_result_authoritative` |
 
 Three further cases live in `guardian/tests/workers/test_coding_worker.py`,
 against the worker's own SQLite-backed test double, so the review is exercised
