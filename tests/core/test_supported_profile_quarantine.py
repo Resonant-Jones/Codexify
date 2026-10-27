@@ -1,12 +1,17 @@
 import importlib
+import json
 from contextlib import closing, contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from guardian.agents.events import AgentEventPublisher
+from guardian.agents.store import AgentStore
 from guardian.connections.catalog import get_catalog
+from guardian.routes import agent_orchestration
 
 
 @contextmanager
@@ -36,6 +41,191 @@ def _build_supported_profile_client(monkeypatch):
 
         event_bus.reset()
         importlib.reload(guardian_api)
+
+
+CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
+
+# The authenticated single-user identity the supported local profile resolves
+# for this deployment. The request body must match it; the body never grants
+# account authority by itself.
+CODING_TEST_ACCOUNT = "local"
+CODING_TEST_THREAD_ID = "4242"
+CODING_TEST_SOURCE_MESSAGE_ID = "9091"
+CODING_TEST_PROJECT_ID = "4242"
+CODING_TEST_PROVIDER_ID = "test-provider"
+CODING_TEST_MODEL_ID = "test-model-a"
+CODING_TEST_CREDENTIAL_REF = "credential-account-local"
+
+# Stands in for secret-bearing credential custody data. The accepted
+# execution binding must project safe authority metadata only.
+CODING_CREDENTIAL_SECRET_SENTINEL = "SECRET-SENTINEL-must-not-cross-the-task-boundary"
+
+
+def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
+    """Canonical, schema-valid Coding Loop request body.
+
+    Every identifier is a synthetic test label, not a credential and not a
+    durable identity. This body only proves the route's request contract;
+    authority is established separately.
+    """
+    body: dict[str, Any] = {
+        "coding_task_id": "proof-task-001",
+        "thread_id": CODING_TEST_THREAD_ID,
+        "source_message_id": CODING_TEST_SOURCE_MESSAGE_ID,
+        "attempt_id": "attempt-1",
+        "user_id": CODING_TEST_ACCOUNT,
+        "project_id": CODING_TEST_PROJECT_ID,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "echo proof",
+        "repo_root": "/tmp",
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+        "provider_id": CODING_TEST_PROVIDER_ID,
+        "model_id": CODING_TEST_MODEL_ID,
+        "credential_ref": CODING_TEST_CREDENTIAL_REF,
+    }
+    body.update(overrides)
+    return body
+
+
+class _RecordingAgentStore:
+    """In-memory AgentStore that also records accepted writes."""
+
+    def __init__(self) -> None:
+        self.inner = AgentStore()
+        self.deployments: list[dict[str, Any]] = []
+        self.runs: list[dict[str, Any]] = []
+
+    @property
+    def db(self) -> Any:
+        return self.inner.db
+
+    def configure_db(self, db: Any | None) -> None:
+        self.inner.configure_db(db)
+
+    def create_deployment(self, **kwargs: Any) -> dict[str, Any]:
+        self.deployments.append(dict(kwargs))
+        return self.inner.create_deployment(**kwargs)
+
+    def create_run(self, **kwargs: Any) -> dict[str, Any]:
+        self.runs.append(dict(kwargs))
+        return self.inner.create_run(**kwargs)
+
+
+class _CodingExecutionIsolation:
+    """Scoped synthetic downstream authority for one Coding Loop request.
+
+    These are controlled doubles. They do not establish that the production
+    PostgreSQL lineage lookup or the production credential-authorization
+    implementation accept this request. The independent authorization tests
+    retain responsibility for those claims.
+    """
+
+    def __init__(self) -> None:
+        self.store = _RecordingAgentStore()
+        self.queued: list[dict[str, Any]] = []
+        self.events: list[tuple[str, str, dict[str, Any]]] = []
+        self.lineage_calls: list[dict[str, Any]] = []
+        self.credential_calls: list[dict[str, Any]] = []
+
+
+@contextmanager
+def _isolate_coding_execution(monkeypatch):
+    """Replace Coding Loop downstream effects for one test only.
+
+    AgentStore persistence, the agent event publisher, and the coding
+    execution enqueue are all replaced or redirected, so no deployment, run,
+    event stream, or queue item reaches real storage, Redis, or a worker.
+    """
+    isolation = _CodingExecutionIsolation()
+
+    def fake_lineage(
+        *,
+        account_id: str,
+        thread_id: str,
+        source_message_id: str,
+        requested_project_id: str | None,
+    ) -> str | None:
+        isolation.lineage_calls.append(
+            {
+                "account_id": account_id,
+                "thread_id": thread_id,
+                "source_message_id": source_message_id,
+                "requested_project_id": requested_project_id,
+            }
+        )
+        return (
+            str(requested_project_id) if requested_project_id is not None else None
+        )
+
+    def fake_authorize_credential_selection(
+        _db: Any,
+        *,
+        credential_ref: str,
+        account_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> dict[str, Any]:
+        isolation.credential_calls.append(
+            {
+                "credential_ref": credential_ref,
+                "account_id": account_id,
+                "provider_id": provider_id,
+                "model_id": model_id,
+            }
+        )
+        return {
+            "credential_ref": credential_ref,
+            "owner_scope": "account",
+            "owner_id": account_id,
+            "provider_id": provider_id,
+            "credential_type": "api_key",
+            "funding_route": "user_byok",
+            "source_class": "account_api_key",
+            "usage_policy_ref": None,
+            # Secret-bearing custody data stands in for the real credential.
+            # The binding builder must project only safe authority metadata.
+            "api_key": CODING_CREDENTIAL_SECRET_SENTINEL,
+        }
+
+    def fake_publish(
+        task_id: str,
+        event_type: str,
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        isolation.events.append((task_id, event_type, dict(data or {})))
+        return "1-0"
+
+    def fake_enqueue_coding_execution(payload: dict[str, Any]) -> str:
+        isolation.queued.append(dict(payload))
+        return "task-coding-test"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            agent_orchestration, "_validate_coding_lineage", fake_lineage
+        )
+        patch.setattr(
+            agent_orchestration,
+            "authorize_credential_selection",
+            fake_authorize_credential_selection,
+        )
+        patch.setattr(agent_orchestration, "_store", isolation.store)
+        patch.setattr(
+            agent_orchestration, "_event_publisher", AgentEventPublisher()
+        )
+        patch.setattr("guardian.agents.events.task_events.publish", fake_publish)
+        patch.setattr(
+            "guardian.queue.redis_queue.enqueue_coding_execution",
+            fake_enqueue_coding_execution,
+        )
+        yield isolation
+    # The scoped patch context has restored every replaced module attribute.
 
 
 def test_supported_profile_quarantines_legacy_tools_and_hides_command_bus_schema(
@@ -147,29 +337,12 @@ def test_coding_loop_execute_route_mounted_in_local_profile(
     with _build_supported_profile_client(monkeypatch) as client:
         headers = {"X-API-Key": "test-api-key"}
 
-        response = client.post(
-            "/api/agents/coding/execute",
-            headers=headers,
-            json={
-                "coding_task_id": "proof-task-001",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo proof",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
-        )
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(),
+            )
 
         # Route must accept the request (not 404).
         assert response.status_code == 200, (
@@ -178,7 +351,69 @@ def test_coding_loop_execute_route_mounted_in_local_profile(
         body = response.json()
         assert body.get("ok") is True
         assert body.get("status") == "accepted"
-        assert "run_id" in body
+        assert body.get("run_id")
+        assert body.get("deployment_id")
+
+        # Exactly one execution task was captured, and nothing reached Redis.
+        assert len(isolation.queued) == 1
+        payload = isolation.queued[0]
+        assert len(isolation.store.deployments) == 1
+        assert len(isolation.store.runs) == 1
+
+        binding = payload["execution_binding"]
+        assert binding["provider_id"] == CODING_TEST_PROVIDER_ID
+        assert binding["model_id"] == CODING_TEST_MODEL_ID
+        assert binding["credential_ref"] == CODING_TEST_CREDENTIAL_REF
+        assert binding["harness_id"] == "pi"
+        assert binding["credential_owner_id"] == CODING_TEST_ACCOUNT
+
+        # The authenticated account identity and the accepted source
+        # thread/message lineage are retained.
+        assert payload["user_id"] == CODING_TEST_ACCOUNT
+        assert payload["thread_id"] == int(CODING_TEST_THREAD_ID)
+        assert payload["source_thread_id"] == int(CODING_TEST_THREAD_ID)
+        assert payload["source_message_id"] == int(CODING_TEST_SOURCE_MESSAGE_ID)
+        assert payload["project_id"] == CODING_TEST_PROJECT_ID
+        assert payload["permission_policy"]["allow_shell"] is False
+        assert payload["permission_policy"]["allow_write"] is False
+
+        # The accepted binding carries safe authority metadata only. The
+        # credential type is a label; no secret-bearing field may cross the
+        # task boundary.
+        serialized = json.dumps(payload)
+        assert CODING_CREDENTIAL_SECRET_SENTINEL not in serialized
+        assert not (
+            {"api_key", "api_secret", "secret", "credential_secret", "token"}
+            & set(binding)
+        )
+
+        # The synthetic authority callbacks received the submitted identity
+        # and selection arguments.
+        assert isolation.lineage_calls == [
+            {
+                "account_id": CODING_TEST_ACCOUNT,
+                "thread_id": CODING_TEST_THREAD_ID,
+                "source_message_id": CODING_TEST_SOURCE_MESSAGE_ID,
+                "requested_project_id": CODING_TEST_PROJECT_ID,
+            }
+        ]
+        assert isolation.credential_calls == [
+            {
+                "credential_ref": CODING_TEST_CREDENTIAL_REF,
+                "account_id": CODING_TEST_ACCOUNT,
+                "provider_id": CODING_TEST_PROVIDER_ID,
+                "model_id": CODING_TEST_MODEL_ID,
+            }
+        ]
+
+        # The route emitted the created event on the replaced publisher.
+        created = [
+            data
+            for _task_id, event_type, data in isolation.events
+            if event_type == "created"
+        ]
+        assert len(created) == 1
+        assert created[0]["execution_binding_id"] == binding["binding_id"]
 
 
 def test_coding_loop_execute_rejects_unauthenticated(
@@ -187,31 +422,23 @@ def test_coding_loop_execute_rejects_unauthenticated(
     """Prove Coding Loop execute route enforces authentication.
     Requests without a valid API key must be rejected."""
     with _build_supported_profile_client(monkeypatch) as client:
-        # Send a deliberately wrong API key; the route must reject it.
-        response = client.post(
-            "/api/agents/coding/execute",
-            headers={"X-API-Key": "wrong-key"},
-            json={
-                "coding_task_id": "noauth-task",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo noauth",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
-        )
-        assert response.status_code in {401, 403}
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            # Send a deliberately wrong API key; the route must reject it.
+            # The body is schema-valid, so a rejection cannot be explained by
+            # request validation standing in for an authentication proof.
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers={"X-API-Key": "wrong-key"},
+                json=_coding_execute_body(coding_task_id="noauth-task"),
+            )
+
+            assert response.status_code in {401, 403}
+            # No authority was granted and nothing was accepted.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
 
 
 def test_coding_loop_route_visible_in_openapi(
@@ -370,30 +597,111 @@ def test_missing_route_does_not_regress_to_unclassified_404(
         assert client.get("/api/nonexistent/endpoint", headers=headers).status_code == 404
 
         # The Coding Loop execute route must 200.
-        response = client.post(
-            "/api/agents/coding/execute",
-            headers=headers,
-            json={
-                "coding_task_id": "regression-check",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo regression check",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(coding_task_id="regression-check"),
+            )
+            assert response.status_code == 200, response.text
+            assert response.json().get("status") == "accepted"
+            assert len(isolation.queued) == 1
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["provider_id", "model_id", "credential_ref"],
+)
+def test_coding_loop_execute_requires_binding_identity_fields(
+    monkeypatch,
+    missing_field,
+) -> None:
+    """Prove the execution-binding identity fields stay required.
+
+    A future implementation that silently makes any of them optional would
+    let a request reach authority resolution without a selected provider,
+    model, or credential reference.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        body = _coding_execute_body()
+        body.pop(missing_field)
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=body,
+            )
+
+            assert response.status_code == 422, response.text
+            detail = response.json()["detail"]
+            assert any(
+                error.get("type") == "missing"
+                and list(error.get("loc") or []) == ["body", missing_field]
+                for error in detail
+            ), detail
+            # Nothing was authorized, created, or enqueued.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
+
+
+def test_coding_loop_execute_rejects_account_identity_mismatch(
+    monkeypatch,
+) -> None:
+    """Prove the request body cannot supply account authority.
+
+    The authenticated account identity is Guardian-controlled; a body that
+    names a different account must be refused before any authority check.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(user_id="other-account"),
+            )
+
+            assert response.status_code == 403, response.text
+            # No execution binding was authorized and nothing was created.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
+
+
+def test_coding_loop_execution_isolation_restores_module_state(
+    monkeypatch,
+) -> None:
+    """Prove the Coding Loop isolation is scoped to its own test."""
+    originals = {
+        "lineage": agent_orchestration._validate_coding_lineage,
+        "authorize": agent_orchestration.authorize_credential_selection,
+        "store": agent_orchestration._store,
+        "publisher": agent_orchestration._event_publisher,
+    }
+
+    with _isolate_coding_execution(monkeypatch):
+        assert agent_orchestration._validate_coding_lineage is not originals["lineage"]
+        assert (
+            agent_orchestration.authorize_credential_selection
+            is not originals["authorize"]
         )
-        assert response.status_code == 200
+        assert agent_orchestration._store is not originals["store"]
+        assert agent_orchestration._event_publisher is not originals["publisher"]
+
+    assert agent_orchestration._validate_coding_lineage is originals["lineage"]
+    assert (
+        agent_orchestration.authorize_credential_selection is originals["authorize"]
+    )
+    assert agent_orchestration._store is originals["store"]
+    assert agent_orchestration._event_publisher is originals["publisher"]
 
 
 @pytest.mark.parametrize("route_enabled", [True, False], ids=["admitted", "flag-disabled"])
