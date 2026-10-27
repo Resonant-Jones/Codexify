@@ -59,6 +59,20 @@ def _incomplete_coding_execute_body() -> dict:
         "attempt_id": "attempt-1",
         "user_id": "local",
         "project_id": None,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "echo proof",
+        "repo_root": "/tmp",
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+    }
+
+
 CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
 
 # The authenticated single-user identity the supported local profile resolves
@@ -96,14 +110,18 @@ def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
         "repo_root": "/tmp",
         "context_summary": None,
         "permission_policy": {
-            "allow_shell": True,
             "allow_shell": False,
             "allow_network": False,
             "allow_write": False,
             "allowed_paths": [],
             "max_runtime_seconds": 30,
         },
+        "provider_id": CODING_TEST_PROVIDER_ID,
+        "model_id": CODING_TEST_MODEL_ID,
+        "credential_ref": CODING_TEST_CREDENTIAL_REF,
     }
+    body.update(overrides)
+    return body
 
 
 def _complete_coding_execute_body() -> dict:
@@ -146,12 +164,6 @@ def _missing_validation_fields(response) -> set[str]:
         for error in response.json()["detail"]
         if error.get("type") == "missing"
     }
-        "provider_id": CODING_TEST_PROVIDER_ID,
-        "model_id": CODING_TEST_MODEL_ID,
-        "credential_ref": CODING_TEST_CREDENTIAL_REF,
-    }
-    body.update(overrides)
-    return body
 
 
 class _RecordingAgentStore:
@@ -479,12 +491,6 @@ def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
             headers=headers,
             json=_incomplete_coding_execute_body(),
         )
-        with _isolate_coding_execution(monkeypatch) as isolation:
-            response = client.post(
-                CODING_EXECUTE_ROUTE,
-                headers=headers,
-                json=_coding_execute_body(),
-            )
 
         # The route is mounted and reached request validation.
         assert (
@@ -498,15 +504,26 @@ def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
             _missing_validation_fields(response)
         )
 
-        # No coding task was accepted.
+        # No coding task was accepted for the incomplete body.
         body = response.json()
         assert body.get("ok") is not True
         assert body.get("status") != "accepted"
         assert "run_id" not in body
-        assert body.get("ok") is True
-        assert body.get("status") == "accepted"
-        assert body.get("run_id")
-        assert body.get("deployment_id")
+
+        # A structurally complete body is accepted by the route. This proves the
+        # request contract only; authority is established separately.
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            accepted = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(),
+            )
+            assert accepted.status_code == 200, accepted.text
+            accepted_body = accepted.json()
+            assert accepted_body.get("ok") is True
+            assert accepted_body.get("status") == "accepted"
+            assert accepted_body.get("run_id")
+            assert accepted_body.get("deployment_id")
 
         # Exactly one execution task was captured, and nothing reached Redis.
         assert len(isolation.queued) == 1
@@ -1015,6 +1032,18 @@ def test_missing_route_does_not_regress_to_unclassified_404(
         ), f"Expected 422, got {response.status_code}: {response.text}"
         assert response.status_code != 404
 
+        # The same route must 200 for a structurally complete body, and it
+        # must enqueue exactly one execution task.
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            accepted = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(coding_task_id="regression-check"),
+            )
+            assert accepted.status_code == 200, accepted.text
+            assert accepted.json().get("status") == "accepted"
+            assert len(isolation.queued) == 1
+
 
 def test_coding_execute_incomplete_request_reaches_no_dispatch_boundary(
     monkeypatch,
@@ -1076,16 +1105,6 @@ def test_coding_execute_incomplete_request_reaches_no_dispatch_boundary(
         for event in published_events
         if (event.get("payload") or {}).get("coding_task_id")
     ]
-        # The Coding Loop execute route must 200.
-        with _isolate_coding_execution(monkeypatch) as isolation:
-            response = client.post(
-                CODING_EXECUTE_ROUTE,
-                headers=headers,
-                json=_coding_execute_body(coding_task_id="regression-check"),
-            )
-            assert response.status_code == 200, response.text
-            assert response.json().get("status") == "accepted"
-            assert len(isolation.queued) == 1
 
 
 @pytest.mark.parametrize(
