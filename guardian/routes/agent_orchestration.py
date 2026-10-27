@@ -17,6 +17,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    status,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -93,6 +94,13 @@ def _authenticated_account_user(current_user: Any) -> str:
     parameter, or deployment metadata never substitutes for it, and a
     missing authenticated identity fails closed instead of degrading into an
     unscoped read.
+    """
+    resolved = str(current_user or "").strip()
+    if not resolved or resolved.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    return resolved
+
+
 def _resolved_request_user(
     current_user: Any,
     requested_user: str | None = None,
@@ -133,13 +141,6 @@ def _authenticated_read_user(current_user: Any) -> str:
     resolved = str(current_user or "").strip()
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
-    return resolved
-
-
-def _resolved_request_user(current_user: Any, requested_user: str) -> str:
-    resolved = _authenticated_account_user(current_user)
-    if str(requested_user or "").strip() != resolved:
-        raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
 
 
@@ -799,29 +800,43 @@ async def cancel_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user)
-    if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
-        # Cancellation mutates run state, so account mode requires the same
-        # durable account-origin authority as account-mode readback. The legacy
-        # lookup only rejects on a positively proven mismatch: a deployment
-        # without a user_id carries no ownership evidence, a deleted thread
-        # record skips the thread check, and a threadless run has no thread to
-        # check. Any of those would let an unrelated account that knows a run
-        # id cancel it.
-        run = _store.get_account_run(run_id, user_id=request_user)
-    else:
-        # Local mode's API key remains the existing operator authority for
-        # legacy run cancellation, matching the adjacent read route.
-        run = _store.get_run(run_id, user_id=request_user)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run_not_found")
-    _store.update_run_status(run_id=run_id, status="canceled")
-    _event_publisher.emit(
-        run_id=run_id,
-        event_type="canceled",
-        payload={"run_id": run_id},
+    """Report that Agent Run cancellation is not an authoritative operation.
+
+    Cancelling an execution is a decision about a Guardian-owned execution,
+    and this runtime cannot yet make that decision truthfully. The coding
+    worker observes cancellation by *queue task id*, not by
+    ``AgentRun.status``, and no durable run-to-queue-task correlation exists:
+    the enqueue path discards the generated queue task id. Writing
+    ``status="canceled"`` and emitting a ``canceled`` event would therefore
+    publish a terminal cancellation that no worker observed. A request to
+    cancel is not evidence that execution stopped.
+
+    Until an authorized, worker-observable cancellation lifecycle exists --
+    a cancellation intent, a durable run-to-queue-task correlation, an
+    explicit principal authority, and acknowledgement semantics -- this route
+    fails closed. It deliberately performs **no** run lookup, so it does not
+    disclose whether a run exists either, and it creates no durable state,
+    publishes no terminal event, and signals no queue task.
+
+    This is a temporary safety gate, not the implementation of cancellation.
+    The authority and lifecycle analysis is recorded in
+    docs/architecture/proofs/runtime/2026-10-27-agent-run-cancellation-authority-reconciliation.md
+    """
+    # Resolve the caller's identity first. An unresolved principal is an
+    # authentication failure, not an unsupported-operation response. This
+    # reads no run and touches no durable state.
+    _resolved_request_user(current_user)
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Agent Run cancellation is not implemented as an authoritative "
+            "operation. A cancellation request is not evidence that "
+            "execution stopped: the coding worker observes cancellation by "
+            "queue task id, and no durable run-to-queue-task correlation "
+            "exists yet. No run state was changed, no cancellation was "
+            "queued, and no terminal event was published."
+        ),
     )
-    return {"ok": True, "run_id": run_id, "status": "canceled"}
 
 
 @router.get("/runs/{run_id}/coding", dependencies=[Depends(require_api_key)])
