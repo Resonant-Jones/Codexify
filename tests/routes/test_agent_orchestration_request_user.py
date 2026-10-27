@@ -881,6 +881,89 @@ def test_cancel_run_never_signals_the_queue(
     assert cancelled == []
 
 
+@pytest.mark.parametrize(
+    ("run_id", "account"),
+    [
+        pytest.param(RUN_ID, ACCOUNT_OWNER, id="durable-account-owner"),
+        pytest.param(RUN_ID, ACCOUNT_OTHER, id="cross-account"),
+        pytest.param(THREADLESS_RUN_ID, ACCOUNT_OWNER, id="threadless-run"),
+        pytest.param(ORPHANED_RUN_ID, ACCOUNT_OWNER, id="orphaned-run"),
+    ],
+)
+def test_cancel_run_fails_closed_for_account_provenance(
+    wired: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    run_id: str,
+    account: str,
+) -> None:
+    """Neither ownership nor missing provenance permits unsupported cancellation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account=account, bypass_account_session=True) as client:
+        response = client.post(
+            f"/api/agents/runs/{run_id}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 501, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_fails_closed_for_local_operator_threadless_run(
+    wired: SimpleNamespace,
+) -> None:
+    """Local operator compatibility does not manufacture cancellation authority."""
+    store = wired.store
+    publisher = wired.publisher
+    with _client() as client:
+        response = client.post(
+            f"/api/agents/runs/{THREADLESS_RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 501, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_account_readback_still_works_when_cancellation_is_unavailable(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep account-scoped readback authoritative while gating cancellation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    with _client(bypass_account_session=True) as client:
+        readback = client.get(f"/api/agents/runs/{RUN_ID}", headers=_headers())
+        cancellation = client.post(
+            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert readback.status_code == 200, readback.text
+    assert readback.json()["run"]["run_id"] == RUN_ID
+    assert cancellation.status_code == 501, cancellation.text
+    assert store.call_names == ["get_account_run"]
+    _assert_scoped_to(store, ACCOUNT_OWNER)
+
+
+def test_cancel_run_does_not_distinguish_known_and_unknown_run(
+    wired: SimpleNamespace,
+) -> None:
+    """The unavailable response must not reveal whether a run exists."""
+    store = wired.store
+    with _client() as client:
+        known = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+        unknown = client.post(
+            "/api/agents/runs/run-does-not-exist/cancel", headers=_headers()
+        )
+
+    assert known.status_code == unknown.status_code == 501
+    assert known.json() == unknown.json()
+    assert store.calls == []
+    assert store.mutations == []
+
+
 # ---------------------------------------------------------------------------
 # Coding execution keeps strict explicit-identity enforcement
 # ---------------------------------------------------------------------------
