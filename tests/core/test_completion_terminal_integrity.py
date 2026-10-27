@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -16,6 +17,10 @@ from guardian.core.db import ChatAttemptReconciliation
 from guardian.protocol_tokens import CompletionTerminalStatus, TaskEventType
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
+
+# The original persisted lock capability of a durably completed attempt. A
+# mutable packet field can never stand in for it.
+_DURABLE_ORIGINAL_LOCK_TOKEN = "durable-original-token"
 
 
 def _task(*, provider: str = "local") -> ChatCompletionTask:
@@ -513,10 +518,24 @@ def test_incomplete_output_publishes_failed_without_completion_effects(
     assert "task.failed" in event_types
     assert "task.completed" not in event_types
     assert effects == []
+    # The terminal event is published because the durable terminal write
+    # was acknowledged, with exact identity.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.failed",
+        )
+    ]
     failed = next(
         payload for event_type, payload in published if event_type == "task.failed"
     )
     assert failed["terminal_evidence"]["status"] == "stream_incomplete"
+    # The visible output that was already produced is preserved in the
+    # terminal evidence rather than dropped with the incomplete stream.
+    assert failed["terminal_evidence"]["visible_output_emitted"] is True
     assert failed["first_output_observed"] is True
     # Publication followed an acknowledged durable terminal write, and the
     # absent turn-lock capability made the production cleanup path decline
@@ -547,6 +566,17 @@ def test_cancelled_output_publishes_cancelled_without_persistence(
     assert "task.cancelled" in event_types
     assert "task.completed" not in event_types
     assert effects == []
+    # The terminal event is published because the durable terminal write
+    # was acknowledged, with exact identity.
+    assert terminal_writes == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.cancelled",
+        )
+    ]
     payload = next(
         item for event_type, item in published if event_type == "task.cancelled"
     )
