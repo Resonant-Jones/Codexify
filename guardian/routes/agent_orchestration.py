@@ -85,10 +85,23 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
-def _resolved_request_user(current_user: Any, requested_user: str) -> str:
+def _authenticated_account_user(current_user: Any) -> str:
+    """Resolve the authenticated Guardian account principal for a resource read.
+
+    The authenticated dependency result is the only acceptable identity
+    source for an account-scoped read. A caller-supplied header, query
+    parameter, or deployment metadata never substitutes for it, and a
+    missing authenticated identity fails closed instead of degrading into an
+    unscoped read.
+    """
     resolved = str(current_user or "").strip()
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
+    return resolved
+
+
+def _resolved_request_user(current_user: Any, requested_user: str) -> str:
+    resolved = _authenticated_account_user(current_user)
     if str(requested_user or "").strip() != resolved:
         raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
@@ -768,7 +781,7 @@ async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
@@ -780,7 +793,7 @@ async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
         run = _store.get_account_run(run_id, user_id=request_user)
     else:
@@ -852,7 +865,7 @@ async def list_thread_runs(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_account_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
@@ -872,7 +885,7 @@ async def list_coding_runs_via_chat(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
