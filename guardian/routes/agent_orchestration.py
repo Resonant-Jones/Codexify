@@ -93,28 +93,10 @@ def _authenticated_account_user(current_user: Any) -> str:
     parameter, or deployment metadata never substitutes for it, and a
     missing authenticated identity fails closed instead of degrading into an
     unscoped read.
-def _resolved_request_user(
-    current_user: Any,
-    requested_user: str | None = None,
-) -> str:
-    """Resolve the authenticated account identity for one request.
-
-    ``requested_user`` is ``None`` when the route carries no separate
-    caller-supplied identity. The authenticated principal is then the only
-    authority, and its resolved identity is returned unchanged.
-
-    When a route does carry an explicitly requested identity, that identity
-    must match the authenticated principal exactly. An explicitly supplied
-    empty string is a *conflicting* identity, not an absent one, so it is
-    rejected rather than silently resolved to the principal.
     """
     resolved = str(current_user or "").strip()
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
-    if requested_user is not None:
-        requested = str(requested_user).strip()
-        if requested != resolved:
-            raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
 
 
@@ -799,7 +781,7 @@ async def cancel_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user)
+    request_user = _authenticated_account_user(current_user)
     if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
         # Cancellation mutates run state, so account mode requires the same
         # durable account-origin authority as account-mode readback. The legacy
@@ -829,7 +811,6 @@ async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_account_user(current_user)
     request_user = _authenticated_read_user(current_user)
     run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
     if run is None:
@@ -842,7 +823,6 @@ async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_account_user(current_user)
     request_user = _authenticated_read_user(current_user)
     if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
         run = _store.get_account_run(run_id, user_id=request_user)
@@ -915,7 +895,6 @@ async def list_thread_runs(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_account_user(current_user)
     request_user = _authenticated_read_user(current_user)
     runs = _store.list_account_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
@@ -936,7 +915,6 @@ async def list_coding_runs_via_chat(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_account_user(current_user)
     request_user = _authenticated_read_user(current_user)
     runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
