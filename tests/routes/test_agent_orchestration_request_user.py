@@ -67,8 +67,14 @@ class _ScopedStore:
     the `404` that masks both "missing" and "not yours".
     """
 
-    def __init__(self, *, owner_account: str = ACCOUNT_OWNER) -> None:
+    def __init__(
+        self,
+        *,
+        owner_account: str = ACCOUNT_OWNER,
+        existing_runs: frozenset[str] = frozenset({RUN_ID}),
+    ) -> None:
         self.owner_account = owner_account
+        self.existing_runs = set(existing_runs)
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.mutations: list[tuple[str, dict[str, Any]]] = []
         self.db: Any = None
@@ -81,6 +87,9 @@ class _ScopedStore:
     def _owned(self, user_id: Any) -> bool:
         return str(user_id or "").strip() == self.owner_account
 
+    def _exists(self, run_id: str) -> bool:
+        return str(run_id) in self.existing_runs
+
     @property
     def call_names(self) -> list[str]:
         return [name for name, _ in self.calls]
@@ -89,7 +98,7 @@ class _ScopedStore:
 
     def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         self._record("get_run", {"run_id": run_id, "user_id": user_id})
-        if not self._owned(user_id):
+        if not self._exists(run_id) or not self._owned(user_id):
             return None
         return {
             "run_id": run_id,
@@ -100,7 +109,7 @@ class _ScopedStore:
 
     def get_account_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
         self._record("get_account_run", {"run_id": run_id, "user_id": user_id})
-        if not self._owned(user_id):
+        if not self._exists(run_id) or not self._owned(user_id):
             return None
         return {
             "run_id": run_id,
@@ -118,7 +127,7 @@ class _ScopedStore:
         self._record(
             "get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id}
         )
-        if not self._owned(user_id):
+        if not self._exists(run_id) or not self._owned(user_id):
             return None
         return {
             "run_id": run_id,
@@ -479,8 +488,33 @@ def test_chat_agent_runs_alias_matches_canonical_route(
 # ---------------------------------------------------------------------------
 
 
+def test_cancel_run_cannot_mutate_unseen_run(wired: SimpleNamespace) -> None:
+    """A run that does not exist cannot be mutated either."""
+    store = wired.store
+    with _client() as client:
+        response = client.post(
+            "/api/agents/runs/run-does-not-exist/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 404, response.text
+    assert store.mutations == []
+    _assert_scoped_to(store, ACCOUNT_OWNER)
+
+
 def test_missing_run_returns_404(wired: SimpleNamespace) -> None:
-    """A run the account does not own is masked as 404, never as 403."""
+    """A run that does not exist is masked as 404, never as 403."""
+    store = wired.store
+    with _client() as client:
+        response = client.get(
+            "/api/agents/runs/run-does-not-exist", headers=_headers()
+        )
+
+    assert response.status_code == 404, response.text
+    _assert_scoped_to(store, ACCOUNT_OWNER)
+
+
+def test_cross_account_run_is_not_visible(wired: SimpleNamespace) -> None:
+    """A run owned by another account is masked as 404, never as 403."""
     store = wired.store
     with _client(account=ACCOUNT_OTHER) as client:
         response = client.get(f"/api/agents/runs/{RUN_ID}", headers=_headers())
