@@ -133,6 +133,10 @@ function envelope(messageId: string): DirectMessageEnvelope {
 function makeState(
   overrides: Partial<PeopleMessagingState> = {},
 ): PeopleMessagingState {
+  // The fixture mirrors the People state owner's contract: the projection
+  // loader caches every projected Conversation into the shared projection,
+  // and the shared read mutation posts the caller's read watermark.
+  const cacheConversationMeta = vi.fn();
   return {
     peopleOpen: false,
     activeTab: "inbox",
@@ -144,6 +148,7 @@ function makeState(
     messagesByConversationId: {},
     loadedByConversationId: {},
     conversationMetaById: {},
+    unreadTotal: 0,
     openPeople: vi.fn(),
     closePeople: vi.fn(),
     setTab: vi.fn(),
@@ -156,10 +161,29 @@ function makeState(
     closeFloating: vi.fn(),
     returnFloatingToPeople: vi.fn(),
     setDraft: vi.fn(),
-    cacheConversationMeta: vi.fn(),
+    cacheConversationMeta,
     replaceMessages: vi.fn(),
     appendServerMessage: vi.fn(),
     markTranscriptLoaded: vi.fn(),
+    refreshUnreadProjection: vi.fn(async () => {
+      const rows = await fetchDirectMessageConversations();
+      rows.forEach((row) => cacheConversationMeta(row));
+      return rows;
+    }),
+    ensureUnreadProjection: vi.fn(async () => {}),
+    markConversationRead: vi.fn(
+      async (conversationId: string, watermarkMessageId: string | null) => {
+        try {
+          await markDirectMessageConversationRead(
+            conversationId,
+            watermarkMessageId,
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    ),
     ...overrides,
   };
 }

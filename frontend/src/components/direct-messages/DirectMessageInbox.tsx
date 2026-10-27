@@ -30,12 +30,10 @@ import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagin
 import {
   buildPeerFilterOptions,
   createDirectMessageConversation,
-  fetchDirectMessageConversations,
   fetchDirectMessageConversation,
   fetchProjectLabelMap,
   fetchThreadProjectScope,
   filterConversationsByRelationship,
-  markDirectMessageConversationRead,
   normalizeDirectMessageError,
   normalizeUsernameSearchQuery,
   peerPresentationLabel,
@@ -150,19 +148,23 @@ export default function DirectMessageInbox({
     [onboarding?.setProfile],
   );
 
+  // Depend on the specific stable callbacks, never on the whole `state`
+  // object.  The People state owner replaces its state object whenever
+  // conversation metadata is cached; a callback that depended on the whole
+  // object would be recreated by that replacement, re-running the fetch
+  // effect, which would fetch, cache, replace, and fetch again.
+  const { cacheConversationMeta, refreshUnreadProjection } = state;
+
   const reload = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
       const [conversationRows, labels] = await Promise.all([
-        fetchDirectMessageConversations(),
+        refreshUnreadProjection(),
         fetchProjectLabelMap(),
       ]);
       setConversations(conversationRows);
       setProjectLabels(labels);
-      conversationRows.forEach((conversation) =>
-        state.cacheConversationMeta(conversation),
-      );
     } catch (error) {
       const normalized = normalizeDirectMessageError(error);
       setLoadError(
@@ -173,7 +175,7 @@ export default function DirectMessageInbox({
     } finally {
       setLoading(false);
     }
-  }, [state]);
+  }, [refreshUnreadProjection]);
 
   /**
    * Refresh only the conversation projection so recipient-local unread
@@ -182,57 +184,48 @@ export default function DirectMessageInbox({
    */
   const refreshUnread = useCallback(async () => {
     try {
-      const conversationRows = await fetchDirectMessageConversations();
+      const conversationRows = await refreshUnreadProjection();
       setConversations(conversationRows);
-      conversationRows.forEach((conversation) =>
-        state.cacheConversationMeta(conversation),
-      );
     } catch {
       // A failed unread refresh must never disturb the visible Inbox.
     }
-  }, [state]);
+  }, [refreshUnreadProjection]);
 
   /**
    * Marking a conversation read is the reader's own explicit action: it
-   * advances the caller's recipient-local cursor, and the projection is then
-   * re-read so the caller's own unread badge clears.  Fetching a conversation
-   * is read-only and never marks anything read.  The peer can never observe
-   * this.
+   * advances the caller's recipient-local cursor through the ONE shared path
+   * in the People state owner — the same path the floating window uses — and
+   * the projection is then re-read so the caller's own unread badge clears.
+   * Fetching a conversation is read-only and never marks anything read.  The
+   * peer can never observe this.
    *
    * The cursor advances to the caller's **read watermark** — the last message
    * they actually saw — and never past it, so a message that arrived after
    * their transcript was fetched is not marked read without having been shown.
    *
-   * Resolves to whether the read was recorded.  A failed read is left
-   * *retryable*: the caller only remembers a watermark once the mutation has
+   * Resolves to whether the read is recorded.  A failed read is left
+   * *retryable*: the watermark is remembered only once the mutation has
    * actually succeeded, so reopening the conversation retries it.
    */
   const markConversationRead = useCallback(
     async (conversationId: string, watermarkMessageId: string | null) => {
-      try {
-        const conversation = await markDirectMessageConversationRead(
-          conversationId,
-          watermarkMessageId,
-        );
-        state.cacheConversationMeta(conversation);
-        await refreshUnread();
-        return true;
-      } catch {
-        // A failed read or refresh must never break the visible Inbox, and
-        // must never be mistaken for a recorded read.
-        return false;
-      }
+      const recorded = await state.markConversationRead(
+        conversationId,
+        watermarkMessageId,
+      );
+      if (recorded) await refreshUnread();
+      return recorded;
     },
-    [refreshUnread, state],
+    [refreshUnread, state.markConversationRead],
   );
 
   const openAcceptedConversation = useCallback(
     async (conversationId: string) => {
       const conversation = await fetchDirectMessageConversation(conversationId);
-      state.cacheConversationMeta(conversation);
+      cacheConversationMeta(conversation);
       state.openConversation(conversationId, conversation);
     },
-    [state],
+    [cacheConversationMeta, state.openConversation],
   );
 
   useEffect(() => {
@@ -248,6 +241,11 @@ export default function DirectMessageInbox({
   // The watermark is remembered per conversation, so reopening a conversation
   // whose transcript has not changed yet does not re-post a stale watermark;
   // the refreshed transcript posts its own once it renders.
+  //
+  // This is surface-local bookkeeping: it keeps THIS surface from re-posting
+  // and re-refreshing for a watermark it already handled.  The People state
+  // owner holds the *shared* guard, so the Inbox and the floating window
+  // never post the same watermark twice.
   //
   // A watermark is remembered only once the mutation has actually SUCCEEDED.
   // The mutation is idempotent, so a failed read stays retryable: the next
