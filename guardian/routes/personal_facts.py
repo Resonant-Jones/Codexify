@@ -339,10 +339,20 @@ def list_fact_candidates(
     db = _get_chatlog_db()
     limit = max(1, min(limit, 200))
 
+    # Archival and activation are separate dimensions. The normal archive path
+    # sets ``status="archived"`` *and* ``is_active=False``, so an explicitly
+    # requested archived read must not also apply the active-only predicate,
+    # or the archived population would be invisible while the route still
+    # advertises it. Every other status keeps the existing active-only
+    # behaviour, and the same effective value is used for the page and for the
+    # count so ``total`` always describes the population the page is drawn
+    # from.
+    active_only = status != "archived"
+
     page = db.list_facts(
         current_user,
         status=status,
-        active_only=True,
+        active_only=active_only,
         limit=limit,
         offset=offset,
         thread_id=thread_id,
@@ -351,7 +361,7 @@ def list_fact_candidates(
     counted = db.count_facts(
         current_user,
         status=status,
-        active_only=True,
+        active_only=active_only,
         thread_id=thread_id,
     )
     total = counted if isinstance(counted, int) else len(page)
@@ -360,17 +370,54 @@ def list_fact_candidates(
         # Attach the evidence row that matched the thread. Only the returned
         # page is inspected, so the evidence read stays bounded by the page
         # size instead of scanning every fact's evidence.
-        grouped: dict[int, list[dict[str, Any]]] = {}
+        #
+        # Evidence integrity is fail-closed. The Guardrails Contract requires
+        # that evidence is never silently dropped, so a storage failure, an
+        # unusable loader, or a page fact whose matching thread evidence is
+        # absent must not be presented as a complete successful review page.
+        fact_ids = [fact["id"] for fact in page]
         loader = getattr(db, "list_fact_evidence_for_facts", None)
-        if callable(loader):
-            try:
-                loaded = loader([fact["id"] for fact in page])
-            except Exception:
-                loaded = None
-            if isinstance(loaded, dict):
-                grouped = loaded
+        if not callable(loader):
+            logger.error(
+                "personal_fact_candidate_evidence_loader_unavailable"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
+        try:
+            loaded = loader(fact_ids)
+        except Exception:
+            # A backend exception can carry connection strings, credentials,
+            # tokens or private record detail, so nothing derived from it is
+            # logged or chained into the handled HTTP error. The static event
+            # token keeps the failure observable without disclosing content.
+            logger.error("personal_fact_candidate_evidence_load_failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            ) from None
+        if not isinstance(loaded, dict):
+            logger.error(
+                "personal_fact_candidate_evidence_result_invalid"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
         for fact in page:
-            rows = grouped.get(fact["id"]) or []
+            rows = loaded.get(fact["id"])
+            if rows is None:
+                rows = []
+            if not isinstance(rows, (list, tuple)):
+                logger.error(
+                    "personal_fact_candidate_evidence_rows_malformed"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            matched: dict[str, Any] | None = None
             for ev in rows:
                 meta = ev.get("evidence_meta") if isinstance(ev, dict) else {}
                 if not isinstance(meta, dict):
@@ -383,8 +430,17 @@ def list_fact_candidates(
                 except (TypeError, ValueError):
                     matches = False
                 if matches:
-                    fact["_evidence"] = ev
+                    matched = ev
                     break
+            if matched is None:
+                logger.error(
+                    "personal_fact_candidate_evidence_missing"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            fact["_evidence"] = matched
 
     return {
         "ok": True,

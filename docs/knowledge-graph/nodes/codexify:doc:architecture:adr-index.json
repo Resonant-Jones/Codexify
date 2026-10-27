@@ -8,12 +8,12 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "2cfd8152da0ea622257cefc4f0b01dfcdd1fe670b6a8f3f2f84f47c000a197ce",
+  "content_hash": "da45fdaef2622f7ec027fdbca959cf32063097e8614323c65f72abe796b27c7b",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "ADR-102 was accepted 2026-10-25 and its index entries reconciled to the accepted status; the indexed ADR set changed after the recorded verification commit, so a freshness re-verification is owed. Documentation metadata only, not runtime or release proof.",
+    "reason": "ADR-102 was accepted 2026-10-25 and a proposed ADR-104 entry was added; the indexed ADR set changed after the recorded verification commit, so a freshness re-verification is owed. Accepted allocations ADR-102 and ADR-103 remain pending separate mainline integration; the prior verification commit and timestamp are retained unchanged because this change was not reverified against the governed ADR sources. Documentation metadata only, not runtime or release proof.",
     "state": "stale",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",

@@ -5,7 +5,7 @@ interfaces inside ordinary Codexify chat, including the artifact channel,
 rendering authority, sandbox containment, host bridge, persistence association,
 and security invariants.
 
-Last updated: 2026-10-10
+Last updated: 2026-10-17
 
 Source anchors:
 
@@ -17,6 +17,7 @@ Source anchors:
 - `guardian/core/chat_attachments.py`
 - `guardian/workers/chat_worker.py`
 - upstream `CopilotKit/OpenIntelligentUI` @ `f6e4388b26a64b9a0714943b08a1ce622b924eec`
+- `@openuidev/react-lang` 1.0.1 (bounded, Codexify-native integration)
 
 ## Scope
 
@@ -230,6 +231,159 @@ A registered native component executes **first-party Codexify code** with
 validated props. A sandbox artifact executes **model-authored untrusted code**
 under containment. Only registered components may be rendered as native;
 there is no arbitrary component resolution.
+
+### Bounded OpenUI native program
+
+`openui.program` is registered alongside `chart.bar` and `table.rows` as a
+first-party renderer that uses `@openuidev/react-lang` and Codexify's own
+component library. It does not replace the existing native/sandbox dispatch,
+Guardian, AG-UI, the message codec, or the sandbox iframe.
+The OpenUI module is loaded lazily when that registered component is selected,
+not included in the initial ordinary-chat bundle.
+
+An OpenUI program remains inside the **existing** version-1 `native` artifact.
+The artifact envelope, the `openui.program` component id, and the
+`cfy-ui` marker encoding are **unchanged**. Version discrimination happens
+entirely on the inner `libraryVersion` prop:
+
+```json
+{
+  "version": 1,
+  "kind": "native",
+  "component": "openui.program",
+  "props": {
+    "libraryVersion": 2,
+    "program": "root = CodexifyStack(\"vertical\", [CodexifyMetric(\"Tasks\", \"12\")])"
+  }
+}
+```
+
+`admitOpenUiProgram` is the single version-aware entry point. An unrecognized
+`libraryVersion` renders no artifact. Version 1 is routed to its original
+validator, verbatim; version 2 is routed to the structural admission walk.
+
+#### Library version 1 (unchanged)
+
+Only library version 1 is admitted. The version-1 first-party library contains
+one read-only component, `CodexifyMetric`, with string fields `title`, `value`,
+and optional `detail`.
+
+The **host-tree admission gate** validates before any OpenUI render:
+
+- Exact `libraryVersion` and `program` props, no other keys.
+- Program string no longer than 2,048 characters.
+- Exactly one `root = CodexifyMetric(...)` statement, containing two or
+  three JSON string literals, length-bounded to 100, 40, and 180 characters.
+- The admitted literal values are normalized and then checked by the OpenUI
+  parser; any parse error or unresolved reference rejects the whole program.
+
+Version 1 behaviour, its 2,048-character bound, and its rendered DOM are
+byte-for-byte unchanged by the introduction of version 2. Existing persisted
+version-1 artifacts restore exactly as before.
+
+#### Library version 2 — Codexify foundation pack
+
+Version 2 introduces a composable, read-only presentation foundation. Eight
+first-party components are registrable, grouped as the library's
+`componentGroups`:
+
+| Group | Component | Role |
+| --- | --- | --- |
+| Layout | `CodexifyStack` | Required root; vertical or horizontal, token gap, wrapping |
+| Layout | `CodexifyCard` | Presentation container; optional heading, bounded read-only children |
+| Content | `CodexifyText` | Body text with bounded size and emphasis |
+| Content | `CodexifyHeading` | Semantic levels 2-4 only |
+| Content | `CodexifyList` | Bounded text items, ordered or unordered, semantic list markup |
+| Data Presentation | `CodexifyBadge` | Status/category label from an approved tone vocabulary |
+| Data Presentation | `CodexifyMetric` | Label, value, optional detail |
+| Data Presentation | `CodexifyProgress` | Finite, explicitly ranged progress with accessible name, range, and status text |
+
+No ninth component is admitted. No form, input, button, or action component
+exists in this pack.
+
+**Composition contract.**
+
+```text
+root  = CodexifyStack
+Stack -> leaf | CodexifyCard
+Card  -> leaf                      (never Card, never Stack)
+leaf  -> no children
+depth <= 3                          (Stack, then Card, then a leaf)
+```
+
+Schemas are flat and fixed-depth, built from component `.ref` unions. No schema
+is recursive, and no renderer resolves a component name dynamically. Because the
+parser maps positional arguments onto declared keys **in order and without
+skipping optional keys**, every schema declares all required props before any
+optional prop; `CodexifyCard([...], "heading")` rather than the reverse. This is
+recorded as a regression test.
+
+**Version-2 bounds.**
+
+| Bound | Value |
+| --- | --- |
+| Program length | 4,096 characters |
+| Statements | 16 |
+| Rendered component nodes | 12 |
+| Nesting depth | 3 |
+| List entries | 12 |
+
+Strings, labels, and numeric values are individually length-bounded, and
+`CodexifyProgress` is range-bounded (`0 <= value <= max`, `max > 0`).
+
+**Admission is fail-closed and structural.** A version-2 program is parsed with
+the official OpenUI parser and then re-derived from the resolved tree. This is
+not redundant, because the parser is demonstrably permissive: measured against
+`@openuidev/react-lang` 1.0.1, it accepts a `CodexifyCard` nested inside a
+`CodexifyCard` with **zero** errors, silently drops an unknown component while
+still returning a renderable root, and stores `@Run(...)` action arguments and
+`$var` references as AST objects inside `props` with **no** error at all. A
+permissive parser is therefore never treated as the security boundary.
+
+Admission refuses, in addition to the version-1 denials:
+
+- Unknown components and unknown `libraryVersion` values.
+- Unknown props on any component, including styling and event-handler props.
+- Missing, duplicated, or non-`CodexifyStack` root.
+- Cyclic, duplicate, orphaned, or unresolved references.
+- Card-inside-Card and Stack-inside-Card composition violations.
+- Excessive length, node count, width, or nesting.
+- Invalid component arguments and out-of-range numeric values.
+- `Query`, `Mutation`, actions, and tool calls.
+- Reactive `$variables`, `stateDeclarations`, and a computed root expression.
+- Dynamic or computed component invocation.
+
+Any refusal renders **no** native artifact, and surrounding transcript prose is
+untouched.
+
+**Appearance.** Components install no theme provider and accept no styling prop.
+Color, surface, radius, spacing, and typography resolve from inherited Codexify
+shell tokens; no component hard-codes a color, shadow, radius, or spacing scale.
+Semantic HTML and accessible names are used throughout. Content stays inside the
+host conversation width and avoids fixed pixel widths.
+
+Four contract tokens — `--card-pad`, `--card-radius`, `--radius-micro`, and
+`--shell-gap` — have **no declaration anywhere in the current tree**. They are
+consumed with a `var(--token, <fallback>)` fallback following the existing
+generative-UI pattern, and the gap is exported as
+`OPENUI_UNDECLARED_TOKEN_DEPENDENCIES` rather than being silently absorbed. This
+pack creates no new runtime theme tokens; declaring them is a separate
+token-layer decision.
+
+**Still not granted.** The renderer receives no tool provider and no action
+callback. There is no host network, credential, filesystem, command-bus, or
+direct-send permission for an OpenUI program. Omitting an action callback is
+**not** authorization; admission is the boundary. Guardian remains authoritative
+for actions and permissions, and Postgres remains canonical for persistence.
+
+The existing `VITE_GENERATIVE_UI` gate still controls rendering (default
+off). The Guardian emission prompt is unchanged; support for models to generate
+the version-2 program format and native streaming behavior is **not proven** by
+this component registration. No new persistence or release qualification is
+implied.
+
+Proof record:
+`docs/architecture/proofs/runtime/2026-10-17-openui-foundation-pack-proof.md`.
 
 ## Sandbox containment
 
@@ -448,8 +602,20 @@ Beta Supported. Implementation presence does not promote it.
   Upstream allows four public CDNs; Codexify ships no importmap.
 - No cross-artifact control synchronization; each artifact is an independent
   snapshot, matching upstream's documented behavior.
-- The native registry is intentionally small (`chart.bar`, `table.rows`);
-  unknown components degrade to text rather than resolving dynamically.
+- The native registry is intentionally small (`chart.bar`, `table.rows`,
+  `openui.program`). `openui.program` admits two library versions: version 1
+  (`CodexifyMetric` only) and the version-2 foundation pack (eight
+  read-only components). Unknown components degrade to text rather than
+  resolving dynamically.
+- The version-2 pack has **no interactive component**. There is no form, input,
+  button, or action component, so there is nothing in it a user can press. Any
+  future interactive pack requires a separately approved architecture-impact
+  change.
+- The OpenUI parser is permissive by design and is not a trust boundary. Only
+  the structural admission walk is. Several walk checks currently overlap Zod or
+  parser validation and are defense in depth; the check proved independently
+  necessary by mutation testing is composition position, plus the progress
+  cross-field range that no schema can express.
 - The gate is build-time only, not operator-configurable at runtime.
 - The artifact payload rides message content, so a large HTML/CSS/JS artifact
   enlarges the stored message row. It is stripped from provider inference, but

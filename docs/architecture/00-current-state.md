@@ -27,6 +27,12 @@ This file is authoritative for:
 - Corrected the committed navigation reproduction after a fixture defect; the pre-repair failure remains recorded separately from the repair result.
 - The repair is bounded to Chrome 156 evidence: the Playwright suite cannot launch on this host, and cross-browser, Tauri, and supported-release equivalence remain unproven.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture remains unchanged.
+- Reconciled local audit history with `origin/main` through `f7e6a7f48`; no push was performed, and the stored `origin/main` is one commit ahead only because its 2026-10-22 accounting log is not present on local `main`.
+- Restored the four missing UMS ORM mappings and recorded focused evidence: 124 tests passed, with one inherited stale migration-head assertion remaining; Chronicle HTTP cases were collected but not executed.
+- Added fail-closed account-boundary checks for the legacy continuity operator surface outside local single-user execution, with focused route coverage.
+- Strict account-purpose HTTP and WebSocket boundaries accept the documented HS256 `account_session` JWT shape using the preferred session secret or JWT fallback; Private Preview still requires a live stored session and approved account. This is bounded code/test evidence, not public-ingress or release qualification.
+- Recorded bounded private-preview restart, schema, health, and mount evidence; no ordinary chat, browser interaction, provider inference, or full supported-Compose run was performed.
+- Merged recent Library, shell, chat/session-rail, task-cancellation, tool-loop, and accepted-turn identity changes; these remain implementation evidence, not integrated-tip release qualification.
 
 ## Current supported reality
 

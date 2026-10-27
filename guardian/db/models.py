@@ -4374,7 +4374,13 @@ class ProjectDocumentLink(Base):
 
 
 class UserSettings(Base):
-    """Durable user-global policy controls for identity modeling."""
+    """Durable user-global policy controls for identity modeling.
+
+    Also holds the account's explicit consent for automatic Personal Fact
+    collection.  ``automatic_memory_suggestions`` is intentionally separate
+    from ``memory_mode``: the latter is an identity-modeling depth control and
+    must never be reused as collection consent.
+    """
 
     __tablename__ = "user_settings"
 
@@ -4387,6 +4393,24 @@ class UserSettings(Base):
     )
     allow_sensitive_modeling: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Explicit account consent for automatic Personal Fact collection.
+    # `unset` is the default for every account, so a missing preference denies
+    # automatic collection (fail-closed).
+    automatic_memory_suggestions: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unset", server_default="unset"
+    )
+    consent_policy_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="1", server_default="1"
+    )
+    consent_recorded_by_user_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    consent_recorded_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    consent_updated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -4402,6 +4426,11 @@ class UserSettings(Base):
         CheckConstraint(
             "memory_mode IN ('none','light','deep')",
             name="user_settings_memory_mode_check",
+        ),
+        CheckConstraint(
+            "automatic_memory_suggestions IN "
+            "('unset','enabled','paused','declined')",
+            name="user_settings_automatic_memory_suggestions_check",
         ),
     )
 

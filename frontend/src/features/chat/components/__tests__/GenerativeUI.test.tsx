@@ -491,7 +491,52 @@ describe("registered native components", () => {
   });
 
   it("exposes only explicitly registered ids", () => {
-    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "table.rows"]);
+    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "openui.program", "table.rows"]);
+  });
+
+  it("renders the version-2 OpenUI foundation pack through the ordinary transcript", async () => {
+    enableGate();
+    render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "openui.program",
+      props: {
+        libraryVersion: 2,
+        program:
+          'root = CodexifyStack("vertical", [CodexifyHeading("Overview", "2"), CodexifyCard([CodexifyMetric("Tasks", "12"), CodexifyProgress("Indexing", 3, 4, "Almost done"), CodexifyList(["alpha", "beta"])], "Queue")])',
+      },
+    })));
+
+    expect(await screen.findByTestId("openui-foundation-stack")).toBeInTheDocument();
+    expect(screen.getByTestId("openui-foundation-metric")).toHaveTextContent("Tasks");
+    expect(screen.getByTestId("openui-foundation-progress-status")).toHaveTextContent("Almost done");
+    expect(screen.getByTestId("openui-foundation-list").querySelectorAll("li")).toHaveLength(2);
+    // Still a first-party host render: no sandbox, no network frame.
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("keeps the version-2 pack inert under the default-off renderer gate", () => {
+    enableGate();
+    vi.stubEnv("VITE_GENERATIVE_UI", "false");
+    const { container } = render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "openui.program",
+      props: { libraryVersion: 2, program: 'root = CodexifyStack("vertical", [CodexifyText("body")])' },
+    })));
+    expect(container.querySelector('[data-testid="openui-foundation-stack"]')).toBeNull();
+  });
+
+  it("strips a refused version-2 program from display and leaves prose intact", () => {
+    enableGate();
+    render(bubble(
+      "Readable answer.\n" + serializeUiArtifact({
+        version: 1, kind: "native", component: "openui.program",
+        props: {
+          libraryVersion: 2,
+          program: 'root = CodexifyStack("vertical", [CodexifyCard([CodexifyCard([CodexifyText("x")], "inner")], "outer")])',
+        },
+      }),
+    ));
+    expect(screen.getByText("Readable answer.")).toBeInTheDocument();
+    expect(document.querySelector('[data-testid^="openui-foundation-"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("CodexifyCard");
   });
 
   it("degrades a chart with unusable data instead of throwing", () => {

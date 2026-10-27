@@ -235,6 +235,7 @@ type RuntimeStatusStripProps = {
   inferenceState: InferenceRequestState;
   orphaned: boolean;
   effectiveThreadId: number | null;
+  isPhoneShell: boolean;
 };
 
 function RuntimeStatusStrip({
@@ -242,6 +243,7 @@ function RuntimeStatusStrip({
   inferenceState,
   orphaned,
   effectiveThreadId,
+  isPhoneShell,
 }: RuntimeStatusStripProps) {
   // Orphan state takes highest priority — show before any other state.
   if (orphaned && effectiveThreadId != null) {
@@ -294,8 +296,14 @@ function RuntimeStatusStrip({
   // do not surface it as a user-facing runtime status.
   const showProviderState = canonical !== PROVIDER_RUNTIME_STATES.READY;
   const showRequestState = (isActive || isTerminal) && !isQueued;
+  // On a phone the inference status banner owns the request state: it names the
+  // canonical lifecycle stage and carries the degraded/uncertain diagnostic.
+  // The strip keeps the provider runtime state, so the stage is never shown
+  // twice on one phone screen.
+  const stripShowsActiveRequestState = showRequestState && isActive && !isPhoneShell;
+  const stripShowsTerminalRequestState = showRequestState && isTerminal;
 
-  if (!showProviderState && !showRequestState) {
+  if (!showProviderState && !stripShowsActiveRequestState && !stripShowsTerminalRequestState) {
     return null;
   }
 
@@ -332,12 +340,12 @@ function RuntimeStatusStrip({
           <span className="font-medium truncate" style={{ color: "var(--text)" }}>
             {providerDesc.title}
           </span>
-          {showRequestState && isActive && (
+          {stripShowsActiveRequestState && (
             <span className="truncate" style={{ color: "var(--muted)" }}>
               {inferenceState.statusText ?? "Working…"}
             </span>
           )}
-          {showRequestState && isTerminal && (
+          {stripShowsTerminalRequestState && (
             <span className="truncate" style={{ color: "var(--muted)" }}>
               {inferenceState.phase === "completed"
                 ? "Completed"
@@ -4550,6 +4558,7 @@ export function GuardianChat({
         inferenceState={composerInferenceState}
         orphaned={effectiveThreadId != null && orphanedThreadRef.current.has(effectiveThreadId)}
         effectiveThreadId={effectiveThreadId}
+        isPhoneShell={mobileShellProfile.active}
       />
       {effectiveThreadId != null ? (
         <ThreadAttemptObservation
@@ -4563,7 +4572,11 @@ export function GuardianChat({
       ) : null}
 
       {/* Conversation remains flow-based; landing keeps the greeting and Composer
-          together as one centered prompt-first unit. */}
+          together as one centered prompt-first unit. The landing unit is
+          centered by the stage's own flex alignment, so it carries no vertical
+          transform: an earlier fixed-position layout used one, and leaving it
+          behind after the layout became flow-based lifted the whole unit —
+          composer included — by half its own height. */}
       <div
         data-testid={isLandingPresentation ? "guardian-landing-stage" : undefined}
         className={
@@ -4589,7 +4602,6 @@ export function GuardianChat({
               ? {
                   maxWidth: CHAT_LANE_MAX_WIDTH,
                   zIndex: 20,
-                  transform: "translateY(-50%)",
                 }
               : undefined
           }
@@ -4663,6 +4675,15 @@ export function GuardianChat({
           isLandingPresentation
             ? "z-20 flex w-full shrink-0 justify-center"
             : "z-20 mt-2 flex w-full shrink-0 justify-center"
+        }
+        style={
+          isLandingPresentation
+            ? undefined
+            : // The canonical shell safe-area inset, so the active composer
+              // clears the home indicator instead of sitting flush against the
+              // viewport bottom. The landing posture centers its composer, so
+              // the bottom inset does not apply there.
+              { paddingBottom: mobileShellProfile.chat.composer.bottomSafeArea }
         }
       >
         <div

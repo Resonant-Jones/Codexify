@@ -1123,6 +1123,7 @@ export function ChatView({
                     state={activeInferenceState}
                     onCancel={onCancelInference}
                     onSwitchToFast={onSwitchToFast}
+                    isPhoneShell={mobileShellProfile.active}
                   />
                 </div>
               </div>

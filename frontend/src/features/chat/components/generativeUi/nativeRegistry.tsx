@@ -22,6 +22,19 @@ export type NativeUiEntry = {
   className: string;
 };
 
+// The OpenUI parser and runtime are only needed when a valid native artifact
+// selects this component. Do not charge ordinary chat for its initial bundle.
+const LazyOpenUiNative = React.lazy(async () => {
+  const { OpenUiNative } = await import("./openuiNative");
+  return { default: OpenUiNative };
+});
+
+const OpenUiNativeEntry: NativeUiComponent = (props) => (
+  <React.Suspense fallback={null}>
+    <LazyOpenUiNative {...props} />
+  </React.Suspense>
+);
+
 const PANEL_STYLE: React.CSSProperties = {
   border: "1px solid color-mix(in srgb, var(--panel-border, rgba(127,127,127,0.35)) 80%, transparent)",
   borderRadius: "0.75rem",
@@ -259,6 +272,7 @@ const DataTable: React.FC<NativeUiComponentProps> = (props) => {
 export const NATIVE_UI_REGISTRY: Record<string, NativeUiEntry> = {
   "chart.bar": { component: BarChart, className: "max-w-[min(34rem,100%)]" },
   "table.rows": { component: DataTable, className: "max-w-[min(34rem,100%)]" },
+  "openui.program": { component: OpenUiNativeEntry, className: "max-w-[min(34rem,100%)]" },
 };
 
 /** Resolve a registered component, or null when the id is not registered. */

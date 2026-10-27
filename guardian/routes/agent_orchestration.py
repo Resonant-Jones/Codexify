@@ -85,12 +85,43 @@ def _coerce_optional_positive_int(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
-def _resolved_request_user(current_user: Any, requested_user: str) -> str:
+def _authenticated_account_user(current_user: Any) -> str:
+    """Resolve the authenticated Guardian account principal for a resource read.
+
+    The authenticated dependency result is the only acceptable identity
+    source for an account-scoped read. A caller-supplied header, query
+    parameter, or deployment metadata never substitutes for it, and a
+    missing authenticated identity fails closed instead of degrading into an
+    unscoped read.
+    """
     resolved = str(current_user or "").strip()
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
-    if str(requested_user or "").strip() != resolved:
-        raise HTTPException(status_code=403, detail="account_identity_mismatch")
+    return resolved
+
+
+def _resolved_request_user(
+    current_user: Any,
+    requested_user: str | None = None,
+) -> str:
+    """Resolve the authenticated account identity for one request.
+
+    ``requested_user`` is ``None`` when the route carries no separate
+    caller-supplied identity. The authenticated principal is then the only
+    authority, and its resolved identity is returned unchanged.
+
+    When a route does carry an explicitly requested identity, that identity
+    must match the authenticated principal exactly. An explicitly supplied
+    empty string is a *conflicting* identity, not an absent one, so it is
+    rejected rather than silently resolved to the principal.
+    """
+    resolved = str(current_user or "").strip()
+    if not resolved or resolved.startswith("Depends("):
+        raise HTTPException(status_code=401, detail="account_identity_missing")
+    if requested_user is not None:
+        requested = str(requested_user).strip()
+        if requested != resolved:
+            raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
 
 
@@ -750,17 +781,28 @@ async def cancel_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "") or None
-    run = _store.get_run(run_id, user_id=request_user)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run_not_found")
-    _store.update_run_status(run_id=run_id, status="canceled")
-    _event_publisher.emit(
-        run_id=run_id,
-        event_type="canceled",
-        payload={"run_id": run_id},
+    """Fail closed: Agent Run cancellation is not an authoritative operation.
+
+    A request to cancel is not evidence that execution stopped. The worker
+    observes cancellation by queue task id, and no durable correlation
+    exists between an Agent Run and the queue task it produced, so this
+    route cannot reach the execution it would claim to have stopped.
+
+    Until an accepted cancellation lifecycle exists — a cancellation intent,
+    a durable run-to-queue-task correlation, an explicit principal
+    authority, and worker acknowledgement — this endpoint resolves the
+    caller's identity and then reports the operation as unavailable.
+
+    It deliberately performs no run lookup, so it cannot disclose whether a
+    run exists, and it writes no run status and emits no terminal event. An
+    HTTP 200 here would report a terminal cancellation that nothing
+    observed.
+    """
+    _resolved_request_user(current_user)
+    raise HTTPException(
+        status_code=501,
+        detail="agent_run_cancellation_not_implemented",
     )
-    return {"ok": True, "run_id": run_id, "status": "canceled"}
 
 
 @router.get("/runs/{run_id}/coding", dependencies=[Depends(require_api_key)])
@@ -768,7 +810,7 @@ async def get_coding_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     run = _store.get_coding_run_snapshot(run_id, user_id=request_user)
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
@@ -780,7 +822,7 @@ async def get_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
         run = _store.get_account_run(run_id, user_id=request_user)
     else:
@@ -852,7 +894,7 @@ async def list_thread_runs(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_account_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
@@ -872,7 +914,7 @@ async def list_coding_runs_via_chat(
     thread_id: int,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _resolved_request_user(current_user, "")
+    request_user = _authenticated_account_user(current_user)
     runs = _store.list_coding_runs_for_thread(thread_id, user_id=request_user)
     if runs is None:
         raise HTTPException(status_code=404, detail="thread_not_found")

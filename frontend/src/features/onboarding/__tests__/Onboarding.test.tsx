@@ -196,3 +196,119 @@ describe("account introduction", () => {
     expect(screen.getByText("Usable workspace")).toBeVisible();
   });
 });
+
+describe("bounded onboarding pages", () => {
+  async function advanceToSurfaces() {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (within(dialog()).queryByRole("heading", { name: "One workspace, several surfaces" })) {
+        return;
+      }
+      fireEvent.click(
+        within(dialog()).getByRole("button", { name: /^(Continue|Skip username)$/ })
+      );
+      await waitFor(() => expect(mocks.patch).toHaveBeenCalled());
+    }
+    throw new Error("did not reach the surfaces step");
+  }
+
+  it("presents the surfaces step in bounded pages on a phone", async () => {
+    mount(true, true);
+    await screen.findByRole("dialog");
+    await advanceToSurfaces();
+
+    const pager = within(dialog()).getByRole("group", { name: "Surface pages" });
+    expect(within(pager).getByText("Page 1 of 4")).toBeVisible();
+
+    // A bounded page carries two cards, not all seven.
+    expect(within(dialog()).getByText("Talk with Guardian")).toBeVisible();
+    expect(within(dialog()).getByText("Organize related work")).toBeVisible();
+    expect(within(dialog()).queryByText("Keep materials together")).toBeNull();
+
+    fireEvent.click(within(pager).getByRole("button", { name: "Next" }));
+    expect(within(pager).getByText("Page 2 of 4")).toBeVisible();
+    expect(within(dialog()).getByText("Keep materials together")).toBeVisible();
+    expect(within(dialog()).queryByText("Talk with Guardian")).toBeNull();
+
+    fireEvent.click(within(pager).getByRole("button", { name: "Previous" }));
+    expect(within(pager).getByText("Page 1 of 4")).toBeVisible();
+  });
+
+  it("does not persist anything when the page changes", async () => {
+    mount(true, true);
+    await screen.findByRole("dialog");
+    await advanceToSurfaces();
+
+    const patchesBeforePaging = mocks.patch.mock.calls.length;
+    const pager = within(dialog()).getByRole("group", { name: "Surface pages" });
+    fireEvent.click(within(pager).getByRole("button", { name: "Next" }));
+
+    // Pagination is presentation only: the saved semantic step is unchanged
+    // and no new progress record is written.
+    expect(mocks.patch.mock.calls.length).toBe(patchesBeforePaging);
+    expect(durable.last_step_key).toBe("core_surfaces");
+    expect(durable.status).toBe("in_progress");
+  });
+
+  it("keeps every surface card on one page on desktop", async () => {
+    mount(true, false);
+    await screen.findByRole("dialog");
+    await advanceToSurfaces();
+
+    expect(within(dialog()).queryByRole("group", { name: "Surface pages" })).toBeNull();
+    for (const title of [
+      "Talk with Guardian",
+      "Organize related work",
+      "Keep materials together",
+      "Explore images and media",
+      "Start from Dashboard",
+      "Make Codexify comfortable",
+    ]) {
+      expect(within(dialog()).getByText(title)).toBeVisible();
+    }
+  });
+
+  it("shows the short summary on a card and keeps the deeper copy in Tips", async () => {
+    mount(true, true);
+    await screen.findByRole("dialog");
+    await advanceToSurfaces();
+
+    // The card carries the summary.
+    expect(
+      within(dialog()).getByText("A conversation in your Thread and Project context.")
+    ).toBeVisible();
+    // The deeper explanatory copy is not on the card.
+    expect(
+      within(dialog()).queryByText(/Guardian is where you talk to your assistant/)
+    ).toBeNull();
+
+    // …and it is still available in Tips.
+    durable.status = "completed";
+    fireEvent.click(within(dialog()).getByText("Skip for now"));
+    await waitFor(() => expect(durable.status).toBe("skipped"));
+    fireEvent.click(screen.getByText("Open Codexify Tips"));
+    const tips = await screen.findByRole("dialog", { name: "Codexify Tips" });
+    expect(
+      within(tips).getByText(/Guardian is where you talk to your assistant/)
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the onboarding copy free of internal contract language", async () => {
+    mount(true, true);
+    await screen.findByRole("dialog");
+    await advanceToSurfaces();
+
+    const surfacesText = within(dialog()).getByRole("group", { name: "Surface pages" })
+      .closest(".learning-body")!.textContent ?? "";
+
+    for (const jargon of [
+      /current runtime/i,
+      /runtime\/profile/i,
+      /the app's available capabilities/i,
+      /according to the workspace/i,
+      /self-doxxing/i,
+      /one shared underlying system/i,
+    ]) {
+      expect(surfacesText).not.toMatch(jargon);
+    }
+  });
+});
