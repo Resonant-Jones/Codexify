@@ -691,6 +691,15 @@ def test_legacy_lookup_finds_runs_that_account_lookup_rejects(
     assert store.get_account_run(RUN_ID, user_id=ACCOUNT_OWNER) is not None
 
 
+def test_cancel_route_remains_mounted(wired: SimpleNamespace) -> None:
+    """The endpoint stays registered; only its contract changed."""
+    with _client() as client:
+        openapi = client.get("/openapi.json")
+
+    assert openapi.status_code == 200, openapi.text
+    assert "/api/agents/runs/{run_id}/cancel" in openapi.json()["paths"]
+
+
 def test_cancel_run_reports_the_operation_as_unavailable(
     wired: SimpleNamespace,
 ) -> None:
