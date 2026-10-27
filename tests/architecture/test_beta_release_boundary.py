@@ -423,6 +423,241 @@ def _section_between(text: str, start: str, end: str) -> str:
     return match.group("body")
 
 
+def _heading_pattern(heading: str) -> str:
+    """Regex source for a Markdown heading that tolerates apostrophe variants.
+
+    The canonical current-state document writes ``## This week's priorities``
+    with a typographic apostrophe (U+2019). A typographic apostrophe and an
+    ASCII apostrophe are the same semantic character in prose, so both name the
+    same heading. Every other character is matched literally, which keeps the
+    match anchored to this exact heading rather than to an arbitrary one.
+    """
+    parts = heading.replace("\u2019", "'").split("'")
+    return r"['\u2019]".join(re.escape(part) for part in parts)
+
+
+def _section_until(text: str, start: str, end_pattern: str) -> str:
+    """Extract the body of the section that starts at ``start`` and ends at a
+    heading matching ``end_pattern``.
+
+    ``start`` is still matched literally; only the closing heading is allowed to
+    carry a tolerant pattern. A missing start heading still fails the caller,
+    so a removed or renamed section can never be read as an empty one.
+    """
+    pattern = re.compile(
+        rf"^{re.escape(start)}\s*$\n(?P<body>[\s\S]+?){end_pattern}\s*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    assert match is not None, (
+        f"Missing canonical section starting at {start!r} "
+        f"and ending at {end_pattern!r}"
+    )
+    return match.group("body")
+
+
+# ---------------------------------------------------------------------------
+# 14b. Bounded release-proof helpers
+# ---------------------------------------------------------------------------
+#
+# The release contract is expressed as bounded subject, predicate and status
+# checks rather than as one fixed piece of prose, and rather than as a general
+# natural-language parser. Anything ambiguous or contradictory fails closed.
+
+# Ordinary Markdown list markers: "-", "*", "+", "1." and "1)".
+_LIST_MARKER = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
+
+# The HOLD declaration must name the release gate or release posture. A gate
+# of another kind (a model gate, say) does not prove the release gate.
+_RELEASE_GATE_SUBJECT = re.compile(
+    r"\brelease\s+gate\b|\brelease\s+posture\b",
+    re.IGNORECASE,
+)
+
+# An affirmative declaration that a gate is on HOLD.
+_ACTIVE_HOLD_DECLARATION = re.compile(
+    r"\b(?:remains?|is|stays?|holds?|still)\b\s*`?HOLD`?(?![A-Za-z])",
+    re.IGNORECASE,
+)
+
+# A release gate that is not on HOLD.
+_RELEASE_GATE_NEGATIVE = re.compile(
+    r"\b(?:not|never|no\s+longer|isn't|is\s+no\s+longer)\b[^\n.;]{0,30}?\bhold\b"
+    r"|\bhold\b[^\n.;]{0,30}?\b(?:lifted|cleared|removed|dropped|waived|"
+    r"rescinded|retired)\b"
+    r"|\b(?:is|are)\s+(?:open|lifted|ready|released)\b"
+    r"|\bno\s+longer\s+on\s+hold\b",
+    re.IGNORECASE,
+)
+
+# A readiness claim. The negation must sit immediately before the phrase, so
+# an unrelated negation earlier in the sentence cannot hide a promotion.
+_RELEASE_READY_PHRASE = re.compile(
+    r"\b(?:ready\s+to\s+ship|ready\s+for\s+release|release[-\s]ready|"
+    r"generally\s+available)\b",
+    re.IGNORECASE,
+)
+_RELEASE_READY_NEGATION = re.compile(
+    r"(?:\bnot|\bnever|\bno\s+longer)\s+(?:yet\s+)?$",
+    re.IGNORECASE,
+)
+
+# The canonical supported installation path.
+_SUPPORTED_PROFILE_NAME = "v1-local-core-web-mcp"
+_COMPOSE_INSTALL_PATH = "local Docker Compose"
+_SUPPORTED_CLAIM = re.compile(
+    r"\bsupported\s+install(?:ation)?\s+path\b"
+    r"|\b(?:is|are|remains?)\s+(?:the\s+)?(?:named\s+)?supported\b"
+    r"|\bsupports?\b",
+    re.IGNORECASE,
+)
+_UNSUPPORTED_CLAIM = re.compile(
+    r"\b(?:do\s+not|does\s+not|doesn't|don't|never)\s+support\b"
+    r"|\bunsupported\b|\bnot\s+supported\b|\bno\s+longer\s+supported\b"
+    r"|\bdeprecated\b",
+    re.IGNORECASE,
+)
+
+# Ordinary, affirmative wording for an obligation that is still outstanding.
+_UNRESOLVED_AFFIRMATIVE = re.compile(
+    r"\b(?:missing|pending|outstanding|unresolved|incomplete)\b"
+    r"|\b(?:is|are|remains?|stays?)\s+open\b",
+    re.IGNORECASE,
+)
+# A negated completion ("has not been completed") states the opposite.
+_NOT_COMPLETION = re.compile(
+    r"\bnot\s+(?:yet\s+)?(?:been\s+)?"
+    r"(?:complete|completed|done|proven|qualified|resolved)\b",
+    re.IGNORECASE,
+)
+_COMPLETION_CLAIM = re.compile(
+    r"\b(?:complete|completed|done|finished|proven|qualified|resolved|"
+    r"closed|cleared)\b",
+    re.IGNORECASE,
+)
+# A negation immediately before the matched word scopes that word.
+_NEGATION_BEFORE = re.compile(
+    r"(?:\bnot|\bnever|\bno\s+longer|\bisn't|\bcan't|\bcannot)\s+(?:yet\s+)?$",
+    re.IGNORECASE,
+)
+
+
+def _claim_clauses(text: str) -> list[str]:
+    """Split a passage into the statements that can stand on their own.
+
+    Sentence ends and semicolons separate independent statements; commas are
+    intra-statement detail and do not scope a claim's status.
+    """
+    parts = re.split(r";|(?<=[.!?])\s+|\n", text)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _has_unresolved_state(claim: str) -> bool:
+    """True when the claim states its obligation is still outstanding.
+
+    An affirmative marker must not be negated: "is not pending" states the
+    opposite of outstanding. A negated completion ("has not been completed")
+    is itself an outstanding state.
+    """
+    if _NOT_COMPLETION.search(claim):
+        return True
+    for match in _UNRESOLVED_AFFIRMATIVE.finditer(claim):
+        if not _NEGATION_BEFORE.search(claim[: match.start()]):
+            return True
+    return False
+
+
+def _has_completion_claim(claim: str) -> bool:
+    """True when the claim asserts its obligation is finished."""
+    negated = [match.span() for match in _NOT_COMPLETION.finditer(claim)]
+    for match in _COMPLETION_CLAIM.finditer(claim):
+        if any(start <= match.start() < end for start, end in negated):
+            continue
+        if _NEGATION_BEFORE.search(claim[: match.start()]):
+            continue
+        return True
+    return False
+
+
+def _release_gate_is_on_hold(section: str) -> bool:
+    """True when the release gate itself is affirmatively declared on HOLD."""
+    for clause in _claim_clauses(section):
+        if not _RELEASE_GATE_SUBJECT.search(clause):
+            continue
+        if _ACTIVE_HOLD_DECLARATION.search(clause):
+            return True
+    return False
+
+
+def _release_gate_contradicts_hold(section: str) -> bool:
+    """True when a release-gate clause denies or lifts the HOLD gate.
+
+    A contradictory clause fails the contract even when another clause
+    declares HOLD.
+    """
+    for clause in _claim_clauses(section):
+        if not _RELEASE_GATE_SUBJECT.search(clause):
+            continue
+        if _RELEASE_GATE_NEGATIVE.search(clause):
+            return True
+    return False
+
+
+def _promotes_release_readiness(text: str) -> bool:
+    """True when the text claims the release is ready.
+
+    The negation must sit immediately before the readiness phrase, so an
+    unrelated negation earlier in the sentence cannot hide a promotion.
+    """
+    for match in _RELEASE_READY_PHRASE.finditer(text):
+        if _RELEASE_READY_NEGATION.search(text[: match.start()]):
+            continue
+        return True
+    return False
+
+
+def _supported_compose_profile_declared(section: str) -> bool:
+    """True when the section positively declares the canonical Compose profile.
+
+    The declaration must associate the local Docker Compose install path with
+    the canonical profile. A clause declaring *that* profile unsupported or
+    deprecated fails the contract; an unrelated legacy profile being
+    unsupported does not.
+    """
+    clauses = _claim_clauses(section)
+    for clause in clauses:
+        if (
+            _SUPPORTED_PROFILE_NAME in clause
+            and _UNSUPPORTED_CLAIM.search(clause)
+        ):
+            return False
+    for clause in clauses:
+        if (
+            _SUPPORTED_PROFILE_NAME in clause
+            and _COMPOSE_INSTALL_PATH in clause
+            and _SUPPORTED_CLAIM.search(clause)
+        ):
+            return True
+    return False
+
+
+def _require_unresolved_obligation(
+    section: str, topic: re.Pattern[str], message: str
+) -> None:
+    """Require every matching obligation claim to state it is outstanding.
+
+    All matching claims are inspected: an earlier unresolved claim cannot
+    excuse a later contradictory one.
+    """
+    matching = [
+        clause for clause in _claim_clauses(section) if topic.search(clause)
+    ]
+    assert matching, message
+    for clause in matching:
+        assert not _has_completion_claim(clause), message
+        assert _has_unresolved_state(clause), message
+
+
 def test_adr_069_contains_the_five_release_classes():
     text = _read(ADR_069_PATH)
     release_classes = _section_between(

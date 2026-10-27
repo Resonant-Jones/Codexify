@@ -112,6 +112,11 @@ vi.mock("@/lib/authState", () => ({
     status: "authenticated",
     token: "test-token",
   }),
+  getAuthState: () => ({
+    ready: true,
+    status: "authenticated",
+    token: "test-token",
+  }),
   checkAuthGate: () => true,
   requireAuthReady: () => true,
 }));
