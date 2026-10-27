@@ -96,7 +96,9 @@ class _ScopedStore:
 
     # -- store surface used by the routes ----------------------------
 
-    def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
+    def get_run(
+        self, run_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
         self._record("get_run", {"run_id": run_id, "user_id": user_id})
         if not self._exists(run_id) or not self._owned(user_id):
             return None
@@ -124,9 +126,7 @@ class _ScopedStore:
         *,
         user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        self._record(
-            "get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id}
-        )
+        self._record("get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id})
         if not self._exists(run_id) or not self._owned(user_id):
             return None
         return {
@@ -255,9 +255,7 @@ def _client(
     app.include_router(agent_orchestration.router)
     app.include_router(agent_orchestration.chat_router)
     if account is not None:
-        app.dependency_overrides[agent_orchestration.get_current_user] = (
-            lambda: account
-        )
+        app.dependency_overrides[agent_orchestration.get_current_user] = lambda: account
     if bypass_account_session:
         app.dependency_overrides[agent_orchestration.require_api_key] = (
             lambda: "operator-key"
@@ -301,9 +299,9 @@ def _assert_scoped_to(store: _ScopedStore, account: str) -> None:
     """Every store call must carry the authenticated account id, never None."""
     assert store.calls, "expected the route to reach the store"
     for name, kwargs in store.calls:
-        assert kwargs.get("user_id") == account, (
-            f"{name} was not scoped to the authenticated account: {kwargs}"
-        )
+        assert (
+            kwargs.get("user_id") == account
+        ), f"{name} was not scoped to the authenticated account: {kwargs}"
 
 
 # ---------------------------------------------------------------------------
@@ -318,9 +316,7 @@ def test_absent_requested_identity_resolves_to_authenticated_principal() -> None
 
 
 def test_matching_requested_identity_is_accepted() -> None:
-    resolved = agent_orchestration._resolved_request_user(
-        ACCOUNT_OWNER, ACCOUNT_OWNER
-    )
+    resolved = agent_orchestration._resolved_request_user(ACCOUNT_OWNER, ACCOUNT_OWNER)
     assert resolved == ACCOUNT_OWNER
 
 
@@ -407,9 +403,7 @@ def test_cancel_run_scopes_lookup_to_authenticated_account(
 ) -> None:
     store = wired.store
     with _client() as client:
-        response = client.post(
-            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
-        )
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
 
     assert response.status_code == 200, response.text
     assert store.call_names == ["get_run"]
@@ -423,9 +417,7 @@ def test_cancel_run_cannot_mutate_unauthorized_run(wired: SimpleNamespace) -> No
     """Cancellation requires a successful scoped lookup before any mutation."""
     store = wired.store
     with _client(account=ACCOUNT_OTHER) as client:
-        response = client.post(
-            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
-        )
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
 
     assert response.status_code == 404, response.text
     assert store.mutations == []
@@ -451,9 +443,7 @@ def test_list_coding_runs_scopes_thread_lookup_to_authenticated_account(
 ) -> None:
     store = wired.store
     with _client() as client:
-        response = client.get(
-            f"/api/chat/{THREAD_ID}/coding-runs", headers=_headers()
-        )
+        response = client.get(f"/api/chat/{THREAD_ID}/coding-runs", headers=_headers())
 
     assert response.status_code == 200, response.text
     assert store.call_names == ["list_coding_runs_for_thread"]
@@ -469,9 +459,7 @@ def test_chat_agent_runs_alias_matches_canonical_route(
         canonical = client.get(
             f"/api/agents/chat/{THREAD_ID}/agent-runs", headers=_headers()
         )
-        alias = client.get(
-            f"/api/chat/{THREAD_ID}/agent-runs", headers=_headers()
-        )
+        alias = client.get(f"/api/chat/{THREAD_ID}/agent-runs", headers=_headers())
 
     assert canonical.status_code == 200, canonical.text
     assert alias.status_code == 200, alias.text
@@ -505,9 +493,7 @@ def test_missing_run_returns_404(wired: SimpleNamespace) -> None:
     """A run that does not exist is masked as 404, never as 403."""
     store = wired.store
     with _client() as client:
-        response = client.get(
-            "/api/agents/runs/run-does-not-exist", headers=_headers()
-        )
+        response = client.get("/api/agents/runs/run-does-not-exist", headers=_headers())
 
     assert response.status_code == 404, response.text
     _assert_scoped_to(store, ACCOUNT_OWNER)
@@ -526,9 +512,7 @@ def test_cross_account_run_is_not_visible(wired: SimpleNamespace) -> None:
 def test_cross_account_thread_is_not_visible(wired: SimpleNamespace) -> None:
     store = wired.store
     with _client(account=ACCOUNT_OTHER) as client:
-        response = client.get(
-            f"/api/chat/{THREAD_ID}/coding-runs", headers=_headers()
-        )
+        response = client.get(f"/api/chat/{THREAD_ID}/coding-runs", headers=_headers())
 
     assert response.status_code == 404, response.text
     _assert_scoped_to(store, ACCOUNT_OTHER)
