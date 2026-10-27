@@ -743,7 +743,15 @@ def test_agent_readback_hides_unknown_resource_without_unscoped_fallback(
 
 
 def test_agent_readback_rejects_foreign_account_selection(monkeypatch) -> None:
-    """Prove a forged X-User-Id header cannot select another account."""
+    """Prove a forged X-User-Id header cannot select another account.
+
+    The local debug lane deliberately treats `X-User-Id` as the request
+    principal. That is a pre-existing `get_request_user_id` behavior and is
+    not changed here, so this test pins the ordinary lane explicitly by
+    removing the debug flags before the request.
+    """
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("LOCAL_DEV", raising=False)
     with _build_supported_profile_client(monkeypatch) as client:
         spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
         monkeypatch.setattr(agent_orchestration, "_store", spy)
@@ -759,6 +767,36 @@ def test_agent_readback_rejects_foreign_account_selection(monkeypatch) -> None:
             (
                 "list_coding_runs_for_thread",
                 {"thread_id": 7, "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_uses_the_resolved_principal_in_debug_lane(
+    monkeypatch,
+) -> None:
+    """Prove readback always scopes to the resolved account principal.
+
+    When the local debug lane is enabled, `X-User-Id` becomes the request
+    principal. The route must then scope to that principal, and to nothing
+    else. This records the lane boundary without claiming the debug lane is
+    a production authorization surface.
+    """
+    monkeypatch.setenv("LOCAL_DEV", "1")
+    with _build_supported_profile_client(monkeypatch) as client:
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get(
+            "/api/chat/7/coding-runs",
+            headers={"X-API-Key": "test-api-key", "X-User-Id": "other-account"},
+        )
+
+        assert response.status_code == 404
+        # The route used the resolved principal, not a request-body identity.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "other-account"},
             ),
         ]
 
