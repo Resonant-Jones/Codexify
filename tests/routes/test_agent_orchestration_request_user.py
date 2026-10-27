@@ -435,7 +435,12 @@ def _assert_scoped_to(store: _ScopedStore, account: str) -> None:
 
 
 def test_absent_requested_identity_resolves_to_authenticated_principal() -> None:
-    """No caller-supplied identity: the authenticated principal is authority."""
+    """No caller-supplied identity: the authenticated principal is authority.
+
+    A route that carries no separate requested identity resolves it without
+    comparing against a caller-supplied identity: a resource ID identifies a
+    resource, not its owner.
+    """
     resolved = agent_orchestration._resolved_request_user(ACCOUNT_OWNER)
     assert resolved == ACCOUNT_OWNER
 
@@ -523,39 +528,6 @@ def test_get_coding_run_scopes_snapshot_to_authenticated_account(
     _assert_scoped_to(store, ACCOUNT_OWNER)
 
 
-def test_cancel_run_performs_no_run_lookup(wired: SimpleNamespace) -> None:
-    """The fail-closed gate does not look the run up at all.
-
-    Cancellation is not an authoritative operation yet, so the route must not
-    resolve a run: a lookup would disclose whether the run exists before the
-    unavailable response is returned.
-    """
-    store = wired.store
-    publisher = wired.publisher
-    with _client() as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_cancel_run_cannot_mutate_another_accounts_run(
-    wired: SimpleNamespace,
-) -> None:
-    """A caller that does not own the run still cannot mutate it."""
-    store = wired.store
-    publisher = wired.publisher
-    with _client(account=ACCOUNT_OTHER) as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
 def test_list_thread_runs_scopes_thread_lookup_to_authenticated_account(
     wired: SimpleNamespace,
 ) -> None:
@@ -606,25 +578,6 @@ def test_chat_agent_runs_alias_matches_canonical_route(
 # ---------------------------------------------------------------------------
 # 404 masking and account isolation
 # ---------------------------------------------------------------------------
-
-
-def test_cancel_run_cannot_mutate_unseen_run(wired: SimpleNamespace) -> None:
-    """A run that does not exist cannot be mutated either.
-
-    The gate answers the same way for an unknown run as for a known one, so
-    the response does not disclose whether the run exists.
-    """
-    store = wired.store
-    publisher = wired.publisher
-    with _client() as client:
-        response = client.post(
-            "/api/agents/runs/run-does-not-exist/cancel", headers=_headers()
-        )
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
 
 
 def test_missing_run_returns_404(wired: SimpleNamespace) -> None:
@@ -698,7 +651,7 @@ def test_authenticated_principal_is_resolved_without_dependency_override(
 
 
 # ---------------------------------------------------------------------------
-# Cancellation requires durable account ownership in account modes
+# Cancellation fails closed: it is not an authoritative operation
 # ---------------------------------------------------------------------------
 
 
@@ -722,7 +675,8 @@ def test_legacy_lookup_finds_runs_that_account_lookup_rejects(
     `AgentStore.get_run` rejects only on a positively proven mismatch, so it
     still returns a threadless run and a run whose canonical thread was
     deleted. `AgentStore.get_account_run` requires durable account origin and
-    a surviving canonical thread, so it rejects both.
+    a surviving canonical thread, so it rejects both. The account-scoped
+    readback routes still depend on that difference.
     """
     store = wired.store
 
@@ -737,100 +691,230 @@ def test_legacy_lookup_finds_runs_that_account_lookup_rejects(
     assert store.get_account_run(RUN_ID, user_id=ACCOUNT_OWNER) is not None
 
 
-def test_account_mode_cancellation_fails_closed_for_the_durable_account_owner(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A. The authorized account owner still gets the fail-closed response.
+def test_cancel_route_remains_mounted(wired: SimpleNamespace) -> None:
+    """The endpoint stays registered; only its contract changed."""
+    with _client() as client:
+        openapi = client.get("/openapi.json")
 
-    The owner of the run holds the strongest authority available, and the
-    gate refuses it anyway: the operation is unsupported for *every* caller,
-    so nothing depends on whose authority was established.
-    """
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(bypass_account_session=True) as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
+    assert openapi.status_code == 200, openapi.text
+    assert "/api/agents/runs/{run_id}/cancel" in openapi.json()["paths"]
 
 
-def test_account_mode_cancellation_fails_closed_for_a_cross_account_run(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """B. Cross-account cancellation.
-
-    A different account that knows the run id cannot mutate it, and the
-    response does not disclose whether the run exists.
-    """
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(account=ACCOUNT_OTHER, bypass_account_session=True) as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_account_mode_cancellation_fails_closed_for_a_threadless_run(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """C. Threadless / operator-created run.
-
-    The legacy lookup could discover this run. The gate does not look it up,
-    so the run is untouched.
-    """
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(bypass_account_session=True) as client:
-        response = client.post(
-            f"/api/agents/runs/{THREADLESS_RUN_ID}/cancel", headers=_headers()
-        )
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_account_mode_cancellation_fails_closed_for_an_orphaned_run(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """D. Deleted-thread / missing-provenance run.
-
-    Durable account ownership cannot be established, and the gate does not
-    need to establish it: no status mutation, no event, no lookup.
-    """
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(bypass_account_session=True) as client:
-        response = client.post(
-            f"/api/agents/runs/{ORPHANED_RUN_ID}/cancel", headers=_headers()
-        )
-
-    assert response.status_code == 501, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_local_operator_mode_fails_closed_for_a_threadless_run(
+def test_cancel_run_reports_the_operation_as_unavailable(
     wired: SimpleNamespace,
 ) -> None:
-    """E. The local operator path fails closed too.
+    """An authenticated caller is told the operation is not available.
 
-    The legacy local lookup used to make a threadless run cancellable
-    locally. It is not any more: the operation is unsupported for every
-    caller, and no principal lane reaches a durable mutation.
+    A request to cancel is not evidence that execution stopped, so the route
+    must not report a terminal cancellation that nothing observed.
     """
+    with _client() as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 501, response.text
+    assert response.json()["detail"] == "agent_run_cancellation_not_implemented"
+
+
+def test_cancel_run_performs_no_lookup_mutation_or_event(
+    wired: SimpleNamespace,
+) -> None:
+    """The gate mutates nothing and discloses nothing."""
+    store = wired.store
+    publisher = wired.publisher
+    with _client() as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 501, response.text
+    # No run lookup, so the response cannot disclose whether the run exists.
+    assert store.calls == []
+    # No durable state change and no terminal event.
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_in_account_mode_also_fails_closed(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Account mode gets the same answer, because the route looks up nothing."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(bypass_account_session=True) as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 501, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_does_not_disclose_run_existence(
+    wired: SimpleNamespace,
+) -> None:
+    """Owner and non-owner receive the same answer.
+
+    The route performs no run lookup, so it cannot tell an owner from a
+    stranger and cannot leak which run ids exist.
+    """
+    store = wired.store
+    with _client() as owner:
+        owner_response = owner.post(
+            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
+        )
+    with _client(account=ACCOUNT_OTHER) as stranger:
+        stranger_response = stranger.post(
+            f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers()
+        )
+
+    assert owner_response.status_code == 501, owner_response.text
+    assert stranger_response.status_code == 501, stranger_response.text
+    assert owner_response.json() == stranger_response.json()
+    assert store.calls == []
+    assert store.mutations == []
+
+
+def test_cancel_run_never_mutates_a_run_that_does_not_exist(
+    wired: SimpleNamespace,
+) -> None:
+    """A run that does not exist is answered the same way, and never mutated."""
+    store = wired.store
+    publisher = wired.publisher
+    with _client() as client:
+        response = client.post(
+            "/api/agents/runs/run-does-not-exist/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 501, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_rejects_missing_authentication(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Invalid credentials still fail before the unavailable response."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client() as client:
+        response = client.post(
+            f"/api/agents/runs/{RUN_ID}/cancel",
+            headers={"X-API-Key": "wrong-key"},
+        )
+
+    assert response.status_code in {401, 403}
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_rejects_unresolved_identity(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unresolved identity fails closed before any lookup or mutation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account="", bypass_account_session=True) as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 401, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_never_reaches_a_mutating_store_operation(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative control: restoring the terminal-writing handler fails here.
+
+    The store and the publisher refuse every call, so the previous handler —
+    which looked the run up, wrote `status = "canceled"` and emitted a
+    terminal `canceled` event — cannot pass quietly. It would raise instead
+    of answering 501.
+    """
+
+    class _RefusingStore:
+        def __getattr__(self, name: str):
+            def _refuse(*args: Any, **kwargs: Any):
+                raise AssertionError(f"cancellation must not call store.{name}")
+
+            return _refuse
+
+    class _RefusingPublisher:
+        def emit(self, **kwargs: Any) -> None:
+            raise AssertionError("cancellation must not emit a terminal event")
+
+    monkeypatch.setattr(agent_orchestration, "_store", _RefusingStore())
+    monkeypatch.setattr(agent_orchestration, "_event_publisher", _RefusingPublisher())
+
+    with _client() as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 501, response.text
+
+
+def test_cancel_run_never_signals_the_queue(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route cannot cancel a queue task: it has no correlation to one.
+
+    `redis_queue.cancel` exists and the worker observes cancellation by
+    queue task id, but the coding-execute route discards the generated task
+    id, so no run can be correlated back to the task that would be stopped.
+    """
+    from guardian.queue import redis_queue
+
+    cancelled: list[str] = []
+
+    def _record(task_id: str) -> None:
+        cancelled.append(task_id)
+
+    monkeypatch.setattr(redis_queue, "cancel", _record)
+
+    with _client() as client:
+        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
+
+    assert response.status_code == 501, response.text
+    assert cancelled == []
+
+
+@pytest.mark.parametrize(
+    ("run_id", "account"),
+    [
+        pytest.param(RUN_ID, ACCOUNT_OWNER, id="durable-account-owner"),
+        pytest.param(RUN_ID, ACCOUNT_OTHER, id="cross-account"),
+        pytest.param(THREADLESS_RUN_ID, ACCOUNT_OWNER, id="threadless-run"),
+        pytest.param(ORPHANED_RUN_ID, ACCOUNT_OWNER, id="orphaned-run"),
+    ],
+)
+def test_cancel_run_fails_closed_for_account_provenance(
+    wired: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    run_id: str,
+    account: str,
+) -> None:
+    """Neither ownership nor missing provenance permits unsupported cancellation."""
+    _enter_account_mode(monkeypatch)
+    store = wired.store
+    publisher = wired.publisher
+    with _client(account=account, bypass_account_session=True) as client:
+        response = client.post(
+            f"/api/agents/runs/{run_id}/cancel", headers=_headers()
+        )
+
+    assert response.status_code == 501, response.text
+    assert store.calls == []
+    assert store.mutations == []
+    assert publisher.events == []
+
+
+def test_cancel_run_fails_closed_for_local_operator_threadless_run(
+    wired: SimpleNamespace,
+) -> None:
+    """Local operator compatibility does not manufacture cancellation authority."""
     store = wired.store
     publisher = wired.publisher
     with _client() as client:
@@ -844,14 +928,10 @@ def test_local_operator_mode_fails_closed_for_a_threadless_run(
     assert publisher.events == []
 
 
-def test_account_mode_readback_still_works_while_cancellation_fails_closed(
+def test_account_readback_still_works_when_cancellation_is_unavailable(
     wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The gate is scoped to cancellation; readback keeps its authority.
-
-    Account-scoped readback still resolves the durable account owner and
-    still returns the run. Only the cancellation operation is gated.
-    """
+    """Keep account-scoped readback authoritative while gating cancellation."""
     _enter_account_mode(monkeypatch)
     store = wired.store
     with _client(bypass_account_session=True) as client:
@@ -867,116 +947,10 @@ def test_account_mode_readback_still_works_while_cancellation_fails_closed(
     _assert_scoped_to(store, ACCOUNT_OWNER)
 
 
-def test_account_mode_cancellation_without_authentication_never_looks_up(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """F. Missing authentication fails before any lookup or mutation."""
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(account=ACCOUNT_OWNER) as client:
-        response = client.post(
-            f"/api/agents/runs/{RUN_ID}/cancel",
-            headers={"X-API-Key": "wrong-key"},
-        )
-
-    assert response.status_code in {401, 403}
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_account_mode_cancellation_with_unresolved_identity_never_looks_up(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """F. An unresolved identity fails closed before any lookup or mutation."""
-    _enter_account_mode(monkeypatch)
-    store = wired.store
-    publisher = wired.publisher
-    with _client(account="", bypass_account_session=True) as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 401, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-# ---------------------------------------------------------------------------
-# The fail-closed cancellation gate
-#
-# Agent Run cancellation is not an authoritative operation yet: the coding
-# worker observes cancellation by queue task id, and no durable
-# run-to-queue-task correlation exists. These cases hold the gate in place.
-# ---------------------------------------------------------------------------
-
-
-def test_cancel_route_remains_mounted() -> None:
-    """The route stays registered at its established path and method."""
-    registrations = {
-        (route.path, method)
-        for route in agent_orchestration.router.routes
-        for method in (route.methods or set())
-    }
-    assert ("/api/agents/runs/{run_id}/cancel", "POST") in registrations
-
-
-def test_cancel_run_reports_not_implemented_as_an_authoritative_operation(
+def test_cancel_run_does_not_distinguish_known_and_unknown_run(
     wired: SimpleNamespace,
 ) -> None:
-    """The response says the operation is unsupported, not that it was queued."""
-    with _client() as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    detail = str(response.json()["detail"]).lower()
-    assert "not implemented" in detail
-    # The response must not read as an accepted, pending, or completed
-    # cancellation.
-    for misleading in (
-        "canceled",
-        "cancellation queued",
-        "will be cancelled",
-        "accepted",
-    ):
-        assert misleading not in detail
-
-
-def test_cancel_run_never_signals_the_queue(
-    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The gate must not claim a queue cancellation it did not perform."""
-    from guardian.queue import redis_queue
-
-    signalled: list[str] = []
-    monkeypatch.setattr(
-        redis_queue, "cancel", lambda task_id: signalled.append(task_id)
-    )
-
-    with _client() as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 501, response.text
-    assert signalled == []
-
-
-def test_the_cancel_route_does_not_reference_the_queue_cancel_helper() -> None:
-    """The route module must not be able to reach the queue's cancel helper.
-
-    The behavioural double above records a call to the module attribute; this
-    source-level guard closes the other door, a module-level import of the
-    helper, which the behavioural double could not observe.
-    """
-    import inspect
-
-    source = inspect.getsource(agent_orchestration)
-    assert "redis_queue.cancel" not in source
-    assert "import cancel" not in source
-    assert "update_run_status" not in source
-
-
-def test_cancel_run_does_not_disclose_run_existence(wired: SimpleNamespace) -> None:
-    """A known run and an unknown run produce the same response."""
+    """The unavailable response must not reveal whether a run exists."""
     store = wired.store
     with _client() as client:
         known = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
@@ -988,76 +962,6 @@ def test_cancel_run_does_not_disclose_run_existence(wired: SimpleNamespace) -> N
     assert known.json() == unknown.json()
     assert store.calls == []
     assert store.mutations == []
-
-
-def test_cancel_run_without_authentication_is_rejected(
-    wired: SimpleNamespace,
-) -> None:
-    """A missing API key is still an authentication failure, not a 501.
-
-    The repository's test client injects a default ``X-API-Key`` into every
-    request, so the header is explicitly blanked here to present a request
-    that carries no credential at all.
-    """
-    store = wired.store
-    publisher = wired.publisher
-    with _client() as client:
-        response = client.post(
-            f"/api/agents/runs/{RUN_ID}/cancel", headers={"X-API-Key": ""}
-        )
-
-    assert response.status_code in {401, 403}, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_cancel_run_with_an_invalid_api_key_is_rejected(
-    wired: SimpleNamespace,
-) -> None:
-    """An incorrect API key is still an authentication failure."""
-    store = wired.store
-    publisher = wired.publisher
-    with _client() as client:
-        response = client.post(
-            f"/api/agents/runs/{RUN_ID}/cancel",
-            headers={"X-API-Key": "wrong-key"},
-        )
-
-    assert response.status_code in {401, 403}, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_cancel_run_with_an_unresolved_identity_is_rejected(
-    wired: SimpleNamespace,
-) -> None:
-    """An unresolved principal is an authentication failure, not a 501."""
-    store = wired.store
-    publisher = wired.publisher
-    with _client(account="") as client:
-        response = client.post(f"/api/agents/runs/{RUN_ID}/cancel", headers=_headers())
-
-    assert response.status_code == 401, response.text
-    assert store.calls == []
-    assert store.mutations == []
-    assert publisher.events == []
-
-
-def test_the_coding_execute_route_remains_mounted() -> None:
-    """The gate did not disturb the coding-execute route.
-
-    Coding execution is a different operation with its own authority rules.
-    It keeps its established path and method; the explicit-identity
-    enforcement below it is unchanged.
-    """
-    registrations = {
-        (route.path, method)
-        for route in agent_orchestration.router.routes
-        for method in (route.methods or set())
-    }
-    assert ("/api/agents/coding/execute", "POST") in registrations
 
 
 # ---------------------------------------------------------------------------

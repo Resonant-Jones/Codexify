@@ -378,6 +378,70 @@ def _resolve_account_id_for_subject(subject_id: str) -> str | None:
             status_code=500,
             detail="Server misconfigured: stable principal lookup failed",
         ) from exc
+    return account_id
+
+
+def _verified_account_identity(
+    token: str,
+    *,
+    require_stored_session: bool = False,
+) -> tuple[str, str] | None:
+    """Resolve the (subject, account_id) carried by a verified account credential.
+
+    The account gate authenticates account routes with
+    `resolve_account_session_subject`. Resolving the identity through that
+    same canonical authority keeps the authenticated principal and the
+    account identity from disagreeing, and stops an account credential from
+    falling back to the configured single-user identity.
+
+    Native sessions keep their established resolution, so they are not
+    handled here. A stateless account-session JWT yields the account subject
+    and the account id that owns it; in multi-user mode the subject must map
+    to a stable account id or the request fails closed.
+
+    A credential that is not a valid account session yields no identity, so
+    the operator and guest lanes are unaffected. An account credential whose
+    subject cannot be established fails closed instead.
+    """
+    if not token:
+        return None
+    native_valid, _native_subject = verify_session_token(token)
+    if native_valid:
+        # Native sessions resolve through the stored session and the
+        # multi-user principal mapping, exactly as they always have.
+        return None
+    try:
+        subject = resolve_account_session_subject(
+            token, require_stored_session=require_stored_session
+        )
+    except HTTPException:
+        if get_verified_session_token_purpose(token) == ACCOUNT_SESSION_PURPOSE:
+            # An account credential that cannot be resolved must never
+            # degrade into the legacy single-user identity.
+            raise HTTPException(
+                status_code=401,
+                detail="Account session required",
+                headers={
+                    ACCOUNT_AUTH_FAILURE_HEADER: ErrorCode.ACCOUNT_SESSION_INVALID.value
+                },
+            )
+        return None
+    if _multi_user_mode_enabled():
+        account_id = _resolve_account_id_for_subject(subject)
+        if not account_id:
+            logger.warning(
+                "Rejected request without stable principal mapping subject=%s",
+                subject,
+            )
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Multi-user mode requires a stable account_id mapping for the "
+                    "authenticated subject"
+                ),
+            )
+        return subject, account_id
+    return subject, subject
 
     if account_id is None:
         return None
@@ -417,6 +481,16 @@ def get_request_user_id(
     )
     if session_user_id:
         return session_user_id
+
+    # The remote account gate admits a stateless account-session JWT. The
+    # account identity must come from that verified credential rather than
+    # the configured single-user fallback, so it is resolved through the same
+    # canonical authority the gate uses. A caller-supplied X-User-Id can no
+    # longer stand in for the verified account subject.
+    if session_token and _auth_mode() == "remote":
+        account_identity = _verified_account_identity(session_token)
+        if account_identity is not None:
+            return account_identity[1]
 
     if _multi_user_mode_enabled():
         subject = _resolve_authenticated_subject(authorization, gc_session)
@@ -472,6 +546,20 @@ def get_request_user_scope(
             account_id=session_user_id,
             multi_user_enabled=True,
         )
+
+    # The remote account gate admits a stateless account-session JWT. Bind the
+    # request scope to that verified account rather than the configured
+    # single-user fallback, so the scope and the account gate cannot disagree.
+    if session_token and _auth_mode() == "remote":
+        account_identity = _verified_account_identity(session_token)
+        if account_identity is not None:
+            subject_id, account_id = account_identity
+            return RequestUserScope(
+                user_id=account_id,
+                subject_id=subject_id,
+                account_id=account_id,
+                multi_user_enabled=True,
+            )
 
     if _multi_user_mode_enabled():
         subject_id = _resolve_authenticated_subject(authorization, gc_session)
