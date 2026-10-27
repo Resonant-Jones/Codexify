@@ -781,29 +781,28 @@ async def cancel_run(
     run_id: str,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
-    request_user = _authenticated_account_user(current_user)
-    if dependencies.is_private_preview() or dependencies._auth_mode() == "remote":
-        # Cancellation mutates run state, so account mode requires the same
-        # durable account-origin authority as account-mode readback. The legacy
-        # lookup only rejects on a positively proven mismatch: a deployment
-        # without a user_id carries no ownership evidence, a deleted thread
-        # record skips the thread check, and a threadless run has no thread to
-        # check. Any of those would let an unrelated account that knows a run
-        # id cancel it.
-        run = _store.get_account_run(run_id, user_id=request_user)
-    else:
-        # Local mode's API key remains the existing operator authority for
-        # legacy run cancellation, matching the adjacent read route.
-        run = _store.get_run(run_id, user_id=request_user)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run_not_found")
-    _store.update_run_status(run_id=run_id, status="canceled")
-    _event_publisher.emit(
-        run_id=run_id,
-        event_type="canceled",
-        payload={"run_id": run_id},
+    """Fail closed: Agent Run cancellation is not an authoritative operation.
+
+    A request to cancel is not evidence that execution stopped. The worker
+    observes cancellation by queue task id, and no durable correlation
+    exists between an Agent Run and the queue task it produced, so this
+    route cannot reach the execution it would claim to have stopped.
+
+    Until an accepted cancellation lifecycle exists — a cancellation intent,
+    a durable run-to-queue-task correlation, an explicit principal
+    authority, and worker acknowledgement — this endpoint resolves the
+    caller's identity and then reports the operation as unavailable.
+
+    It deliberately performs no run lookup, so it cannot disclose whether a
+    run exists, and it writes no run status and emits no terminal event. An
+    HTTP 200 here would report a terminal cancellation that nothing
+    observed.
+    """
+    _authenticated_account_user(current_user)
+    raise HTTPException(
+        status_code=501,
+        detail="agent_run_cancellation_not_implemented",
     )
-    return {"ok": True, "run_id": run_id, "status": "canceled"}
 
 
 @router.get("/runs/{run_id}/coding", dependencies=[Depends(require_api_key)])
