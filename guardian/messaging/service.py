@@ -1167,6 +1167,48 @@ def unread_counts_for_conversations(
     }
 
 
+def _lock_read_cursor_authority(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+) -> None:
+    """Serialize concurrent read-cursor advances for one participant.
+
+    The read cursor's primary key is ``(conversation_id, profile_id)``, so two
+    concurrent read mutations for the same conversation and the same reader
+    contend on the very same row.  Without serialization both transactions can
+    observe the same starting cursor and then write conflicting watermarks,
+    letting an *older* watermark land last and move the cursor backwards.  On
+    a first read neither row exists yet, so both transactions try to insert
+    the same primary key and one raises a uniqueness error instead of the
+    operation being idempotent.
+
+    The lock is taken on the **participant authority row** for this
+    relationship rather than on the cursor row itself.  That row is stable:
+    it exists before any cursor does and it is unique per
+    ``(relationship_id, profile_id)``, so it always serializes the
+    read-compare-write for this reader regardless of whether a cursor row
+    exists yet.
+
+    Locking the participant row is also safe against lock ordering: it is
+    created before any relationship-level work and is never locked with a
+    conflicting mode elsewhere.
+    """
+    session.scalar(
+        select(DirectMessageRelationshipParticipant)
+        .where(
+            DirectMessageRelationshipParticipant.relationship_id
+            == conversation.relationship_id,
+            DirectMessageRelationshipParticipant.profile_id == profile.profile_id,
+        )
+        # FOR NO KEY UPDATE serializes this reader's cursor writes without
+        # blocking the FK KEY SHARE checks the other participant's own
+        # writes need.
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+
+
 def advance_read_cursor(
     session,
     profile: UserProfile,
@@ -1181,8 +1223,13 @@ def advance_read_cursor(
     read without ever having been shown.
 
     Only the caller's own cursor row is written, and the cursor never moves
-    backwards.  Returns the message id the cursor now points at, or None when
-    there is no watermark or the conversation holds no messages yet.
+    backwards.  Concurrent advances for the same reader are serialized against
+    the participant authority row, so the cursor always ends at the newest
+    watermark that was actually recorded, and a concurrent first read is
+    idempotent rather than a uniqueness error.
+
+    Returns the message id the cursor now points at, or None when there is no
+    watermark or the conversation holds no messages yet.
     """
     if not watermark_message_id:
         return None
@@ -1198,8 +1245,18 @@ def advance_read_cursor(
         return None
     watermark_created_at, watermark_id = watermark[1], watermark[2]
 
+    # Serialize the read-compare-write below against concurrent advances for
+    # this same reader.  The lock is held until this transaction commits.
+    _lock_read_cursor_authority(session, conversation, profile)
+
+    # ``populate_existing`` forces a fresh read.  The identity map may still
+    # hold the cursor row as it looked *before* the lock was acquired, and
+    # reading that stale copy would reintroduce the very race the lock
+    # prevents.
     existing = session.get(
-        DirectMessageReadCursor, (conversation.id, profile.profile_id)
+        DirectMessageReadCursor,
+        (conversation.id, profile.profile_id),
+        populate_existing=True,
     )
     if existing is not None and existing.last_read_message_id:
         current = session.execute(
@@ -1211,6 +1268,7 @@ def advance_read_cursor(
             watermark_created_at,
             watermark_id,
         ):
+            session.commit()
             return existing.last_read_message_id
 
     if existing is None:
