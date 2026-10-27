@@ -436,10 +436,12 @@ def test_agent_orchestration_chat_readback_enforced(
 ) -> None:
     """Prove coding readback is mounted and requires account authority.
 
-    The readback route is registered, but an operator API key is not an
-    account principal. The route therefore denies the caller at the
-    account-identity boundary, before any thread lookup, so it discloses no
-    thread existence and returns no coding run.
+    The readback route is registered, and the authenticated principal is
+    resolved before the resource lookup runs. This fixture establishes no
+    durable account-owned thread, so the read is refused as a missing
+    resource: no thread existence is disclosed and no coding run is
+    returned. An unauthenticated caller is rejected earlier, at the
+    credential boundary, so it never receives the missing-resource answer.
     """
     with _build_supported_profile_client(monkeypatch) as client:
         openapi = client.get("/openapi.json")
@@ -448,19 +450,18 @@ def test_agent_orchestration_chat_readback_enforced(
 
         headers = {"X-API-Key": "test-api-key"}
         authenticated = client.get("/api/chat/1/coding-runs", headers=headers)
-        # The route is mounted and reached, so this is not an unmounted-route
-        # 404.
-        assert authenticated.status_code != 404
-        # The caller carries no account identity, so the account-authority
-        # boundary denies the read before any thread lookup.
+        # The authenticated identity is resolved and the resource lookup
+        # executes. A missing account-owned thread is a missing resource.
         assert (
-            authenticated.status_code == 403
-        ), f"Expected 403, got {authenticated.status_code}: {authenticated.text}"
-        assert authenticated.json()["detail"] == "account_identity_mismatch"
-        # No coding run is disclosed.
+            authenticated.status_code == 404
+        ), f"Expected 404, got {authenticated.status_code}: {authenticated.text}"
+        assert authenticated.json()["detail"] == "thread_not_found"
+        # No thread existence and no coding run are disclosed.
         assert "runs" not in authenticated.json()
 
-        # Wrong key must be rejected before the account-identity comparison.
+        # An invalid API key is rejected at the credential boundary, before
+        # any resource lookup. It must not receive the missing-resource
+        # answer, which would imply an implicit identity fallback.
         wrong_key_response = client.get(
             "/api/chat/1/coding-runs",
             headers={"X-API-Key": "wrong-key"},
@@ -469,6 +470,7 @@ def test_agent_orchestration_chat_readback_enforced(
             f"Expected 401, got {wrong_key_response.status_code}: "
             f"{wrong_key_response.text}"
         )
+        assert wrong_key_response.json()["detail"] != "thread_not_found"
 
 
 def test_missing_route_does_not_regress_to_unclassified_404(
