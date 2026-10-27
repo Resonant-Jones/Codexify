@@ -354,6 +354,11 @@ class _SyntheticDurableAttempt:
         self.confirmed = confirmed
         self.read_attempts: list[str] = []
         self.recorded_terminals: list[str] = []
+        # Every terminal write the worker asked the store to acknowledge,
+        # with the exact identity it supplied. A recorded write is the
+        # evidence that the durable store accepted this attempt's terminal
+        # outcome, not merely that the worker asked for one.
+        self.recorded_terminal_writes: list[tuple[str, str, int, str, str]] = []
         self.observed_authorities: list[ChatAttemptReconciliation] = []
 
     @property
@@ -368,6 +373,10 @@ class _SyntheticDurableAttempt:
     def read_attempt(self, _chatlog_db, backend_task_id):
         self.read_attempts.append(backend_task_id)
         if not self.confirmed:
+            return None
+        # The store resolves an attempt by its own backend task id. A read
+        # for any other id must not confirm this attempt.
+        if str(backend_task_id or "") != str(self.task.task_id):
             return None
         return {
             "request_id": self.task.request_id,
@@ -392,6 +401,9 @@ class _SyntheticDurableAttempt:
     ) -> bool:
         if (request_id, backend_task_id, thread_id, turn_id) != self.identity:
             return False
+        self.recorded_terminal_writes.append(
+            (request_id, backend_task_id, thread_id, turn_id, event_type)
+        )
         self.recorded_terminals.append(event_type)
         return True
 
@@ -520,7 +532,7 @@ def test_incomplete_output_publishes_failed_without_completion_effects(
     assert effects == []
     # The terminal event is published because the durable terminal write
     # was acknowledged, with exact identity.
-    assert terminal_writes == [
+    assert durable.recorded_terminal_writes == [
         (
             task.request_id,
             task.task_id,
@@ -568,7 +580,7 @@ def test_cancelled_output_publishes_cancelled_without_persistence(
     assert effects == []
     # The terminal event is published because the durable terminal write
     # was acknowledged, with exact identity.
-    assert terminal_writes == [
+    assert durable.recorded_terminal_writes == [
         (
             task.request_id,
             task.task_id,
@@ -643,3 +655,65 @@ def test_unconfirmed_durable_attempt_never_executes(monkeypatch):
     # No request or turn identity was synthesized into execution authority.
     assert task.request_id == "request-terminal-evidence"
     assert task.turn_id == _TERMINAL_TURN_ID
+
+
+def test_durable_attempt_reader_rejects_an_incorrect_backend_task_id():
+    """The durable reader must not confirm an attempt for another task id.
+
+    The store resolves an attempt by its own backend task id, so a read for
+    any other id resolves nothing. A confirmed attempt therefore cannot be
+    obtained by asking the store under a different identity.
+    """
+    task = _worker_task()
+    durable = _SyntheticDurableAttempt(task=task)
+
+    assert durable.read_attempt(None, task.task_id) is not None
+    assert durable.read_attempt(None, "task-other") is None
+    assert durable.read_attempts == [task.task_id, "task-other"]
+
+
+def test_terminal_observation_rejects_a_mismatched_attempt_identity():
+    """Observation for another attempt must be refused, not reconciled.
+
+    Acknowledgment for one attempt cannot authorize another: the exact
+    request, backend task, thread, and turn identity is mandatory.
+    """
+    task = _worker_task()
+    durable = _SyntheticDurableAttempt(task=task)
+
+    with pytest.raises(ValueError):
+        durable.observe_terminal(
+            None,
+            request_id=task.request_id,
+            backend_task_id="task-other",
+            thread_id=task.thread_id,
+            turn_id=task.turn_id,
+        )
+
+    assert durable.observed_authorities == []
+
+
+def test_terminal_write_with_a_mismatched_identity_is_not_acknowledged():
+    """A terminal write for another attempt must not be acknowledged.
+
+    The durable store acknowledges a terminal outcome only for the attempt
+    it holds, so a write carrying a different identity is refused and
+    records nothing.
+    """
+    task = _worker_task()
+    durable = _SyntheticDurableAttempt(task=task)
+
+    assert (
+        durable.record_terminal(
+            None,
+            request_id=task.request_id,
+            backend_task_id="task-other",
+            thread_id=task.thread_id,
+            turn_id=task.turn_id,
+            event_type=TaskEventType.TASK_FAILED.value,
+        )
+        is False
+    )
+
+    assert durable.recorded_terminal_writes == []
+    assert durable.recorded_terminals == []
