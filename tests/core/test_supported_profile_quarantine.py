@@ -45,20 +45,6 @@ def _build_supported_profile_client(monkeypatch):
         importlib.reload(guardian_api)
 
 
-def _incomplete_coding_execute_body() -> dict:
-    """Return a coding-execution body that omits execution-binding identity.
-
-    `CodingAgentTaskEnvelope` requires an explicit provider, model, and
-    credential reference. This body omits exactly those three fields, so it
-    is structurally incomplete in the way the request contract requires.
-    """
-    return {
-        "coding_task_id": "proof-task-001",
-        "thread_id": "1",
-        "source_message_id": "1",
-        "attempt_id": "attempt-1",
-        "user_id": "local",
-        "project_id": None,
 CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
 
 # The authenticated single-user identity the supported local profile resolves
@@ -75,6 +61,34 @@ CODING_TEST_CREDENTIAL_REF = "credential-account-local"
 # Stands in for secret-bearing credential custody data. The accepted
 # execution binding must project safe authority metadata only.
 CODING_CREDENTIAL_SECRET_SENTINEL = "SECRET-SENTINEL-must-not-cross-the-task-boundary"
+
+
+def _incomplete_coding_execute_body() -> dict:
+    """Return a coding-execution body that omits execution-binding identity.
+
+    `CodingAgentTaskEnvelope` requires an explicit provider, model, and
+    credential reference. This body omits exactly those three fields, so it
+    is structurally incomplete in the way the request contract requires.
+    """
+    return {
+        "coding_task_id": "proof-task-001",
+        "thread_id": "1",
+        "source_message_id": "1",
+        "attempt_id": "attempt-1",
+        "user_id": "local",
+        "project_id": None,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "echo proof",
+        "repo_root": "/tmp",
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+    }
 
 
 def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
@@ -96,14 +110,18 @@ def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
         "repo_root": "/tmp",
         "context_summary": None,
         "permission_policy": {
-            "allow_shell": True,
             "allow_shell": False,
             "allow_network": False,
             "allow_write": False,
             "allowed_paths": [],
             "max_runtime_seconds": 30,
         },
+        "provider_id": CODING_TEST_PROVIDER_ID,
+        "model_id": CODING_TEST_MODEL_ID,
+        "credential_ref": CODING_TEST_CREDENTIAL_REF,
     }
+    body.update(overrides)
+    return body
 
 
 def _complete_coding_execute_body() -> dict:
@@ -146,12 +164,6 @@ def _missing_validation_fields(response) -> set[str]:
         for error in response.json()["detail"]
         if error.get("type") == "missing"
     }
-        "provider_id": CODING_TEST_PROVIDER_ID,
-        "model_id": CODING_TEST_MODEL_ID,
-        "credential_ref": CODING_TEST_CREDENTIAL_REF,
-    }
-    body.update(overrides)
-    return body
 
 
 class _RecordingAgentStore:
@@ -479,12 +491,6 @@ def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
             headers=headers,
             json=_incomplete_coding_execute_body(),
         )
-        with _isolate_coding_execution(monkeypatch) as isolation:
-            response = client.post(
-                CODING_EXECUTE_ROUTE,
-                headers=headers,
-                json=_coding_execute_body(),
-            )
 
         # The route is mounted and reached request validation.
         assert (
@@ -503,6 +509,35 @@ def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
         assert body.get("ok") is not True
         assert body.get("status") != "accepted"
         assert "run_id" not in body
+
+
+def test_coding_loop_execute_route_mounted_in_local_profile(
+    monkeypatch,
+) -> None:
+    """Prove a schema-valid Coding Loop request reaches the bounded accepted
+    response in the supported local operator profile.
+
+    This is a controlled route-contract test. The lineage, credential
+    authority, persistence, event, and queue effects are all replaced by the
+    test's own isolation, so it proves the request contract and the accepted
+    binding shape. It is not proof of live provider execution or of
+    production credential custody.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(),
+            )
+
+        # Route must accept the request (not 404).
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text}"
+        )
+        body = response.json()
         assert body.get("ok") is True
         assert body.get("status") == "accepted"
         assert body.get("run_id")
@@ -804,20 +839,22 @@ def test_agent_orchestration_chat_readback_enforced(
         assert wrong_key_response.json()["detail"] != "thread_not_found"
 
 
-def test_authenticated_read_user_rejects_unresolved_identities() -> None:
-    """Prove the readback identity helper fails closed.
+def test_authenticated_account_user_rejects_unresolved_identities() -> None:
+    """Prove the canonical readback identity helper fails closed.
 
     A missing, blank, or unresolved dependency identity must never be
-    treated as an account scope.
+    treated as an account scope. This is the behavior the retired
+    `_authenticated_read_user` helper proved; the assertions now target the
+    single canonical helper.
     """
     for unresolved in (None, "", "   ", "Depends(get_current_user)"):
         with pytest.raises(HTTPException) as excinfo:
-            agent_orchestration._authenticated_read_user(unresolved)
+            agent_orchestration._authenticated_account_user(unresolved)
         assert excinfo.value.status_code == 401
         assert excinfo.value.detail == "account_identity_missing"
 
     assert (
-        agent_orchestration._authenticated_read_user("account-a") == "account-a"
+        agent_orchestration._authenticated_account_user("account-a") == "account-a"
     )
 
 
@@ -1076,16 +1113,6 @@ def test_coding_execute_incomplete_request_reaches_no_dispatch_boundary(
         for event in published_events
         if (event.get("payload") or {}).get("coding_task_id")
     ]
-        # The Coding Loop execute route must 200.
-        with _isolate_coding_execution(monkeypatch) as isolation:
-            response = client.post(
-                CODING_EXECUTE_ROUTE,
-                headers=headers,
-                json=_coding_execute_body(coding_task_id="regression-check"),
-            )
-            assert response.status_code == 200, response.text
-            assert response.json().get("status") == "accepted"
-            assert len(isolation.queued) == 1
 
 
 @pytest.mark.parametrize(
