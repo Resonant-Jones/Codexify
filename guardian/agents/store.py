@@ -57,6 +57,22 @@ from guardian.protocol_tokens import (
 logger = logging.getLogger(__name__)
 
 _GUARDIAN_DELEGATION_OWNERSHIP = "guardian_delegation_intent"
+
+#: The maximum number of rows one bounded coding-run startup review may read.
+#: A review is an *observation*, not an inventory dump: it must never load an
+#: unbounded population into memory, and it must report a truncated read as
+#: truncated rather than as a complete population.
+CODING_RUN_REVIEW_MAX_ROWS = 200
+
+#: The bounded review stopped at its read limit and more unresolved runs may
+#: exist beyond it. A partial review is never reported as a complete one.
+CODING_RUN_REVIEW_PARTIAL = "guardian_coding_run_review_partial"
+
+#: The canonical store could not be read at all. This is **never** an empty
+#: inventory: an unreachable database is not evidence that no unresolved run
+#: exists, and it must never be reported as one.
+CODING_RUN_REVIEW_UNAVAILABLE = "guardian_coding_run_review_unavailable"
+
 _GUARDIAN_DELEGATION_DELIVERY_DEFERRED_REASON = (
     "guardian_delegation_source_thread_delivery_deferred"
 )
@@ -1043,6 +1059,156 @@ class AgentStore:
                 ),
                 "observed_at": row.observed_at,
             }
+
+    def list_unresolved_guardian_coding_runs(
+        self,
+        *,
+        limit: int = CODING_RUN_REVIEW_MAX_ROWS,
+        after_id: int | None = None,
+        observation_instant: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Enumerate the unresolved Guardian-bound coding runs, read-only.
+
+        This is the bounded discovery half of the coding worker's startup
+        review. It reads canonical PostgreSQL state and returns it; it never
+        decides, never writes, and never changes what any other component
+        believes about a run.
+
+        **The population.** A candidate is a run whose canonical status is
+        ``running`` and whose deployment carries the persisted Guardian
+        delegation ownership authority
+        (``spec_json.guardian_delegation.ownership == "guardian_delegation_intent"``).
+        The ownership marker is the same authority the rest of the store reads
+        through ``_guardian_delegation_metadata``: an ``AgentRun`` that merely
+        shares the table with a Guardian coding run is not part of this
+        population, and no account's or deployment's unrelated run is swept in
+        because it happens to be ``running``.
+
+        **The projection.** Each row carries exactly the fields the liveness
+        classifier needs -- ``run_id``, ``deployment_id``, ``status``,
+        ``started_at``, ``ended_at``, ``coding_worker_instance_id``,
+        ``coding_worker_claim_id``, ``coding_worker_last_heartbeat_at`` and
+        ``observed_at`` -- read from **one** statement, so the run's status,
+        ownership identities, heartbeat and observation instant come from a
+        single consistent snapshot. Mixing timestamps from separate reads
+        could produce a misleading ordering. The projection carries no
+        credential material, no secret values, no raw prompts, and no
+        transcript content.
+
+        **The clock.** ``observed_at`` is the **database** clock. The
+        application host clock is never the authoritative comparison clock.
+        ``observation_instant`` exists so a contract test can pin the
+        observation instant and exercise the staleness boundary exactly;
+        production callers omit it.
+
+        **The bound.** The read is bounded by ``limit`` (capped at
+        ``CODING_RUN_REVIEW_MAX_ROWS``) and ordered by the run's primary key,
+        so the ordering is deterministic and the read is a stable keyset. One
+        extra row is read to detect truncation: when the population extends
+        past the limit, ``complete`` is false, so the result is reported as
+        **partial** and never as a complete inventory.
+
+        **Failure.** An unreachable or unreadable store returns
+        ``CODING_RUN_REVIEW_UNAVAILABLE`` with no rows. That is *not* an empty
+        inventory: an unreachable database is not evidence that no unresolved
+        run exists.
+
+        The returned mapping has the shape
+        ``{"runs": [...], "complete": bool, "cursor": int | None, "error_code": str | None}``.
+        ``error_code`` is non-``None`` only when the read itself failed;
+        a truncated but successful read reports ``complete=False`` with no
+        error code. ``cursor`` is the primary key of the last row read, so a
+        caller may continue the keyset; it is a pagination cursor, not a
+        persisted ledger.
+        """
+        if not self._has_db():
+            return {
+                "runs": [],
+                "complete": False,
+                "cursor": None,
+                "error_code": CODING_RUN_REVIEW_UNAVAILABLE,
+            }
+
+        try:
+            bounded = max(1, min(int(limit), CODING_RUN_REVIEW_MAX_ROWS))
+        except (TypeError, ValueError):
+            bounded = CODING_RUN_REVIEW_MAX_ROWS
+
+        observed_at = (
+            func.now()
+            if observation_instant is None
+            else literal(observation_instant)
+        )
+        try:
+            with self.db.get_session() as session:
+                query = (
+                    session.query(
+                        AgentRun.id.label("row_id"),
+                        AgentRun.run_id,
+                        AgentDeployment.deployment_id.label("deployment_id"),
+                        AgentRun.status,
+                        AgentRun.started_at,
+                        AgentRun.ended_at,
+                        AgentRun.coding_worker_instance_id,
+                        AgentRun.coding_worker_claim_id,
+                        AgentRun.coding_worker_last_heartbeat_at,
+                        observed_at.label("observed_at"),
+                    )
+                    .join(
+                        AgentDeployment,
+                        AgentDeployment.id == AgentRun.deployment_id,
+                    )
+                    .filter(
+                        AgentRun.status == "running",
+                        AgentDeployment.spec_json["guardian_delegation"][
+                            "ownership"
+                        ].as_string()
+                        == _GUARDIAN_DELEGATION_OWNERSHIP,
+                    )
+                    .order_by(AgentRun.id.asc())
+                )
+                if after_id is not None:
+                    query = query.filter(AgentRun.id > int(after_id))
+                # One extra row distinguishes "the population ended here" from
+                # "the population continues past the bound".
+                rows = query.limit(bounded + 1).all()
+        except Exception:
+            logger.exception(
+                "[agent-store] coding run startup review unavailable"
+            )
+            return {
+                "runs": [],
+                "complete": False,
+                "cursor": None,
+                "error_code": CODING_RUN_REVIEW_UNAVAILABLE,
+            }
+
+        complete = len(rows) <= bounded
+        selected = rows[:bounded]
+        runs = [
+            {
+                "run_id": row.run_id,
+                "deployment_id": row.deployment_id,
+                "status": row.status,
+                "started_at": row.started_at,
+                "ended_at": row.ended_at,
+                "coding_worker_instance_id": row.coding_worker_instance_id,
+                "coding_worker_claim_id": row.coding_worker_claim_id,
+                "coding_worker_last_heartbeat_at": (
+                    row.coding_worker_last_heartbeat_at
+                ),
+                "observed_at": row.observed_at,
+            }
+            for row in selected
+        ]
+        return {
+            "runs": runs,
+            "complete": complete,
+            "cursor": int(selected[-1].row_id) if selected else None,
+            # A truncated read is not a failed read: it reports ``complete``
+            # as false and carries no error code.
+            "error_code": None,
+        }
 
     def get_account_run(
         self,

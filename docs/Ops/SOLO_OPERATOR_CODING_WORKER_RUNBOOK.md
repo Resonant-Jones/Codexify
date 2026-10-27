@@ -41,20 +41,23 @@ result artifact and no source-thread message. That is the *expected* durable
 shape of an interrupted execution. It is not, by itself, evidence that the
 worker is still running, and it is not evidence that it died.
 
-**What the system does today about it: nothing.** A restarted coding worker
-performs **no** restart reconciliation. It does not classify the abandoned run,
-does not escalate it, does not quarantine it, and does not retry it. There is no
-recovery status to look for, because no recovery record is written.
+**What the system does today about it: observation only.** A restarted coding
+worker performs a **bounded, read-only review** of the unresolved Guardian
+coding runs it can see in canonical PostgreSQL state, and then does nothing
+else. It classifies; it does not escalate, does not quarantine, does not
+retry, and does not requeue. There is no recovery status to look for, because
+no recovery record is written.
 
-**Why not, precisely:** the runtime cannot yet tell an **abandoned** accepted
-run from an **actively owned** one. The coding worker now records which worker
-instance owns a run (`coding_worker_instance_id`, `coding_worker_claim_id`) and
-reports a per-run liveness heartbeat
-(`coding_worker_last_heartbeat_at`), but a heartbeat is *evidence of reported
-activity*, not a verdict: nothing in the runtime compares it against a deadline,
-and no startup path reads it. Every remaining substitute is a timestamp or an
-empty queue, and both are unsafe: an elapsed time is not a death, and an empty
-queue is equally consistent with a crash and with a success.
+**Why observation only, precisely:** the runtime cannot yet tell an
+**abandoned** accepted run from an **actively owned** one. The coding worker
+now records which worker instance owns a run (`coding_worker_instance_id`,
+`coding_worker_claim_id`) and reports a per-run liveness heartbeat
+(`coding_worker_last_heartbeat_at`), and a startup review reads that evidence
+and classifies it. But a heartbeat is *evidence of reported activity*, not a
+verdict: nothing in the runtime compares it against a deadline and turns the
+answer into an action. Every remaining substitute is a timestamp or an empty
+queue, and both are unsafe: an elapsed time is not a death, and an empty queue
+is equally consistent with a crash and with a success.
 
 **Therefore, at the time of writing:**
 
@@ -161,6 +164,86 @@ worktree, produced files, started a subprocess, made a network request, or
 committed an external change. The absence of a canonical result is **not** the
 absence of external side effects. Inspect the worktree and the repository
 before you re-drive anything.
+
+### Reading the startup review result
+
+When a coding worker starts, it performs **one** bounded, read-only review of
+the unresolved Guardian coding runs, and then gets on with its work. The
+review appears in the worker log as a single line:
+
+```
+[coding-worker] startup review reviewed_count=3 recently_observed_count=1
+  stale_uncertain_count=1 missing_evidence_count=1 inconsistent_count=0
+  already_resolved_count=0 already_escalated_count=0 review_complete=True
+  review_error_code=None
+```
+
+It runs once, after the database is reachable and **before** the worker
+consumes anything from the coding queue. It is a diagnostic, not an action.
+
+**What the counts mean.** The review reads the same canonical evidence the
+liveness classification reads, and reuses the same vocabulary:
+
+| Count | What it means | What it does **not** mean |
+|---|---|---|
+| `reviewed_count` | how many unresolved Guardian coding runs the review read | that they are broken |
+| `recently_observed_count` | the owning claim renewed its heartbeat recently | that a worker process currently exists |
+| `stale_uncertain_count` | the owning claim has not renewed recently — **recent liveness evidence is missing** | that the worker died, was killed, or lost its work |
+| `missing_evidence_count` | the run is running but its ownership or heartbeat evidence is unusable | that the work never started, or that no side effects occurred |
+| `inconsistent_count` | the canonical record contradicts itself and needs a human to look | that the runtime will repair it — it never will |
+| `already_resolved_count` / `already_escalated_count` | a durable terminal or escalation disposition already exists | that anything needs doing |
+| `review_complete` | the whole unresolved population was read | — |
+| `review_error_code` | `None`, `guardian_coding_run_review_partial`, or `guardian_coding_run_review_unavailable` | — |
+
+**`review_complete=False` means two different things, and they matter.**
+`guardian_coding_run_review_partial` means the bounded read stopped at its
+limit, so **more unresolved runs may exist than the counts show** — treat the
+inventory as a lower bound, never as the whole population.
+`guardian_coding_run_review_unavailable` means the canonical store could not
+be read at all. That is **never** "there is nothing unresolved"; a worker that
+cannot reach canonical persistence cannot durably accept anything, so it
+refuses to consume coding tasks rather than dequeue work it could never
+accept.
+
+**How to read a stale accepted run.** `stale_uncertain` means one thing and
+one thing only: *recent liveness evidence is missing*. It is equally
+consistent with a worker blocked on a provider call, a worker waiting on a
+long validation run, a database connectivity failure that stopped the
+heartbeat, a paused or suspended process, and an actual termination. The
+review does not pick one of those, because it cannot.
+
+**How to read a fresh heartbeat.** `recently_observed` means the recorded
+owner renewed recently. It is evidence of activity, not proof that a process
+still exists, and it says nothing about whether the work will finish.
+
+**How to read missing historical ownership.** `missing_evidence` is what a
+historical `running` row looks like when it predates the ownership and
+heartbeat columns, or when the evidence was never recorded. It stays
+`missing_evidence`: the runtime does not backfill an owner, does not
+manufacture an initial heartbeat, and does not declare old work lost. Such
+rows are counted and reported, and left alone.
+
+**Operator review is not completed recovery.** The startup review is
+*observation*. A stale accepted run that the review reported is still
+`running`, still owned by its original worker, and still un-escalated. The
+disposition for it is an **operator decision**, taken through the quarantine
+route above. Seeing `stale_uncertain_count=1` in a log line means the runtime
+told you what it saw; it does not mean anything was reconciled.
+
+**Do not re-dispatch because the review found a run stale.** A stale
+heartbeat is not a failure, and the queue is lossy and at-most-once: a
+re-dispatch would mint a new attempt without fencing, and duplicate execution
+effects are not idempotent. Inspect the worktree, the repository, and the
+provider session yourself first. If you decide the execution needs a
+disposition, use the operator quarantine action — not a manual re-drive.
+
+**The quarantine route is still unavailable in a supported profile.** The
+startup review is an internal observation; it is not a public endpoint and it
+does not make the operator route reachable. Enabling
+`CODEXIFY_ENABLE_GUARDIAN_DELEGATIONS_ROUTES` does **not** override the
+supported-profile quarantine of the Guardian delegation family, so the
+operator quarantine action remains unavailable in Supported Beta and in
+Private Preview.
 
 ### Disposing of an uncertain coding run
 

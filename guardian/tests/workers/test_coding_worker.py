@@ -6486,3 +6486,144 @@ def test_worker_refuses_a_governing_binding_without_its_effort(
     assert forwarded == []
     assert published[-1][1] == "task.failed"
     assert published[-1][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
+
+
+# ---------------------------------------------------------------------------
+# The read-only startup review.
+#
+# The review is observed and classified at worker startup, before the first
+# destructive queue consumption. These cases live here, against the worker's
+# own SQLite-backed test double, so the review is exercised on the same
+# surface the worker's normal execution uses.
+# ---------------------------------------------------------------------------
+
+
+def _seed_guardian_bound_accepted_run(
+    db: _TestDB,
+    seeded: dict[str, Any],
+    *,
+    worker_instance_id: str = "cwi_startup_worker_a",
+    claim_id: str = "cwc_startup_claim_a",
+) -> tuple[str, str]:
+    """Seed a Guardian-bound run and accept it under a known claim."""
+    store = AgentStore(db=db)
+    attempt_id = "gat_startup_review"
+    coding_task_id = "gct_startup_review"
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+        extra_spec={
+            "guardian_delegation": {
+                "ownership": "guardian_delegation_intent",
+                "intent_id": "gdi_startup_review",
+                "phase": "phase3",
+            },
+            "attempt_id": attempt_id,
+            "coding_task_id": coding_task_id,
+        },
+    )
+    outcome = store.claim_run_for_acceptance(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        worker_instance_id=worker_instance_id,
+        claim_id=claim_id,
+        user_id=seeded["user_id"],
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        attempt_id=attempt_id,
+        coding_task_id=coding_task_id,
+    )
+    assert outcome == "accepted", outcome
+    return deployment_id, run_id
+
+
+def test_the_startup_review_finds_a_guardian_bound_running_run(
+    db: _TestDB,
+) -> None:
+    """A Guardian-bound accepted run is discovered by the startup review."""
+    seeded = _seed_source_context(db)
+    _, run_id = _seed_guardian_bound_accepted_run(db, seeded)
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    review = worker.review_unresolved_coding_runs()
+
+    assert review.reviewed_count == 1
+    assert run_id in review.run_ids
+    assert review.review_complete is True
+    assert review.review_error_code is None
+
+
+def test_the_startup_review_ignores_a_run_that_is_not_guardian_bound(
+    db: _TestDB,
+) -> None:
+    """A running run with no Guardian ownership is not part of the review."""
+    seeded = _seed_source_context(db)
+    store = AgentStore(db=db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    outcome = store.claim_run_for_acceptance(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        worker_instance_id="cwi_startup_worker_a",
+        claim_id="cwc_startup_claim_a",
+        user_id=seeded["user_id"],
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        attempt_id="gat_startup_review",
+        coding_task_id="gct_startup_review",
+    )
+    assert outcome == "accepted", outcome
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    review = worker.review_unresolved_coding_runs()
+
+    assert run_id not in review.run_ids
+    assert review.reviewed_count == 0
+
+
+def test_the_startup_review_leaves_the_canonical_run_unchanged(
+    db: _TestDB,
+) -> None:
+    """The review observes the run; it does not write it.
+
+    The escalation guarantee is proven against disposable PostgreSQL in
+    ``tests/contracts/test_guardian_coding_worker_restart_review_contract.py``;
+    this worker's SQLite test double does not create the escalation table.
+    """
+    seeded = _seed_source_context(db)
+    _, run_id = _seed_guardian_bound_accepted_run(db, seeded)
+    store = AgentStore(db=db)
+    with db.get_session() as session:
+        before = session.query(AgentRun).filter_by(run_id=run_id).one()
+        before_state = (
+            before.status,
+            before.coding_worker_instance_id,
+            before.coding_worker_claim_id,
+            before.coding_worker_last_heartbeat_at,
+            before.ended_at,
+        )
+
+    worker = coding_worker.CodingWorker(agent_store=store)
+    worker.review_unresolved_coding_runs()
+
+    with db.get_session() as session:
+        after = session.query(AgentRun).filter_by(run_id=run_id).one()
+        after_state = (
+            after.status,
+            after.coding_worker_instance_id,
+            after.coding_worker_claim_id,
+            after.coding_worker_last_heartbeat_at,
+            after.ended_at,
+        )
+
+    assert after_state == before_state

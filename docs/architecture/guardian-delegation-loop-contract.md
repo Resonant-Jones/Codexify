@@ -175,7 +175,7 @@ The claim's authority is the durable deployment record the run already points at
 
 **Refusal is fail-closed and non-destructive.** The claim returns one of three outcomes — `accepted`, `rejected`, or `unavailable` — and anything other than `accepted` refuses execution. Unreachable persistence is `unavailable`, never permission to execute: missing persistence is not a weaker form of authorization. A refusal is published as the canonical generic, **non-terminal** `task.event` with a local `error_code` (`EXECUTION_ACCEPTANCE_REJECTED` or `EXECUTION_ACCEPTANCE_UNAVAILABLE`), following the worker's existing precedent for local error codes; no protocol token is added. A refusal never calls `update_run_status` and never calls `store_coding_result`, so a duplicate delivery cannot turn another worker's running attempt into a terminal failure, cannot produce a second result artifact, and cannot post a second source-thread message.
 
-**What this does not yet provide.** The acceptance record makes an accepted run distinguishable from a queued, never-started run after worker process death. It does **not** implement restart-time reconciliation: nothing reads the acceptance record at startup, no uncertain-outcome sweep exists, and `observe_liveness()`, `classify_dispatch_health()`, and `recover_dispatch()` are not wired into any startup path. Reconciliation remains a separate, dependent task, and no retry authority is implied by the record.
+**What this does not yet provide.** The acceptance record makes an accepted run distinguishable from a queued, never-started run after worker process death. It does **not** implement restart-time reconciliation: the startup review reads the acceptance record and classifies it, but no uncertain-outcome sweep exists, and `observe_liveness()`, `classify_dispatch_health()`, and `recover_dispatch()` are not wired into any startup path. Reconciliation remains a separate, dependent task, and no retry authority is implied by the record.
 
 ### Durable coding-worker ownership
 
@@ -282,9 +282,10 @@ guarantee:
   running inside the adapter is **not** preempted. No side-effect fencing is
   claimed from this mechanism.
 - It does not authorize execution, retry, requeue, escalation, or takeover. No
-  expiry rule, no quarantine decision, and no classifier reads it.
-- It does not implement restart reconciliation. Nothing reads the heartbeat at
-  startup.
+  expiry rule, no quarantine decision, and no classification result reads it
+  into an action.
+- It does not implement restart reconciliation. The startup review reads the
+  heartbeat and classifies it, read-only; it acts on nothing.
 
 **Historical rows.** A `NULL` heartbeat means the run never reported one:
 either it predates the migration, or it is ownership-unknown. Such a row stays
@@ -461,9 +462,10 @@ produced files, started a subprocess, made a network request, or committed an
 external change. The absence of a canonical result is not the absence of
 external side effects, and no provider-enforced sandbox conformance is claimed.
 
-**Restart reconciliation is still deferred.** Nothing reads this classification
-at startup. No worker-init, no poll loop, no recovery path consumes it, and
-`recover_dispatch()` is not activated for production runs.
+**Restart reconciliation is still deferred.** The startup review reads this
+classification once, at coding-worker startup, and reports it. No worker-init
+path acts on it, no poll loop consumes it, no recovery path is triggered by
+it, and `recover_dispatch()` is not activated for production runs.
 
 ### Operator-authorized uncertain-outcome quarantine
 
@@ -653,8 +655,10 @@ start, poll, schedule, or watch. `observe_liveness()`,
 `classify_dispatch_health()`, and `recover_dispatch()` are not wired into
 coding-worker startup, no heartbeat-age watcher is added, no automatic
 quarantine is scheduled, no task replay is implemented, and no ownership
-takeover is granted. A worker that dies while Guardian is down is still
-reconciled only by an operator, and the strict-xfail restart-reconciliation
+takeover is granted. The startup review classifies; it never invokes this
+route, so nothing the review observes can become a disposition on its own.
+A worker that dies while Guardian is down is still reconciled only by an
+operator, and the strict-xfail restart-reconciliation
 tripwire remains unresolved.
 
 **What the response means.** A 201 means Guardian durably recorded an
@@ -662,6 +666,93 @@ authorized uncertain-outcome quarantine. It does not mean the previous worker
 was killed, that external effects were prevented, that the worktree was
 restored, that a provider session was cancelled, that a Git commit was undone,
 or that the execution outcome is known.
+
+### The read-only startup review
+
+The liveness classification above is now **read once at coding-worker
+startup**. The startup review is an *observation*, not a recovery: it
+enumerates the unresolved Guardian coding runs, classifies the evidence the
+canonical record already holds, and reports what it saw. It changes nothing.
+
+**The integration point.** The review runs in `run_worker_loop()`, after
+`_initialize_worker()` has established canonical PostgreSQL access and before
+the first `poll_once()` — that is, after the database is reachable and before
+the queue is destructively consumed. It requires no Redis dequeue, no
+credential selection, no worktree, no adapter, no provider, and no Pi
+invocation. It runs **once**. There is no background loop, no watcher, and no
+scheduler.
+
+**The population.** A candidate is a canonical run whose status is `running`
+and whose deployment carries the persisted Guardian delegation ownership
+authority (`spec_json.guardian_delegation.ownership ==
+"guardian_delegation_intent"`) — the same authority the rest of the store
+reads. An `AgentRun` that merely shares the table with a Guardian coding run
+is not in the population, and no unrelated deployment is swept in because it
+happens to be running.
+
+**The projection and the clock.** Each candidate is read from **one**
+statement, so its status, ownership identities, heartbeat, and observation
+instant come from a single consistent snapshot; mixing timestamps from
+separate reads could produce a misleading ordering. `observed_at` is the
+**database** clock. The projection carries only the identity and timing facts
+the classifier needs — no credential material, no secret values, no raw
+prompts, and no transcript content.
+
+**The bound.** The read is bounded and ordered by the run's primary key, so
+it is a stable keyset. A read that stops at its limit is reported as
+**partial**, never as a complete inventory. An unreachable store is reported
+as **unavailable**, never as an empty one: an unreachable database is not
+evidence that no unresolved run exists. A worker that cannot reach canonical
+persistence cannot durably accept anything, so it refuses to consume coding
+tasks rather than dequeue work it could never accept.
+
+**The classifications.** The review reuses the classifier proven for per-run
+evidence. It does not implement a second classifier and does not reinterpret
+its verdicts:
+
+| Verdict | What the review reports |
+|---|---|
+| `recently_observed` | recent owner activity was observed — **not** that a process currently exists |
+| `stale_uncertain` | recent liveness evidence is missing — the outcome is uncertain, **not** that the worker died |
+| `missing_evidence` | the record carries too little ownership or heartbeat evidence to classify — **not** that the work never started |
+| `inconsistent` | the record contradicts itself and needs inspection; it is reported, never repaired |
+| `already_resolved` / `already_escalated` | an authoritative disposition already exists and stays authoritative |
+
+A queued run was never durably accepted, so it is not in the population and is
+never treated as abandoned. Historical running rows that lack ownership or
+heartbeat evidence stay `missing_evidence`: the review backfills no identity,
+manufactures no initial heartbeat, and declares no historical work lost.
+
+**Startup is a trigger, not authority.** A worker process starting justifies
+*inspecting* unresolved executions. It is **not** evidence that any other
+worker terminated: a system may legitimately run several coding workers, and
+a restarting worker may meet work still executing on another machine. A stale
+heartbeat is equally consistent with a blocked worker, a database connectivity
+failure, a paused process, a long-running operation with delayed reporting, or
+an actual termination, and the review does not pick one explanation over
+another without independent evidence. Reviewing a run never transfers its
+ownership: the reviewed run keeps its owner and its claim.
+
+**What the review never does.** It does not update a run, add an escalation,
+create another attempt, mint another execution binding, renew a credential
+lease, requeue a task, publish a terminal task event, create a coding-result
+artifact, deliver a source-thread message, replace worker ownership, modify a
+worktree, or execute the adapter. It does not call `recover_dispatch()`, the
+quarantine service, the quarantine persistence, or the operator HTTP route. It
+creates no persistent recovery ledger and no second source of truth: it is an
+observation of canonical data.
+
+**The diagnostic.** The result is a bounded, structured summary — counts per
+verdict, `review_complete`, `review_error_code`, and a bounded set of
+internal run identifiers. It carries no credential value, no raw prompt, no
+transcript content, no provider response, and no account content. It is not a
+public diagnostics endpoint, and no feature gate exposes it.
+
+**What it is not.** A startup review is not restart reconciliation and not
+automatic recovery. The disposition for an unresolved execution still belongs
+to an operator, through the quarantine route above. The strict-xfail
+restart-reconciliation tripwire remains unresolved, and external side effects
+remain uncertain.
 
 ### Restart reconciliation of abandoned executions
 
@@ -690,7 +781,8 @@ anything.
 - `agent_runs` carries a heartbeat column, but it records only that the
   recorded owner last reported. Nothing converts a stale timestamp into a
   liveness decision: there is no expiry rule, no takeover, no death marker,
-  and no startup path that reads it. The other liveness-adjacent fields
+  and no startup path that *acts* on it. The startup review reads it and
+  classifies it; that is all. The other liveness-adjacent fields
   (`started_at`, the ownership identities) remain what they were.
 - `coding_worktree_leases` has exactly the right shape — `worker_id`,
   `last_heartbeat_at`, `expires_at` — but **no production code path creates a
@@ -706,16 +798,18 @@ anything.
   not observations the runtime records.
 - The liveness classification reads the canonical evidence and reports a
   conservative verdict — `stale_uncertain` is exactly "recent liveness
-  evidence is missing", and it authorises nothing. It is not wired into any
-  startup or dispatch path.
+  evidence is missing", and it authorises nothing. It is read once by the
+  read-only startup review and by nothing else: no dispatch path, no recovery
+  path, and no operator route consumes it automatically.
 - Fencing is absent by design, and stays absent.
 
 Consequently, **no restart reconciliation is implemented today**. A restarted
-coding worker performs no classification, writes no escalation, re-inserts no
-task, issues no credential lease, invokes no provider, and fabricates no
-source-thread result. That is the correct behaviour under the gate: an
-implementation built on the available signals would either escalate a run whose
-worker is alive and mid-execution, or escalate nothing at all.
+coding worker performs a read-only classification of the unresolved runs, and
+writes no escalation, re-inserts no task, issues no credential lease, invokes
+no provider, and fabricates no source-thread result. That is the correct
+behaviour under the gate: an implementation built on the available signals
+would either escalate a run whose worker is alive and mid-execution, or
+escalate nothing at all.
 
 **The disposition already exists.** The operator-visible outcome for an
 unresolved execution needs no migration and no new status. The canonical run
@@ -752,7 +846,7 @@ The queue is `LPUSH` + destructive `BRPOP`/`RPOP` with no ack, no pending list, 
 
 Dispatch state lives in `guardian/core/guardian_dispatch.py` and is durable and queryable: `prepared`, `dispatched`, `executing`, `completed`, `failed`, `uncertain`, `quarantined`, `cancelled`. Recovery reads that state; it never infers from absence.
 
-The durable acceptance record described above is the substrate this recovery reads: it is what makes an accepted run distinguishable from a queued, never-started run after the worker process disappears. Restart-time reconciliation of that record — reading it at startup and classifying the uncertain outcomes it implies — is **not implemented** and remains a separate, dependent task.
+The durable acceptance record described above is the substrate this recovery reads: it is what makes an accepted run distinguishable from a queued, never-started run after the worker process disappears. Restart-time reconciliation of that record — turning the uncertain outcomes the startup review surfaces into an authoritative disposition — is **not implemented** and remains a separate, dependent task.
 
 ## Coding Delegation Context Policy
 

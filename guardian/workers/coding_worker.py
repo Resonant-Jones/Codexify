@@ -29,6 +29,9 @@ from guardian.agents.commit_gate import (
 )
 from guardian.agents.events import build_coding_result_lineage_payload
 from guardian.agents.store import (
+    CODING_RUN_REVIEW_MAX_ROWS,
+    CODING_RUN_REVIEW_PARTIAL,
+    CODING_RUN_REVIEW_UNAVAILABLE,
     RUN_ACCEPTANCE_ACCEPTED,
     RUN_ACCEPTANCE_UNAVAILABLE,
     RUN_HEARTBEAT_NOT_ELIGIBLE,
@@ -64,6 +67,11 @@ from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
 from guardian.tasks.types import CodingExecutionTask, task_from_dict
 
 logger = logging.getLogger(__name__)
+
+#: How many run identifiers one startup-review log line may list. The review
+#: itself is bounded by the store's read limit; a *log line* is bounded
+#: separately so a large population cannot flood the log.
+_CODING_RUN_REVIEW_LOG_ID_LIMIT = 20
 _SUBPROCESS_RUN = subprocess.run
 
 WORKER_POLL_INTERVAL_SECONDS = float(
@@ -2076,6 +2084,68 @@ class _CodingRunHeartbeat:
                 return
 
 
+@dataclass(frozen=True)
+class CodingRunStartupReview:
+    """The bounded, read-only result of one coding worker's startup review.
+
+    This is an **observation** of canonical PostgreSQL state, not a decision
+    and not a second source of truth. It records what the canonical record
+    showed at startup; it never says a worker died, never authorises a retry,
+    a requeue, an escalation, a takeover, or a terminal result, and it never
+    changes any run.
+
+    The counts use the established liveness vocabulary
+    (``recently_observed``, ``stale_uncertain``, ``missing_evidence``,
+    ``already_resolved``, ``already_escalated``, ``inconsistent``) so that
+    the startup review and the per-run classifier speak the same language.
+
+    ``review_complete`` and ``review_error_code`` together distinguish the
+    three states a review can be in:
+
+    - **complete** -- ``review_complete`` is true and the error code is
+      ``None``: the whole unresolved population was read.
+    - **partial** -- ``review_complete`` is false and the error code is
+      ``CODING_RUN_REVIEW_PARTIAL``: the bounded read stopped at its limit and
+      more unresolved runs may exist. A partial review is never presented as a
+      complete inventory.
+    - **unavailable** -- ``review_complete`` is false and the error code is
+      ``CODING_RUN_REVIEW_UNAVAILABLE``: the canonical store could not be
+      read. This is never an empty inventory.
+
+    The identifier lists are bounded by the review's own read limit. They
+    carry internal run identifiers only: no credential value, no raw prompt,
+    no transcript content, no provider response, and no account content.
+    """
+
+    reviewed_count: int = 0
+    recently_observed_count: int = 0
+    stale_uncertain_count: int = 0
+    missing_evidence_count: int = 0
+    inconsistent_count: int = 0
+    already_resolved_count: int = 0
+    already_escalated_count: int = 0
+    review_complete: bool = False
+    review_error_code: str | None = None
+    run_ids: tuple[str, ...] = ()
+    stale_uncertain_run_ids: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """The review as a bounded, loggable mapping."""
+        return {
+            "reviewed_count": self.reviewed_count,
+            "recently_observed_count": self.recently_observed_count,
+            "stale_uncertain_count": self.stale_uncertain_count,
+            "missing_evidence_count": self.missing_evidence_count,
+            "inconsistent_count": self.inconsistent_count,
+            "already_resolved_count": self.already_resolved_count,
+            "already_escalated_count": self.already_escalated_count,
+            "review_complete": self.review_complete,
+            "review_error_code": self.review_error_code,
+            "run_ids": list(self.run_ids),
+            "stale_uncertain_run_ids": list(self.stale_uncertain_run_ids),
+        }
+
+
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
@@ -2114,6 +2184,118 @@ class CodingWorker:
         # claim may write a terminal result. The claim comes from the durable
         # acceptance, never from the task payload or from model output.
         self._coding_run_claims: dict[str, str] = {}
+
+    def review_unresolved_coding_runs(
+        self,
+        *,
+        limit: int = CODING_RUN_REVIEW_MAX_ROWS,
+        observation_instant: datetime | None = None,
+    ) -> CodingRunStartupReview:
+        """Review the unresolved Guardian coding runs. **Read-only.**
+
+        The coding worker performs this once, at startup, after canonical
+        PostgreSQL access is established and before it consumes anything from
+        the coding queue.
+
+        **Startup is the trigger, not the authority.** A worker process
+        starting says nothing about any other worker's state: a system may
+        legitimately run several coding workers, and a restarting worker may
+        encounter work that is still executing on another machine. This method
+        therefore observes and classifies; it never concludes that a worker
+        died, never infers one explanation for a stale heartbeat over another
+        (a blocked worker, a database connectivity failure, a paused process,
+        a long-running operation with delayed reporting, or an actual
+        termination), and never acts on what it observed.
+
+        The classification is the one already proven for per-run liveness
+        (``classify_coding_run_liveness``); this method does not implement a
+        second classifier and does not reinterpret its verdicts. A run's
+        evidence is read from a single consistent canonical projection, and the
+        comparison is made against the **database** clock recorded with the
+        observation.
+
+        Nothing here mutates canonical state. It does not update a run, add
+        an escalation, create another attempt, mint another execution
+        binding, renew a credential lease, requeue a task, publish a terminal
+        task event, create a coding-result artifact, deliver a source-thread
+        message, replace worker ownership, modify a worktree, or execute the
+        adapter. It does not call the quarantine service, the quarantine
+        persistence, or the operator HTTP route, and it does not call
+        ``recover_dispatch()``.
+
+        A review that cannot read the canonical store is reported as
+        *unavailable*, never as an empty inventory.
+
+        ``observation_instant`` exists so a contract test can pin the
+        observation instant and exercise the staleness boundary exactly, the
+        same seam the canonical liveness snapshot already offers. Production
+        callers omit it, and the observation is then the database clock.
+        """
+        from guardian.core.guardian_dispatch import (
+            CodingRunLivenessEvidence,
+            classify_coding_run_liveness,
+        )
+
+        inventory = self.store.list_unresolved_guardian_coding_runs(
+            limit=limit,
+            observation_instant=observation_instant,
+        )
+        runs = list(inventory.get("runs") or [])
+        store_error = inventory.get("error_code")
+        if store_error:
+            # The read itself failed. This is never an empty inventory: an
+            # unreachable store is not evidence that no unresolved run exists.
+            return CodingRunStartupReview(
+                review_complete=False,
+                review_error_code=str(store_error),
+            )
+
+        recently_observed = 0
+        stale_uncertain = 0
+        missing_evidence = 0
+        inconsistent = 0
+        already_resolved = 0
+        already_escalated = 0
+        run_ids: list[str] = []
+        stale_run_ids: list[str] = []
+
+        for snapshot in runs:
+            verdict = classify_coding_run_liveness(snapshot)
+            evidence = str(getattr(verdict, "evidence", "") or "")
+            run_id = str(
+                getattr(verdict, "run_id", None) or snapshot.get("run_id") or ""
+            )
+            if run_id:
+                run_ids.append(run_id)
+            if evidence == CodingRunLivenessEvidence.RECENTLY_OBSERVED.value:
+                recently_observed += 1
+            elif evidence == CodingRunLivenessEvidence.STALE_UNCERTAIN.value:
+                stale_uncertain += 1
+                if run_id:
+                    stale_run_ids.append(run_id)
+            elif evidence == CodingRunLivenessEvidence.MISSING_EVIDENCE.value:
+                missing_evidence += 1
+            elif evidence == CodingRunLivenessEvidence.INCONSISTENT.value:
+                inconsistent += 1
+            elif evidence == CodingRunLivenessEvidence.ALREADY_RESOLVED.value:
+                already_resolved += 1
+            elif evidence == CodingRunLivenessEvidence.ALREADY_ESCALATED.value:
+                already_escalated += 1
+
+        complete = bool(inventory.get("complete"))
+        return CodingRunStartupReview(
+            reviewed_count=len(runs),
+            recently_observed_count=recently_observed,
+            stale_uncertain_count=stale_uncertain,
+            missing_evidence_count=missing_evidence,
+            inconsistent_count=inconsistent,
+            already_resolved_count=already_resolved,
+            already_escalated_count=already_escalated,
+            review_complete=complete,
+            review_error_code=None if complete else CODING_RUN_REVIEW_PARTIAL,
+            run_ids=tuple(run_ids),
+            stale_uncertain_run_ids=tuple(stale_run_ids),
+        )
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if processed."""
@@ -4933,6 +5115,47 @@ class CodingWorker:
         self._coding_run_claims.pop(str(task.run_id or ""), None)
 
 
+def _log_coding_run_startup_review(review: CodingRunStartupReview) -> None:
+    """Record the bounded startup review as an internal diagnostic.
+
+    The review is an observation, so the log says what was *seen*: how many
+    unresolved runs were read, how their evidence classified, and whether the
+    review covered the whole population. It never says a worker died, and it
+    never records a credential, a prompt, a transcript, or any account
+    content.
+
+    Only the identifiers of the runs whose evidence is stale are listed, and
+    only up to a fixed bound. The worker already logs ``run_id`` for the runs
+    it owns, so identifiers are within the existing logging policy; a list is
+    not, which is why it is capped.
+    """
+    logger.info(
+        "[coding-worker] startup review reviewed_count=%d "
+        "recently_observed_count=%d stale_uncertain_count=%d "
+        "missing_evidence_count=%d inconsistent_count=%d "
+        "already_resolved_count=%d already_escalated_count=%d "
+        "review_complete=%s review_error_code=%s",
+        review.reviewed_count,
+        review.recently_observed_count,
+        review.stale_uncertain_count,
+        review.missing_evidence_count,
+        review.inconsistent_count,
+        review.already_resolved_count,
+        review.already_escalated_count,
+        review.review_complete,
+        review.review_error_code,
+    )
+    if review.stale_uncertain_run_ids:
+        logger.info(
+            "[coding-worker] startup review stale_uncertain_run_ids=%s",
+            ",".join(
+                review.stale_uncertain_run_ids[
+                    :_CODING_RUN_REVIEW_LOG_ID_LIMIT
+                ]
+            ),
+        )
+
+
 def _initialize_worker() -> None:
     db = _resolve_guardian_db()
     configure_db(db)
@@ -4943,6 +5166,21 @@ def run_worker_loop() -> None:
     logger.info("[coding-worker] starting coding worker loop")
     _initialize_worker()
     worker = CodingWorker()
+
+    # The startup review happens exactly once, after canonical PostgreSQL
+    # access is established and before the first destructive queue
+    # consumption. It reads; it never acts. A review that could not read the
+    # canonical store is not an empty inventory, and a worker that cannot
+    # reach canonical persistence cannot durably accept anything, so it must
+    # not consume coding tasks either.
+    review = worker.review_unresolved_coding_runs()
+    _log_coding_run_startup_review(review)
+    if review.review_error_code == CODING_RUN_REVIEW_UNAVAILABLE:
+        raise RuntimeError(
+            "coding worker startup review could not read canonical "
+            f"persistence ({review.review_error_code}); refusing to consume "
+            "coding tasks without durable acceptance"
+        )
 
     try:
         while True:
