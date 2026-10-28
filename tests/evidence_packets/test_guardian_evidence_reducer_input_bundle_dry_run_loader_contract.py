@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "docs/architecture/guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md"
@@ -111,8 +113,7 @@ def test_loader_contract_lists_future_allowed_slices_and_cross_links() -> None:
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in runtime_contract
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in reducer_contract
     assert "guardian-evidence-reducer-input-bundle-dry-run-loader-contract.md" in readme
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)
 
 
 def test_existing_tools_remain_unchanged_and_green() -> None:

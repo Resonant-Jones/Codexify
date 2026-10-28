@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/guardian/read_bounded_evidence.py"
@@ -41,29 +43,6 @@ EXPECTED_LIMITS = {
     "no_execution_ledger_write",
     "no_release_support_expansion",
 }
-
-
-def _document_sections(text: str) -> dict[str, str]:
-    """Split a release-truth document into its heading-delimited sections.
-
-    Section-scoped inspection keeps each assertion anchored to the part of the
-    document that actually owns a statement, instead of matching prose
-    anywhere in the file.
-    """
-    sections: dict[str, list[str]] = {}
-    current: str | None = None
-    for line in text.splitlines():
-        if line.startswith("## "):
-            current = line[3:].strip()
-            sections[current] = []
-        elif current is not None:
-            sections[current].append(line)
-    return {name: "\n".join(body) for name, body in sections.items()}
-
-
-def _normalized(text: str) -> str:
-    """Collapse wrapping and casing so neither can decide a result."""
-    return " ".join(text.split()).lower()
 
 
 def _bundle(tmp_path: Path, source_refs: list[str], *, valid: bool = True) -> Path:
@@ -246,40 +225,11 @@ def test_docs_and_existing_local_tools_remain_aligned() -> None:
     assert "only through a separate generator implementation" in generator
     assert "scripts/guardian/read_bounded_evidence.py" in readme
 
-    # The canonical current-state document owns release truth. These checks
-    # replace two obsolete prose fragments with the document's actual
-    # release-boundary structure, so the protection survives rewording of the
-    # document while still failing when the boundary itself is removed.
-    sections = _document_sections(current)
-    interpretation = _normalized(sections.get("Interpretation rule", ""))
-    phase = _normalized(sections.get("Current phase", ""))
-    supported = _normalized(sections.get("Current supported reality", ""))
-    not_yet_true = _normalized(sections.get("Not yet true / do not assume", ""))
-    release_definition = sections.get("Release definition right now", "")
-
-    # 1. The document is authoritative for release readiness.
-    assert "release readiness" in interpretation
-
-    # 2. Bounded implementation evidence is not release qualification.
-    assert "bounded evidence" in supported
-    assert "qualification is a separate gate" in supported
-
-    # 3. The recorded release gate is still HOLD, and the release definition
-    #    still records qualification criteria that are not met.
-    assert "release gate remains `hold`" in phase
-    unmet = [
-        line
-        for line in release_definition.splitlines()
-        if line.strip().startswith("- [ ]")
-    ]
-    assert (
-        unmet
-    ), "the release definition must still record unmet qualification criteria"
-
-    # 4. Capabilities without current-main qualification are not silently
-    #    promoted to default Beta support.
-    assert "without current-main qualification" in not_yet_true
-    assert "not default beta support" in supported
+    # The canonical current-state document owns release truth. The shared
+    # contract replaces two obsolete prose fragments with the document's
+    # actual release-boundary structure, so the protection survives rewording
+    # of the document while still failing when the boundary itself is removed.
+    assert_current_release_truth(current)
 
     for target in (
         "guardian-evidence-packets-validate",
