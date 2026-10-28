@@ -101,6 +101,8 @@ jobs:
     name: Backend Tests (Python 3.11)
     runs-on: ubuntu-latest
     needs: changes
+    # Diagnostic bound: the backend suite must not consume a full CI job slot.
+    timeout-minutes: 25
     permissions:
       contents: read
     services:
@@ -182,7 +184,19 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python -m pytest -q --maxfail=1 --disable-warnings tests -m "not integration" -k "not cli"
+          # Diagnostic mode: per-test node IDs plus faulthandler thread dumps,
+          # bounded so a stall cannot consume the whole CI job slot.
+          # `addopts=''` drops the inherited quiet-mode/ignore flags from
+          # pytest.ini; the explicit `tests` target keeps the collected set
+          # identical because archive/legacy and guardian/tests live outside it.
+          timeout --signal=TERM --kill-after=30s 18m \
+            python -m pytest \
+              -o addopts='' \
+              -vv \
+              --maxfail=1 \
+              --disable-warnings \
+              -o faulthandler_timeout=90 \
+              tests -m "not integration" -k "not cli"
 
       - name: Run MVP core loop harness
         if: ${{ needs.changes.outputs.run_backend == 'true' }}
