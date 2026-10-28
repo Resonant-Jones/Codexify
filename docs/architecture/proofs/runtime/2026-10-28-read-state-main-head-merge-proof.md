@@ -200,13 +200,49 @@ The 275 failures that remain are inherited: the same node ids fail on the unmodi
 
 FINAL_TREE_BACKEND_RESULT
 
+### Full backend suite on this branch's tree
+
+The full backend suite was run to completion on **this branch's own tree**, with the identical invocation used for the baseline and candidate runs (`-o addopts='' -q -p no:warnings --continue-on-collection-errors`, disposable PostgreSQL 16.2, stable `--basetemp`):
+
+| Tree | Result |
+| --- | --- |
+| Baseline `cd47fd826` | 283 failed, 8419 passed, 114 skipped, 35 xfailed, 11 xpassed, 587 errors (0:46:18) |
+| Single-head candidate `889b07af2` | 243 failed, 9015 passed, 114 skipped, 35 xfailed, 11 xpassed, 37 errors (1:16:47) |
+| **This branch** | **244 failed, 9041 passed, 114 skipped, 35 xfailed, 11 xpassed, 37 errors (1:15:15)** |
+
+Compared by node-id set against the same-tree baseline:
+
+| Set | Count |
+| --- | --- |
+| Unique FAILED/ERROR node ids on the baseline | 870 |
+| Unique FAILED/ERROR node ids on this branch | 281 |
+| Failing on the baseline, passing on this branch (**repaired**) | **591** |
+| Failing on both trees (inherited) | 279 |
+| Failing on this branch only | 2 |
+
+The 591 repaired node ids are the `MultipleHeads` class: on the baseline every test that upgraded to `head` aborted, because the graph had two heads. The two merge revisions remove that abort and let those tests run their real body.
+
+**The two node ids that fail here but not on the baseline are not attributable to this change.** Both are in `tests/workers/test_document_worker_shutdown.py`, a file whose outcome varies between runs of the *same* tree:
+
+| Run | Failures in that file |
+| --- | --- |
+| Baseline `cd47fd826` (untouched tree, two heads) | 5 |
+| Single-head candidate `889b07af2` | 2 |
+| This branch | 7 |
+
+Running that file on its own reproduces the same failures on **both** trees — 7 failures on this branch and 7 on the candidate tree, sharing the same node ids — so the difference is run-to-run variance in the file, not a difference between the trees. The assertions are process-liveness and signal-drain checks against a spawned worker with a 6-second budget (`multiprocessing` spawn plus a cold application import), so they are sensitive to machine load and to whether the module was already warm in the parent process. The read-state integration does not touch `guardian/workers/`: `git diff 889b07af2 f0d2d26ea -- guardian/workers/` is empty.
+
+The remaining 279 failures are inherited — the same node ids fail on the unmodified baseline tree, spread across 80 files covering identity, route, pi, chronicle, evidence-packet, worker and integration surfaces that this change does not touch. They are pre-existing baseline debt and are reported, not repaired.
+
+
 ## Known limitations
 
 - The PostgreSQL evidence is from a locally patched 16.2 build, not the official image. It proves migration and constraint behavior, not a deployed runtime.
 - The seven stale `2e865c4a9b10` assertions and the `c7f4a9b2e6d1` literal in `tests/migration/test_memory_purge_tombstone_migration.py` remain failing. They are inherited and were already failing before this change.
 - The disposable PostgreSQL instances are pre-existing local servers; the sandbox blocks `pg_ctl stop` and `kill -TERM` on their PIDs, so the operator should stop them outside the session when no longer needed.
 - `origin/main` advanced to `494a60260` while this work was in progress, and local `main` does not yet contain it. That upstream range changed three test files and **no** migration, so it does not alter the head set this correction addresses; reconciling local `main` with upstream is a separate step and was not performed here.
-- The promoted merge revision `7f2c9e1a4b63` is exercised here by the focused suite; the full backend suite quoted above was run against the revision-identical candidate tree, not against this branch's tree.
+- The promoted merge revision `7f2c9e1a4b63` is exercised here by the focused suite and by the full backend suite on this branch's own tree, quoted above. The full-suite result for the single-head candidate is quoted alongside it for continuity.
+- `synchronous_commit` was set to `off` on the disposable PostgreSQL instance part-way through the final full-suite run, because the run was fsync-bound on disposable-database creation. This affects speed only, not correctness or the set of executed tests; the baseline and candidate runs were measured with the default setting.
 
 ## Release and ADR posture
 
