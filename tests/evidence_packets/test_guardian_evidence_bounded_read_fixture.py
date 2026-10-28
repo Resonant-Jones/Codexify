@@ -4,6 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json"
@@ -137,8 +139,7 @@ def test_fixture_documents_static_only_boundaries_and_tools_remain_green() -> No
     assert fixture_path in reducer
     assert fixture_path in runtime
     assert fixture_path in readme
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)
 
     for target in (
         "guardian-evidence-packets-validate",

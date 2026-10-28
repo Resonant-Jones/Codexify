@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "docs/architecture/guardian-evidence-bounded-read-contract.md"
@@ -116,8 +118,7 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
     assert "loader success is not bounded reading" in loader
     assert "validator success is not read approval" in validator
     assert "guardian-evidence-bounded-read-contract.md" in readme
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)
 
     for target in (
         "guardian-evidence-packets-validate",
