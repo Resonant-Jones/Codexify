@@ -32,11 +32,28 @@ REASON_NON_PROMOTION_CLAIM = "non-promotion-claim"
 REASON_NON_PROMOTION_RULE = "non-promotion-rule"
 
 # Section titles are matched case- and whitespace-insensitively. Heading casing
-# is presentation, not meaning, so a recased heading must not decide a result.
-_SECTION_HEADING = re.compile(r"^##\s+(?P<title>\S.*?)\s*$")
+# and indentation are presentation, not meaning, so a recased or slightly
+# indented heading must not decide a result. Markdown allows up to three
+# leading spaces before an ATX heading.
+_SECTION_HEADING = re.compile(r"^ {0,3}##\s+(?P<title>\S.*?)\s*$")
+
+# ── Release-posture contradiction scanning ────────────────────────────────
+#
+# The scanner answers one question: does this document *affirmatively* claim
+# that the release itself is complete or ready, while the release gate is
+# recorded as HOLD? Three properties keep it from misfiring:
+#
+#   1. Subject scoping. A claim counts only when its subject is the release
+#      gate, the release, the supported path, or main. Completing an unrelated
+#      task or artifact is not a release-posture claim.
+#   2. Negation preservation. Negation is honoured both after the copula
+#      ("is not ready") and before the subject ("No supported path is
+#      release-ready", "Neither main nor Preview is release-ready").
+#   3. Tense coverage. Present, perfect, and passive-past completions are all
+#      detected, so "the release gate has passed" cannot slip through.
 
 # Affirmative completion states that contradict an active release HOLD.
-_GATE_STATES = (
+_COMPLETION_STATES = (
     "complete",
     "completed",
     "qualified",
@@ -45,29 +62,107 @@ _GATE_STATES = (
     "released",
     "cleared",
     "closed",
+    "approved",
+    "lifted",
 )
 
-# "the release gate is `COMPLETE`" and its close variants. The state word must
-# directly follow the copula, so negated forms ("is not `COMPLETE`") cannot
-# match and therefore never produce a false positive.
-_GATE_ASSERTION = re.compile(
-    r"\brelease gate\b[^.;]{0,40}?\b(?:is|is now|now is|remains|stays|"
-    r"is marked|is recorded as|has become)\b\s+(?:now\s+)?(?:[`\"'])?"
-    r"(?P<state>" + "|".join(_GATE_STATES) + r")\b"
+# Verbs that can carry a completion state. Perfect forms ("has passed",
+# "has been marked as complete") are included so that a completion claim
+# cannot be evaded by tense alone.
+_COMPLETION_VERB = (
+    r"(?:is|are|am|was|were|remains|remained|stays|stayed|now\s+is|is\s+now"
+    r"|has|have|had)"
+    r"(?:\s+been)?"
+    r"(?:\s+(?:marked|recorded|set|flagged|labeled|certified|reported))?"
+    r"(?:\s+as)?"
 )
 
-# "the release is ready" and its close variants, again copula-anchored so that
-# "the release is not ready" is preserved as a valid negated statement.
-_READINESS_ASSERTION = re.compile(
-    r"\brelease (?:is|is now|has become|becomes)\b\s+(?:now\s+)?(?:fully\s+)?"
+# "the release gate is `COMPLETE`", "the release gate has passed",
+# "the release hold has been lifted".
+_GATE_CLAIM = re.compile(
+    r"\b(?:the\s+)?release\s+(?:gate|hold)\b"
+    r"(?P<mid>[^.;:!?\n]{0,60}?)"
+    r"\b(?P<verb>" + _COMPLETION_VERB + r")\b"
+    r"\s+(?:[`\"']?)(?P<state>" + "|".join(_COMPLETION_STATES) + r")\b"
+)
+
+# "the release gate is no longer `HOLD`" — a lifted hold is a contradiction
+# even though no completion word appears.
+_HOLD_LIFTED = re.compile(
+    r"\b(?:the\s+)?release\s+(?:gate|hold)\b"
+    r"[^.;:!?\n]{0,60}?\bno\s+longer\b"
+    r"[^.;:!?\n]{0,20}?\bhold\b"
+)
+
+# Nouns that turn "release" into a different object. A release checklist or a
+# release guide is an artifact, not the release, so "the release checklist is
+# release-ready" is a truthful narrow claim rather than a posture claim.
+_RELEASE_ARTIFACT = (
+    r"(?!\s+(?:gate|hold|checklist|guide|notes?|definition|metadata|plan|policy"
+    r"|process|record|runbook|document|docs|readiness|evidence|artifact"
+    r"|boundary|posture|matrix|tracker|status|log|sign[- ]?off|timeline))"
+)
+
+# Subjects that denote the product release posture itself.
+_PRODUCT_SUBJECT = (
+    r"(?:(?:the|this|that)\s+release" + _RELEASE_ARTIFACT + r")"
+    r"|(?:\brelease" + _RELEASE_ARTIFACT + r")"
+    r"|(?:\bthe\s+supported\s+path\b)"
+    r"|(?:\bsupported\s+path\b)"
+    r"|(?:\b`?main`?\b)"
+)
+
+# Verbs that can carry a readiness predicate.
+_READINESS_VERB = (
+    r"(?:is|are|was|were|becomes|became|has\s+become|have\s+become"
+    r"|had\s+become|remains|remained|stays|stayed)"
+)
+
+# "the release is release-ready", "the supported path is ready for release".
+_RELEASE_READY_CLAIM = re.compile(
+    r"\b(?P<subject>" + _PRODUCT_SUBJECT + r")"
+    r"(?P<mid>[^.;:!?\n]{0,60}?)"
+    r"\b(?P<verb>" + _READINESS_VERB + r")\b"
+    r"\s+(?:now\s+)?(?:fully\s+)?(?:[`\"']?)"
+    r"(?:release[- ]ready|ready\s+for\s+release)\b"
+)
+
+# "the release is ready", "the release is qualified". The bare predicate is
+# only a posture claim when the subject is the release itself.
+_RELEASE_BARE_READY = re.compile(
+    r"\b(?P<subject>(?:the|this|that)\s+release" + _RELEASE_ARTIFACT + r")"
+    r"(?P<mid>[^.;:!?\n]{0,60}?)"
+    r"\b(?P<verb>" + _READINESS_VERB + r")\b"
+    r"\s+(?:now\s+)?(?:fully\s+)?(?:[`\"']?)"
     r"(?:ready|approved|qualified|green|complete|released)\b"
 )
 
-# "`main` is release-ready" — verb-anchored so "do not call the supported path
-# release-ready" stays valid.
-_RELEASE_READY_ASSERTION = re.compile(
-    r"\b(?:is|remains|becomes|has become)\b\s+(?:now\s+)?release[- ]ready\b"
+# Negation cues. These can precede the subject ("No supported path is
+# release-ready") as well as follow the copula.
+_NEGATION_CUES = re.compile(
+    r"\b(?:no|not|never|neither|nor|none|nothing|nobody|cannot|without"
+    r"|lacks?|lacking|isn't|aren't|wasn't|weren't|doesn't|don't|didn't)\b"
 )
+
+# Qualifiers that scope a completion claim to a past cycle rather than to the
+# current posture.
+_HISTORICAL_CUES = re.compile(
+    r"\b(?:previous|previously|former|formerly|prior|earlier|past|historical"
+    r"|used\s+to|last\s+(?:cycle|release|run|window|pass))\b"
+)
+
+# Clause boundaries. The text after the last boundary is the clause that
+# governs a match, so a negation or a qualifier in an earlier clause cannot
+# silence a claim in a later one.
+_CLAUSE_BOUNDARY = re.compile(
+    r"[,;:.!?]|\b(?:but|and|although|though|while|yet|whereas)\b"
+)
+
+# Past-tense verbs. Only a past-tense claim can be scoped to a past cycle.
+_PAST_TENSE = re.compile(r"\b(?:was|were|became|remained|stayed|had)\b")
+
+# "not only" / "not just" intensify rather than negate.
+_NOT_ONLY = re.compile(r"\bnot\s+(?:only|just)\b")
 
 
 def _heading_key(title: str) -> str:
@@ -81,7 +176,8 @@ def _document_sections(text: str) -> dict[str, str]:
     Section-scoped inspection keeps each assertion anchored to the part of the
     document that actually owns a statement, instead of matching prose
     anywhere in the file. Keys are normalized heading titles, so a heading may
-    be recased or respaced without changing which section owns a claim.
+    be recased, respaced, or slightly indented without changing which section
+    owns a claim.
     """
     sections: dict[str, list[str]] = {}
     current: str | None = None
@@ -100,29 +196,70 @@ def _normalized(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def _scan_text(text: str) -> str:
+    """Casefold for matching while preserving source-line boundaries."""
+    return text.casefold()
+
+
+def _logical_lines(document: str) -> list[str]:
+    """Normalized, casefolded, non-empty source lines.
+
+    The canonical document is line-oriented: one claim per line. Scanning
+    line by line keeps the context of a claim inside its own line, so a
+    negation in an unrelated list item cannot silence it.
+    """
+    return [
+        " ".join(line.split()).casefold()
+        for line in document.splitlines()
+        if line.strip()
+    ]
+
+
 def _section(sections: dict[str, str], title: str) -> str:
     """Return one owning section's normalized body."""
     return _normalized(sections.get(_heading_key(title), ""))
 
 
+def _governing_clause(prefix: str) -> str:
+    """The clause that governs a match: the text after the last boundary."""
+    boundaries = list(_CLAUSE_BOUNDARY.finditer(prefix))
+    if boundaries:
+        return prefix[boundaries[-1].end():]
+    return prefix
+
+
 def _release_posture_contradiction(document: str) -> str | None:
     """Return the contradicting release-posture claim, if the document makes one.
 
-    The scan is bound to release-posture vocabulary — a claim about the release
-    gate or the release itself — so an unrelated completed task or project can
-    never be mistaken for a lift of the release boundary. It deliberately looks
-    at the whole document: an affirmative "the release gate is `COMPLETE`" on
-    any line contradicts a retained HOLD, wherever the author placed it.
+    The scan is bound to release-posture vocabulary and to the product subject
+    it names, so an unrelated completed task, project, or artifact can never
+    be mistaken for a lift of the release boundary. Negated claims are
+    preserved, and a past-tense claim scoped to a past cycle is not read as a
+    statement about the current posture.
     """
-    normalized = _normalized(document)
-    for pattern in (
-        _GATE_ASSERTION,
-        _READINESS_ASSERTION,
-        _RELEASE_READY_ASSERTION,
-    ):
-        match = pattern.search(normalized)
-        if match:
-            return match.group(0)
+    lines = _logical_lines(document)
+    for index, line in enumerate(lines):
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        window = f"{line} {following}" if following else line
+        for pattern in (
+            _GATE_CLAIM,
+            _HOLD_LIFTED,
+            _RELEASE_READY_CLAIM,
+            _RELEASE_BARE_READY,
+        ):
+            for match in pattern.finditer(window):
+                if match.start() >= len(line):
+                    # The claim begins on the following line; it must not
+                    # inherit the preceding line's context.
+                    prefix = window[len(line) + 1: match.start()]
+                else:
+                    prefix = window[: match.start()]
+                clause = _governing_clause(prefix)
+                if _NEGATION_CUES.search(_NOT_ONLY.sub(" ", clause)):
+                    continue
+                if _PAST_TENSE.search(match.group(0)) and _HISTORICAL_CUES.search(prefix):
+                    continue
+                return match.group(0)
     return None
 
 

@@ -184,7 +184,14 @@ NON_PROMOTION_RULE_PHRASE = "without current-main qualification"
 RELEASE_READINESS_PHRASE = "release readiness"
 
 COMPLETION_CLAIM = " The release gate is `COMPLETE` and the release is ready."
+PERFECT_COMPLETION_CLAIM = " The release gate has passed."
+LIFTED_HOLD_CLAIM = " The release gate is no longer `HOLD`."
 NEGATED_POSTURE = " The release is not ready. The release gate is not `COMPLETE`."
+NEGATED_PERFECT_POSTURE = " The release gate has not passed."
+SUBJECT_NEGATED_POSTURE = " No supported path is release-ready."
+SUBJECT_NEGATED_EITHER = " Neither main nor Preview is release-ready."
+ARTIFACT_READINESS_CLAIM = " The migration guide is release-ready."
+RELEASE_ARTIFACT_READINESS_CLAIM = " The release checklist is release-ready."
 UNRELATED_COMPLETION = (
     " The saved-widget storage foundation is complete and the retrieval lane is ready."
 )
@@ -233,6 +240,19 @@ def _append_to_section(text: str, *, section: str, addition: str) -> str:
     assert marker in lines, f"section heading missing: {marker!r}"
     lines.insert(lines.index(marker) + 1, addition)
     return "\n".join(lines) + "\n"
+
+
+def _indent_headings(text: str, spaces: int = 2) -> str:
+    """Indent every section heading, which valid Markdown permits."""
+    indented: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            indented.append(" " * spaces + line)
+        else:
+            indented.append(line)
+    result = "\n".join(indented) + "\n"
+    assert result != text, "the heading indentation must change the document"
+    return result
 
 
 def _recase_headings(text: str) -> str:
@@ -284,6 +304,13 @@ def test_release_boundary_helper_tolerates_real_body_line_wrapping() -> None:
     assert_current_release_truth(document)
 
 
+def test_release_boundary_helper_tolerates_indented_headings() -> None:
+    """Leading spaces before a heading are valid Markdown presentation."""
+    document = _indent_headings(_canonical_current_state())
+    assert "\n  ## Current phase" in document
+    assert_current_release_truth(document)
+
+
 def test_release_boundary_helper_accepts_negated_release_posture() -> None:
     """Negated readiness language is a valid boundary statement."""
     document = _append_to_section(
@@ -292,6 +319,39 @@ def test_release_boundary_helper_accepts_negated_release_posture() -> None:
         addition=NEGATED_POSTURE,
     )
     assert NEGATED_POSTURE.strip() in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_accepts_subject_level_negated_readiness() -> None:
+    """Negation before the subject also preserves a valid posture statement."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=SUBJECT_NEGATED_POSTURE,
+    )
+    assert SUBJECT_NEGATED_POSTURE.strip() in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_accepts_negated_either_or_readiness() -> None:
+    """A negated `neither ... nor ...` readiness claim stays valid."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=SUBJECT_NEGATED_EITHER,
+    )
+    assert SUBJECT_NEGATED_EITHER.strip() in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_accepts_negated_perfect_tense_gate_claim() -> None:
+    """`the release gate has not passed` denies completion rather than claiming it."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=NEGATED_PERFECT_POSTURE,
+    )
+    assert NEGATED_PERFECT_POSTURE.strip() in document
     assert_current_release_truth(document)
 
 
@@ -332,6 +392,50 @@ def test_release_boundary_helper_rejects_a_hold_replaced_by_completion() -> None
     )
     assert HOLD_PHRASE not in document
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+def test_release_boundary_helper_rejects_a_perfect_tense_gate_completion() -> None:
+    """`has passed` completes the gate in a tense the scanner must still read."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=PERFECT_COMPLETION_CLAIM,
+    )
+    assert HOLD_PHRASE in document
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+def test_release_boundary_helper_rejects_a_lifted_hold() -> None:
+    """A hold that is explicitly no longer in force contradicts the HOLD."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=LIFTED_HOLD_CLAIM,
+    )
+    assert HOLD_PHRASE in document
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+def test_release_boundary_helper_ignores_readiness_of_unrelated_artifacts() -> None:
+    """An artifact being release-ready is not a product readiness claim."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=ARTIFACT_READINESS_CLAIM,
+    )
+    assert ARTIFACT_READINESS_CLAIM.strip() in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_ignores_readiness_of_a_release_artifact() -> None:
+    """A release-named artifact is still an artifact, not the release."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=RELEASE_ARTIFACT_READINESS_CLAIM,
+    )
+    assert RELEASE_ARTIFACT_READINESS_CLAIM.strip() in document
+    assert_current_release_truth(document)
 
 
 def test_release_boundary_helper_rejects_a_document_without_bounded_evidence() -> None:
