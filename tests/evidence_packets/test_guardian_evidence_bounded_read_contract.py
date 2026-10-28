@@ -445,6 +445,65 @@ def test_release_boundary_helper_ignores_readiness_of_a_release_artifact() -> No
     assert_current_release_truth(document)
 
 
+@pytest.mark.parametrize("claim", [
+    "The release\ngate\nhas been\nmarked as\ncomplete.",
+    "Release is ready.",
+    "The release remains on hold, but the release is ready.",
+    "The release gate, after evaluation, is complete.",
+    "The release gate, after validation, is complete.",
+    "The release gate, after testing, is complete.",
+    "The release gate, after independent security validation, is complete.",
+    "The release gate, after the review, has passed.",
+    'The report says `the release is ready`.',
+    'The sentence `the release is ready` is prohibited. The release is ready.',
+    "Previously the gate was on hold. The release gate was complete.",
+    "The release gate is **COMPLETE**.",
+    "The release is _ready_.",
+    'The report says "The release gate is complete" [1].',
+    "Release gate: COMPLETE",
+    "| Release gate | COMPLETE |",
+    "Release: ready",
+    "The release gate passed.",
+    "The release gate closed.",
+    "The release has been approved.",
+    "The release is no longer on hold.",
+    "- The release gate is\n  complete.\n- An unrelated task is not ready.",
+    "- Nothing is ready.\n- The release gate is complete.",
+])
+def test_release_boundary_rejects_specific_affirmative_forms(claim: str) -> None:
+    document = _append_to_section(_canonical_current_state(), section="Current phase", addition=claim)
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+@pytest.mark.parametrize("statement", [
+    "The release gate is\nnot\ncomplete.",
+    "Release is not ready.",
+    "Previously the release gate was complete.",
+    "Previously the release gate passed.",
+    "The release gate is **not complete**.",
+    "The release is not what is ready.",
+    'The report says "The release gate is not complete" [1].',
+    'The claim "The release gate is complete" [1] is false.',
+    "Release gate: not complete",
+    "| Release gate | not complete |",
+    "The release gate did not pass or close.",
+    "The release has not been approved.",
+    "The release is still on hold.",
+    "- The release gate is on hold.\n- The migration guide is release-ready.",
+    "The release remains on hold, but the migration guide is release-ready.",
+    "The release gate remains on hold, and the migration guide is release-ready.",
+    "The release gate, after evaluation, is not complete.",
+    "The release gate, after validation, is not complete.",
+    "The release gate, after testing, the migration guide is complete.",
+    "The release gate, after evaluation, the migration guide is complete.",
+    "The release gate is on hold, after evaluation, the migration guide is complete.",
+    "The sentence `the release is ready` is prohibited.",
+])
+def test_release_boundary_accepts_specific_nonaffirmative_forms(statement: str) -> None:
+    document = _append_to_section(_canonical_current_state(), section="Current phase", addition=statement)
+    assert_current_release_truth(document)
+
+
 def test_release_boundary_helper_rejects_a_document_without_bounded_evidence() -> None:
     _assert_rejected(
         _drop(_canonical_current_state(), BOUNDED_EVIDENCE_PHRASE),
@@ -463,6 +522,94 @@ def test_release_boundary_helper_rejects_a_document_whose_release_criteria_are_a
     document = _canonical_current_state().replace("- [ ]", "- [x]")
     assert "- [ ]" not in document
     _assert_rejected(document, REASON_UNMET_CRITERIA)
+
+
+MAIN_NON_PROMOTION = (
+    "that proof qualifies same-node messaging only, and share-link bearer "
+    "expiry/revocation, cross-node discovery and transport, unread indicators "
+    "and persisted read state, and default Beta support remain unqualified"
+)
+
+
+def _current_main_non_promotion_document() -> str:
+    return _swap(
+        _canonical_current_state(),
+        "same-node human messaging is not default Beta support",
+        MAIN_NON_PROMOTION,
+    )
+
+
+def test_release_boundary_accepts_current_main_non_promotion_wording() -> None:
+    assert_current_release_truth(_current_main_non_promotion_document())
+
+
+@pytest.mark.parametrize("prefix", ["It is false that ", "It is not true that "])
+def test_release_boundary_rejects_denied_current_main_non_promotion(prefix: str) -> None:
+    document = _swap(_current_main_non_promotion_document(), MAIN_NON_PROMOTION, prefix + MAIN_NON_PROMOTION)
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+def test_release_boundary_rejects_quoted_denial_of_current_main_non_promotion() -> None:
+    document = _swap(
+        _current_main_non_promotion_document(), MAIN_NON_PROMOTION + ".",
+        '"' + MAIN_NON_PROMOTION + '." is false.',
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+@pytest.mark.parametrize("statement", [
+    "Same-node messaging is now default Beta support.",
+    "Same-node human messaging is default Beta support.",
+    "Not only same-node messaging is now default Beta support.",
+    'The report says “Same-node messaging is now default Beta support”.',
+])
+def test_release_boundary_rejects_same_node_promotion(statement: str) -> None:
+    document = _append_to_section(
+        _current_main_non_promotion_document(), section="Current supported reality", addition=statement,
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+def test_release_boundary_accepts_denied_same_node_promotion() -> None:
+    document = _append_to_section(
+        _current_main_non_promotion_document(), section="Current supported reality",
+        addition="No evidence says same-node messaging is now default Beta support.",
+    )
+    assert_current_release_truth(document)
+
+
+@pytest.mark.parametrize("statement", [
+    'The claim "Same-node messaging is now default Beta support" is false.',
+    'The claim “Same-node messaging is now default Beta support” is false.',
+])
+def test_release_boundary_accepts_quoted_denial_of_same_node_promotion(statement: str) -> None:
+    document = _append_to_section(
+        _current_main_non_promotion_document(), section="Current supported reality",
+        addition=statement,
+    )
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_rejects_qualified_only_for_another_feature() -> None:
+    document = _swap(
+        _canonical_current_state(),
+        "same-node human messaging is not default Beta support",
+        "that proof qualifies same-node messaging only, and share-link bearer "
+        "expiry/revocation, cross-node discovery and transport, unread indicators "
+        "and persisted read state, and default Beta support remain unqualified "
+        "only for a different feature",
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+def test_release_boundary_rejects_different_feature_non_promotion() -> None:
+    document = _swap(
+        _canonical_current_state(),
+        "same-node human messaging is not default Beta support",
+        "same-node human messaging is now default Beta support; default Beta "
+        "support remain unqualified only for a different feature",
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
 
 
 def test_release_boundary_helper_rejects_a_document_without_the_beta_non_promotion_claim() -> None:
