@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+from tests.evidence_packets.release_truth_contract import (
+    REASON_BOUNDED_EVIDENCE,
+    REASON_NON_PROMOTION_CLAIM,
+    REASON_NON_PROMOTION_RULE,
+    REASON_RELEASE_AUTHORITY,
+    REASON_RELEASE_CONTRADICTION,
+    REASON_RELEASE_HOLD,
+    REASON_SEPARATE_QUALIFICATION,
+    REASON_UNMET_CRITERIA,
+    assert_current_release_truth,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -151,14 +161,17 @@ def test_task_scope_does_not_add_reader_or_tooling_files() -> None:
     assert not (ROOT / "scripts/guardian/read_evidence.py").exists()
 
 
-# ── Release-boundary negative controls ─────────────────────────────────
+# ── Release-boundary controls ──────────────────────────────────────────
 #
 # The shared helper asserts that the canonical document *states* the release
-# boundary. These controls prove the assertion is a real check rather than a
-# string-presence check: each one removes or contradicts one part of the
-# boundary in a synthetic copy of the document and requires the helper to
-# refuse it. Without them, a helper that merely matched a word somewhere in
-# the file would look identical to one that reads the owning section.
+# boundary. These controls mutate a synthetic copy of the document and require
+# the helper to refuse each mutation for the *intended* boundary, identified by
+# its stable reason token. Expecting only "an assertion failed" cannot tell the
+# intended invariant apart from an unrelated missing phrase.
+#
+# Positive controls prove the helper tolerates presentation differences
+# (heading casing, source-line wrapping) and preserves valid negated
+# statements. Negative controls prove each boundary can fail on its own.
 #
 # The canonical document is never modified.
 
@@ -169,6 +182,12 @@ QUALIFICATION_PHRASE = "qualification is a separate gate"
 NON_PROMOTION_PHRASE = "not default Beta support"
 NON_PROMOTION_RULE_PHRASE = "without current-main qualification"
 RELEASE_READINESS_PHRASE = "release readiness"
+
+COMPLETION_CLAIM = " The release gate is `COMPLETE` and the release is ready."
+NEGATED_POSTURE = " The release is not ready. The release gate is not `COMPLETE`."
+UNRELATED_COMPLETION = (
+    " The saved-widget storage foundation is complete and the retrieval lane is ready."
+)
 
 
 def _canonical_current_state() -> str:
@@ -207,10 +226,44 @@ def _move_to_section(text: str, phrase: str, *, source: str, target: str) -> str
     return result
 
 
-def _assert_rejected(document: str) -> None:
-    """The helper must refuse a document that does not state the boundary."""
-    with pytest.raises(AssertionError):
+def _append_to_section(text: str, *, section: str, addition: str) -> str:
+    """Add a sentence inside one section, leaving every other line untouched."""
+    marker = f"## {section}"
+    lines = text.splitlines()
+    assert marker in lines, f"section heading missing: {marker!r}"
+    lines.insert(lines.index(marker) + 1, addition)
+    return "\n".join(lines) + "\n"
+
+
+def _recase_headings(text: str) -> str:
+    """Recase and respace every section heading without touching body text."""
+    recased: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            recased.append(f"##   {line[3:].strip().swapcase()}  ")
+        else:
+            recased.append(line)
+    result = "\n".join(recased) + "\n"
+    assert result != text, "the heading recasing must change the document"
+    return result
+
+
+def _wrap_phrase(text: str, phrase: str) -> str:
+    """Break a phrase across two real source lines without changing its words."""
+    words = phrase.split()
+    assert len(words) > 1, "the phrase must have at least two words to wrap"
+    midpoint = len(words) // 2
+    wrapped = " ".join(words[:midpoint]) + "\n" + " ".join(words[midpoint:])
+    return _swap(text, phrase, wrapped)
+
+
+def _assert_rejected(document: str, reason: str) -> None:
+    """The helper must refuse the document for the intended boundary."""
+    with pytest.raises(AssertionError) as failure:
         assert_current_release_truth(document)
+    assert reason in str(failure.value), (
+        f"expected the {reason} boundary to fail, got: {failure.value}"
+    )
 
 
 def test_release_boundary_helper_accepts_the_canonical_document() -> None:
@@ -218,57 +271,107 @@ def test_release_boundary_helper_accepts_the_canonical_document() -> None:
     assert_current_release_truth(_canonical_current_state())
 
 
-def test_release_boundary_helper_ignores_case_and_wrapping() -> None:
-    """Normalization control: casing and wrapping cannot decide a result."""
-    document = _swap(
+def test_release_boundary_helper_tolerates_recased_and_respaced_headings() -> None:
+    """Heading casing and spacing are presentation, not meaning."""
+    assert_current_release_truth(_recase_headings(_canonical_current_state()))
+
+
+def test_release_boundary_helper_tolerates_real_body_line_wrapping() -> None:
+    """A wrapped source line must not decide a boundary assertion."""
+    document = _wrap_phrase(_canonical_current_state(), HOLD_PHRASE)
+    document = _wrap_phrase(document, QUALIFICATION_PHRASE)
+    assert HOLD_PHRASE not in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_accepts_negated_release_posture() -> None:
+    """Negated readiness language is a valid boundary statement."""
+    document = _append_to_section(
         _canonical_current_state(),
-        HOLD_PHRASE,
-        "The   Release   Gate Remains `HOLD`",
+        section="Current phase",
+        addition=NEGATED_POSTURE,
     )
+    assert NEGATED_POSTURE.strip() in document
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_ignores_unrelated_completion_claims() -> None:
+    """Completing an unrelated task is not a release-posture claim."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=UNRELATED_COMPLETION,
+    )
+    assert UNRELATED_COMPLETION.strip() in document
     assert_current_release_truth(document)
 
 
 def test_release_boundary_helper_rejects_a_document_without_hold() -> None:
-    _assert_rejected(_drop(_canonical_current_state(), HOLD_PHRASE))
-
-
-def test_release_boundary_helper_rejects_a_contradicted_hold() -> None:
     _assert_rejected(
-        _swap(
-            _canonical_current_state(),
-            HOLD_PHRASE,
-            "the release gate is `COMPLETE`",
-        )
+        _drop(_canonical_current_state(), HOLD_PHRASE),
+        REASON_RELEASE_HOLD,
     )
+
+
+def test_release_boundary_helper_rejects_completion_appended_alongside_hold() -> None:
+    """A retained HOLD cannot coexist with an affirmative completion claim."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current phase",
+        addition=COMPLETION_CLAIM,
+    )
+    assert HOLD_PHRASE in document
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+def test_release_boundary_helper_rejects_a_hold_replaced_by_completion() -> None:
+    document = _swap(
+        _canonical_current_state(),
+        HOLD_PHRASE,
+        "the release gate is `COMPLETE`",
+    )
+    assert HOLD_PHRASE not in document
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
 def test_release_boundary_helper_rejects_a_document_without_bounded_evidence() -> None:
     _assert_rejected(
-        _drop(_canonical_current_state(), BOUNDED_EVIDENCE_PHRASE)
+        _drop(_canonical_current_state(), BOUNDED_EVIDENCE_PHRASE),
+        REASON_BOUNDED_EVIDENCE,
     )
 
 
 def test_release_boundary_helper_rejects_a_document_without_separate_qualification() -> None:
     _assert_rejected(
-        _drop(_canonical_current_state(), QUALIFICATION_PHRASE)
+        _drop(_canonical_current_state(), QUALIFICATION_PHRASE),
+        REASON_SEPARATE_QUALIFICATION,
     )
 
 
 def test_release_boundary_helper_rejects_a_document_whose_release_criteria_are_all_complete() -> None:
     document = _canonical_current_state().replace("- [ ]", "- [x]")
     assert "- [ ]" not in document
-    _assert_rejected(document)
+    _assert_rejected(document, REASON_UNMET_CRITERIA)
 
 
-def test_release_boundary_helper_rejects_a_document_without_default_beta_non_promotion() -> None:
-    document = _drop(_canonical_current_state(), NON_PROMOTION_PHRASE)
-    document = _drop(document, NON_PROMOTION_RULE_PHRASE)
-    _assert_rejected(document)
+def test_release_boundary_helper_rejects_a_document_without_the_beta_non_promotion_claim() -> None:
+    _assert_rejected(
+        _drop(_canonical_current_state(), NON_PROMOTION_PHRASE),
+        REASON_NON_PROMOTION_CLAIM,
+    )
+
+
+def test_release_boundary_helper_rejects_a_document_without_the_current_main_qualification_rule() -> None:
+    _assert_rejected(
+        _drop(_canonical_current_state(), NON_PROMOTION_RULE_PHRASE),
+        REASON_NON_PROMOTION_RULE,
+    )
 
 
 def test_release_boundary_helper_rejects_a_document_that_disclaims_release_authority() -> None:
     _assert_rejected(
-        _drop(_canonical_current_state(), RELEASE_READINESS_PHRASE)
+        _drop(_canonical_current_state(), RELEASE_READINESS_PHRASE),
+        REASON_RELEASE_AUTHORITY,
     )
 
 
@@ -282,4 +385,16 @@ def test_release_boundary_helper_rejects_hold_found_only_in_an_unrelated_section
     )
     # The phrase is still present in the document, just in the wrong section.
     assert HOLD_PHRASE in document
-    _assert_rejected(document)
+    _assert_rejected(document, REASON_RELEASE_HOLD)
+
+
+def test_release_boundary_helper_rejects_authority_found_only_in_an_unrelated_section() -> None:
+    """Release authority in a section that does not own it cannot satisfy it."""
+    document = _move_to_section(
+        _canonical_current_state(),
+        RELEASE_READINESS_PHRASE,
+        source="Interpretation rule",
+        target="Active blockers",
+    )
+    assert RELEASE_READINESS_PHRASE in document
+    _assert_rejected(document, REASON_RELEASE_AUTHORITY)
