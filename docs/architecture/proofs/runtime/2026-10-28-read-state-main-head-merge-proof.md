@@ -198,8 +198,6 @@ Re-run in isolation on the candidate tree with no competing load, all eight case
 
 The 275 failures that remain are inherited: the same node ids fail on the unmodified baseline tree, and they span 80 files across identity, route, pi, chronicle, evidence-packet, worker and integration surfaces that this change does not touch. They are pre-existing baseline debt and are reported, not repaired.
 
-FINAL_TREE_BACKEND_RESULT
-
 ### Full backend suite on this branch's tree
 
 The full backend suite was run to completion on **this branch's own tree**, with the identical invocation used for the baseline and candidate runs (`-o addopts='' -q -p no:warnings --continue-on-collection-errors`, disposable PostgreSQL 16.2, stable `--basetemp`):
@@ -245,7 +243,7 @@ The remaining 279 failures are inherited — the same node ids fail on the unmod
 - The PostgreSQL evidence is from a locally patched 16.2 build, not the official image. It proves migration and constraint behavior, not a deployed runtime.
 - The seven stale `2e865c4a9b10` assertions and the `c7f4a9b2e6d1` literal in `tests/migration/test_memory_purge_tombstone_migration.py` remain failing. They are inherited and were already failing before this change.
 - The disposable PostgreSQL instances are pre-existing local servers; the sandbox blocks `pg_ctl stop` and `kill -TERM` on their PIDs, so the operator should stop them outside the session when no longer needed.
-- `origin/main` advanced to `494a60260` while this work was in progress, and local `main` does not yet contain it. That upstream range changed three test files and **no** migration, so it does not alter the head set this correction addresses; reconciling local `main` with upstream is a separate step and was not performed here.
+- The stored `origin/main` advanced during this work and has since been reconciled into local `main` at `4791f219d`, which is now an ancestor of the local tip. That upstream range changed test files and **no** migration, so it did not alter the head set this correction addresses. The convergence revision `3a91d7c4e8b2` is present in that remote tree, and the remote's graph computes to a single head over a 128-revision lineage.
 - The promoted merge revision `7f2c9e1a4b63` is exercised here by the focused suite and by the full backend suite on this branch's own tree, quoted above. The full-suite result for the single-head candidate is quoted alongside it for continuity.
 - `synchronous_commit` was set to `off` on the disposable PostgreSQL instance part-way through the final full-suite run, because the run was fsync-bound on disposable-database creation. **This is not a speed-only setting.** With `synchronous_commit=off`, a transaction that has been acknowledged to the client can still be lost if the server crashes before the write-ahead log is flushed; the database cannot be corrupted, but acknowledged commits are no longer guaranteed durable across a crash. The baseline and candidate runs were measured with the default `synchronous_commit=on`, so this change is a difference in the measurement environment between those runs and the final-tree run.
   - What the setting does **not** affect: schema and constraint enforcement, transaction atomicity and rollback semantics, row locking and isolation between concurrent sessions, and the correctness of every migration assertion in the suite. The tests in question exercise exactly those properties, and they do so through ordinary commits rather than through crash injection.
