@@ -89,6 +89,12 @@ export type DirectMessageConversation = {
   placement: DirectMessageConversationPlacement;
   /** Additive read projection: bounded latest-message preview or null. */
   latest_message: LatestMessageProjection | null;
+  /**
+   * Recipient-local unread count for the CALLER. Derived by the server from
+   * the durable message store and the caller's own read cursor; the peer can
+   * never observe it, so it is not a read receipt.
+   */
+  unread_count: number;
 };
 
 export type DirectMessageEnvelope = {
@@ -313,6 +319,36 @@ export async function fetchDirectMessageConversation(
       conversation: DirectMessageConversation;
     }>(
       `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}`,
+    );
+    return response.data.conversation;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+/**
+ * Explicitly mark one conversation read for the authenticated participant.
+ *
+ * This is the only operation that advances the recipient-local read cursor.
+ * Fetching a conversation is read-only: a retry or a prefetch must never mark
+ * a conversation read without the participant choosing to open it.
+ *
+ * `lastReadMessageId` is the caller's **read watermark** — the id of the last
+ * message they actually saw. The cursor advances to exactly that message and
+ * never past it, so a message that arrived after their transcript was fetched
+ * stays unread. Pass `null` to assert that nothing was shown.
+ */
+export async function markDirectMessageConversationRead(
+  conversationId: string,
+  lastReadMessageId: string | null,
+): Promise<DirectMessageConversation> {
+  try {
+    const response = await api.post<{
+      ok: boolean;
+      conversation: DirectMessageConversation;
+    }>(
+      `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}/read`,
+      { last_read_message_id: lastReadMessageId },
     );
     return response.data.conversation;
   } catch (error) {
