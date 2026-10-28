@@ -215,7 +215,7 @@ Both prerequisites that UMS-05C10A-R identified are now closed:
    carried it through `account-export.v6`. The table rows above now
    state the review-revision requirement explicitly.
 2. **Legal review-transition graph.** Closed by
-   [ADR-088 — Ordinary Memory Review Transition Semantics](./adr/088-ordinary-memory-review-transition-semantics.md),
+   [ADR-106 — Ordinary Memory Review Transition Semantics](./adr/106-ordinary-memory-review-transition-semantics.md),
    which freezes the ordinary-memory state machine; it is normative in
    Unified Memory Store contract §3.3.1.
 
@@ -257,7 +257,7 @@ UMS-05C10A-R is now resolved in the direction of the normative §3.3
 rule: a review transition that changes state produces a revision
 *and* a receipt, never a receipt alone.
 
-The writer enforces ADR-088 exactly and remains **internal-only and
+The writer enforces ADR-106 exactly and remains **internal-only and
 hidden from public OpenAPI** under the existing `memory_vault` profile
 posture. Each changed transition commits the current-state update, the
 `reviewed_at` first-approval update when required, the CAS advance, the
@@ -287,8 +287,8 @@ export and restore, because the pre-retirement posture is the
 `old_lifecycle_state` of the retirement revision.
 
 **Transition graph — frozen by UMS-05C10B-C** in
-[ADR-089 — Ordinary Memory Lifecycle Transition
-Semantics](./adr/089-ordinary-memory-lifecycle-transition-semantics.md),
+[ADR-107 — Ordinary Memory Lifecycle Transition
+Semantics](./adr/107-ordinary-memory-lifecycle-transition-semantics.md),
 normative in Unified Memory Store contract §3.3.2. The graph that
 UMS-05C10B-R recorded as `LIFECYCLE_TRANSITION_GRAPH: PARTIAL` is now
 resolved.
@@ -607,7 +607,7 @@ existed.
 
 The distinction is load-bearing and is never collapsed:
 
-| | Retire / restore (ADR-089) | Purge (UMS-11) |
+| | Retire / restore (ADR-107) | Purge (UMS-11) |
 | --- | --- | --- |
 | Content | retained canonically | destroyed |
 | Reversible | yes, from lifecycle history | **no** |

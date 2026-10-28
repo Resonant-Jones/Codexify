@@ -4,7 +4,7 @@
 **Class:** Campaign governance revalidation / maturity classification / intake-gate adjudication
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-30
-**ADR impact:** Aligned with ADR-084, ADR-088, ADR-089. No new ADR. This proof adjudicates campaign state; it opens no architecture question.
+**ADR impact:** Aligned with ADR-084, ADR-106, ADR-107. No new ADR. This proof adjudicates campaign state; it opens no architecture question.
 **Authorized edits:** documentation only — this proof, `docs/Campaign/unified-memory-store/README.md`, `docs/architecture/00-current-state.md`. No production, schema, migration, route, retrieval, UI, or release change.
 
 ---
@@ -490,7 +490,7 @@ revalidation was chartered to prevent.
 ### 13.5 ADR impact
 
 ```text
-ADR IMPACT: ALIGNED WITH ADR-084, ADR-088, ADR-089
+ADR IMPACT: ALIGNED WITH ADR-084, ADR-106, ADR-107
 NEW ADR: NO
 ```
 

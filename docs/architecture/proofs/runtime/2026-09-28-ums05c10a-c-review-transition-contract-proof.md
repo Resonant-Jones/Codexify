@@ -4,7 +4,7 @@
 **Slice:** `UMS-05C10A-C` — review-transition contract resolution
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-28
-**ADR impact:** NEW ADR REQUIRED AND CREATED — **ADR-088 Ordinary Memory Review Transition Semantics**, aligned with ADR-084, not superseding it
+**ADR impact:** NEW ADR REQUIRED AND CREATED — **ADR-106 Ordinary Memory Review Transition Semantics**, aligned with ADR-084, not superseding it
 **Class:** Authority semantics / state-machine contract resolution. Documentation only.
 
 ---
@@ -20,7 +20,7 @@
 | C9-W commit | `2c21cd0e0a6cfc242643d1ca029ed8e1d1b40888` (ancestor) |
 | Alembic head | `a7c3e91d4b60` (single head, unchanged) |
 | Index posture | clean; no runtime/schema commit follows C10A-P |
-| New ADR | `docs/architecture/adr/088-ordinary-memory-review-transition-semantics.md` |
+| New ADR | `docs/architecture/adr/106-ordinary-memory-review-transition-semantics.md` |
 | Push count | `0` |
 
 No runtime or schema work landed after C10A-P, so the opening posture required
@@ -158,7 +158,7 @@ The receipt is not canonical history, and the revision is not a receipt.
 
 ## 8. Boundaries frozen
 
-**Personal Facts.** Nothing in ADR-088 applies direct ordinary review
+**Personal Facts.** Nothing in ADR-106 applies direct ordinary review
 transitions to Personal Facts. They remain governed by `personal_facts.status`,
 `personal_facts.is_active`, `personal_fact_revisions`, and Personal Facts
 service authority. The future ordinary writer must refuse or delegate at that
@@ -198,7 +198,7 @@ This slice resolves it in favor of the normative §3.3 rule:
   surface is self-describing;
 - UMS contract §3.3.1 makes the state machine normative;
 - UMS contract §4.16.5a and §4.16.5b, which still described the graph as
-  "not explicit" / "unresolved", now point to §3.3.1 and ADR-088, so no section
+  "not explicit" / "unresolved", now point to §3.3.1 and ADR-106, so no section
   contradicts the frozen graph.
 
 No new ADR was created for a table design, and ADR-084 was neither modified nor
