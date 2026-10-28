@@ -27,8 +27,12 @@ This file is authoritative for:
 - Corrected the committed navigation reproduction after a fixture defect; the pre-repair failure remains recorded separately from the repair result.
 - The repair is bounded to Chrome 156 evidence: the Playwright suite cannot launch on this host, and cross-browser, Tauri, and supported-release equivalence remain unproven.
 - Implemented the canonical Saved Widget storage foundation for the accepted ADR-102 identity/revision architecture: one account-owned widget record, immutable revision snapshots keyed `(widget_id, revision)`, a forward-only current-revision pointer, and snapshot provenance that survives source-thread deletion. Focused migration and persistence evidence was re-run against a disposable PostgreSQL instance; this is storage only, not a save capability, and it is not a supported-path qualification.
+- Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; focused tests are merged, not a supported-path qualification.
+- Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
+- Qualified same-node private-preview messaging end to end against the running preview at serving commit `57184dfbe`, using synthetic approved test accounts; the proof is same-node only and does not qualify default Beta, cross-node messaging, or share links (see `./proofs/private-preview-direct-messaging-e2e-proof.md`). The running preview is pinned to a tip that predates the `@`-sigil People-search fix, so that miss is still observable on the live origin until the serving worktree is re-reconciled.
+- Implemented recipient-local direct-message read state and integrated it onto the reconciled mainline on branch `integrate/read-state-onto-reconciled-main-20261027` (reconciled main `bf9016369`): a shared caller-local unread projection, an explicit caller-asserted read watermark, and a monotonic per-participant read cursor whose concurrent updates are serialized against the participant authority row; the projection is shared across the Inbox, the launcher badge, and the floating window rather than duplicated per surface. Focused backend evidence includes the read-cursor concurrency and migration proofs against a disposable PostgreSQL 16.2 (a locally patched build, not the stock container image), with focused frontend suites. This is test-evidenced on that integration branch only — it is not merged to `main`, not deployed, and not live-qualified on the running preview.
 - No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed on local `main`; the release posture remains unchanged.
-- Reconciled local audit history with `origin/main` through `f7e6a7f48`; no push was performed, and the stored `origin/main` is one commit ahead only because its 2026-10-22 accounting log is not present on local `main`.
+- Reconciled local audit history with `origin/main` through `8f764549d` while preserving the local reconciliation history; no push was performed, and the stored `origin/main` is now fully contained in local `main`.
 - Restored the four missing UMS ORM mappings and recorded focused evidence: 124 tests passed, with one inherited stale migration-head assertion remaining; Chronicle HTTP cases were collected but not executed.
 - Added fail-closed account-boundary checks for the legacy continuity operator surface outside local single-user execution, with focused route coverage.
 - Strict account-purpose HTTP and WebSocket boundaries accept the documented HS256 `account_session` JWT shape using the preferred session secret or JWT fallback; Private Preview still requires a live stored session and approved account. This is bounded code/test evidence, not public-ingress or release qualification.
@@ -43,7 +47,7 @@ This file is authoritative for:
 - Mainline has bounded saved-widget eligibility/provenance code, the canonical Saved Widget storage foundation with focused disposable-PostgreSQL evidence, and generated-UI containment evidence; this is not saved-widget lifecycle support or a default Beta claim.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - UMS ORM imports and migration-to-ORM parity are recorded; this does not establish complete UMS or supported-Compose qualification.
-- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes; neither is default Beta support or end-to-end qualified here.
+- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes. Same-node messaging now carries live end-to-end evidence on the running preview (see `./proofs/private-preview-direct-messaging-e2e-proof.md`); that proof qualifies same-node messaging only, and share-link bearer expiry/revocation, cross-node discovery and transport, unread indicators and persisted read state, and default Beta support remain unqualified. Recipient-local read state is implemented and test-evidenced on the read-state integration branch; because it is neither merged to `main` nor deployed, the running preview does not serve it and no live read-state evidence exists.
 - The legacy continuity operator surface is fail-closed for remote, Preview, and multi-user execution because operator credentials do not establish account authority.
 
 ## Not yet true / do not assume
@@ -59,6 +63,7 @@ This file is authoritative for:
 - Do not treat the saved-widget contract or personal-fact pipeline baseline as accepted product scope, or focused candidate/search tests as live release proof.
 - Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
 - Branch-only implementation, origin-only accounting, uncommitted checkout work, and local-only commits are not shipped `main` reality.
+- Do not read the branch-only recipient-local read state as shipped or live-qualified behavior: it is implemented and test-evidenced on the read-state integration branch, the running preview serves commit `57184dfbe` without it, and no live read-state or unread-indicator evidence exists.
 - The current-state knowledge-graph node parses but its freshness is stale; validity is not current release proof.
 
 ## Active blockers
@@ -70,7 +75,7 @@ This file is authoritative for:
 - The delegated worker-to-adapter `reasoning_effort` contract mismatch must be resolved and re-proven before any delegation execution claim is accepted.
 - The new-thread authored-message projection gap and natural import-to-recall scope proof remain open.
 - Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
-- Private-preview messaging/share admission has route-mount and focused-test evidence but lacks current end-to-end live proof; bearer-link expiry and revocation remain unresolved risks.
+- Private-preview same-node messaging is live end-to-end qualified on the running preview (two approved synthetic test accounts on one node: search, request, acceptance, reply, read-back, second message, reload persistence, decline, and prevented further contact). Still open: share-link bearer expiry and revocation, cross-node discovery/transport, and live qualification of the unread indicator and persisted read state. Recipient-local read state is implemented and test-evidenced on the read-state integration branch — unread projection, explicit read watermark, and a monotonic per-participant read cursor with serialized concurrent updates — but it is not merged to `main`, not deployed, and not live-qualified; the running preview still serves commit `57184dfbe` without it.
 - The saved-widget lane remains blocked on an authorized human-promotion operation, authoritative listing, and complete browser qualification; current evidence proves bounded validation, the canonical storage foundation, and a Chrome 156 containment repair.
 - Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
 
@@ -80,7 +85,7 @@ This file is authoritative for:
 2. Repair the stale migration-head expectation and execute the blocked Chronicle HTTP regression cases.
 3. Close the explicit-model rejection and delegated adapter contract contradictions before provider execution.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, and ordinary chat on one evaluated tip.
-5. Resolve export/restore/retention, import-to-recall, private-preview messaging/share, and saved-widget qualification gaps.
+5. Resolve export/restore/retention and import-to-recall proof gaps; private-preview same-node messaging is closed by live proof, while share-link expiry/revocation, cross-node messaging, and saved-widget qualification gaps remain open.
 
 ## Release definition right now
 

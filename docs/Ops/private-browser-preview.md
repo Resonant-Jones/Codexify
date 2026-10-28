@@ -66,6 +66,50 @@ bearer secrets on this origin, keep them off channels wider than the intended
 peer, and note that no revocation endpoint exists. The `federation`,
 `collaboration`, and other high-blast route families remain quarantined.
 
+### The running origin can lag the documented manifest
+
+The private preview does **not** serve `main`. It serves a pinned serving
+worktree whose `guardian/`, `backend/`, `config/`, and `plugins/` trees are
+bind-mounted into the containers, so the live code and the live profile
+manifest are whatever that worktree currently holds. The manifest documented
+above is the intended configuration on `main`; the running origin can be
+older.
+
+Always read the running origin's actual route posture from
+`GET http://127.0.0.1:8081/health` → `supported_profile.routes.mounted`
+(and `supported_profile.valid` / `mismatches`), rather than from the manifest
+in this repository. As of 2026-10-26 the running preview is pinned to
+`57184dfbe` and therefore still quarantines `share` and still misses the
+`@`-sigil People-search normalization that landed later on `main`; both are
+observable on the live origin until the serving worktree is re-reconciled.
+
+### Qualifying messaging without touching real accounts
+
+To exercise the real messaging flow on the live lane, use synthetic accounts
+on the reserved `example.invalid` domain so no real person's profile is
+involved:
+
+1. Append the synthetic addresses to `CODEXIFY_PREVIEW_APPROVED_EMAILS` in
+   `.env.private-preview`. Approval is read from the environment at request
+   time, so the backend must be recreated to pick it up — recreate only the
+   `backend` service with the same project and the same three Compose files;
+   the origin continues routing to the recreated container.
+2. Provision each account with `python -m guardian.cli.private_preview_provision
+   --email <address>`, then claim a username for it via
+   `PUT /api/profile/social-identity`. A claimed username is the discoverable
+   state.
+3. Drive the flow through `http://127.0.0.1:8081` and keep session tokens in
+   mode-600 files outside the repository. Do not print, paste, or record
+   passwords, session tokens, or activation links.
+4. Restore `CODEXIFY_PREVIEW_APPROVED_EMAILS` from a pre-change copy of the
+   env file and recreate the backend again, so the lane's approved-recipient
+   boundary returns to its prior value. The synthetic account rows and their
+   messaging rows may remain in the database as evidence; without allowlist
+   approval those accounts can no longer authenticate.
+
+The complete recorded run, with per-step verdicts and limitations, is in
+`docs/architecture/proofs/private-preview-direct-messaging-e2e-proof.md`.
+
 ## Provider and network posture
 
 - Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.
