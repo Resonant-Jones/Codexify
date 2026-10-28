@@ -185,6 +185,8 @@ RELEASE_READINESS_PHRASE = "release readiness"
 
 COMPLETION_CLAIM = " The release gate is `COMPLETE` and the release is ready."
 PERFECT_COMPLETION_CLAIM = " The release gate has passed."
+PERFECT_CLOSED_CLAIM = " The release gate has closed."
+PERFECT_MARKED_CLAIM = " The release gate has been marked as complete."
 LIFTED_HOLD_CLAIM = " The release gate is no longer `HOLD`."
 NEGATED_POSTURE = " The release is not ready. The release gate is not `COMPLETE`."
 NEGATED_PERFECT_POSTURE = " The release gate has not passed."
@@ -304,10 +306,11 @@ def test_release_boundary_helper_tolerates_real_body_line_wrapping() -> None:
     assert_current_release_truth(document)
 
 
-def test_release_boundary_helper_tolerates_indented_headings() -> None:
+@pytest.mark.parametrize("spaces", [1, 2, 3])
+def test_release_boundary_helper_tolerates_indented_headings(spaces: int) -> None:
     """Leading spaces before a heading are valid Markdown presentation."""
-    document = _indent_headings(_canonical_current_state())
-    assert "\n  ## Current phase" in document
+    document = _indent_headings(_canonical_current_state(), spaces)
+    assert "\n" + " " * spaces + "## Current phase" in document
     assert_current_release_truth(document)
 
 
@@ -394,12 +397,16 @@ def test_release_boundary_helper_rejects_a_hold_replaced_by_completion() -> None
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
-def test_release_boundary_helper_rejects_a_perfect_tense_gate_completion() -> None:
-    """`has passed` completes the gate in a tense the scanner must still read."""
+@pytest.mark.parametrize(
+    "claim",
+    [PERFECT_COMPLETION_CLAIM, PERFECT_CLOSED_CLAIM, PERFECT_MARKED_CLAIM],
+)
+def test_release_boundary_helper_rejects_a_perfect_tense_gate_completion(claim: str) -> None:
+    """Perfect-tense completions cannot evade the contradiction scanner."""
     document = _append_to_section(
         _canonical_current_state(),
         section="Current phase",
-        addition=PERFECT_COMPLETION_CLAIM,
+        addition=claim,
     )
     assert HOLD_PHRASE in document
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
