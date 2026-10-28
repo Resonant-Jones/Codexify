@@ -24,7 +24,7 @@ os.environ.setdefault("DEV_MODE", "true")
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import CheckConstraint, MetaData, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
@@ -58,6 +58,57 @@ def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs):
     return "JSON"
 
 
+# The canonical `chat_completion_attempts` mapping carries a PostgreSQL-only
+# orphan-outcome CHECK whose expression uses `jsonb_typeof`, the `->>`
+# operator, and `::timestamptz` casts. SQLite cannot parse any of those, so
+# the fixture builds its test schema from a projection of the canonical ORM
+# tables and omits exactly that one constraint from the SQLite copy.
+#
+# This is a test-schema accommodation, not a relaxation of the canonical
+# contract: `guardian/db/models.py` keeps the constraint unchanged, and native
+# PostgreSQL enforcement stays covered by
+# `tests/db/test_chat_completion_attempt_migration.py`. The SQLite schema omits
+# the constraint it cannot faithfully execute, and does not stand in for that
+# proof.
+POSTGRES_ONLY_CHECK_CONSTRAINTS = frozenset({"ck_chat_attempt_orphan_outcome"})
+
+SELECTED_TEST_TABLES = (
+    User.__table__,
+    ThreadSpaceNode.__table__,
+    UserProfile.__table__,
+    Project.__table__,
+    PersonaProfile.__table__,
+    PersonaProfileRevision.__table__,
+    ChatThread.__table__,
+    ChatCompletionAttempt.__table__,
+    HostedRoom.__table__,
+    HostedRoomInvite.__table__,
+    HostedRoomParticipant.__table__,
+    ChatMessage.__table__,
+)
+
+
+def build_sqlite_test_metadata() -> MetaData:
+    """Project the selected canonical ORM tables into fixture-owned metadata.
+
+    Every selected canonical table is copied so that foreign keys and
+    relationships still resolve, and so that the SQLite schema is built from
+    the canonical definitions rather than a hand-written approximation. Only
+    the CHECK constraints SQLite cannot execute are dropped, and only from
+    the projection. Canonical metadata is never mutated.
+    """
+    metadata = MetaData()
+    for table in SELECTED_TEST_TABLES:
+        projected = table.to_metadata(metadata)
+        for constraint in list(projected.constraints):
+            if (
+                isinstance(constraint, CheckConstraint)
+                and constraint.name in POSTGRES_ONLY_CHECK_CONSTRAINTS
+            ):
+                projected.constraints.discard(constraint)
+    return metadata
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 
@@ -77,21 +128,7 @@ def test_engine():
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    for table in (
-        User.__table__,
-        ThreadSpaceNode.__table__,
-        UserProfile.__table__,
-        Project.__table__,
-        PersonaProfile.__table__,
-        PersonaProfileRevision.__table__,
-        ChatThread.__table__,
-        ChatCompletionAttempt.__table__,
-        HostedRoom.__table__,
-        HostedRoomInvite.__table__,
-        HostedRoomParticipant.__table__,
-        ChatMessage.__table__,
-    ):
-        table.create(engine)
+    build_sqlite_test_metadata().create_all(engine)
 
     now = datetime.now(timezone.utc)
     with engine.begin() as conn:
@@ -177,6 +214,57 @@ class _MockGuardianDB:
 @pytest.fixture
 def mock_db(test_engine):
     return _MockGuardianDB(test_engine)
+
+
+def test_sqlite_schema_omits_only_the_postgres_only_check(test_engine):
+    """The SQLite test schema drops one constraint; canonical metadata does not.
+
+    The fixture may not execute `ck_chat_attempt_orphan_outcome`, because its
+    expression is PostgreSQL-only. It must not weaken anything else, and it
+    must not leave the canonical ORM mapping altered.
+    """
+    canonical = ChatCompletionAttempt.__table__
+    canonical_checks = {
+        constraint.name: constraint
+        for constraint in canonical.constraints
+        if isinstance(constraint, CheckConstraint) and constraint.name
+    }
+    orphan_check = canonical_checks["ck_chat_attempt_orphan_outcome"]
+
+    # The canonical model still owns the constraint, with its PostgreSQL
+    # expression untouched.
+    assert "ck_chat_attempt_orphan_outcome" in canonical_checks
+    orphan_sql = str(orphan_check.sqltext)
+    assert "jsonb_typeof" in orphan_sql
+    assert "::timestamptz" in orphan_sql
+    assert "->>" in orphan_sql
+
+    with test_engine.begin() as conn:
+        sqlite_ddl = conn.exec_driver_sql(
+            "select sql from sqlite_master where name = 'chat_completion_attempts'"
+        ).scalar()
+        sqlite_index = conn.exec_driver_sql(
+            "select name from sqlite_master where type = 'index' "
+            "and tbl_name = 'chat_completion_attempts'"
+        ).fetchall()
+
+    assert sqlite_ddl
+    # Only the PostgreSQL-only constraint is absent from the SQLite schema.
+    assert "ck_chat_attempt_orphan_outcome" not in sqlite_ddl
+    assert "jsonb_typeof" not in sqlite_ddl
+    # Every other applicable CHECK constraint is still enforced.
+    for name in canonical_checks:
+        if name == "ck_chat_attempt_orphan_outcome":
+            continue
+        assert name in sqlite_ddl, name
+    # The columns, index, and foreign keys survive the projection.
+    assert "ix_chat_completion_attempts_thread_id" in {
+        row[0] for row in sqlite_index
+    }
+    assert "FOREIGN KEY(thread_id) REFERENCES chat_threads" in sqlite_ddl
+    assert "FOREIGN KEY(completed_message_id) REFERENCES chat_messages" in sqlite_ddl
+    assert "terminal_outcome" in sqlite_ddl
+    assert "deadline_snapshot" in sqlite_ddl
 
 
 # ── Combined app fixture (owner + guest routers) ──────────────────────────
