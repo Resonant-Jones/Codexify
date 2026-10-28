@@ -222,7 +222,12 @@ Compared by node-id set against the same-tree baseline:
 
 The 591 repaired node ids are the `MultipleHeads` class: on the baseline every test that upgraded to `head` aborted, because the graph had two heads. The two merge revisions remove that abort and let those tests run their real body.
 
-**The two node ids that fail here but not on the baseline are not attributable to this change.** Both are in `tests/workers/test_document_worker_shutdown.py`, a file whose outcome varies between runs of the *same* tree:
+**The two node ids that fail here but not on the baseline are not attributable to this change.** The two exact node ids are:
+
+- `tests/workers/test_document_worker_shutdown.py::test_active_success_commits_before_shutdown`
+- `tests/workers/test_document_worker_shutdown.py::test_hung_writer_is_reaped_before_failed_commit_with_no_late_writes`
+
+Both are in `tests/workers/test_document_worker_shutdown.py`, a file whose outcome varies between runs of the *same* tree:
 
 | Run | Failures in that file |
 | --- | --- |
@@ -242,7 +247,10 @@ The remaining 279 failures are inherited — the same node ids fail on the unmod
 - The disposable PostgreSQL instances are pre-existing local servers; the sandbox blocks `pg_ctl stop` and `kill -TERM` on their PIDs, so the operator should stop them outside the session when no longer needed.
 - `origin/main` advanced to `494a60260` while this work was in progress, and local `main` does not yet contain it. That upstream range changed three test files and **no** migration, so it does not alter the head set this correction addresses; reconciling local `main` with upstream is a separate step and was not performed here.
 - The promoted merge revision `7f2c9e1a4b63` is exercised here by the focused suite and by the full backend suite on this branch's own tree, quoted above. The full-suite result for the single-head candidate is quoted alongside it for continuity.
-- `synchronous_commit` was set to `off` on the disposable PostgreSQL instance part-way through the final full-suite run, because the run was fsync-bound on disposable-database creation. This affects speed only, not correctness or the set of executed tests; the baseline and candidate runs were measured with the default setting.
+- `synchronous_commit` was set to `off` on the disposable PostgreSQL instance part-way through the final full-suite run, because the run was fsync-bound on disposable-database creation. **This is not a speed-only setting.** With `synchronous_commit=off`, a transaction that has been acknowledged to the client can still be lost if the server crashes before the write-ahead log is flushed; the database cannot be corrupted, but acknowledged commits are no longer guaranteed durable across a crash. The baseline and candidate runs were measured with the default `synchronous_commit=on`, so this change is a difference in the measurement environment between those runs and the final-tree run.
+  - What the setting does **not** affect: schema and constraint enforcement, transaction atomicity and rollback semantics, row locking and isolation between concurrent sessions, and the correctness of every migration assertion in the suite. The tests in question exercise exactly those properties, and they do so through ordinary commits rather than through crash injection.
+  - What it therefore means for the evidence: these runs establish migration, constraint and concurrency correctness. They **cannot** establish crash-durability guarantees, and no crash-durability claim is made anywhere in this record.
+  - The setting has since been reset to the instance default on the disposable instance, so subsequent runs do not silently inherit it.
 
 ## Release and ADR posture
 
