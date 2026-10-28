@@ -25,10 +25,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateTable
 
 from guardian.core.dependencies import RequestUserScope, get_request_user_scope
 from guardian.core.hosted_room_session import (
@@ -56,6 +58,67 @@ from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs):
     return "JSON"
+
+
+# ── SQLite fixture schema compatibility ──────────────────────────────────
+#
+# `ck_chat_attempt_orphan_outcome` is legitimate PostgreSQL schema authority
+# (ADR-091, "Durable Chat Completion Attempt Authority"). It encodes the
+# orphan-reconciliation invariant with PostgreSQL JSONB operators and
+# `::timestamptz` casts, and SQLite cannot parse the generated DDL:
+#
+#     sqlite3.OperationalError: unrecognized token: ":"
+#
+# This fixture builds its in-memory SQLite database table by table, so the
+# constraint has to be skipped for that one CREATE TABLE. It is skipped with
+# SQLAlchemy's conditional-DDL rule (`Constraint.ddl_if`) rather than by
+# removing the constraint from the shared model, by replacing the DDL compiler
+# globally, or by approximating the invariant in SQLite. PostgreSQL keeps the
+# canonical constraint and stays the only backend where orphan reconciliation
+# is enforced.
+#
+# The rule is scoped to the CREATE TABLE below, and the shared ORM metadata is
+# restored in `finally` - including when table creation raises - so no other
+# test can observe it.
+
+_POSTGRES_ONLY_CHECK_CONSTRAINTS = ("ck_chat_attempt_orphan_outcome",)
+_POSTGRES_ONLY_SQL_MARKERS = ("::", "jsonb_", "->>")
+
+
+def _named_check_constraint(table, name):
+    for constraint in table.constraints:
+        if getattr(constraint, "name", None) == name:
+            return constraint
+    return None
+
+
+@contextmanager
+def _sqlite_compatible_ddl(table):
+    """Skip PostgreSQL-only CHECK constraints for one SQLite CREATE TABLE.
+
+    The conditional-DDL rule is applied to the shared ORM metadata only for
+    the duration of the wrapped DDL, and the previous value is restored in
+    `finally` so a failed table creation cannot leave the model altered.
+    """
+    skipped = []
+    for name in _POSTGRES_ONLY_CHECK_CONSTRAINTS:
+        constraint = _named_check_constraint(table, name)
+        if constraint is None:
+            continue
+        sqltext = str(constraint.sqltext)
+        assert any(marker in sqltext for marker in _POSTGRES_ONLY_SQL_MARKERS), (
+            f"{name} no longer contains PostgreSQL-only SQL; it must not be "
+            "skipped for SQLite, because SQLite is able to enforce it."
+        )
+        skipped.append((constraint, constraint._ddl_if))
+
+    try:
+        for constraint, _ in skipped:
+            constraint.ddl_if(dialect="postgresql")
+        yield
+    finally:
+        for constraint, previous_ddl_if in skipped:
+            constraint._ddl_if = previous_ddl_if
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -91,7 +154,8 @@ def test_engine():
         HostedRoomParticipant.__table__,
         ChatMessage.__table__,
     ):
-        table.create(engine)
+        with _sqlite_compatible_ddl(table):
+            table.create(engine)
 
     now = datetime.now(timezone.utc)
     with engine.begin() as conn:
@@ -1382,3 +1446,87 @@ def test_guest_list_negative_after_id_rejected(client):
         cookies={_SESSION_COOKIE_NAME: session_cookie},
     )
     assert resp.status_code == 422
+
+
+# ── Fixture schema compatibility (SQLite) ─────────────────────────────────
+
+
+def _attempts_table_ddl(engine) -> str:
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'chat_completion_attempts'"
+        ).fetchone()
+    assert row is not None, "chat_completion_attempts was not created in SQLite"
+    return row[0]
+
+
+def test_sqlite_fixture_keeps_attempts_table_and_enforceable_constraints(test_engine):
+    """SQLite keeps the attempts table and every constraint it can enforce."""
+    ddl = _attempts_table_ddl(test_engine)
+
+    # The orphan-outcome rule is the one thing SQLite cannot hold.
+    assert "ck_chat_attempt_orphan_outcome" not in ddl
+
+    # Every other CHECK is still enforced by SQLite: no blanket suppression.
+    for name in (
+        "ck_chat_completion_attempts_terminal_event",
+        "ck_chat_attempt_recovery_snapshot_pair",
+        "ck_chat_completion_attempt_tool_checkpoint_complete",
+    ):
+        assert f"CONSTRAINT {name} CHECK" in ddl, name
+
+    # Identity, uniqueness, and referential bindings survive.
+    assert "PRIMARY KEY (request_id)" in ddl
+    assert "UNIQUE (backend_task_id)" in ddl
+    assert "FOREIGN KEY(thread_id) REFERENCES chat_threads (id)" in ddl
+    assert "FOREIGN KEY(completed_message_id) REFERENCES chat_messages (id)" in ddl
+
+    with test_engine.connect() as conn:
+        index_rows = conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'index' "
+            "AND tbl_name = 'chat_completion_attempts'"
+        ).fetchall()
+    assert "ix_chat_completion_attempts_thread_id" in {name for (name,) in index_rows}
+
+
+def test_postgres_ddl_retains_the_orphan_outcome_constraint():
+    """The canonical PostgreSQL constraint is untouched by the SQLite shim."""
+    ddl = str(
+        CreateTable(ChatCompletionAttempt.__table__).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    assert "CONSTRAINT ck_chat_attempt_orphan_outcome CHECK" in ddl
+    assert "::timestamptz" in ddl
+
+
+def test_sqlite_shim_does_not_leak_into_shared_orm_metadata(test_engine):
+    """The conditional-DDL rule is restored after the SQLite CREATE TABLE."""
+    for constraint in ChatCompletionAttempt.__table__.constraints:
+        assert getattr(constraint, "_ddl_if", None) is None, (
+            f"{getattr(constraint, 'name', constraint)} still carries a DDL rule"
+        )
+
+    # Without the shim the same model still asks SQLite for the constraint,
+    # proving the shim was temporary rather than a permanent model change.
+    unscoped = str(
+        CreateTable(ChatCompletionAttempt.__table__).compile(dialect=sqlite.dialect())
+    )
+    assert "ck_chat_attempt_orphan_outcome" in unscoped
+
+
+def test_sqlite_shim_restores_the_constraint_when_table_creation_fails():
+    """A failed CREATE TABLE still restores the shared ORM metadata."""
+    constraint = _named_check_constraint(
+        ChatCompletionAttempt.__table__, "ck_chat_attempt_orphan_outcome"
+    )
+    assert constraint is not None
+    assert constraint._ddl_if is None
+
+    with pytest.raises(RuntimeError):
+        with _sqlite_compatible_ddl(ChatCompletionAttempt.__table__):
+            assert constraint._ddl_if is not None
+            raise RuntimeError("simulated table creation failure")
+
+    assert constraint._ddl_if is None
