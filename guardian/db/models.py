@@ -5634,6 +5634,27 @@ class AgentRun(Base):
     rollback_reason: Mapped[str | None] = mapped_column(Text)
     worktree_id: Mapped[str | None] = mapped_column(String(128))
     worktree_path: Mapped[str | None] = mapped_column(Text)
+    #: The coding-worker instance that accepted this run's execution.
+    #:
+    #: This is *executor* metadata. It is not an account, principal, or
+    #: credential identity, and a persisted owner is not proof that the worker
+    #: is still alive -- it records that this instance took the claim, not
+    #: that it still holds it. Ownership is paired with the claim id below.
+    coding_worker_instance_id: Mapped[str | None] = mapped_column(String(64))
+    #: The unique ownership claim made when this run was accepted.
+    #:
+    #: A claim id is durable correlation material for future fencing. It is not
+    #: retry authority and it is not a liveness signal.
+    coding_worker_claim_id: Mapped[str | None] = mapped_column(String(64))
+    #: The last durable liveness observation recorded by the owning worker.
+    #:
+    #: This is subordinate execution *evidence*, never authorization. It says
+    #: the recorded owner recently reported activity for this run. It does not
+    #: grant execution, retry, or recovery authority, and an absent or stale
+    #: heartbeat is not proof that the worker died.
+    coding_worker_last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
@@ -5653,6 +5674,22 @@ class AgentRun(Base):
         CheckConstraint(
             "rollback_mode IN ('auto', 'manual')",
             name="agent_runs_rollback_mode_check",
+        ),
+        CheckConstraint(
+            "(coding_worker_instance_id IS NULL AND coding_worker_claim_id IS NULL) OR "
+            "(coding_worker_instance_id IS NOT NULL AND "
+            "coding_worker_claim_id IS NOT NULL)",
+            name="agent_runs_coding_worker_ownership_check",
+        ),
+        CheckConstraint(
+            "coding_worker_last_heartbeat_at IS NULL OR "
+            "(coding_worker_instance_id IS NOT NULL AND "
+            "coding_worker_claim_id IS NOT NULL)",
+            name="agent_runs_coding_worker_heartbeat_ownership_check",
+        ),
+        UniqueConstraint(
+            "coding_worker_claim_id",
+            name="uq_agent_runs_coding_worker_claim_id",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}
