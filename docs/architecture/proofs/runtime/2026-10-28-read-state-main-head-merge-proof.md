@@ -158,6 +158,18 @@ cd .scratch/read-state-combined/frontend && pnpm test && pnpm typecheck
 - The four failing files are the inherited generative-UI set — `GenerativeUI.test.tsx`, `openuiFoundationLibrary.test.tsx`, `openuiNative.test.tsx`, `openuiProgramAdmission.test.ts` — identical to the set on both the read-state integration branch and the unified-mainline candidate, and untouched by the read-state series.
 - Typecheck: **160 errors**, with a normalized error set identical to the unified-mainline candidate's. No new type error is introduced by this merge.
 
+The frontend results above were measured on the tree of the superseded branch `859277930`. That measurement transfers to this branch without re-measurement, because the difference between the two trees is confined to five files, none of them runtime or frontend code:
+
+```text
+guardian/db/migrations/versions/7f2c9e1a4b63_merge_saved_widget_and_consent_heads.py      (removed)
+guardian/db/migrations/versions/7f2c9e1a4b63_merge_saved_widget_and_memory_consent_heads.py (added)
+tests/db/test_saved_widget_consent_head_merge.py                                          (modified)
+tests/db/test_saved_widget_storage_migration.py                                           (modified)
+tests/migration/test_read_state_main_head_merge.py                                         (modified)
+```
+
+`git diff 859277930 9d0c8ad70 -- guardian/ frontend/src/ tests/routes/ tests/migration/ tests/db/` reports no difference in the messaging service, the direct-message routes, the ORM models, or any frontend source. The runtime and frontend behaviour measured on the superseded tree is therefore the behaviour on this tree.
+
 ### Full backend suite
 
 The full backend suite was run to completion on the **single-head candidate tree** `889b07af2` (branch `fix/alembic-main-head-merge-20261028`), whose migration content is revision-identical to the promoted `7f2c9e1a4b63` on `main`, and compared by node-id set against the same-tree baseline `cd47fd826`:
