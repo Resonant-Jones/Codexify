@@ -4,7 +4,7 @@
 **Slice:** `UMS-05C10B-C` — lifecycle state-machine / authority contract resolution
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-29
-**ADR impact:** **Requires new ADR — created:** `docs/architecture/adr/089-ordinary-memory-lifecycle-transition-semantics.md` (ADR-089, Accepted). Aligned with ADR-084; does not modify or supersede ADR-084 or ADR-088.
+**ADR impact:** **Requires new ADR — created:** `docs/architecture/adr/107-ordinary-memory-lifecycle-transition-semantics.md` (ADR-107, Accepted). Aligned with ADR-084; does not modify or supersede ADR-084 or ADR-106.
 **Class:** Documentation / architecture contract slice. No runtime, schema, migration, or test change.
 
 ---
@@ -32,11 +32,11 @@ required, and the branch was not reset to any expected SHA.
 Determined from the **branch-local** canonical index
 `docs/architecture/adr/adr-index.md` plus actual filenames, not from `main`,
 another branch, or memory. Highest existing was `088`
-(`088-ordinary-memory-review-transition-semantics.md`), so the new ADR is
+(`106-ordinary-memory-review-transition-semantics.md`), so the new ADR is
 **089**.
 
 `docs/architecture/README.md` was checked: it lists neither ADR-087 nor
-ADR-088, so the branch convention does **not** require a per-ADR entry there.
+ADR-106, so the branch convention does **not** require a per-ADR entry there.
 It was therefore not edited.
 
 ---
@@ -223,7 +223,7 @@ the posture through `old_lifecycle_state`. Direct receipt action tokens are
 
 ## 10. Personal Facts boundary
 
-Nothing in ADR-089 gives the ordinary lifecycle writer authority over Personal
+Nothing in ADR-107 gives the ordinary lifecycle writer authority over Personal
 Facts. Personal Facts retain `personal_facts.status`,
 `personal_facts.is_active`, `personal_fact_revisions`, and Personal Facts
 service authority. The future ordinary writer must fail or delegate at that

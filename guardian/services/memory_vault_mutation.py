@@ -71,14 +71,14 @@ ACTION_ADD_PERSONA_ATTRIBUTION = "add_persona_attribution"
 ACTION_REMOVE_PERSONA_ATTRIBUTION = "remove_persona_attribution"
 ACTION_CONTENT_CORRECTION = "content_correction"
 
-#: UMS-05C10A-W / ADR-088. The three admitted direct ordinary-memory review
+#: UMS-05C10A-W / ADR-106. The three admitted direct ordinary-memory review
 #: actions. There is deliberately no ``set_pending`` / reset / unreview
 #: action: ``pending`` is an ingress state, not a user review outcome.
 ACTION_APPROVE = "approve"
 ACTION_REJECT = "reject"
 ACTION_DISPUTE = "dispute"
 
-#: UMS-05C10B-W / ADR-089. Exactly two generic direct lifecycle actions.
+#: UMS-05C10B-W / ADR-107. Exactly two generic direct lifecycle actions.
 #: There is deliberately no ``activate`` / ``set_lifecycle_state``: the
 #: runtime action boundary is intentionally narrower than the persistence
 #: vocabulary, and ``pending``-style or raw-state targeting is not admitted.
@@ -89,10 +89,10 @@ ACTION_RESTORE = "restore"
 #: set is treated as integrity corruption, never repaired.
 _LIFECYCLE_STATES: frozenset[str] = frozenset({"active", "dormant", "retired"})
 
-#: Postures a retirement may legally be restored to, per ADR-089.
+#: Postures a retirement may legally be restored to, per ADR-107.
 _RESTORABLE_POSTURES: frozenset[str] = frozenset({"active", "dormant"})
 
-#: Frozen action -> target-state mapping from ADR-088. A caller can never
+#: Frozen action -> target-state mapping from ADR-106. A caller can never
 #: request a raw ``review_state``; it can only request one of these actions.
 REVIEW_ACTION_TARGETS: dict[str, str] = {
     ACTION_APPROVE: "approved",
@@ -234,7 +234,7 @@ class VaultContentCorrectionResult:
 
 
 class MemoryVaultReviewTransitionInvalid(MemoryVaultMutationError):
-    """The requested review action is not one of ADR-088's admitted actions."""
+    """The requested review action is not one of ADR-106's admitted actions."""
 
 
 class MemoryVaultReviewTransitionUnsupported(MemoryVaultMutationError):
@@ -246,7 +246,7 @@ class MemoryVaultReviewTransitionIntegrityError(MemoryVaultMutationError):
 
 
 class MemoryVaultLifecycleInvalid(MemoryVaultMutationError):
-    """The requested lifecycle action is not one of ADR-089's two actions."""
+    """The requested lifecycle action is not one of ADR-107's two actions."""
 
 
 class MemoryVaultLifecycleUnsupported(MemoryVaultMutationError):
@@ -265,7 +265,7 @@ class MemoryVaultLifecycleIntegrityError(MemoryVaultMutationError):
 class VaultLifecycleTransitionResult:
     """Outcome of one direct ordinary-memory lifecycle transition.
 
-    For an ADR-089 same-state no-op, ``changed`` is ``False`` and
+    For an ADR-107 same-state no-op, ``changed`` is ``False`` and
     ``receipt_id`` / ``lifecycle_revision_id`` / ``lifecycle_revision_number``
     are ``None``: no lifecycle revision, no receipt, and no CAS advance occur
     when the requested action would not change the current lifecycle state.
@@ -287,7 +287,7 @@ class VaultLifecycleTransitionResult:
 class VaultReviewTransitionResult:
     """Outcome of one direct ordinary-memory review transition (UMS-05C10A-W).
 
-    For an ADR-088 same-state no-op, ``changed`` is ``False`` and
+    For an ADR-106 same-state no-op, ``changed`` is ``False`` and
     ``receipt_id`` / ``review_revision_id`` / ``review_revision_number`` are
     ``None``: no review revision, no receipt, and no CAS advance occur when
     the requested action would not change the current review state.
@@ -928,7 +928,7 @@ class MemoryVaultMutationService:
         reason: str | None = None,
         request_ref: str | None = None,
     ) -> VaultLifecycleTransitionResult:
-        """Apply one ADR-089 direct lifecycle transition to ordinary memory.
+        """Apply one ADR-107 direct lifecycle transition to ordinary memory.
 
         A changed transition atomically produces all of:
 
@@ -977,7 +977,7 @@ class MemoryVaultMutationService:
         )
 
         if target_state == current_state:
-            # ADR-089 same-state no-op. Reachable only with a fresh token,
+            # ADR-107 same-state no-op. Reachable only with a fresh token,
             # because the stale check above already conflicted.
             item = self._readback(memory_id)
             self._session.rollback()
@@ -1101,7 +1101,7 @@ class MemoryVaultMutationService:
 
     @staticmethod
     def _validate_lifecycle_action(action: object) -> str:
-        """Accept only ADR-089's two admitted direct lifecycle actions."""
+        """Accept only ADR-107's two admitted direct lifecycle actions."""
         if not isinstance(action, str):
             raise MemoryVaultLifecycleInvalid("lifecycle action must be a string")
         normalized = action.strip()
@@ -1137,7 +1137,7 @@ class MemoryVaultMutationService:
         tail = self._lifecycle_history_tail(memory_id=memory_id)
         if tail is None:
             # A legacy/current retired record with no reconstructable history.
-            # ADR-089 requires failing closed rather than guessing.
+            # ADR-107 requires failing closed rather than guessing.
             self._session.rollback()
             raise MemoryVaultLifecycleIntegrityError(
                 "restore requires canonical pre-retirement lifecycle history"
@@ -1228,7 +1228,7 @@ class MemoryVaultMutationService:
         reason: str | None = None,
         request_ref: str | None = None,
     ) -> VaultReviewTransitionResult:
-        """Apply one ADR-088 direct review transition to ordinary memory.
+        """Apply one ADR-106 direct review transition to ordinary memory.
 
         A changed transition atomically produces all of:
 
@@ -1246,7 +1246,7 @@ class MemoryVaultMutationService:
         be a no-op — CAS is validated before the no-op decision.
 
         ``action`` must be one of ``approve``, ``reject``, or ``dispute``.
-        There is no path that targets ``pending``: ADR-088 defines
+        There is no path that targets ``pending``: ADR-106 defines
         ``pending`` as an ingress state, not a user review outcome.
         """
         self._validate_memory_id(memory_id)
@@ -1274,7 +1274,7 @@ class MemoryVaultMutationService:
         previous_updated_at = row.updated_at
 
         if current_state == target_state:
-            # ADR-088 same-state no-op. Reachable only with a fresh token,
+            # ADR-106 same-state no-op. Reachable only with a fresh token,
             # because the stale check above already conflicted.
             item = self._readback(memory_id)
             self._session.rollback()
@@ -1296,7 +1296,7 @@ class MemoryVaultMutationService:
             current_state=current_state,
         )
 
-        # ADR-088: reviewed_at is the timestamp of FIRST authoritative
+        # ADR-106: reviewed_at is the timestamp of FIRST authoritative
         # approval. First approval sets it; re-approval preserves it;
         # rejection and dispute never clear or rewrite it.
         reviewed_at_value: object = MemoryRecord.reviewed_at
@@ -1407,7 +1407,7 @@ class MemoryVaultMutationService:
 
     @staticmethod
     def _validate_review_action(action: object) -> str:
-        """Accept only ADR-088's three admitted direct review actions."""
+        """Accept only ADR-106's three admitted direct review actions."""
         if not isinstance(action, str):
             raise MemoryVaultReviewTransitionInvalid("review action must be a string")
         normalized = action.strip()
