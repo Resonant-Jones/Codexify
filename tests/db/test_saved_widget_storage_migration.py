@@ -253,9 +253,23 @@ def test_the_migration_declares_the_verified_parent(disposable_postgres) -> None
 
 
 def test_the_migration_is_the_single_head(disposable_postgres) -> None:
-    """There is exactly one head, and it is the Saved Widget revision."""
+    """There is exactly one head, and this revision is in its ancestry.
+
+    The Saved Widget migration introduces the schema; it is not obliged to
+    remain the graph's permanent head. A later mergepoint legitimately
+    becomes the single head as long as this revision stays reachable from
+    it, so the contract checked here is ancestry under one head rather than
+    a hardcoded head identifier.
+    """
     script = ScriptDirectory.from_config(disposable_postgres.config)
-    assert tuple(script.get_heads()) == (SAVED_WIDGET_REVISION,)
+    heads = tuple(script.get_heads())
+    assert len(heads) == 1
+
+    lineage = {
+        revision.revision
+        for revision in script.walk_revisions(head=heads[0])
+    }
+    assert SAVED_WIDGET_REVISION in lineage
 
 
 # ---------------------------------------------------------------------------
