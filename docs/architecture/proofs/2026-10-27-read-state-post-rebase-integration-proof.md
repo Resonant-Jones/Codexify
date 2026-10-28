@@ -19,16 +19,18 @@ This record covers a single new integration that merges the **original reviewed 
 | Reconciled mainline, second parent (`origin/main`) | `8f764549df8085eb80e72ed34a479d63d2f27f3a` |
 | Read-state series tip (merged) | `1115b92632cfd13578a433216d23881d0290f3d5` |
 | Series base (`merge-base`) | `fb4c74bb8ef474bf8a19e2873e02b4dacd02de5f` |
+| Upstream tip reconciled after validation (test-only delta) | `533542773e9dbaa4c5d35c6b1af1f6ae861cfa95` |
+| Local `main` after that reconciliation (not the integration base) | `df1c60296728d34f1cf740e8f6b8dfee5a0f6110` |
 | Integration branch | `integrate/read-state-onto-reconciled-main-20261027` |
-| Integration merge commit | recorded in the receipt-completion commit that follows this merge (a commit cannot embed its own hash) |
-| Integration merge commit tree | recorded in the receipt-completion commit that follows this merge |
+| Integration merge commit | `377db25abbac5f4a5c7056219ee868c7c7e2b23d` |
+| Integration merge commit tree | `529c64fe06f3ac3b4ae6f4f2627f55d69577c3fa` |
 | Earlier integration (evidence only, not an ancestor) | `429b8b032` |
 
-The merge commit that carries this record is the second parent of the branch tip; the branch tip is this merge plus a documentation-only commit that fills in the merge SHA and tree hash recorded above.
+The merge commit that carries this record is the second parent of the branch tip; the branch tip is this merge plus a documentation-only commit that fills in the merge SHA and tree hash recorded above. A commit cannot embed its own hash, so those two values are written by that follow-up commit.
 
 ### Reconciled mainline provenance
 
-`origin/main` advanced during this task, twice, in fast-forward steps:
+`origin/main` advanced during this task, twice before the integration base was recorded, in fast-forward steps:
 
 - `a0d304ccb` — the tip fetched at the prerequisite gate. Reconciled into local `main` as `7153b69e9a` (conflict-free merge of `fb0b4e47a` and `a0d304ccb`).
 - `8f764549d` — six further upstream commits (three merges, three test commits) that landed while the integration was being validated. Reconciled into local `main` as `bf9016369` (conflict-free merge of `7153b69e9a` and `8f764549d`), and the integration branch was re-based onto it.
@@ -36,6 +38,14 @@ The merge commit that carries this record is the second parent of the branch tip
 The upstream delta `a0d304ccb..8f764549d` touches only `tests/core/test_completion_terminal_integrity.py`, `tests/core/test_whooshd_context_bundle_system_identity_delivery.py`, and `tests/evidence_packets/test_guardian_evidence_bounded_read.py`. No upstream file in the authorized integration set changed, so the conflict set and the conflict resolutions are identical on both reconciled bases; the two base revisions of `docs/architecture/00-current-state.md` and `docs/architecture/adr/adr-index.md` are byte-identical.
 
 After reconciliation, `git merge-base --is-ancestor origin/main bf9016369` succeeds: the stored `origin/main` is fully contained in the local reconciled mainline. Nothing was pushed.
+
+### Upstream advanced again after the integration base was recorded
+
+`origin/main` moved a third time, to `533542773`, while the full backend suites were running. The delta `8f764549d..533542773` is two commits that touch only `tests/evidence_packets/`: a new `release_truth_contract.py` helper and the four evidence-packet test modules that adopt it. It adds no migration, changes no runtime code, no frontend file, no documentation, and no file in the authorized integration set.
+
+The integration branch was deliberately **not** re-based onto that delta. Re-basing would have invalidated a completed 55-minute validation for a change with no functional overlap with the read-state work, and upstream on this repository advances continuously. Instead, the delta was reconciled into local `main` as `df1c6029`, so the stored `origin/main` remains fully contained in local `main`, and the branch is reported against the reconciled base that was actually validated.
+
+The consequence is stated plainly: the branch tip is based on `bf9016369`, and `git merge-base --is-ancestor origin/main <branch tip>` does not hold against the newest upstream tip `533542773`. It does hold against the reconciled base `bf9016369` that the integration records and that every validation below was executed on. Folding the newest upstream into this branch later is a test-only delta that would require re-running the affected `tests/evidence_packets/` modules, not the full suite.
 
 ## Merge structure
 
