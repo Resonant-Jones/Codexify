@@ -2,11 +2,14 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.evidence_packets.release_truth_contract import assert_current_release_truth
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "docs/architecture/guardian-evidence-bounded-read-contract.md"
+CURRENT_STATE = ROOT / "docs/architecture/00-current-state.md"
 
 SECTIONS = (
     "Purpose", "Status", "Scope", "Current Truth", "Why This Exists",
@@ -146,3 +149,137 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
 def test_task_scope_does_not_add_reader_or_tooling_files() -> None:
     assert not (ROOT / "scripts/guardian/bounded_evidence_reader.py").exists()
     assert not (ROOT / "scripts/guardian/read_evidence.py").exists()
+
+
+# ── Release-boundary negative controls ─────────────────────────────────
+#
+# The shared helper asserts that the canonical document *states* the release
+# boundary. These controls prove the assertion is a real check rather than a
+# string-presence check: each one removes or contradicts one part of the
+# boundary in a synthetic copy of the document and requires the helper to
+# refuse it. Without them, a helper that merely matched a word somewhere in
+# the file would look identical to one that reads the owning section.
+#
+# The canonical document is never modified.
+
+
+HOLD_PHRASE = "the release gate remains `HOLD`"
+BOUNDED_EVIDENCE_PHRASE = "bounded evidence"
+QUALIFICATION_PHRASE = "qualification is a separate gate"
+NON_PROMOTION_PHRASE = "not default Beta support"
+NON_PROMOTION_RULE_PHRASE = "without current-main qualification"
+RELEASE_READINESS_PHRASE = "release readiness"
+
+
+def _canonical_current_state() -> str:
+    return CURRENT_STATE.read_text()
+
+
+def _drop(text: str, phrase: str) -> str:
+    """Remove a phrase, leaving the rest of the document intact."""
+    assert phrase in text, f"canonical phrase missing: {phrase!r}"
+    return text.replace(phrase, "")
+
+
+def _swap(text: str, old: str, new: str) -> str:
+    """Replace a phrase, leaving the rest of the document intact."""
+    assert old in text, f"canonical phrase missing: {old!r}"
+    return text.replace(old, new)
+
+
+def _move_to_section(text: str, phrase: str, *, source: str, target: str) -> str:
+    """Relocate a phrase out of one section and into an unrelated section."""
+    moved: list[str] = []
+    current: str | None = None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            moved.append(line)
+            if current == target:
+                moved.append(phrase)
+            continue
+        if current == source and phrase in line:
+            moved.append(line.replace(phrase, ""))
+            continue
+        moved.append(line)
+    result = "\n".join(moved) + "\n"
+    assert phrase in result, "the phrase must survive the move"
+    return result
+
+
+def _assert_rejected(document: str) -> None:
+    """The helper must refuse a document that does not state the boundary."""
+    with pytest.raises(AssertionError):
+        assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_accepts_the_canonical_document() -> None:
+    """Positive control: the canonical document satisfies the boundary."""
+    assert_current_release_truth(_canonical_current_state())
+
+
+def test_release_boundary_helper_ignores_case_and_wrapping() -> None:
+    """Normalization control: casing and wrapping cannot decide a result."""
+    document = _swap(
+        _canonical_current_state(),
+        HOLD_PHRASE,
+        "The   Release   Gate Remains `HOLD`",
+    )
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_rejects_a_document_without_hold() -> None:
+    _assert_rejected(_drop(_canonical_current_state(), HOLD_PHRASE))
+
+
+def test_release_boundary_helper_rejects_a_contradicted_hold() -> None:
+    _assert_rejected(
+        _swap(
+            _canonical_current_state(),
+            HOLD_PHRASE,
+            "the release gate is `COMPLETE`",
+        )
+    )
+
+
+def test_release_boundary_helper_rejects_a_document_without_bounded_evidence() -> None:
+    _assert_rejected(
+        _drop(_canonical_current_state(), BOUNDED_EVIDENCE_PHRASE)
+    )
+
+
+def test_release_boundary_helper_rejects_a_document_without_separate_qualification() -> None:
+    _assert_rejected(
+        _drop(_canonical_current_state(), QUALIFICATION_PHRASE)
+    )
+
+
+def test_release_boundary_helper_rejects_a_document_whose_release_criteria_are_all_complete() -> None:
+    document = _canonical_current_state().replace("- [ ]", "- [x]")
+    assert "- [ ]" not in document
+    _assert_rejected(document)
+
+
+def test_release_boundary_helper_rejects_a_document_without_default_beta_non_promotion() -> None:
+    document = _drop(_canonical_current_state(), NON_PROMOTION_PHRASE)
+    document = _drop(document, NON_PROMOTION_RULE_PHRASE)
+    _assert_rejected(document)
+
+
+def test_release_boundary_helper_rejects_a_document_that_disclaims_release_authority() -> None:
+    _assert_rejected(
+        _drop(_canonical_current_state(), RELEASE_READINESS_PHRASE)
+    )
+
+
+def test_release_boundary_helper_rejects_hold_found_only_in_an_unrelated_section() -> None:
+    """A HOLD in a section that does not own the gate cannot satisfy it."""
+    document = _move_to_section(
+        _canonical_current_state(),
+        HOLD_PHRASE,
+        source="Current phase",
+        target="Active blockers",
+    )
+    # The phrase is still present in the document, just in the wrong section.
+    assert HOLD_PHRASE in document
+    _assert_rejected(document)
