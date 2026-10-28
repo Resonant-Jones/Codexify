@@ -100,6 +100,17 @@ Proven by inspection and reproduction on `4791f219d`:
   valid canonical Guardian operator identity with the required administrative
   role. The durable capability records the creating operator's canonical user
   ID."
+- `CampaignContinuationAuthorityRecord` persists actor strings and timestamps,
+  but no approval or revocation credential/provenance class. Its readback
+  includes the actor strings without classification.
+- `CampaignRunnerStore.approve_continuation_authority` returns an existing
+  unrevoked authority as an idempotent success when envelope, actor string, and
+  expiry match, both before insert and after a uniqueness conflict. It does
+  not compare actor provenance. In the collision fixture
+  `CODEXIFY_SINGLE_USER_ID=local` and canonical admin `User.id=local`, a legacy
+  raw-key approval and a future account-admin approval have identical stored
+  actor bytes and satisfy the existing idempotency predicate. This is a
+  source-level collision reproduction, not a live deployment test.
 
 Not yet proven:
 
@@ -109,6 +120,9 @@ Not yet proven:
   human operator for authority approval without amending ADR-092.
 - That the full backend suite passes after any runtime correction.
 - That current-main supported-Compose qualification is green.
+- That any external immutable deployment audit artifact exists for every
+  historical record. Such an artifact cannot be assumed from the current
+  authority schema or store readback.
 
 ## Decision
 
@@ -167,33 +181,77 @@ The read-only listing route remains in the operator-control lane on
 `campaign_runner_router`. Reading the set of existing authorities is not an
 approval and does not require a human actor.
 
-### 4. The durable actor fields carry the canonical user id
+### 4. Actor identity and credential provenance are distinct durable facts
 
-`approved_by_actor_id` and `revoked_by_actor_id` carry the canonical
-`User.id`. This requires no schema change, no new column, no new table, and no
-migration. The existing `String(255)` actor-id convention and the existing
-non-empty-actor constraint are sufficient.
+For new human actions, `approved_by_actor_id` and `revoked_by_actor_id` carry
+the canonical `User.id`. The existing `String(255)` actor fields are sufficient
+for actor *identity*, but not for approval or revocation *provenance*.
+
+The authority record must also durably classify **each action independently**:
+
+- `legacy_deployment_operator`: historical operator-control or otherwise
+  unverified action, without an individually verified human approver;
+- `canonical_account_admin`: action authenticated through the exact-purpose
+  account-admin lane plus the independent service-capability gate.
+
+This is authority-record metadata, not a new principal, credential class,
+capability family, token purpose, or human role. A narrow persisted provenance
+discriminator for approval and one for revocation, on the existing canonical
+authority record, is the preferred correction. A later implementation task
+must select the concrete schema representation, enforce non-null classification
+for applicable actions, and prove migration, backup/restore, and export/readback
+behavior. No DDL or data migration is performed by this proposed ADR.
+
+A cutoff inferred solely from actor ID strings, the deployment's current
+`CODEXIFY_SINGLE_USER_ID`, the current admin registry, or mutable wall-clock
+configuration is insufficient. A cutover could replace explicit columns only
+if its immutable per-record provenance evidence remains persisted and
+unambiguous across restores, exports, clock differences, and colliding IDs.
+No such durable mechanism is established in the inspected implementation;
+do not claim a schema-free solution on that basis.
 
 ### 5. Historical deployment-principal attributions are legacy, unverified provenance
 
-Existing authority records whose actor is the deployment principal (`local`)
-were approved under the operator-control lane and carry no named-human
-provenance. They must never be re-presented, migrated, or back-filled as
-named-human approvals.
+All authority approvals created before the separately authorized human-approval
+runtime cutover have **legacy/unverified human provenance**, regardless of
+whether their actor string matches `local`, a configured deployment principal,
+or a canonical `User.id`. Existing records must retain their original actor
+string, timestamps, envelope, expiry, and revocation history; migration may
+classify their known pre-cutover origin as legacy, but must never infer or
+back-fill an individual's identity. A historical deployment principal is not
+a named human even if its bytes match an admin ID.
 
-Any later move to named-human provenance applies to approvals made after this
-contract takes effect. Interpretations and audit outputs must distinguish
-legacy deployment-principal provenance from named-human approval provenance
-rather than treating both as "an operator approved this".
+The same principle applies independently to historical revocations. A future
+human admin may revoke a legacy-approved authority; the revocation must carry
+human provenance without upgrading or replacing the original legacy approval
+provenance. A legacy revocation stays legacy when read back later.
+
+Before any authority can be consumed for automatic continuation, unresolved or
+legacy approval provenance must fail closed as **not human-approved**. An
+unrevoked legacy record must not become eligible merely because its actor ID
+matches a current admin. Revocation remains permitted through the correctly
+authenticated human lane, but replacing a legacy approval requires an explicit
+new human approval after revocation, not relabeling the old row.
+
+Every readback, operator view, audit, export, restore, and downstream authority
+consumer must preserve and distinguish these classes without deriving human
+identity from actor strings. If a historical row's origin cannot be proven,
+classify it as legacy/unverified, never as verified human approval.
+
+The approval store's idempotency comparison (including its integrity-error
+retry path) must compare **approval provenance class** as well as actor ID,
+envelope, and expiry. Identical actor bytes across distinct provenance classes
+must not produce an idempotent success. The existing one-unrevoked-authority
+constraint then requires explicit revocation before a new human approval.
 
 ### 6. No new authority primitives
 
-This decision does not create an operator registry, does not extend
-`capability_family`, does not introduce a new token purpose or credential
-class, does not add a table or migration, and does not create a parallel
-Campaign authority store. It composes primitives that already exist: the
-canonical account session, the canonical `User` record and its `admin` role,
-and the non-principal service-capability gate.
+This decision does not create an operator registry, extend
+`capability_family`, introduce a new token purpose or credential class, or
+create a parallel Campaign authority store. Human principal resolution
+composes existing account-session, canonical `User`, `admin` role and
+service-capability primitives. Persisted *provenance metadata* and a bounded
+migration may be necessary to keep old and new actions distinguishable.
 
 ### 7. Consequence: human approval availability depends on an admin account
 
@@ -241,7 +299,8 @@ This ADR does not:
 - introduce a new token purpose or canonical token domain value;
 - change, weaken, or re-scope the `require_operator_auth` operator gate;
 - change account login, account activation, invitation, or guest semantics;
-- migrate, back-fill, or reinterpret historical authority records;
+- fabricate historical human identity, overwrite historical actor fields, or
+  convert legacy approvals into human-approved authority;
 - change supported-profile configuration or expand any enabled surface;
 - update release claims, release metadata, or the release gate.
 
@@ -256,8 +315,12 @@ This ADR does not:
   to admit it.
 - Human approval requires an admin account in the deployment. This is an
   operational constraint that must be documented for operators.
-- The durable authority record becomes a record of a named human principal, and
-  legacy records remain distinguishable as deployment-principal provenance.
+- Future approvals and revocations have verifiable canonical-human provenance,
+  while historical and unresolved approvals remain independently classified as
+  legacy/unverified and ineligible for automatic continuation.
+- The existing authority record needs durable, collision-safe provenance
+  classification. A narrow schema/migration slice is expected unless a simpler
+  existing persisted mechanism is proven equivalent in the subsequent task.
 - The account-admin dependency that today lives privately in
   `guardian/routes/account_observability.py` must be promoted to a shared
   seam, because the two surfaces need the same rule and a private copy would
@@ -270,7 +333,22 @@ demonstrate, at minimum:
 
 - the positive path: an exact-purpose account session belonging to a
   persisted canonical admin `User` reaches the approval handler, and the
-  durable record stores that canonical `User.id`;
+  durable record stores that canonical `User.id` plus verified-human approval
+  provenance;
+- a collision fixture where a legacy deployment principal and a canonical
+  admin `User.id` are identical; idempotency **both before insert and after a
+  uniqueness conflict** must reject cross-class equivalence without mutating
+  the legacy record;
+- migration/readback/export/restore tests proving all pre-cutover approvals
+  remain legacy/unverified even under actor-ID collisions, missing previous
+  deployment configuration, and process restart; existing actor values and
+  timestamps remain unchanged;
+- independent approval and revocation classification, including a human
+  revocation of a legacy-approved row without upgrading original approval,
+  and legacy-revoked rows without retrospective human attribution;
+- downstream authorization tests that treat legacy, missing, or unclassified
+  approval provenance as **not** human-approved, regardless of status or
+  actor-string equality;
 - the negative credential paths: missing credentials, an operator
   `operator_session`, a raw operator API key, an account session for a
   non-admin account, an expired session, a malformed token, and a
@@ -296,9 +374,14 @@ Stop and report rather than proceed if any of the following holds:
   authorized human operator for Campaign Continuation Authority approval or
   revocation under ADR-092 and ADR-100;
 - reaching an admin account requires a credential class, token purpose, role
-  vocabulary, or schema change not already present;
-- a runtime change beyond the composition described in Decision 1 through 6
-  appears necessary;
+  vocabulary, or *account-identity* schema change not already present;
+- durable provenance classification cannot be achieved on the canonical
+  authority record, with a bounded migration or equivalently proven persisted
+  mechanism, without changing unrelated authority domains;
+- migration cannot preserve historical actor data while classifying old
+  approvals and revocations as legacy/unverified;
+- the later runtime task would allow legacy or unclassified approvals to
+  authorize automatic continuation;
 - the account-admin seam cannot be shared without changing existing account
   observability behavior.
 
