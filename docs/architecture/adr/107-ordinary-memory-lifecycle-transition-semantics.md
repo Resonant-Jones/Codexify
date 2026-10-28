@@ -1,4 +1,4 @@
-# ADR-089: Ordinary Memory Lifecycle Transition Semantics
+# ADR-107: Ordinary Memory Lifecycle Transition Semantics
 
 **Status:** Accepted — design frozen
 
@@ -34,7 +34,7 @@ transitions are legal, what restore targets, what a repeated action does, and
 whether hold, pin, or review constrain explicit user actions. Those are durable
 authority decisions. Reconstructing them from a writer implementation later
 would make the lifecycle state machine an emergent property of code rather
-than accepted architecture — the exact failure mode ADR-088 was created to
+than accepted architecture — the exact failure mode ADR-106 was created to
 prevent for review transitions.
 
 ## Decision
@@ -290,7 +290,7 @@ Modifies ADR-084:      NO
 This ADR narrows itself to ordinary-memory lifecycle transition semantics. It
 does not change account ownership, Project scope, Persona attribution, review
 authority, Personal Fact authority, retrieval authority, or portability
-architecture. It does not modify ADR-088.
+architecture. It does not modify ADR-106.
 
 ## Rejected alternatives
 
