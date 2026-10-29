@@ -46,6 +46,12 @@ Scratchfile.md
 moondream.tar
 tts_out.wav
 test.jpg
+# Local scratch directory for session artifacts, proofs and throwaway scripts.
+# Never tracked; also excluded from the Docker build context.
+.scratch/
+.scratch.*
+# Local Docker buildx state (activity files, builder metadata).
+.buildx/
 test.txt
 dead_code_report.*
 Codexify_Schema_Review_For_Claude.pdf
