@@ -31,9 +31,13 @@ required, and the branch was not reset to any expected SHA.
 
 Determined from the **branch-local** canonical index
 `docs/architecture/adr/adr-index.md` plus actual filenames, not from `main`,
-another branch, or memory. Highest existing was `088`
-(`106-ordinary-memory-review-transition-semantics.md`), so the new ADR is
-**089**.
+another branch, or memory. The canonical index assigns `088` to Guardian
+Account Activation and Credential Bootstrap and `089` to Open-Ended Project
+Knowledge and Bounded Document Recall. The ordinary-memory review and
+lifecycle ADRs duplicated those two numbers, so they were renumbered to
+`106` (`106-ordinary-memory-review-transition-semantics.md`) and `107`
+(`107-ordinary-memory-lifecycle-transition-semantics.md`) and registered in the
+canonical index under those numbers.
 
 `docs/architecture/README.md` was checked: it lists neither ADR-087 nor
 ADR-106, so the branch convention does **not** require a per-ADR entry there.

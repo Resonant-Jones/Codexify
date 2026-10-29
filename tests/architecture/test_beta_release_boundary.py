@@ -1040,6 +1040,8 @@ _FUNCTION_ONLY_WORD = re.compile(
     r"remains?|stays?|became|becomes|gets?|got|"
     r"now|already|still|also|just|only|merely|simply|fully|partly|"
     r"largely|recently|currently|finally|here|there|"
+    r"nevertheless|nonetheless|instead|again|furthermore|moreover|"
+    r"yesterday|today|tomorrow|tonight|earlier|later|previously|"
     r"not|never|no|yet|"
     r"complete|completed|done|finished|proven|qualified|resolved|"
     r"closed|cleared)$",
@@ -1117,6 +1119,26 @@ def _completion_noun_phrase(text: str, match: re.Match[str]) -> str:
     return after.strip()
 
 
+def _completion_object_phrase(
+    text: str, match: re.Match[str], topic: re.Pattern[str]
+) -> str:
+    """Return the phrase a completion word governs, including its complement.
+
+    A completion word can govern a phrase that names the obligation through a
+    prepositional complement ("We completed the proof of natural
+    import-to-recall"), so the complement belongs to the governed phrase when it
+    names the obligation.
+    """
+    after = text[match.end() :]
+    boundary = _NOUN_PHRASE_BREAK.search(after)
+    head = after[: boundary.start()] if boundary else after
+    if not topic.search(head):
+        complement = after[len(head) :]
+        if topic.search(complement):
+            return (head + complement).strip()
+    return head.strip()
+
+
 def _negates_completion(text: str, position: int) -> bool:
     """True when a negation immediately governs the completion word."""
     return bool(_NEGATION_IMMEDIATELY_BEFORE.search(text[:position]))
@@ -1134,7 +1156,7 @@ def _scope_completes(scope: str, subject: str, topic: re.Pattern[str]) -> bool:
     for match in _COMPLETION_CLAIM.finditer(scope):
         if _negates_completion(scope, match.start()):
             continue
-        noun_phrase = _completion_noun_phrase(scope, match)
+        noun_phrase = _completion_object_phrase(scope, match, topic)
         if noun_phrase and _names_a_subject(noun_phrase):
             if topic.search(noun_phrase):
                 return True
@@ -1854,6 +1876,28 @@ _OBLIGATION_ATTRIBUTION_REJECTIONS = [
         r"(?m)must not record the natural import-to-recall proof obligation "
         r"as complete$",
     ),
+    # A connective adverb between the subject and its predicate does not start
+    # a new subject, so the completion still belongs to the obligation.
+    (
+        "- The natural import-to-recall proof remains open but nevertheless "
+        "is complete.",
+        r"(?m)must not record the natural import-to-recall proof obligation "
+        r"as complete$",
+    ),
+    # The completion can govern the obligation through a prepositional
+    # complement ("the proof of natural import-to-recall").
+    (
+        "- We completed the proof of natural import-to-recall.",
+        r"(?m)must not record the natural import-to-recall proof obligation "
+        r"as complete$",
+    ),
+    # A temporal complement does not turn the completion into a description of
+    # some other noun phrase.
+    (
+        "- The natural import-to-recall proof was completed yesterday.",
+        r"(?m)must not record the natural import-to-recall proof obligation "
+        r"as complete$",
+    ),
     # A negation that belongs to another predicate cannot suppress a
     # completion declaration.
     (
@@ -1888,6 +1932,9 @@ _OBLIGATION_ATTRIBUTION_REJECTION_IDS = [
     "open-but-has-been-completed",
     "open-but-now-complete",
     "open-but-complete-without-copula",
+    "open-but-nevertheless-complete",
+    "completed-proof-object",
+    "completed-with-temporal-complement",
     "pronoun-continuation",
     "anaphoric-next-sentence",
     "active-voice-completion",

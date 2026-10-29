@@ -98,8 +98,13 @@ def http(corpus, database_url, monkeypatch):
                 "INSERT INTO authenticated_principals(account_id,subject_id) VALUES (%s,%s)",
                 (account, subject),
             )
-    token_a = issue_session_token("subject-a", purpose="account_session")[0]
-    token_b = issue_session_token("subject-b", purpose="account_session")[0]
+    # An account credential is only accepted while its approved session is
+    # stored, and the session user id is the account identity the routes
+    # compare against the project and thread owners.
+    token_a = issue_session_token(A, purpose="account_session")[0]
+    token_b = issue_session_token(B, purpose="account_session")[0]
+    store.store(token_a, A, 3600)
+    store.store(token_b, B, 3600)
     operator = issue_session_token("subject-a", purpose="operator_session")[0]
     guest = issue_guest_session_token(
         room_id="fixture-room",
