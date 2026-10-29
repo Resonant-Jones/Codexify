@@ -705,3 +705,185 @@ def test_release_boundary_helper_rejects_authority_found_only_in_an_unrelated_se
     )
     assert _contains(document, RELEASE_READINESS_PHRASE)
     _assert_rejected(document, REASON_RELEASE_AUTHORITY)
+
+
+# ── Release-posture attribution controls ───────────────────────────────────
+#
+# Each repaired defect gets a paired control: one statement that must still be
+# accepted, and one that must be rejected for the intended boundary. Every
+# rejection asserts its own REASON_* token, so a case cannot pass merely
+# because an unrelated required section went missing.
+
+#: Posture claims that contradict a recorded HOLD and must be rejected.
+CONTRADICTING_POSTURE_CLAIMS = (
+    # The gate itself.
+    "The release gate is OPEN.",
+    "Release gate: OPEN",
+    "Release gate: ready",
+    "The release gate is ready.",
+    "The release gate is release-ready.",
+    "The release gate is ready for release.",
+    # The product release.
+    "The release has been completed.",
+    "The release has been cleared.",
+    "The release has passed.",
+    "The release has been passed.",
+    # A product-path subject.
+    "The supported path is complete.",
+    "main is complete.",
+    # An affirmative modifier does not weaken the claim.
+    "The supported path is definitely ready for release.",
+    # A negation inside a subject modifier does not cancel the predicate.
+    "The release with no outstanding blockers is ready.",
+)
+
+#: Statements that must keep being accepted. A narrower artifact, a negated,
+#: conditional or historical claim is not a product release posture.
+NON_POSTURE_STATEMENTS = (
+    "No supported path is release-ready.",
+    "The release candidate is ready.",
+    "The release build is green.",
+    "The main documentation is release-ready.",
+    "If the release is ready, begin deployment.",
+    "When the release gate is complete, publish the artifacts.",
+    "The release was ready in the previous cycle.",
+    "The release gate was complete during the last cycle.",
+    "The release never became ready.",
+)
+
+#: (contradicting claim, valid counterpart). The counterpart keeps the same
+#: subject and predicate but states no present readiness, so it must remain
+#: acceptable while the contradicting claim is rejected.
+PAIRED_POSTURE_CONTROLS = (
+    ("The release gate is OPEN.", "The release gate is still on hold."),
+    ("The release gate is ready.", "The release gate is not ready."),
+    ("The release has been completed.", "The release has not been completed."),
+    ("The release has been cleared.", "The release has not been cleared."),
+    ("The release has been passed.", "The release has not been passed."),
+    ("The release has passed.", "The release has not passed."),
+    ("The supported path is complete.", "The supported path is not complete."),
+    ("main is complete.", "main is not complete."),
+    (
+        "The supported path is definitely ready for release.",
+        "The supported path is definitely not ready for release.",
+    ),
+    (
+        "The release with no outstanding blockers is ready.",
+        "The release with no outstanding blockers is not ready.",
+    ),
+)
+
+#: Promotions of capabilities the canonical supported-reality section names as
+#: unqualified. Each is checked against the non-promotion boundary, not the
+#: release-posture boundary.
+UNQUALIFIED_PROMOTION_CLAIMS = (
+    "Same-node messaging has become default Beta support.",
+    "Same-node messaging remains default Beta support.",
+    "Share links are default Beta support.",
+    "Cross-node transport is default Beta support.",
+    "Persisted read state is default Beta support.",
+    "Connectors are default Beta support.",
+    "Watchdog is default Beta support.",
+)
+
+#: A denial of the non-promotion rule promotes the capability it denies.
+NON_PROMOTION_DENIALS = (
+    "It is false that same-node human messaging is not default Beta support.",
+)
+
+
+@pytest.mark.parametrize("claim", CONTRADICTING_POSTURE_CLAIMS)
+def test_release_boundary_rejects_a_contradicting_posture_claim(claim: str) -> None:
+    """A posture claim that contradicts the recorded HOLD must be rejected."""
+    document = _append_to_section(
+        _canonical_current_state(), section="Current phase", addition=claim
+    )
+    _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
+
+
+@pytest.mark.parametrize("statement", NON_POSTURE_STATEMENTS)
+def test_release_boundary_accepts_a_non_posture_statement(statement: str) -> None:
+    """An artifact, negated, conditional or historical claim is not posture."""
+    document = _append_to_section(
+        _canonical_current_state(), section="Current phase", addition=statement
+    )
+    assert_current_release_truth(document)
+
+
+@pytest.mark.parametrize(
+    "contradiction,counterpart",
+    PAIRED_POSTURE_CONTROLS,
+    ids=[pair[0] for pair in PAIRED_POSTURE_CONTROLS],
+)
+def test_release_boundary_separates_a_contradiction_from_its_counterpart(
+    contradiction: str, counterpart: str
+) -> None:
+    """Each repaired defect has a valid counterpart that must stay valid."""
+    rejected = _append_to_section(
+        _canonical_current_state(), section="Current phase", addition=contradiction
+    )
+    _assert_rejected(rejected, REASON_RELEASE_CONTRADICTION)
+    accepted = _append_to_section(
+        _canonical_current_state(), section="Current phase", addition=counterpart
+    )
+    assert_current_release_truth(accepted)
+
+
+@pytest.mark.parametrize("claim", UNQUALIFIED_PROMOTION_CLAIMS)
+def test_release_boundary_rejects_an_unqualified_capability_promotion(
+    claim: str,
+) -> None:
+    """Promoting an unqualified capability contradicts the non-promotion rule."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current supported reality",
+        addition=claim,
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+@pytest.mark.parametrize("denial", NON_PROMOTION_DENIALS)
+def test_release_boundary_rejects_a_denied_non_promotion_statement(
+    denial: str,
+) -> None:
+    """Denying the non-promotion rule promotes the capability it denies."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current supported reality",
+        addition=denial,
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
+#: An unchecked item that names no release-qualification obligation. It is an
+#: unrelated task, so it cannot stand in for an unmet release criterion.
+UNRELATED_UNMET_TASK = "- [ ] Optional documentation cleanup"
+
+
+def _every_release_criterion_met(document: str) -> str:
+    """Mark every recorded criterion met, leaving the HOLD in place."""
+    met = document.replace("- [ ]", "- [x]")
+    assert "- [ ]" not in met
+    return met
+
+
+def test_release_boundary_rejects_an_unrelated_task_standing_in_for_a_criterion() -> (
+    None
+):
+    """An unrelated unchecked task cannot satisfy the unmet-criteria rule."""
+    document = _append_to_section(
+        _every_release_criterion_met(_canonical_current_state()),
+        section="Release definition right now",
+        addition=UNRELATED_UNMET_TASK,
+    )
+    _assert_rejected(document, REASON_UNMET_CRITERIA)
+
+
+def test_release_boundary_accepts_an_unrelated_task_beside_unmet_criteria() -> None:
+    """An unrelated task is harmless while a real criterion stays unmet."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Release definition right now",
+        addition=UNRELATED_UNMET_TASK,
+    )
+    assert_current_release_truth(document)

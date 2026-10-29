@@ -57,6 +57,27 @@ _COMPLETION_STATES = (
     "lifted",
 )
 
+# Readiness states contradict an active release HOLD exactly as a completion
+# does: a gate that is ready is not a gate that is on HOLD.
+_READINESS_STATES = (
+    "ready",
+    "release[- ]ready",
+    r"ready\s+for\s+release",
+)
+
+# "open" is the state this repository's sibling release-boundary matcher
+# already treats as contradicting HOLD.
+_OPEN_STATE = "open"
+
+# Every state that contradicts a recorded HOLD.
+_CONTRADICTORY_STATES = (
+    "|".join(_COMPLETION_STATES)
+    + "|"
+    + "|".join(_READINESS_STATES)
+    + "|"
+    + _OPEN_STATE
+)
+
 # Verbs that can carry a completion state. Perfect forms ("has passed",
 # "has been marked as complete") are included so that a completion claim
 # cannot be evaded by tense alone.
@@ -66,6 +87,14 @@ _COMPLETION_VERB = (
     r"(?:\s+been)?"
     r"(?:\s+(?:marked|recorded|set|flagged|labeled|certified|reported))?"
     r"(?:\s+as)?"
+)
+
+# Adverbs that may sit between a verb and its readiness predicate without
+# changing the claim. Only affirmative modifiers are listed: a negation word
+# must never be consumed here, or "is not ready" would read as "is ready".
+_AFFIRMATIVE_MODIFIER = (
+    r"(?:now|already|still|fully|definitely|certainly|clearly|indeed|truly"
+    r"|actually|absolutely|safely|properly)"
 )
 
 # Do not consume a later clause: another release subject there must still be
@@ -78,14 +107,48 @@ _CLAIM_MID = (
     r"|(?:(?!\b(?:but|and|although|though|while|yet|whereas)\b)[^,.;:!?\n]){0,60}?)"
 )
 
+# A noun that makes the phrase after it an artifact rather than the release
+# itself. "The release candidate is ready" and "the release build is green"
+# are statements about a build, not about the release posture.
+_ARTIFACT_NOUN = (
+    r"(?:gate|hold|checklist|guide|notes?|definition|metadata|plan|policy"
+    r"|process|record|runbook|document|docs|documentation|readiness|evidence"
+    r"|artifact|boundary|posture|matrix|tracker|status|log|sign[- ]?off|timeline"
+    r"|candidate|build|branch|image|tag|version)"
+)
+
+# Nouns that turn "release" into a different object. A release checklist or a
+# release guide is an artifact, not the release, so "the release checklist is
+# release-ready" is a truthful narrow claim rather than a posture claim.
+_RELEASE_ARTIFACT = r"(?!\s+(?:" + _ARTIFACT_NOUN + r"))"
+
+# Subjects that denote the product release posture itself. The "main"
+# alternative is guarded by the same artifact list, so "the main documentation
+# is release-ready" stays a narrow artifact claim.
+_PRODUCT_SUBJECT = (
+    r"(?:(?:the|this|that)\s+release" + _RELEASE_ARTIFACT + r")"
+    r"|(?:\brelease" + _RELEASE_ARTIFACT + r")"
+    r"|(?:\bthe\s+supported\s+path\b)"
+    r"|(?:\bsupported\s+path\b)"
+    r"|(?:\b`?main`?(?!\s+(?:" + _ARTIFACT_NOUN + r"))\b)"
+)
+
+# Verbs that can carry a readiness predicate. The plain perfect forms are
+# included so that "the release has passed" cannot be evaded by tense alone.
+_READINESS_VERB = (
+    r"(?:is|are|was|were|becomes|became|has\s+become|have\s+become"
+    r"|had\s+become|(?:has|have|had)\s+been|remains|remained|stays|stayed"
+    r"|has|have|had)"
+)
+
 # "the release gate is `COMPLETE`", "the release gate has passed",
-# "the release hold has been lifted".
+# "the release hold has been lifted", "the release gate is ready".
 _GATE_CLAIM = re.compile(
     r"\b(?:the\s+)?release\s+(?:gate|hold)\b"
     r"(?P<mid>" + _CLAIM_MID + r")"
     r"(?:\b(?P<verb>" + _COMPLETION_VERB + r")\b\s+"
     r"|(?=\b(?:passed|closed)\b))"
-    r"(?:[`\"']?)(?P<state>" + "|".join(_COMPLETION_STATES) + r")\b"
+    r"(?:[`\"']?)(?P<state>" + _CONTRADICTORY_STATES + r")\b"
 )
 
 # "the release gate is no longer `HOLD`" — a lifted hold is a contradiction
@@ -96,54 +159,31 @@ _HOLD_LIFTED = re.compile(
     r"[^.;:!?\n]{0,20}?\bhold\b"
 )
 
-# Nouns that turn "release" into a different object. A release checklist or a
-# release guide is an artifact, not the release, so "the release checklist is
-# release-ready" is a truthful narrow claim rather than a posture claim.
-_RELEASE_ARTIFACT = (
-    r"(?!\s+(?:gate|hold|checklist|guide|notes?|definition|metadata|plan|policy"
-    r"|process|record|runbook|document|docs|readiness|evidence|artifact"
-    r"|boundary|posture|matrix|tracker|status|log|sign[- ]?off|timeline))"
-)
-
-# Subjects that denote the product release posture itself.
-_PRODUCT_SUBJECT = (
-    r"(?:(?:the|this|that)\s+release" + _RELEASE_ARTIFACT + r")"
-    r"|(?:\brelease" + _RELEASE_ARTIFACT + r")"
-    r"|(?:\bthe\s+supported\s+path\b)"
-    r"|(?:\bsupported\s+path\b)"
-    r"|(?:\b`?main`?\b)"
-)
-
-# Verbs that can carry a readiness predicate.
-_READINESS_VERB = (
-    r"(?:is|are|was|were|becomes|became|has\s+become|have\s+become"
-    r"|had\s+become|(?:has|have|had)\s+been|remains|remained|stays|stayed)"
-)
-
 # "the release is release-ready", "the supported path is ready for release".
 _RELEASE_READY_CLAIM = re.compile(
     r"\b(?P<subject>" + _PRODUCT_SUBJECT + r")"
     r"(?P<mid>" + _CLAIM_MID + r")"
     r"\b(?P<verb>" + _READINESS_VERB + r")\b"
-    r"\s+(?:now\s+)?(?:fully\s+)?(?:[`\"']?)"
-    r"(?:release[- ]ready|ready\s+for\s+release)\b"
+    r"\s+(?:" + _AFFIRMATIVE_MODIFIER + r"\s+)*"
+    r"(?:[`\"']?)(?:" + "|".join(_READINESS_STATES) + r")\b"
 )
 
-# "the release is ready", "the release is qualified". The bare predicate is
-# only a posture claim when the subject is the release itself.
+# "the release is ready", "the release is qualified", "the supported path is
+# complete". The bare predicate is only a posture claim when the subject is
+# the release itself or another product-path subject.
 _RELEASE_BARE_READY = re.compile(
-    r"\b(?P<subject>(?:(?:the|this|that)\s+)?release" + _RELEASE_ARTIFACT + r")"
+    r"\b(?P<subject>" + _PRODUCT_SUBJECT + r")"
     r"(?P<mid>" + _CLAIM_MID + r")"
     r"\b(?P<verb>" + _READINESS_VERB + r")\b"
-    r"\s+(?:now\s+)?(?:fully\s+)?(?:[`\"']?)"
-    r"(?:ready|approved|qualified|green|complete|released)\b"
+    r"\s+(?:" + _AFFIRMATIVE_MODIFIER + r"\s+)*"
+    r"(?:[`\"']?)(?:" + "|".join(_COMPLETION_STATES) + r"|ready)\b"
 )
 
 # Explicit label/value statuses, not arbitrary colon- or table-delimited prose.
 _STATUS_CLAIM = re.compile(
     r"\b(?:the\s+)?(?:release\s+(?:gate|hold)\b|release\b"
     + _RELEASE_ARTIFACT + r")\s*(?::|\|)\s*[`\"']?"
-    r"(?:ready|" + "|".join(_COMPLETION_STATES) + r")\b"
+    r"(?:" + _CONTRADICTORY_STATES + r")\b"
 )
 
 _PRODUCT_HOLD_LIFTED = re.compile(
@@ -151,11 +191,47 @@ _PRODUCT_HOLD_LIFTED = re.compile(
     r"(?P<mid>" + _CLAIM_MID + r")\b(?:is|was|remains)\s+no\s+longer\s+on\s+hold\b"
 )
 
+# Capabilities the canonical supported-reality section names as unqualified. A
+# promotion claims one of them is default Beta support.
+_UNQUALIFIED_CAPABILITY = (
+    r"(?:same-node\s+(?:human\s+)?messaging"
+    r"|share[- ]links?"
+    r"|cross-node\s+(?:discovery|transport)"
+    r"|(?:unread\s+indicators\s+and\s+)?persisted\s+read\s+state"
+    r"|recipient-local\s+read\s+state"
+    r"|connectors?|activation|browser\s+host(?:/import)?|watchdog"
+    r"|hosted\s+sandbox|atlas|\bpi\b|federation"
+    r"|autonomous\s+coding[- ]worker\s+work)"
+)
+
+# The state-carrying verbs a promotion may use.
+_PROMOTION_VERB = (
+    r"(?:is|are|was|were|becomes|became|has\s+become|have\s+become"
+    r"|had\s+become|(?:has|have|had)\s+been|remains|remained|stays|stayed)"
+)
+
+# Release-qualification obligations the release definition must still record as
+# unmet. An unchecked Markdown item that names none of these is an unrelated
+# task, not a release criterion, so it cannot satisfy the HOLD on its own.
+_REQUIRED_QUALIFICATION_GATE = re.compile(
+    r"\b(?:compose|explicit[\s-]model|import[\s-]to[\s-]recall|import[\s-]recall"
+    r"|scope[\s-]isolation|reasoning_effort|release metadata)\b",
+    re.IGNORECASE,
+)
+
 # Negation cues. These can precede the subject ("No supported path is
 # release-ready") as well as follow the copula.
 _NEGATION_CUES = re.compile(
     r"\b(?:no|not|never|neither|nor|none|nothing|nobody|cannot|without"
     r"|lacks?|lacking|isn't|aren't|wasn't|weren't|doesn't|don't|didn't)\b"
+)
+
+# A negation that follows a preposition qualifies the noun it attaches to
+# rather than the predicate: "the release with no outstanding blockers is
+# ready" states that the release is ready, not that it is not ready.
+_PREPOSITION_QUALIFIED_NEGATION = re.compile(
+    r"\b(?:with|without|for|of|on|in|at|by|from|during|after|before)\b"
+    r"(?:\s+\w+){0,3}\s+(?:no|not|none|never)\b"
 )
 
 # Qualifiers that scope a completion claim to a past cycle rather than to the
@@ -170,6 +246,13 @@ _HISTORICAL_CUES = re.compile(
 # silence a claim in a later one.
 _CLAUSE_BOUNDARY = re.compile(
     r"[,;:.!?]|\b(?:but|and|although|though|while|yet|whereas)\b"
+)
+
+# Conditional clauses state no present posture, so readiness inside one is
+# not a current claim.
+_CONDITIONAL_INTRODUCER = re.compile(
+    r"\b(?:if|when|whenever|once|unless|in\s+case|should|would)\b",
+    re.IGNORECASE,
 )
 
 # Past-tense verbs. Only a past-tense claim can be scoped to a past cycle.
@@ -259,6 +342,25 @@ def _governing_clause(prefix: str) -> str:
     return prefix
 
 
+def _clause_suffix(suffix: str) -> str:
+    """The bounded remainder of the clause that follows a match.
+
+    Only the current clause is returned, so a qualifier in a later sentence
+    cannot silence a claim here.
+    """
+    boundary = _CLAUSE_BOUNDARY.search(suffix)
+    if boundary:
+        return suffix[:boundary.start()]
+    return suffix
+
+
+def _without_preposition_qualified_negation(text: str) -> str:
+    """Drop negations that qualify a noun rather than the predicate."""
+    return _PREPOSITION_QUALIFIED_NEGATION.sub(
+        lambda match: match.group(0).rsplit(None, 1)[0] + " ", text
+    )
+
+
 def _release_posture_contradiction(document: str) -> str | None:
     """Return the contradicting release-posture claim, if the document makes one.
 
@@ -277,14 +379,26 @@ def _release_posture_contradiction(document: str) -> str | None:
             for match in pattern.finditer(block):
                 prefix = block[:match.start()]
                 clause = _governing_clause(prefix)
+                suffix = block[match.end():]
+                trailing = _clause_suffix(suffix)
                 mid = match.groupdict().get("mid") or ""
-                if _NEGATION_CUES.search(_NOT_ONLY.sub(" ", clause + " " + mid)):
+                scope = _NOT_ONLY.sub(
+                    " ",
+                    _without_preposition_qualified_negation(clause + " " + mid),
+                )
+                if _NEGATION_CUES.search(scope):
                     continue
-                if _PAST_TENSE.search(match.group(0)) and _HISTORICAL_CUES.search(clause + " " + mid):
+                # A conditional clause asserts no present posture.
+                if _CONDITIONAL_INTRODUCER.search(
+                    clause
+                ) or _CONDITIONAL_INTRODUCER.search(trailing):
+                    continue
+                if _PAST_TENSE.search(match.group(0)) and _HISTORICAL_CUES.search(
+                    clause + " " + mid + " " + trailing
+                ):
                     continue
                 # A quoted claim explicitly denied after its closing quote is
                 # not an affirmation; allow a simple Markdown citation first.
-                suffix = block[match.end():]
                 if re.match(r"[`*_]*[\"']\s*(?:\[[^\]]+\]\s*)?(?:is|was)\s+(?:false|not\s+true)\b", suffix):
                     continue
                 # A complete quote described as prohibited is not itself a
@@ -359,11 +473,14 @@ def assert_current_release_truth(current: str) -> None:
     )
 
     # D. The release definition still records qualification criteria that
-    #    are not met.
+    #    are not met. An unchecked item that names no release-qualification
+    #    obligation is an unrelated task, not a release criterion, so it cannot
+    #    keep the recorded HOLD honest on its own.
     unmet = [
         line
         for line in release_definition.splitlines()
         if line.strip().startswith("- [ ]")
+        and _REQUIRED_QUALIFICATION_GATE.search(line)
     ]
     assert unmet, (
         f"{REASON_UNMET_CRITERIA}: the release definition must still record "
@@ -380,9 +497,14 @@ def assert_current_release_truth(current: str) -> None:
     supported_blocks = _logical_lines(sections.get(_heading_key("Current supported reality"), ""))
     current_main_non_promotion = False
     same_node_promotion = False
+    non_promotion_denied = False
     promotion_pattern = re.compile(
-        r"\bsame-node\s+(?:human\s+)?messaging\s+is\s+(?:now\s+)?default\s+beta\s+support\b"
+        r"\b(?P<capability>" + _UNQUALIFIED_CAPABILITY + r")"
+        r"\s+(?:" + _PROMOTION_VERB + r")\s+"
+        r"(?:now\s+)?default\s+beta\s+support\b"
     )
+    non_promotion_wording = re.compile(r"\bnot\s+default\s+beta\s+support\b")
+
     def denied(prefix: str) -> bool:
         clause = _governing_clause(prefix)
         return bool(
@@ -400,6 +522,19 @@ def assert_current_release_truth(current: str) -> None:
             )
             if not denied(prefix) and not quoted_denial:
                 current_main_non_promotion = True
+        # A required non-promotion statement that is explicitly denied is not
+        # a non-promotion statement: denying it promotes the capability.
+        for match in non_promotion_wording.finditer(block):
+            prefix = block[:match.start()]
+            suffix = block[match.end():]
+            quoted_denial = prefix.endswith(('"', "'", "`")) and re.match(
+                re.escape(prefix[-1]) + r"\s+(?:is|was)\s+(?:false|not\s+true|prohibited)\b",
+                suffix,
+            )
+            if denied(prefix) or quoted_denial:
+                non_promotion_denied = True
+            else:
+                current_main_non_promotion = True
         for match in promotion_pattern.finditer(block):
             prefix = block[:match.start()]
             suffix = block[match.end():]
@@ -414,6 +549,7 @@ def assert_current_release_truth(current: str) -> None:
     assert (
         ("not default beta support" in supported or current_main_non_promotion)
         and not same_node_promotion
+        and not non_promotion_denied
     ), (
         f"{REASON_NON_PROMOTION_CLAIM}: Current supported reality must state "
         "that unqualified capabilities are not default Beta support"
