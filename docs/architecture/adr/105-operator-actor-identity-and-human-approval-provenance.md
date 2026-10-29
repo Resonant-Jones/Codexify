@@ -2,15 +2,77 @@
 
 ## Status
 
-Proposed.
+Accepted 2026-10-28 by Resonant Jones.
 
-Acceptance is a human decision. This ADR records a contract only; it does not
-change runtime behavior, and no runtime implementation is authorized by this
-document alone.
+Acceptance records the governing provenance contract only. It does not perform
+any implementation, does not change runtime behavior, and does not enable
+automatic Campaign continuation. The first runtime slice is separately
+authorized and is persistence-only.
 
 ## Date
 
 2026-10-28
+
+## Acceptance
+
+- Accepted: 2026-10-28
+- Human approver: Resonant Jones
+- Evidence posture: architecture decision only. Acceptance records the governing
+  provenance contract; it does not imply that any accepted capability is
+  implemented, runtime-qualified, or release-supported.
+
+### Accepted architecture
+
+Acceptance applies to the following decisions:
+
+1. **Human approval authority** — Campaign Continuation Authority approval and
+   revocation are performed only by a canonical account-admin principal: an
+   exact-purpose account session, a persisted canonical account mapping equal
+   to the token subject, a persisted canonical `User` row whose `role` is
+   `admin`, and an independent non-principal service-capability gate.
+2. **Operator lane separation** — raw API-key and `operator_session`
+   credentials keep the operator-control lane and never produce, imply, or
+   record a human approver identity.
+3. **Route placement** — the two human-approval mutations leave the inherited
+   operator-only router dependency; the read-only listing route stays in the
+   operator-control lane.
+4. **Provenance as a distinct durable fact** — a narrow persisted per-action
+   provenance discriminator on the canonical authority record is required;
+   classification reads that discriminator and is never inferred from actor
+   bytes; a deployment principal that collides with a canonical administrator's
+   `User.id` must not merge the two authority classes.
+5. **Legacy classification** — every pre-existing approval and revocation is
+   legacy/unverified human provenance. Its origin is determinable in this
+   codebase, so a bounded migration may classify it directly without altering
+   any actor id or timestamp, and without ever inferring an individual's
+   identity.
+6. **Idempotency** — the approval comparison, including its
+   uniqueness-conflict retry, compares the provenance class, so identical actor
+   bytes across distinct classes never produce an idempotent success.
+7. **Fail-closed consumption** — legacy, missing, or unclassified approval
+   provenance is not human-approved for any downstream consumer, including
+   automatic continuation. A cutoff inferred from actor ID strings, the current
+   deployment principal, the current admin registry, or mutable wall-clock
+   configuration is insufficient.
+
+### Ordered runtime slices
+
+Acceptance authorizes no automatic Campaign execution. The persistence
+foundation must land before any new human approval can be recorded, otherwise
+a new human approval could not be distinguished from a historical operator
+action.
+
+1. **Persistence foundation** — independent approval and revocation provenance
+   fields on `CampaignContinuationAuthorityRecord`; a bounded migration
+   classifying established historical actions as legacy without changing actor
+   IDs or timestamps; PostgreSQL migration, readback, and recovery proof. An
+   unrevoked legacy record must not be mistaken for a new human approval merely
+   because its actor bytes match an administrator's ID.
+2. **Human approval routes** — move approval and revocation to the canonical
+   account-admin authority path, share the existing admin dependency, and
+   update the idempotency and credential-boundary tests.
+
+Each slice requires its own authorization.
 
 ## Context
 
@@ -111,6 +173,19 @@ Proven by inspection and reproduction on `4791f219d`:
   raw-key approval and a future account-admin approval have identical stored
   actor bytes and satisfy the existing idempotency predicate. This is a
   source-level collision reproduction, not a live deployment test.
+- The origin class of every pre-existing authority record is determinable
+  rather than merely assumed. The table and its only writer were introduced
+  together in `6beebd43b` (2026-10-05), so no earlier writer could have
+  produced a different actor value; that writer resolved the approver through
+  `get_single_user_id()` for the operator API-key lane and through an
+  account-session-store lookup for the operator-session lane; and no
+  `operator_session` credential is ever written to the account session store —
+  `guardian/routes/admin.py` mints them without storing, while every
+  `get_session_store().store(...)` call site stores an `account_session`
+  credential. The operator-session lane therefore always failed closed before
+  the handler ran and could never contribute an approver id. Every
+  pre-existing approval and revocation is consequently a deployment-operator
+  action.
 
 Not yet proven:
 
@@ -197,10 +272,13 @@ The authority record must also durably classify **each action independently**:
 This is authority-record metadata, not a new principal, credential class,
 capability family, token purpose, or human role. A narrow persisted provenance
 discriminator for approval and one for revocation, on the existing canonical
-authority record, is the preferred correction. A later implementation task
-must select the concrete schema representation, enforce non-null classification
-for applicable actions, and prove migration, backup/restore, and export/readback
-behavior. No DDL or data migration is performed by this proposed ADR.
+authority record, is **required** — the distinguishability this contract
+requires cannot be delivered by the actor string alone, and a preferred or
+optional discriminator would leave the ambiguity in place. A later
+implementation task must select the concrete schema representation, enforce
+non-null classification for applicable actions, and prove migration,
+backup/restore, and export/readback behavior. No DDL or data migration is
+performed by this ADR.
 
 A cutoff inferred solely from actor ID strings, the deployment's current
 `CODEXIFY_SINGLE_USER_ID`, the current admin registry, or mutable wall-clock
@@ -237,6 +315,16 @@ Every readback, operator view, audit, export, restore, and downstream authority
 consumer must preserve and distinguish these classes without deriving human
 identity from actor strings. If a historical row's origin cannot be proven,
 classify it as legacy/unverified, never as verified human approval.
+
+In this codebase the origin of every pre-existing row is proven, as recorded
+under Current-Truth Anchors: the table and its only writer share a single
+origin commit, and the operator-session lane could never have contributed an
+approver id because no `operator_session` credential is ever written to the
+account session store. A bounded migration may therefore assert
+`legacy_deployment_operator` for those rows directly, rather than recording a
+weaker unclassified marker. The conservative fallback above remains the rule
+for any row whose origin cannot be established, and it must never be relaxed
+to accommodate an unproven row.
 
 The approval store's idempotency comparison (including its integrity-error
 retry path) must compare **approval provenance class** as well as actor ID,
