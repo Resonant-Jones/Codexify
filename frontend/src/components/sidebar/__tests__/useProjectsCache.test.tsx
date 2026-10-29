@@ -84,8 +84,20 @@ describe("useProjectsCache", () => {
 
     render(<ProjectsHarness />);
 
-    expect(await screen.findByTestId("project-count")).toHaveTextContent("2");
-    expect(screen.getByTestId("project-names")).toHaveTextContent("Quarterly Planning|General");
+    // The harness renders the count and the names from the same list, but the
+    // list is applied asynchronously. Wait for the count to settle before
+    // asserting the names, or the names can still be the previous render.
+    await waitFor(
+      () => expect(screen.getByTestId("project-count")).toHaveTextContent("2"),
+      { timeout: 3000 }
+    );
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("project-names")).toHaveTextContent(
+          "Quarterly Planning|General"
+        ),
+      { timeout: 3000 }
+    );
     expect(screen.getByTestId("project-names")).not.toHaveTextContent("ChatGPT - Quarterly Planning");
     expect(screen.getByTestId("project-meta")).toHaveTextContent('"import_source":"chatgpt"');
   });
