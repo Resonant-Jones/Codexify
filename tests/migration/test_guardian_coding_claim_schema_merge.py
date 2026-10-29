@@ -135,9 +135,18 @@ def _lineage(head: str) -> set[str]:
 
 
 def test_the_graph_has_exactly_one_head() -> None:
-    """The mergepoint leaves the graph with a single head."""
+    """The graph has one head, and the Guardian Coding mergepoint is in it.
+
+    ``7f2c9e1a4b63`` is not the permanent head of the migration graph: a
+    later, correctly joined branch may add a mergepoint above it. What must
+    remain true is that the graph has exactly one head and that this mergepoint
+    stays reachable from it.
+    """
     heads = tuple(_script_directory().get_heads())
-    assert heads == (MERGE_REVISION,), f"expected one head, got {heads}"
+    assert len(heads) == 1, f"expected exactly one head, got {heads}"
+    assert MERGE_REVISION in _lineage(heads[0]), (
+        "the Guardian Coding mergepoint must stay in the current head's ancestry"
+    )
 
 
 def test_both_original_branches_are_ancestors_of_the_head() -> None:
@@ -200,27 +209,45 @@ def test_existing_mainline_migration_history_is_preserved() -> None:
 
 
 def test_agent_run_exposes_the_expected_new_columns() -> None:
-    """The ORM declares the three columns and nothing else changed."""
+    """The ORM declares the three columns, and the baseline declarations remain.
+
+    The table may legitimately grow columns from later migrations, so this
+    asserts that the required declarations are *present*, not that the table
+    still equals the October 2026 snapshot. The pull request's own changed-file
+    scope remains the evidence that this particular change introduced exactly
+    three columns.
+    """
     table = AgentRun.__table__
     columns = {column.name for column in table.columns}
+
     for column in NEW_COLUMNS:
         assert column in columns, f"AgentRun is missing {column}"
 
-    assert set(MAIN_BASELINE_COLUMNS) | set(NEW_COLUMNS) == columns, (
-        "agent_runs columns differ from mainline baseline plus the three new "
-        f"columns: {sorted(columns)}"
-    )
+    for column in MAIN_BASELINE_COLUMNS:
+        assert column in columns, f"AgentRun dropped baseline column {column}"
 
     for column in NEW_COLUMNS:
         assert table.columns[column].nullable, f"{column} must stay nullable"
 
 
 def test_no_new_retry_recovery_or_account_authority_is_introduced() -> None:
-    """The new fields are execution evidence, never authority."""
+    """The new fields are execution evidence, never authority.
+
+    Later migrations may legitimately add their own columns and constraints to
+    ``agent_runs``, so this asserts that the required declarations are
+    *present* and that the three introduced by this change still encode
+    execution evidence rather than authority. It does not freeze the table to
+    the October 2026 snapshot.
+    """
     table = AgentRun.__table__
 
     constraint_names = {c.name for c in table.constraints if c.name}
-    assert constraint_names == set(MAIN_BASELINE_CONSTRAINTS) | set(NEW_CONSTRAINTS)
+    for name in NEW_CONSTRAINTS:
+        assert name in constraint_names, f"AgentRun is missing constraint {name}"
+    for name in MAIN_BASELINE_CONSTRAINTS:
+        assert name in constraint_names, (
+            f"AgentRun dropped baseline constraint {name}"
+        )
 
     for name in NEW_CONSTRAINTS:
         assert not any(
@@ -238,6 +265,23 @@ def test_no_new_retry_recovery_or_account_authority_is_introduced() -> None:
         )
     assert str(table.columns["coding_worker_instance_id"].type) == "VARCHAR(64)"
     assert str(table.columns["coding_worker_claim_id"].type) == "VARCHAR(64)"
+
+    # The constraints must still express the rules they exist to enforce, so a
+    # later edit that weakens the ORM declaration cannot silently diverge from
+    # the database.
+    by_name = {c.name: c for c in table.constraints if c.name}
+    ownership_sql = str(by_name["agent_runs_coding_worker_ownership_check"].sqltext)
+    assert "coding_worker_instance_id" in ownership_sql
+    assert "coding_worker_claim_id" in ownership_sql
+
+    heartbeat_sql = str(
+        by_name["agent_runs_coding_worker_heartbeat_ownership_check"].sqltext)
+    assert "coding_worker_last_heartbeat_at" in heartbeat_sql
+    assert "coding_worker_instance_id" in heartbeat_sql
+    assert "coding_worker_claim_id" in heartbeat_sql
+
+    unique = by_name["uq_agent_runs_coding_worker_claim_id"]
+    assert list(unique.columns.keys()) == ["coding_worker_claim_id"]
 
 
 # ---------------------------------------------------------------------------
