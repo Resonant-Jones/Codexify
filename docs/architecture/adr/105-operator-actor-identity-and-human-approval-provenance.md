@@ -2,15 +2,77 @@
 
 ## Status
 
-Proposed.
+Accepted 2026-10-28 by Resonant Jones.
 
-Acceptance is a human decision. This ADR records a contract only; it does not
-change runtime behavior, and no runtime implementation is authorized by this
-document alone.
+Acceptance records the governing provenance contract only. It does not perform
+any implementation, does not change runtime behavior, and does not enable
+automatic Campaign continuation. The first runtime slice is separately
+authorized and is persistence-only.
 
 ## Date
 
 2026-10-28
+
+## Acceptance
+
+- Accepted: 2026-10-28
+- Human approver: Resonant Jones
+- Evidence posture: architecture decision only. Acceptance records the governing
+  provenance contract; it does not imply that any accepted capability is
+  implemented, runtime-qualified, or release-supported.
+
+### Accepted architecture
+
+Acceptance applies to the following decisions:
+
+1. **Human approval authority** — Campaign Continuation Authority approval and
+   revocation are performed only by a canonical account-admin principal: an
+   exact-purpose account session, a persisted canonical account mapping equal
+   to the token subject, a persisted canonical `User` row whose `role` is
+   `admin`, and an independent non-principal service-capability gate.
+2. **Operator lane separation** — raw API-key and `operator_session`
+   credentials keep the operator-control lane and never produce, imply, or
+   record a human approver identity.
+3. **Route placement** — the two human-approval mutations leave the inherited
+   operator-only router dependency; the read-only listing route stays in the
+   operator-control lane.
+4. **Provenance as a distinct durable fact** — a narrow persisted per-action
+   provenance discriminator on the canonical authority record is required;
+   classification reads that discriminator and is never inferred from actor
+   bytes; a deployment principal that collides with a canonical administrator's
+   `User.id` must not merge the two authority classes.
+5. **Legacy classification** — every pre-existing approval and revocation is
+   legacy/unverified human provenance. Its origin is determinable in this
+   codebase, so a bounded migration may classify it directly without altering
+   any actor id or timestamp, and without ever inferring an individual's
+   identity.
+6. **Idempotency** — the approval comparison, including its
+   uniqueness-conflict retry, compares the provenance class, so identical actor
+   bytes across distinct classes never produce an idempotent success.
+7. **Fail-closed consumption** — legacy, missing, or unclassified approval
+   provenance is not human-approved for any downstream consumer, including
+   automatic continuation. A cutoff inferred from actor ID strings, the current
+   deployment principal, the current admin registry, or mutable wall-clock
+   configuration is insufficient.
+
+### Ordered runtime slices
+
+Acceptance authorizes no automatic Campaign execution. The persistence
+foundation must land before any new human approval can be recorded, otherwise
+a new human approval could not be distinguished from a historical operator
+action.
+
+1. **Persistence foundation** — independent approval and revocation provenance
+   fields on `CampaignContinuationAuthorityRecord`; a bounded migration
+   classifying established historical actions as legacy without changing actor
+   IDs or timestamps; PostgreSQL migration, readback, and recovery proof. An
+   unrevoked legacy record must not be mistaken for a new human approval merely
+   because its actor bytes match an administrator's ID.
+2. **Human approval routes** — move approval and revocation to the canonical
+   account-admin authority path, share the existing admin dependency, and
+   update the idempotency and credential-boundary tests.
+
+Each slice requires its own authorization.
 
 ## Context
 
@@ -216,7 +278,7 @@ optional discriminator would leave the ambiguity in place. A later
 implementation task must select the concrete schema representation, enforce
 non-null classification for applicable actions, and prove migration,
 backup/restore, and export/readback behavior. No DDL or data migration is
-performed by this proposed ADR.
+performed by this ADR.
 
 A cutoff inferred solely from actor ID strings, the deployment's current
 `CODEXIFY_SINGLE_USER_ID`, the current admin registry, or mutable wall-clock
