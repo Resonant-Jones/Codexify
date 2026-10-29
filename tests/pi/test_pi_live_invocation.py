@@ -13,7 +13,10 @@ import pytest
 import guardian.agents.adapters.pi_codex_runner as pi_codex_runner
 from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
 from guardian.agents.adapters.codex import CodexAdapter
-from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
+from guardian.agents.adapters.pi_codex_runner import (
+    PiAuthorizedFailureClass,
+    PiCodexRunnerAdapter,
+)
 from guardian.pi.contracts import (
     PiGuardianBoundary,
     PiInvocationEnvelope,
@@ -33,6 +36,11 @@ from guardian.pi.validation import (
     validate_receipt_against_envelope,
 )
 
+
+#: Guardian invocation credential authority for the authorized Pi lane. The
+#: adapter refuses an authorized invocation without it, so the fixtures must
+#: carry one.
+_CREDENTIAL_MATERIAL = "fixture-invocation-credential"
 
 IDENTITY = {
     "provider_id": "openai-codex",
@@ -294,6 +302,16 @@ def test_real_fake_pi_timeout_preserves_phase_evidence_without_terminal_result(
     fake_home = tmp_path / "fake_home"
     fake_home.mkdir()
     monkeypatch.setenv("PI_CODING_AGENT_PACKAGE_ROOT", str(fake_package))
+    # The authorized lane loads the Pi runtime with isolated credentials, so
+    # the wrapper resolves the credential store from the vendored runtime's
+    # own node_modules rather than from the materialized fake package.
+    monkeypatch.setenv(
+        "PI_CODING_AGENT_NODE_MODULES",
+        str(
+            Path(__file__).resolve().parents[2]
+            / "codex_runner/vendor/pi-coding-agent/node_modules"
+        ),
+    )
     monkeypatch.setenv("PI_FAKE_I_BEHAVIOR", behavior)
     monkeypatch.setenv("HOME", str(fake_home))
 
@@ -301,10 +319,11 @@ def test_real_fake_pi_timeout_preserves_phase_evidence_without_terminal_result(
     outcome = invoke_guardian_authorized_pi(
         envelope=envelope,
         decision=_decision(envelope),
-        prompt="Provider-free timeout fixture",
+        prompt=f"Provider-free timeout fixture: {behavior}",
         cwd=target,
         timeout_seconds=2,
         reasoning_effort="high",
+        credential_material=_CREDENTIAL_MATERIAL,
     )
     assert outcome.ok is False
     assert outcome.failure_reason == PiValidationFailureReason.ADAPTER_EXECUTION_FAILURE.value
@@ -337,6 +356,13 @@ def test_real_fake_pi_timeout_preserves_phase_evidence_without_terminal_result(
             subprocess.run(
                 ["node", str(wrapper), "guardian-authorized-task", "fixture"],
                 cwd=target, env=env, capture_output=True, text=True, timeout=2,
+                # The wrapper reads the invocation credential from stdin.
+                input=json.dumps(
+                    {
+                        "credential_type": "api_key",
+                        "api_key": _CREDENTIAL_MATERIAL,
+                    }
+                ),
             )
         captured_stdout = timeout.value.stdout or b""
         if isinstance(captured_stdout, bytes):
@@ -817,7 +843,7 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     result = PiCodexRunnerAdapter().execute_authorized(
         AgentExecutionRequest(prompt="bounded", cwd=str(tmp_path), timeout_seconds=12),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
         reasoning_effort="high",
     )
 
@@ -840,27 +866,28 @@ def test_authorized_adapter_uses_invocation_local_identity(monkeypatch: pytest.M
     assert result.summary == "bounded"
 
 
-def test_legacy_pi_adapter_keeps_task_mode_and_output_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_legacy_pi_adapter_refuses_the_ambient_path_without_launching(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The legacy ambient lane is refused: coding tasks need a Guardian binding."""
     observed: dict[str, object] = {}
 
     def _run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         observed["command"] = command
-        observed["environment"] = kwargs["env"]
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout=json.dumps({"status": "ok", "summary": "legacy task"}),
-            stderr="",
-        )
+        raise AssertionError("the legacy lane must not launch a wrapper")
 
     monkeypatch.setattr(pi_codex_runner.subprocess, "run", _run)
     result = PiCodexRunnerAdapter().execute(
         AgentExecutionRequest(prompt="legacy", cwd=str(tmp_path), timeout_seconds=12)
     )
 
-    assert observed["command"][-2] == "task"
-    assert result.status == "ok"
-    assert result.summary == "legacy task"
+    assert "command" not in observed
+    assert result.status == "error"
+    assert (
+        result.failure_classification
+        == PiAuthorizedFailureClass.AUTHORIZED_IDENTITY_REJECTED.value
+    )
+    assert result.failure_stage == "authorization"
     assert result.actual_provider_id is None
     assert result.actual_model_id is None
     assert result.actual_harness_id is None
@@ -1037,7 +1064,7 @@ def test_assistant_telemetry_present_propagates_into_adapter(
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "ok"
     assert result.assistant_message_count == 1
@@ -1062,7 +1089,7 @@ def test_assistant_telemetry_missing_assistant_message_count_fails_closed(
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1081,7 +1108,7 @@ def test_assistant_telemetry_negative_assistant_message_count_fails_closed(
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1099,7 +1126,7 @@ def test_assistant_telemetry_non_string_block_type_member_fails_closed(
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1117,7 +1144,7 @@ def test_assistant_telemetry_non_list_block_types_fails_closed(
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1135,7 +1162,7 @@ def test_assistant_telemetry_negative_assistant_tool_call_event_count_fails_clos
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1153,7 +1180,7 @@ def test_assistant_telemetry_string_event_types_with_invalid_member_fails_closed
             prompt="bounded", cwd=str(tmp_path), timeout_seconds=12,
         ),
         AgentExecutionIdentity(**IDENTITY),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1179,7 +1206,7 @@ def test_deepseek_required_write_rejects_positive_effort_before_subprocess(
             harness_id="pi-coding-agent",
             harness_version="0.82.1",
         ),
-        read_only=False,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=False,
         reasoning_effort="high",
         required_tool_name="write",
     )
@@ -1205,7 +1232,7 @@ def test_deepseek_required_write_projects_explicit_off_to_wrapper(
             harness_id="pi-coding-agent",
             harness_version="0.82.1",
         ),
-        read_only=False,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=False,
         reasoning_effort="off",
         required_tool_name="write",
     )
