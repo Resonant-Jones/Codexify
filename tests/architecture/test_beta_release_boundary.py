@@ -825,6 +825,17 @@ _COMPLETION_CLAIM = re.compile(
     re.IGNORECASE,
 )
 
+# A completion word only claims an obligation when it sits in predicate
+# position: directly after a copula, with at most adverbs or "been" between.
+# In adjective position ("complete scope-isolation proof") the word qualifies
+# the noun phrase that follows it and therefore completes *that* obligation,
+# not another obligation named in the same sentence.
+_COMPLETION_PREDICATE = re.compile(
+    r"\b(?:is|are|was|were|remains?|remained|stays?|stayed|becomes?|became|"
+    r"has|have|had)\b(?:\s+(?:not|now|already|also|yet|been))*\s*$",
+    re.IGNORECASE,
+)
+
 
 # The canonical supported installation path: the local Docker Compose profile
 # `v1-local-core-web-mcp`. The contract requires a positive declaration that
@@ -924,6 +935,44 @@ def _has_unresolved_state(clause: str) -> bool:
     return False
 
 
+def _completion_claims_topic(clause: str, topic: re.Pattern[str]) -> bool:
+    """True when the clause claims the topic's own obligation is complete.
+
+    A completion word claims the obligation it is attached to, so the check is
+    read per coordinated item and per subject:
+
+    * the word must sit in predicate position. A word in adjective position
+      ("complete scope-isolation proof") qualifies the noun phrase that
+      follows it and claims that obligation instead;
+    * the subject of that predicate — the text before its copula — must name
+      the topic, so a completion claim about one obligation is never charged
+      to a different obligation named in the same sentence.
+
+    A limitation worth stating plainly: a completion word separated from its
+    subject by a comma-delimited item ("the import-to-recall proof, including
+    restart recovery, is complete") is attributed to the item that holds the
+    word, so such a wording is not charged to the earlier item.
+    """
+    for item in clause.split(","):
+        for match in _COMPLETION_CLAIM.finditer(item):
+            prefix = item[: match.start()]
+            if _NEGATION.search(prefix):
+                # A negated completion ("has not been completed") states that
+                # the obligation is still outstanding.
+                continue
+            predicate = _COMPLETION_PREDICATE.search(prefix)
+            if predicate is None:
+                # Adjective position: the word qualifies the noun phrase that
+                # follows it rather than claiming the topic's completion.
+                continue
+            subject = item[: predicate.start()]
+            if not topic.search(subject):
+                # The claim is about another obligation.
+                continue
+            return True
+    return False
+
+
 def _supported_compose_profile_declared(section: str) -> bool:
     """True when the section positively declares the supported Compose profile.
 
@@ -968,24 +1017,29 @@ def _require_unresolved_obligation(
     The obligation must appear inside the Active blockers section. The
     unresolved state must belong to the obligation's *own* clause: a pending
     word attached to a different statement in the same bullet does not prove
-    the gap, and an obligation that claims completion is rejected outright.
+    the gap. A completion claim on the obligation is rejected outright, and is
+    attributed to the obligation that owns it rather than to every obligation
+    named in the same sentence.
     """
     bullets = _blocker_bullets(section)
-    for bullet in bullets:
-        for clause in _clauses(bullet):
-            if not topic.search(clause):
-                continue
-            assert not _has_affirmative(clause, _COMPLETION_CLAIM), (
-                f"Active blockers must not record the {label} obligation as "
-                f"complete"
-            )
-            assert _has_unresolved_state(clause), (
-                f"Active blockers must record the {label} obligation as "
-                f"unresolved"
-            )
-            return
-    raise AssertionError(
-        f"Active blockers must record the {label} obligation"
+    matching = [
+        clause
+        for bullet in bullets
+        for clause in _clauses(bullet)
+        if topic.search(clause)
+    ]
+    if not matching:
+        raise AssertionError(
+            f"Active blockers must record the {label} obligation"
+        )
+    for clause in matching:
+        assert not _completion_claims_topic(clause, topic), (
+            f"Active blockers must not record the {label} obligation as "
+            f"complete"
+        )
+    assert _has_unresolved_state(matching[0]), (
+        f"Active blockers must record the {label} obligation as "
+        f"unresolved"
     )
 
 
@@ -1122,6 +1176,54 @@ _COMPOSE_OBLIGATION_CASES = [
         "completed.",
         True,
     ),
+    # A completion claim about the supported-Compose obligation is rejected
+    # even when another obligation in the same bullet is still open.
+    (
+        "- Supported-Compose qualification is complete while import-to-recall "
+        "remains open.",
+        False,
+    ),
+]
+
+# Table-driven obligation cases for the natural import-to-recall proof. Each
+# entry is (active-blocker bullet, accepted). A completion word is attributed
+# to the obligation that owns it: a word qualifying a neighbouring
+# obligation's noun phrase is not a claim about this obligation.
+_IMPORT_OBLIGATION_CASES = [
+    # The canonical coordinated wording. "complete" qualifies the separate
+    # scope-isolation proof, so it is not a completion claim about the
+    # import-to-recall proof.
+    (
+        "- New-thread authored-message projection, natural import-to-recall, "
+        "and complete scope-isolation proof remain open.",
+        True,
+    ),
+    # A neighbouring obligation's completion wording is equally harmless.
+    (
+        "- Complete scope-isolation proof remains open; natural "
+        "import-to-recall proof remain open.",
+        True,
+    ),
+    # Genuine completion claims are still rejected.
+    (
+        "- Natural import-to-recall proof is complete while scope-isolation "
+        "remains open.",
+        False,
+    ),
+    (
+        "- Natural import-to-recall proof has been completed while another "
+        "obligation remains pending.",
+        False,
+    ),
+    # A completed obligation cannot borrow another obligation's pending marker.
+    (
+        "- Natural import-to-recall proof is complete; supported-Compose "
+        "qualification remains pending.",
+        False,
+    ),
+    # Ordinary unresolved wording is accepted.
+    ("- Natural import-to-recall proof remains open.", True),
+    ("- Natural import-to-recall proof is missing.", True),
 ]
 
 
@@ -1390,6 +1492,57 @@ def test_beta_release_contract_rejects_a_completed_import_obligation(
     )
     with pytest.raises(AssertionError):
         _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize("bullet,accepted", _IMPORT_OBLIGATION_CASES)
+def test_beta_release_contract_import_obligation_cases(
+    bullet: str, accepted: bool
+) -> None:
+    """Each import-to-recall wording is judged on its own obligation."""
+    text = _synthetic_current_state(
+        blockers=(
+            "- A fresh current-tip supported-Compose qualification is missing.",
+            bullet,
+        )
+    )
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+def test_beta_release_contract_blames_the_obligation_that_claims_completion() -> None:
+    """A completion claim must be charged to its own obligation."""
+    import_case = _synthetic_current_state(
+        blockers=(
+            "- A fresh current-tip supported-Compose qualification is missing.",
+            "- Natural import-to-recall proof is complete while scope-isolation "
+            "remains open.",
+        )
+    )
+    with pytest.raises(AssertionError) as import_failure:
+        _assert_beta_release_current_state_contract(import_case)
+    message = str(import_failure.value)
+    assert "natural import-to-recall proof obligation" in message
+    assert "as complete" in message
+    # The failure must not be reported as a missing obligation or a missing
+    # section.
+    assert "must record the" not in message
+
+    compose_case = _synthetic_current_state(
+        blockers=(
+            "- Supported-Compose qualification is complete while "
+            "import-to-recall remains open.",
+            "- The natural import-to-recall scope proof remain open.",
+        )
+    )
+    with pytest.raises(AssertionError) as compose_failure:
+        _assert_beta_release_current_state_contract(compose_case)
+    message = str(compose_failure.value)
+    assert "current-tip supported-Compose qualification obligation" in message
+    assert "as complete" in message
+    assert "must record the" not in message
 
 
 def test_beta_release_contract_fails_when_hold_is_removed() -> None:
