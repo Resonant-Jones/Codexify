@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first Beta hardening with a separately gated Private Preview lane. It now carries integrated read-state, migration-lineage, and operator-provenance work, but the supported runtime has not been redeployed or requalified at the current tip; the release gate remains `HOLD`.
+`main` is in local-first Beta hardening with a separately gated Private Preview lane. It carries integrated read-state, migration-lineage, and operator-provenance work. The Private Preview lane has now been **redeployed at the current tip** — the live Preview database migrated to Alembic head `3a91d7c4e8b2`, the serving revision is `5569f3f34`, and recipient-local read state passed a 20-of-20 live two-account test. The supported runtime has **not** been requalified beyond that one deployed surface, and the release gate remains `HOLD`.
 
 ## What changed recently
 
@@ -34,9 +34,9 @@ This file is authoritative for:
 - The named supported install path is local Docker Compose profile `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The Beta Supported envelope covers local inference, ordinary chat, durable threads/messages/tasks, supported document ingestion and retrieval, account ownership, migrations, and operator diagnostics; qualification is a separate gate.
 - Mainline has bounded evidence for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, deadlines, and authorization; bounded evidence is not complete runtime qualification.
-- The migration chain is qualified on the supported PostgreSQL version in disposable clean and restored-copy runs, but the live Preview database was read only and remains unmigrated.
-- Recipient-local read state is implemented and test-evidenced on `main`; it is not deployed or live-qualified. The running Preview still serves `57184dfbe`.
-- Private Preview same-node messaging has live end-to-end evidence for approved synthetic accounts; this does not qualify share links, cross-node transport, read-state behavior, or default Beta support.
+- The migration chain is qualified on the supported PostgreSQL version in disposable clean and restored-copy runs, and has since been applied to the **live** Private Preview database, which advanced `f0d7c4b2a198` → `3a91d7c4e8b2` with every pre-existing row preserved.
+- Recipient-local read state is **deployed and live-qualified** on the Private Preview: the serving revision is `5569f3f34`, and a two-account live test passed 20 of 20 checks covering the unread projection, explicit read advancement, account isolation, watermark accuracy, idempotency, reload persistence, concurrent reads, and the absence of any sender-visible read receipt. The consent HTTP surface is quarantined by the Preview profile, so consent enforcement is proven at the storage layer rather than the endpoint.
+- Private Preview same-node messaging has live end-to-end evidence for approved synthetic accounts; this does not qualify share links, cross-node transport, or default Beta support.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Connectors, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, and autonomous coding-worker work are not default Beta support without current-main qualification.
 
@@ -60,7 +60,7 @@ This file is authoritative for:
 - The UMS/Chronicle lane retains an inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still needs execution against the corrected baseline.
 - The explicit-model rejection and delegated worker-to-adapter contract remain unresolved before provider execution claims.
 - New-thread projection, natural import-to-recall, scope isolation, export/restore/retention, and complete conversation-lifecycle proof remain open.
-- Private Preview still lacks live read-state qualification, share-link expiry/revocation, and cross-node messaging proof; Saved Widget lifecycle and complete browser qualification also remain open.
+- Private Preview still lacks share-link expiry/revocation, cross-node messaging proof, browser-verified unread badges, and consent-enforcement coverage at a profile that mounts `iddb`; Saved Widget lifecycle and complete browser qualification also remain open.
 
 ## This week’s priorities
 
@@ -68,7 +68,7 @@ This file is authoritative for:
 2. Rehearse the approved deployment sequence with the rebuilt runtime image, migrator, application restart, and frontend lockfile path before any live change.
 3. Resolve the explicit-model/delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
-5. Close the highest-risk Preview and lifecycle gaps: read state, share-link revocation, import-to-recall, export/restore, and Saved Widget operations.
+5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, browser-verified unread badges, and Saved Widget operations.
 
 ## Release definition right now
 
