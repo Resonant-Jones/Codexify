@@ -74,6 +74,33 @@ State: `unset` (no deliberate selection) or `active` (claimed).  Existing
 users remain `unset` until they deliberately choose a username.  Username
 is never derived from the email local-part.
 
+The deliberately claimed username **is** this contract's public/discoverable
+state for a profile.  There is no separate visibility column, no hidden-but-
+discoverable tier, and no per-profile publicity setting: claiming a username
+is the opt-in act, and a profile that never claimed one is not discoverable.
+A non-discoverable profile is indistinguishable from one that does not
+exist — both are simply absent from results, and neither leaks through
+response details or error messages.
+
+### 2a. Username search queries
+
+A search query is a **prefix** query over the same-node username namespace, not
+a full-grammar lookup, so a partial handle such as `res` is a legitimate
+query even though it is shorter than the 3-character username grammar.
+
+The query is canonicalized before matching: it is trimmed, lowercased, and the
+conventional `@` sigil is stripped.  The sigil is a presentation convention
+the People UI displays and people type — it is never part of the stored
+username — so `@resonant-` and `resonant-` resolve to the same match instead
+of silently returning nothing.  Queries shorter than **2 characters** return
+no results; a single character is not a meaningful prefix query and would
+degenerate into enumeration of the node's username space.
+
+Discovery is **same-node by construction**, and the UI states that scope
+plainly rather than presenting an unmatched handle as a person who does not
+exist anywhere.  Cross-node identity discovery and transport remain deferred
+(§10, §11).
+
 ## 3. Private account boundary
 
 Email is private account metadata.  No social API may expose another
@@ -103,6 +130,7 @@ Rooms, not project threads.
 | `direct_message_conversations` | one discussion inside a Relationship | `relationship_id` required FK (cascade); `kind` is `direct`; immutable origin provenance `created_by_profile_id` / `origin_project_id` / `origin_thread_id` (nullable, `SET NULL` on source deletion); `latest_activity_at` tracks durable activity; multiple Conversations per Relationship |
 | `direct_message_conversation_placements` | participant-local Project organization | unique `(conversation_id, profile_id)`; `project_id` nullable (`SET NULL` on source deletion); placement Profile must be a Relationship participant |
 | `direct_messages` | durable plain-text messages | stable `id`; `conversation_id`; `sender_node_id` + `sender_profile_id`; `content_type` is `text/plain`; non-blank bounded body; unique `(conversation_id, sender_profile_id, client_message_key)` for idempotency |
+| `direct_message_read_cursors` | **recipient-local** read position for one Conversation (ADR-103) | unique `(conversation_id, profile_id)` where `profile_id` is the **reading** profile; `last_read_message_id` nullable FK to `direct_messages` (`SET NULL`); stores no counter, preview, or body; never observable by the other participant |
 
 Conversation identity must not depend on username, display name, email,
 Project placement, origin provenance, or current endpoint.
@@ -130,6 +158,68 @@ does not grant the peer Project or Thread access; placement does not
 grant Project membership or retrieval authority; no source transcript is
 copied and no DM embedding/KB is created.  Future retrieval and future
 disclosure authority remain separate concepts with no state today.
+
+### Recipient-local read state (ADR-103)
+
+Read state is **recipient-local**.  One cursor row per reading profile per
+Conversation records how far *that* profile has read.  The other participant
+can never observe it: it is not in any payload, and no endpoint reports
+another participant's cursor, position, or timing.
+
+The durable message store remains the single authority for what exists.  The
+cursor stores no counter, preview, or body, and the unread count is
+**derived** on read, never stored — there is no second message store and no
+counter to drift.
+
+Unread derivation is normative:
+
+```text
+unread(profile, conversation)
+  = count of messages in the conversation
+    where sender != profile
+      and (created_at, id) > cursor(profile, conversation)
+    with no cursor => every peer-authored message is unread
+```
+
+The `(created_at, id)` ordering is the canonical chronological order used by
+the transcript and the chronological index, so the cursor and the transcript
+always agree on which message is last.  A profile's own messages are never
+unread for that profile: sending a message never raises the sender's own
+count.
+
+Retrieval and marking-read are separate operations.  Reading a
+Conversation's transcript — `GET /api/direct-messages/conversations/{id}`
+or `.../messages` — is **read-only** and never advances read state: a retry
+or a prefetch must not mark a Conversation read without the recipient
+choosing to open it.
+
+Marking a Conversation read is the explicit mutation
+`POST /api/direct-messages/conversations/{conversation_id}/read`, the only
+operation that advances a cursor.  It advances **only that participant's**
+cursor and reports the resulting caller-local `unread_count`.  The cursor
+never moves backwards and repeating the mutation is idempotent.  Participation
+is authorized through canonical Relationship membership **before** any cursor
+write, so a non-participant can neither read the Conversation nor advance
+anybody's cursor.
+
+The mutation carries the caller's **read watermark** — the id of the last
+message they actually saw — and the cursor advances to exactly that message
+and never past it.  The server does not infer the watermark from "the latest
+message at POST time": a message that arrived after the caller's transcript
+was fetched would be marked read without ever having been shown.  A watermark
+that is not a message of that Conversation is refused (422
+`read_watermark_invalid`); an absent watermark asserts "nothing was shown" and
+advances nothing.
+
+Explicitly **not** implied:
+
+- no sender-visible read receipt, read timing, or attention disclosure;
+- no shared relationship state — two participants of one Conversation hold two
+  independent cursors;
+- no cross-node or federated read state;
+- no push, email, or operating-system notification, and no delivery receipt;
+- no change to request acceptance, decline, directional suppression, account
+  isolation, or conversation authorization.
 
 Postgres owns durable conversation/message truth.  Transport, WebSocket
 delivery, realtime notification, federation relay, and frontend state do
@@ -169,13 +259,14 @@ caller may act only through a profile they own.
 |---|---|---|
 | Claim username | `PUT /api/profile/social-identity` | normalize → grammar/reserved validation → Node-scoped uniqueness → persist `active`; never derived from email |
 | Own social identity | `GET /api/profile/social-identity` | caller's `node_id`, `profile_id`, `username`, `username_state`, presentation fields |
-| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated owned Profile with a claimed username; same-node username-prefix, bounded (max 20), social fields only |
+| Discover profiles | `GET /api/direct-messages/profiles?q=` | authenticated owned Profile with a claimed username; same-node username-prefix, bounded (max 20), social fields only; query canonicalized per §2a (`@` sigil stripped, trimmed, lowercased, minimum 2 characters); finding a profile is not messaging authority — request, block, and consent rules still apply |
 | Resolve relationship | `POST /api/direct-messages/relationships` | `destination_node_id` + `destination_profile_id`; nonlocal Node_ID rejected as unsupported (no federation); self-DM rejected; reverse direction resolves the same Relationship; no Conversation is required to establish a Relationship |
 | List relationships | `GET /api/direct-messages/relationships` | caller-participating Relationships, safe peer social identity, ordered by durable `updated_at` |
 | List relationship conversations | `GET /api/direct-messages/relationships/{relationship_id}/conversations` | participants only; every Conversation in the Relationship; stable activity ordering; caller-local placement and caller-visible origin only (peer's private placement never revealed) |
 | Create conversation | `POST /api/direct-messages/relationships/{relationship_id}/conversations` | accepted or historical pair consent required; optional `origin_project_id` / `origin_thread_id` / explicit creator-local `project_id` override; origin validated against existing Project/Thread authority; creator placement defaults to origin Project; recipient placement unscoped; each creation returns a NEW Conversation_ID |
-| List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity |
-| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement |
+| List conversations | `GET /api/direct-messages/conversations` | participant-scoped global list, ordered by durable activity; each row carries the **caller's own** `unread_count` (ADR-103) |
+| Read conversation | `GET /api/direct-messages/conversations/{conversation_id}` | participants only (Conversation → Relationship → RelationshipParticipant); response includes caller-visible origin and caller-local placement; **read-only** — retrieval never advances a read cursor, and it reports the caller's current caller-local `unread_count` (ADR-103) |
+| Mark conversation read | `POST /api/direct-messages/conversations/{conversation_id}/read` | participants only; the **explicit** read action and the only operation that advances a cursor; body carries the caller's read watermark (`last_read_message_id`, the last message they actually saw) and the cursor advances to exactly that message and never past it; advances **only the caller's** recipient-local cursor and reports the resulting caller-local `unread_count`; idempotent and monotonic (ADR-103) |
 | Read messages | `GET /api/direct-messages/conversations/{conversation_id}/messages` | deterministic `(created_at, id)` ascending, bounded pagination via `before_id` |
 | Send message | `POST /api/direct-messages/conversations/{conversation_id}/messages` | established consent required; `body` + optional `client_message_key`; synchronous persistence; idempotent replay returns the original message |
 | Move placement | `PATCH /api/direct-messages/conversations/{conversation_id}/placement` | `project_id` or `null`; caller-local only; validates Project authority; never rewrites origin, peer placement, or Relationship membership |
@@ -212,6 +303,11 @@ authority.
   creating profile; supplying an origin grants the peer nothing.
 - Placement is participant-local; moving placement validates the
   caller's Project authority and touches only the caller's row.
+- Read state is participant-local (ADR-103): a read cursor may be read or
+  advanced only by the profile that owns it, and only for a Conversation
+  that profile participates in.  A non-participant cannot observe or advance
+  any cursor, and no cursor, read position, or read timing is ever
+  disclosed to the other participant.
 - Foreign profile impersonation is denied.
 - Self-DM is rejected.
 - Nonlocal destinations are rejected as unsupported; no federation
@@ -270,8 +366,14 @@ rule in §3, §7, or §8 changes with route posture: username search remains
 authenticated and bounded, peer-facing results remain limited to deliberate
 social fields, self-DM and nonlocal destinations remain rejected, and no DM
 operation triggers Guardian inference, retrieval, memory, or Project authority
-as a side effect. Federation, Guardian execution, and share-link routes remain
-quarantined on the private-preview profile.
+as a side effect. Federation and Guardian execution remain quarantined on the
+private-preview profile. The `share` route is also admitted on the
+private-preview profile so the Share Sheet's "Send to Person" flow can create a
+share link and deliver it as a People message; this adds no privacy,
+authorization, isolation, or context rule of its own, and it does not make
+`GET /api/share/{token}` an authenticated read — the link token remains the
+sole credential, links minted without `expires_in_days` do not expire, and no
+revocation endpoint exists.
 
 ## 10. Deferred (explicitly not implemented)
 
@@ -358,6 +460,23 @@ bounded query per listing page — never a per-row history fetch — and
 no new table, column, or cached summary exists.  Conversations without
 messages project `latest_message: null`.
 
+### Unread projection
+
+Each conversation row also carries the **caller's own** `unread_count`, derived
+per §4a from the durable message store and the caller's read cursor.  It is a
+caller-local value: the peer never receives it, and the row exposes no
+counter, preview, or timestamp belonging to anyone else.
+
+The Inbox renders the count as an in-app badge on the conversation row and
+clears it for that caller when they open the conversation, by invoking the
+explicit read action with the last message they actually saw as the read
+watermark.  While the Inbox is open it re-reads the conversation projection so
+a message arriving elsewhere surfaces without a manual reload; that refresh
+never advances a cursor, only the explicit read action does.  Because the
+cursor is durable, the cleared state is
+recovered after a reload or a new session, and a later incoming message
+becomes unread again.
+
 ### General creation
 
 The Inbox "Find People" flow uses deliberate username discovery and
@@ -371,6 +490,14 @@ General (no origin or placement); requests never disclose Project/Thread
 state. Established pairs may create further distinct Conversations via
 the existing creation/origin flow. Opening/refreshing provides visibility;
 this slice makes no realtime delivery claim.
+
+Discovery is same-node, so the flow states that scope where the query is
+entered rather than implying that an unmatched handle is a person who does
+not exist anywhere: the search surface says the search covers people on this
+node only, and an empty result says no profile *on this node* matched. The
+query is debounced and the latest query wins, so a slower earlier response
+never replaces newer results. Finding a profile grants no messaging
+authority — the request, block, and consent rules in §7 still apply.
 
 ### Privacy
 
@@ -388,10 +515,15 @@ duplication.
 
 ### Inbox non-goals
 
-Unread/read state, read cursors, receipts, realtime/SSE/polling,
-presence, typing indicators, Share Sheet UX, Project Scope Offer /
-invitation, placement editing, origin editing, Guardian/model/
-retrieval/memory coupling, and any Beta-support widening.
+Receipts, realtime/SSE delivery, cross-node read state, presence, typing
+indicators, Share Sheet UX, Project Scope Offer / invitation, placement
+editing, origin editing, Guardian/model/retrieval/memory coupling, and any
+Beta-support widening.
+
+Recipient-local read state and read cursors are **not** in this list: they
+are implemented per §4a and ADR-103.  What remains excluded is everything on
+the *receipt* side of that line — the sender never learns that the recipient
+read anything.
 
 
 ## 14. Message requests and ordinary messaging consent (ADR-097)

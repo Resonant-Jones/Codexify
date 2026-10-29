@@ -554,6 +554,93 @@ def list_chat_completion_attempts_for_thread(
         return rows
 
 
+def _unresolved_saved_widget_source() -> Dict[str, Any]:
+    """Uniform refusal for every Saved Widget source authorization failure.
+
+    The reason is deliberately identical for "message does not exist",
+    "message is in another thread", and "thread belongs to another account".
+    Distinguishing them would let a caller probe for the existence of another
+    account's messages.
+    """
+    return {
+        "resolved": False,
+        "reason": "source_not_authorized",
+        "thread_id": None,
+        "message_id": None,
+        "content": None,
+        "attempts": [],
+    }
+
+
+def read_saved_widget_source_provenance(
+    chatlog_db: Any,
+    *,
+    thread_id: int,
+    message_id: int,
+    account_id: str,
+) -> Dict[str, Any]:
+    """Read one stored assistant message and its completion-attempt lineage.
+
+    Narrowly scoped and read-only. This is the server-side authority for
+    "where did this generated UI come from". The artifact is resolved from
+    stored message content; a caller-supplied payload is never accepted as
+    proof that it belongs to this message.
+
+    Authorization rests on a single authority: the thread's owning account.
+    The message's own ``user_id`` is deliberately not consulted as a second
+    co-authority, for the same reason ADR-081 gives for Project ownership.
+
+    Returns a mapping with:
+
+    ``resolved``
+        Whether the source was authorized and resolved.
+    ``reason``
+        Empty when resolved, otherwise ``source_not_authorized``.
+    ``content``
+        The stored assistant message content, when resolved.
+    ``attempts``
+        The durable completion attempts that reference this exact message.
+
+    A missing, wrong-thread, or cross-account source all return the same
+    shape, so a caller cannot learn whether another account's message exists.
+    """
+    with chatlog_db._sa_session() as session:
+        message = (
+            session.query(ChatMessage).filter_by(id=message_id).one_or_none()
+        )
+        if message is None or message.role != "assistant":
+            return _unresolved_saved_widget_source()
+        if int(message.thread_id) != int(thread_id):
+            return _unresolved_saved_widget_source()
+
+        thread = (
+            session.query(ChatThread).filter_by(id=thread_id).one_or_none()
+        )
+        if thread is None or thread.user_id != account_id:
+            return _unresolved_saved_widget_source()
+
+        attempts = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(completed_message_id=message_id)
+            .all()
+        )
+        return {
+            "resolved": True,
+            "reason": "",
+            "thread_id": int(thread_id),
+            "message_id": int(message_id),
+            "content": message.content or "",
+            "attempts": [
+                {
+                    "request_id": attempt.request_id,
+                    "accepted_at": attempt.accepted_at,
+                    "terminal_event_type": attempt.terminal_event_type,
+                }
+                for attempt in attempts
+            ],
+        }
+
+
 def _default_user_id() -> str:
     return _DEFAULT_USER_ID
 

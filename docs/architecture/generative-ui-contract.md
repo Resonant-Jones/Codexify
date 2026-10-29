@@ -27,6 +27,27 @@ Source anchors:
   completion acceptance, turn-lock semantics, or the task lifecycle.
 - This contract creates no new backend subsystem, table, route, or identity.
 
+### Relationship to the Saved Widget contract
+
+The [Saved Widget Contract](./saved-widget-contract.md) and
+[ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) propose a
+later, separate architecture for promoting eligible generated UI into durable,
+account-owned, revisioned resources that can be invoked from any thread.
+
+That proposal is **not** part of this contract, and nothing in it changes the
+artifact channel, the renderer, the sandbox, the bridge, the artifact envelope,
+or the wire format described here. The statement above — that this contract
+creates no new backend subsystem, table, route, or identity — remains true of
+*this* contract; the Saved Widget proposal is a distinct document with a
+distinct status, and it is **Proposed**, not accepted.
+
+A saved widget is rendered through the existing renderer and the existing
+sandbox frame, so the containment, bridge, and provider-hygiene rules in this
+document continue to govern it unchanged. A saved widget's *identity* is a
+resource identity and is not a message, request, or attempt identity, so
+ADR-003 continues to hold for both. See the Saved Widget contract for the
+classification, ownership, revision, invocation, and editing boundaries.
+
 ## Upstream reference and pinned revision
 
 The reference implementation is
@@ -367,20 +388,30 @@ Proof record:
 ## Sandbox containment
 
 Sandbox artifacts are untrusted. The containment boundary is the iframe
-`sandbox` attribute plus a document-level CSP.
+`sandbox` attribute plus a document-level CSP — and, since the navigation
+repair below, a **trusted outer wrapper** that keeps the network policy
+in force across navigation.
 
 ```html
-<iframe sandbox="allow-scripts" srcdoc="..." />
+<!-- app page -->
+<iframe sandbox="allow-scripts" srcdoc="<trusted wrapper document>" />
 ```
 
-- `allow-scripts` **only**. Notably absent: `allow-same-origin`, `allow-forms`,
-  `allow-popups`, `allow-top-navigation`, `allow-modals`, `allow-downloads`.
-- Without `allow-same-origin` the frame runs in an opaque origin. It therefore
-  has no same-origin access to host `storage`, cookies, `document`, or any host
-  API. This matches upstream's documented posture ("The sandbox has no
-  same-origin access to storage or host APIs").
-- The frame is built by Codexify, which injects a restrictive CSP **before**
-  any generated content:
+```html
+<!-- trusted wrapper document, built by Codexify -->
+<iframe id="cfy-ui-inner" sandbox="allow-scripts" srcdoc="<generated document>" />
+```
+
+- `allow-scripts` **only**, on **both** frames. Notably absent:
+  `allow-same-origin`, `allow-forms`, `allow-popups`, `allow-top-navigation`,
+  `allow-modals`, `allow-downloads`.
+- Without `allow-same-origin` each frame runs in an opaque origin. The wrapper
+  therefore has no same-origin access to host `storage`, cookies, `document`,
+  or any host API, and the generated document has no same-origin access to
+  the wrapper either. This matches upstream's documented posture ("The sandbox
+  has no same-origin access to storage or host APIs").
+- The generated document is built by Codexify, which injects a restrictive CSP
+  **before** any generated content:
 
   ```text
   default-src 'none';
@@ -392,6 +423,43 @@ Sandbox artifacts are untrusted. The containment boundary is the iframe
   base-uri 'none';
   frame-src 'none'
   ```
+
+### The trusted wrapper, and why the boundary needs it
+
+The generated document's CSP governs **that document**. A same-frame
+navigation replaces it with a document that declares no policy, and that
+replacement could then issue network requests. That escape was reproduced in a
+real browser; see
+[the navigation-containment proof](./proofs/runtime/2026-10-26-generative-ui-navigation-containment-proof.md).
+
+The repair is a **trusted outer wrapper document**, built by Codexify, that
+carries:
+
+```text
+default-src 'none';
+frame-src 'none';
+script-src 'unsafe-inline';
+style-src 'unsafe-inline';
+img-src data: blob:;
+connect-src 'none';
+form-action 'none';
+base-uri 'none'
+```
+
+`frame-src 'none'` is the load-bearing directive. It governs which URLs may
+be loaded into **child frames**. A child loaded from `about:srcdoc` is
+permitted, so the generated frame still loads; a child navigated to any real
+URL is blocked **before the request is made**. The network boundary therefore
+survives navigation, because the navigation never happens.
+
+The wrapper's `frame-src` is scoped to the wrapper document. It is
+deliberately **not** applied to the Codexify app document, so other legitimate
+workspace iframe surfaces are unaffected.
+
+The wrapper contains no generated source. It embeds the generated document in a
+nested sandboxed `srcdoc` frame and relays bridge messages. Generated content
+can never reach the wrapper's CSP or its relay logic, because it lives in a
+separate, opaque-origin document.
 
 ### Deliberate tightening versus upstream
 
@@ -413,14 +481,36 @@ not be weakened.
 The sandbox may not call host APIs directly. It may only send **validated**
 messages over `postMessage`, each of which Codexify authorizes explicitly.
 
-Every inbound message is accepted only when all of the following hold:
+The bridge now has **two hops**, and each hop validates independently.
 
-1. `event.source === iframe.contentWindow` (source binding).
-2. `event.origin === "null"` (the opaque origin of a sandboxed frame).
-3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`, where
-   the nonce is minted per mount and bound to that frame (session binding).
-4. `event.data.action` is in the allowed set.
-5. The action payload validates against its schema.
+1. **Generated frame → trusted wrapper.** The generated document's own bridge
+   script posts to its parent, which is the wrapper. The wrapper accepts the
+   message only when all of the following hold:
+   1. `event.source === innerFrame.contentWindow` (source binding).
+   2. `event.origin === "null"` (the opaque origin of the sandboxed frame).
+   3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`,
+      where the nonce is minted per mount (session binding).
+   4. `event.data.action` is in the allowed set.
+   5. The action payload validates against its schema and bounds.
+
+   The wrapper then relays **only** the two approved actions to the host. It
+   never forwards a message it did not validate, never forwards an unknown
+   action, and never forwards a message from any frame other than the exact
+   nested frame.
+
+2. **Trusted wrapper → Codexify host.** The host re-validates the relayed
+   message rather than trusting the wrapper:
+   1. `event.source === wrapperFrame.contentWindow` (source binding).
+   2. `event.origin === "null"` (the opaque origin of the sandboxed wrapper).
+   3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`.
+   4. `event.data.action` is in the allowed set.
+   5. The action payload validates against its schema and bounds.
+
+   A message posted **directly** by the nested generated frame has a different
+   `event.source` and is rejected here, even when it knows the session token.
+   The host therefore never treats generated code as an authority, and the
+   wrapper never becomes a second control plane: it is a relay with no
+   capability of its own.
 
 | Action | Payload | Effect |
 | --- | --- | --- |

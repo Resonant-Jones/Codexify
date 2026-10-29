@@ -152,6 +152,7 @@ def test_whooshd_deepseek_profile_enables_bounded_preview_routes() -> None:
     assert manifest.surface == "local-docker-compose-webui"
     for route in {
         "direct_messages",
+        "share",
         "health",
         "dashboard",
         "chat",

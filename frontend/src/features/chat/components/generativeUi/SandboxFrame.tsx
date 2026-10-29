@@ -9,6 +9,25 @@
  * Note `src-tauri/tauri.conf.json` declares `"csp": null`, so this iframe
  * sandbox attribute is the load-bearing boundary and must not be weakened.
  *
+ * ## Two frames, and why
+ *
+ * The generated document's own CSP (`default-src 'none'`, `connect-src 'none'`)
+ * only governs *that document*. A same-frame navigation replaces it with a
+ * document that declares no policy, and that replacement could then issue
+ * network requests. That escape was reproduced in a real browser; see
+ * docs/architecture/proofs/runtime/2026-10-26-generative-ui-navigation-containment-proof.md
+ *
+ * The repair is a **trusted outer wrapper document** that embeds the generated
+ * content in an inner sandboxed `srcdoc` frame. The wrapper is Codexify-built
+ * and carries `frame-src 'none'`, which permits the inner `about:srcdoc` frame
+ * to load but blocks the inner frame from navigating to *any* real URL. The
+ * network boundary therefore survives navigation, because navigation never
+ * happens.
+ *
+ * The wrapper's `frame-src` is scoped to the wrapper document. It is
+ * deliberately NOT applied to the Codexify app document, so other legitimate
+ * workspace iframe surfaces are unaffected.
+ *
  * The host bridge accepts exactly two validated actions and grants no other
  * capability. See docs/architecture/generative-ui-contract.md
  */
@@ -46,6 +65,33 @@ const FRAME_CSP = [
   "base-uri 'none'",
   "frame-src 'none'",
 ].join("; ");
+
+/**
+ * The trusted wrapper's CSP.
+ *
+ * `frame-src 'none'` is the load-bearing part. It governs which URLs may be
+ * loaded into *child* frames of this document. A child loaded from
+ * `about:srcdoc` is permitted, so the generated frame still loads; a child
+ * navigated to any real URL is blocked before the request is made, so the
+ * generated frame can never reach a document that lacks the generated
+ * document's network policy.
+ *
+ * `default-src 'none'` and `connect-src 'none'` keep the wrapper itself
+ * network-inert.
+ */
+const WRAPPER_CSP = [
+  "default-src 'none'",
+  "frame-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src data: blob:",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "base-uri 'none'",
+].join("; ");
+
+/** The id of the nested frame inside the wrapper document. */
+const INNER_FRAME_ID = "cfy-ui-inner";
 
 function escapeHtml(value: string): string {
   return value
@@ -191,6 +237,90 @@ ${script}
 </html>`;
 }
 
+/** Escape a value for use inside a double-quoted HTML attribute. */
+function escapeAttributeValue(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+/**
+ * The trusted wrapper's relay.
+ *
+ * The nested generated frame posts to its parent, which is this wrapper. The
+ * wrapper re-validates the message and relays only the two approved actions
+ * to the Codexify host. It never forwards an unvalidated message, never
+ * forwards an unknown action, and never forwards a message that did not come
+ * from the exact nested frame.
+ */
+function wrapperRelayScript(session: string): string {
+  return `(function(){
+  var SESSION = ${JSON.stringify(session)};
+  var CHANNEL = ${JSON.stringify(BRIDGE_CHANNEL)};
+  var INNER_ID = ${JSON.stringify(INNER_FRAME_ID)};
+  function forward(action, payload) {
+    try {
+      parent.postMessage({ channel: CHANNEL, session: SESSION, action: action, payload: payload || {} }, "*");
+    } catch (err) {}
+  }
+  window.addEventListener("message", function (ev) {
+    var inner = document.getElementById(INNER_ID);
+    // Source binding: only the exact nested frame may talk to us.
+    if (!inner || ev.source !== inner.contentWindow) return;
+    // The nested frame is sandboxed without allow-same-origin: opaque origin.
+    if (ev.origin !== "null") return;
+    var d = ev.data;
+    if (!d || typeof d !== "object") return;
+    if (d.channel !== CHANNEL) return;
+    // Session binding: a frame from another mount is rejected.
+    if (d.session !== SESSION) return;
+    var payload = (d.payload && typeof d.payload === "object" ? d.payload : {});
+    if (d.action === "resize") {
+      var h = Number(payload.height);
+      if (!isFinite(h)) return;
+      forward("resize", { height: h });
+      return;
+    }
+    if (d.action === "send_prompt") {
+      var text = typeof payload.text === "string" ? payload.text.trim() : "";
+      if (!text || text.length > ${MAX_BRIDGE_PROMPT_CHARS}) return;
+      forward("send_prompt", { text: text });
+      return;
+    }
+    // Unknown actions are ignored, never partially applied.
+  });
+})();`;
+}
+
+/**
+ * Build the trusted outer wrapper document.
+ *
+ * The wrapper is Codexify-built and contains no generated source. It embeds
+ * the generated document in a nested `srcdoc` frame and enforces
+ * `frame-src 'none'`, so the generated frame may load but may not navigate to
+ * any real URL. Generated content can never reach the wrapper's CSP or its
+ * relay logic: it lives in a separate, sandboxed, opaque-origin document.
+ *
+ * Exported as a pure function so the containment can be asserted in unit
+ * tests without a live iframe.
+ */
+export function buildSandboxWrapperDocument(innerDocument: string, session: string): string {
+  const escaped = escapeAttributeValue(innerDocument);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${WRAPPER_CSP}">
+<title>Generated interface host</title>
+<script>
+${wrapperRelayScript(session)}
+</script>
+</head>
+<body style="margin:0;padding:0;background:transparent;overflow:hidden">
+<iframe id="${INNER_FRAME_ID}" title="Generated interface" sandbox="allow-scripts" srcdoc="${escaped}" style="width:100%;height:100%;border:0;display:block;background:transparent"></iframe>
+</body>
+</html>`;
+}
+
 export type SandboxBridgeHandler = {
   /** Called only for a fully validated `send_prompt`. */
   onSendPrompt?: (text: string) => void;
@@ -225,10 +355,18 @@ const SandboxFrame: React.FC<SandboxFrameProps> = ({ artifact, onSendPrompt, onH
   heightHandlerRef.current = onHeightChange;
 
   const doc = React.useMemo(() => buildSandboxDocument(artifact, session), [artifact, session]);
+  const wrapperDoc = React.useMemo(
+    () => buildSandboxWrapperDocument(doc, session),
+    [doc, session]
+  );
 
   React.useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      // Source binding: only this frame's own window may talk to us.
+      // Source binding: only this frame's own window may talk to us. That
+      // window is the trusted wrapper, which relays only messages it has
+      // itself validated. A message posted directly by the nested generated
+      // frame has a different source and is rejected here even if it knows
+      // the session token.
       if (event.source !== frameRef.current?.contentWindow) return;
       // Opaque origin of a sandboxed frame serializes to "null".
       if (event.origin !== "null") return;
@@ -280,8 +418,14 @@ const SandboxFrame: React.FC<SandboxFrameProps> = ({ artifact, onSendPrompt, onH
         data-testid="generative-ui-sandbox-frame"
         // Containment boundary. Do not add allow-same-origin, forms, popups,
         // top-navigation, modals, or downloads.
+        //
+        // This frame is the TRUSTED WRAPPER. It carries `frame-src 'none'`,
+        // which is what stops the nested generated frame from navigating
+        // itself to a document that has no network policy. The wrapper is
+        // sandboxed too, so it stays in an opaque origin and cannot reach
+        // the Codexify document.
         sandbox="allow-scripts"
-        srcDoc={doc}
+        srcDoc={wrapperDoc}
         style={{ width: "100%", height, border: 0, display: "block", background: "transparent" }}
       />
     </div>

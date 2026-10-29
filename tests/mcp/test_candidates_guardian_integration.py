@@ -466,3 +466,4 @@ async def test_adapter_reports_an_error_when_the_candidate_read_fails(
             await client.list_fact_candidates(status="candidate", limit=50)
     assert excinfo.value.code == UPSTREAM_ERROR
     assert "db.internal" not in str(excinfo.value)
+
