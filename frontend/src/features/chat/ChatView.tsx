@@ -14,16 +14,21 @@ import React, {
 import ContextMenu from "@/components/ui/ContextMenu";
 import { CHAT_LANE_INLINE_PADDING, CHAT_LANE_MAX_WIDTH } from "@/features/chat/chatLane";
 import ChatBubble from "@/features/chat/components/ChatBubble";
+import { CodexDraftCard } from "@/features/chat/components/CodexDraftCard";
+import ConversationMinimap from "@/features/chat/components/ConversationMinimap";
 import GuardianPresence from "@/features/chat/components/GuardianPresence";
 import InferenceStatusBanner from "@/features/chat/components/InferenceStatusBanner";
 import { useChatAutoScroll } from "@/features/chat/hooks/useChatAutoScroll";
+import {
+  CONVERSATION_MINIMAP_MIN_CONTAINER_WIDTH,
+  useConversationNavigation,
+} from "@/features/chat/hooks/useConversationNavigation";
 import type {
   ChatMessage,
   CompletionState,
   StreamingDraft,
 } from "@/features/chat/useChat";
 import api from "@/lib/api";
-import { CodexDraftCard } from "@/features/chat/components/CodexDraftCard";
 import type { CodexDraft } from "@/api/codex";
 import { cn } from "@/lib/utils";
 import {
@@ -289,7 +294,14 @@ export function ChatView({
   codingLoopDispatchErrors?: CodingLoopDispatchFailure[];
   showHumanAuthorNames?: boolean;
 }) {
-  const { containerRef, endRef } = useChatAutoScroll(messages.length);
+  const shouldStickToLatestRef = useRef(true);
+  const {
+    containerRef,
+    endRef,
+    cancelPendingAutoScroll,
+  } = useChatAutoScroll(messages.length, 120, {
+    followLatestRef: shouldStickToLatestRef,
+  });
   const initialScrollRef = useRef(true);
   const initialScrollAppliedRef = useRef(false);
   const [hasOverflow, setHasOverflow] = useState(false);
@@ -312,12 +324,43 @@ export function ChatView({
   const conversationLaneRef = useRef<HTMLDivElement | null>(null);
   const mobileShellProfile = useMobileShellProfile();
   const viewportInsets = useViewportInsets(mobileShellProfile.active);
-  const shouldStickToLatestRef = useRef(true);
   const effectiveBottomPad = resolveMessageLaneBottomPad(
         mobileShellProfile.active,
         viewportInsets.isKeyboardOpen,
         bottomPadding
       );
+
+  /**
+   * A committed minimap jump intentionally leaves the latest turn. Cancel any
+   * pending auto-scroll work so streaming updates and incoming messages do not
+   * pull the reader back down.
+   */
+  const handleNavigateAwayFromLatest = useCallback(() => {
+    shouldStickToLatestRef.current = false;
+    cancelPendingAutoScroll?.();
+  }, [cancelPendingAutoScroll]);
+
+  const conversationNavigation = useConversationNavigation({
+    containerRef,
+    contentRef: conversationLaneRef,
+    messages,
+    threadId,
+    onNavigateAwayFromLatest: handleNavigateAwayFromLatest,
+  });
+
+  const sectionAnchorByMessageId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const section of conversationNavigation.sections) {
+      map.set(section.anchorMessageId, section.id);
+    }
+    return map;
+  }, [conversationNavigation.sections]);
+
+  const showConversationMinimap =
+    mobileShellProfile.viewportClass !== "phone" &&
+    conversationNavigation.containerWidth >= CONVERSATION_MINIMAP_MIN_CONTAINER_WIDTH &&
+    conversationNavigation.hasOverflow &&
+    conversationNavigation.sections.length > 1;
 
   const currentVoiceSelectionKey = buildVoiceSelectionKey(
     voiceProvider,
@@ -1024,6 +1067,9 @@ export function ChatView({
             return (
                 <div
                   data-testid="chat-message"
+                  data-conversation-anchor={sectionAnchorByMessageId.get(
+                    String(message.id)
+                  )}
                   key={message.id ?? `${message.role}-${message.created_at ?? index}`}
                   className="max-w-full"
                   onContextMenu={(event) => {
@@ -1167,6 +1213,19 @@ export function ChatView({
             <span>Latest</span>
           </button>
         </div>
+      ) : null}
+
+      {showConversationMinimap ? (
+        <ConversationMinimap
+          sections={conversationNavigation.sections}
+          entries={conversationNavigation.entries}
+          activeSectionId={conversationNavigation.activeSectionId}
+          hasMore={hasMore}
+          threadId={threadId}
+          canGoBack={conversationNavigation.canGoBack}
+          onJump={conversationNavigation.jumpToSection}
+          onBack={conversationNavigation.backToPreviousPosition}
+        />
       ) : null}
 
       {menu ? (
