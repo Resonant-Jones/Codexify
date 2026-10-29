@@ -179,10 +179,9 @@ def test_task_scope_does_not_add_reader_or_tooling_files() -> None:
 HOLD_PHRASE = "the release gate remains `HOLD`"
 BOUNDED_EVIDENCE_PHRASE = "bounded evidence"
 QUALIFICATION_PHRASE = "qualification is a separate gate"
-NON_PROMOTION_PHRASE = "not default Beta support"
+NON_PROMOTION_PHRASE = "default Beta support remain unqualified"
 NON_PROMOTION_RULE_PHRASE = "without current-main qualification"
 RELEASE_READINESS_PHRASE = "release readiness"
-
 COMPLETION_CLAIM = " The release gate is `COMPLETE` and the release is ready."
 PERFECT_COMPLETION_CLAIM = " The release gate has passed."
 PERFECT_CLOSED_CLAIM = " The release gate has closed."
@@ -203,16 +202,34 @@ def _canonical_current_state() -> str:
     return CURRENT_STATE.read_text()
 
 
+def _find_phrase(text: str, phrase: str) -> tuple[int, int]:
+    """Locate a phrase case-insensitively.
+
+    The canonical document rewrites its sentences from week to week, and a
+    phrase can move from mid-sentence to sentence-initial position. Matching
+    case-insensitively keeps presentation changes from deciding a boundary
+    assertion.
+    """
+    index = text.casefold().find(phrase.casefold())
+    assert index != -1, f"canonical phrase missing: {phrase!r}"
+    return index, index + len(phrase)
+
+
+def _contains(text: str, phrase: str) -> bool:
+    """Case-insensitive containment check for a canonical phrase."""
+    return phrase.casefold() in text.casefold()
+
+
 def _drop(text: str, phrase: str) -> str:
     """Remove a phrase, leaving the rest of the document intact."""
-    assert phrase in text, f"canonical phrase missing: {phrase!r}"
-    return text.replace(phrase, "")
+    start, end = _find_phrase(text, phrase)
+    return text[:start] + text[end:]
 
 
 def _swap(text: str, old: str, new: str) -> str:
     """Replace a phrase, leaving the rest of the document intact."""
-    assert old in text, f"canonical phrase missing: {old!r}"
-    return text.replace(old, new)
+    start, end = _find_phrase(text, old)
+    return text[:start] + new + text[end:]
 
 
 def _move_to_section(text: str, phrase: str, *, source: str, target: str) -> str:
@@ -226,12 +243,13 @@ def _move_to_section(text: str, phrase: str, *, source: str, target: str) -> str
             if current == target:
                 moved.append(phrase)
             continue
-        if current == source and phrase in line:
-            moved.append(line.replace(phrase, ""))
+        if current == source and _contains(line, phrase):
+            start, end = _find_phrase(line, phrase)
+            moved.append(line[:start] + line[end:])
             continue
         moved.append(line)
     result = "\n".join(moved) + "\n"
-    assert phrase in result, "the phrase must survive the move"
+    assert _contains(result, phrase), "the phrase must survive the move"
     return result
 
 
@@ -302,7 +320,7 @@ def test_release_boundary_helper_tolerates_real_body_line_wrapping() -> None:
     """A wrapped source line must not decide a boundary assertion."""
     document = _wrap_phrase(_canonical_current_state(), HOLD_PHRASE)
     document = _wrap_phrase(document, QUALIFICATION_PHRASE)
-    assert HOLD_PHRASE not in document
+    assert not _contains(document, HOLD_PHRASE)
     assert_current_release_truth(document)
 
 
@@ -383,7 +401,7 @@ def test_release_boundary_helper_rejects_completion_appended_alongside_hold() ->
         section="Current phase",
         addition=COMPLETION_CLAIM,
     )
-    assert HOLD_PHRASE in document
+    assert _contains(document, HOLD_PHRASE)
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
@@ -393,7 +411,7 @@ def test_release_boundary_helper_rejects_a_hold_replaced_by_completion() -> None
         HOLD_PHRASE,
         "the release gate is `COMPLETE`",
     )
-    assert HOLD_PHRASE not in document
+    assert not _contains(document, HOLD_PHRASE)
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
@@ -408,7 +426,7 @@ def test_release_boundary_helper_rejects_a_perfect_tense_gate_completion(claim: 
         section="Current phase",
         addition=claim,
     )
-    assert HOLD_PHRASE in document
+    assert _contains(document, HOLD_PHRASE)
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
@@ -419,7 +437,7 @@ def test_release_boundary_helper_rejects_a_lifted_hold() -> None:
         section="Current phase",
         addition=LIFTED_HOLD_CLAIM,
     )
-    assert HOLD_PHRASE in document
+    assert _contains(document, HOLD_PHRASE)
     _assert_rejected(document, REASON_RELEASE_CONTRADICTION)
 
 
@@ -532,11 +550,12 @@ MAIN_NON_PROMOTION = (
 
 
 def _current_main_non_promotion_document() -> str:
-    return _swap(
-        _canonical_current_state(),
-        "same-node human messaging is not default Beta support",
-        MAIN_NON_PROMOTION,
+    """The canonical document already states the current-main non-promotion wording."""
+    document = _canonical_current_state()
+    assert _contains(document, MAIN_NON_PROMOTION), (
+        "the canonical document must state the current-main non-promotion wording"
     )
+    return document
 
 
 def test_release_boundary_accepts_current_main_non_promotion_wording() -> None:
@@ -592,8 +611,8 @@ def test_release_boundary_accepts_quoted_denial_of_same_node_promotion(statement
 
 def test_release_boundary_rejects_qualified_only_for_another_feature() -> None:
     document = _swap(
-        _canonical_current_state(),
-        "same-node human messaging is not default Beta support",
+        _current_main_non_promotion_document(),
+        MAIN_NON_PROMOTION,
         "that proof qualifies same-node messaging only, and share-link bearer "
         "expiry/revocation, cross-node discovery and transport, unread indicators "
         "and persisted read state, and default Beta support remain unqualified "
@@ -604,8 +623,8 @@ def test_release_boundary_rejects_qualified_only_for_another_feature() -> None:
 
 def test_release_boundary_rejects_different_feature_non_promotion() -> None:
     document = _swap(
-        _canonical_current_state(),
-        "same-node human messaging is not default Beta support",
+        _current_main_non_promotion_document(),
+        MAIN_NON_PROMOTION,
         "same-node human messaging is now default Beta support; default Beta "
         "support remain unqualified only for a different feature",
     )
@@ -642,7 +661,7 @@ def test_release_boundary_helper_rejects_hold_found_only_in_an_unrelated_section
         target="Active blockers",
     )
     # The phrase is still present in the document, just in the wrong section.
-    assert HOLD_PHRASE in document
+    assert _contains(document, HOLD_PHRASE)
     _assert_rejected(document, REASON_RELEASE_HOLD)
 
 
@@ -654,5 +673,5 @@ def test_release_boundary_helper_rejects_authority_found_only_in_an_unrelated_se
         source="Interpretation rule",
         target="Active blockers",
     )
-    assert RELEASE_READINESS_PHRASE in document
+    assert _contains(document, RELEASE_READINESS_PHRASE)
     _assert_rejected(document, REASON_RELEASE_AUTHORITY)
