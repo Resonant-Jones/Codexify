@@ -23,6 +23,7 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    CONTINUATION_AUTHORITY_PROVENANCES,
 )
 
 
@@ -49,6 +50,24 @@ class CampaignRunnerNotFound(CampaignRunnerStoreError):
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _normalize_continuation_authority_provenance(provenance: Any) -> str:
+    """Validate a provenance discriminator against the canonical vocabulary.
+
+    ADR-105 makes provenance a separate durable fact from actor identity.
+    An unknown or missing class is rejected rather than inferred, so an
+    unclassified action can never be stored and later read as a human
+    approval.
+    """
+    value = getattr(provenance, "value", provenance)
+    normalized = str(value or "").strip()
+    if normalized not in CONTINUATION_AUTHORITY_PROVENANCES:
+        raise CampaignRunnerValidationError(
+            "continuation authority provenance is not a canonical class",
+            reason_code="invalid_continuation_authority_provenance",
+        )
+    return normalized
 
 
 def _new_id(prefix: str) -> str:
@@ -167,10 +186,12 @@ def _continuation_authority_row_to_dict(
         "envelope": dict(row.envelope_json or {}),
         "approved_by_actor_id": row.approved_by_actor_id,
         "approved_at": row.approved_at.isoformat(),
+        "approval_provenance": row.approval_provenance,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         "revoked_by_actor_id": row.revoked_by_actor_id,
         "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
         "revocation_reason": row.revocation_reason,
+        "revocation_provenance": row.revocation_provenance,
         "configured": True,
         "revoked": revoked,
         "expired": expired,
@@ -303,6 +324,7 @@ class CampaignRunnerStore:
         campaign_id: str,
         envelope: dict[str, Any],
         approved_by_actor_id: str,
+        approval_provenance: str,
         expires_at: datetime | None = None,
     ) -> dict[str, Any]:
         normalized_campaign_id = str(campaign_id or "").strip()
@@ -317,6 +339,9 @@ class CampaignRunnerStore:
                 "missing authenticated approver identity",
                 reason_code="missing_continuation_authority_actor",
             )
+        normalized_provenance = _normalize_continuation_authority_provenance(
+            approval_provenance
+        )
         try:
             validated_envelope = CampaignContinuationAuthorityEnvelope.model_validate(
                 envelope
@@ -371,6 +396,7 @@ class CampaignRunnerStore:
                 if (
                     existing.envelope_json == normalized_envelope
                     and existing.approved_by_actor_id == normalized_actor_id
+                    and existing.approval_provenance == normalized_provenance
                     and _same_optional_timestamp(
                         existing.expires_at, normalized_expiry
                     )
@@ -392,6 +418,7 @@ class CampaignRunnerStore:
                 approved_at=now,
                 expires_at=normalized_expiry,
                 created_at=now,
+                approval_provenance=normalized_provenance,
             )
             session.add(row)
             try:
@@ -410,6 +437,7 @@ class CampaignRunnerStore:
                     existing is not None
                     and existing.envelope_json == normalized_envelope
                     and existing.approved_by_actor_id == normalized_actor_id
+                    and existing.approval_provenance == normalized_provenance
                     and _same_optional_timestamp(
                         existing.expires_at, normalized_expiry
                     )
@@ -462,6 +490,7 @@ class CampaignRunnerStore:
         campaign_id: str,
         authority_id: str,
         revoked_by_actor_id: str,
+        revocation_provenance: str,
         reason: str,
     ) -> dict[str, Any]:
         normalized_campaign_id = str(campaign_id or "").strip()
@@ -473,6 +502,9 @@ class CampaignRunnerStore:
                 "revocation requires an authenticated actor and reason",
                 reason_code="invalid_continuation_authority_revocation",
             )
+        normalized_provenance = _normalize_continuation_authority_provenance(
+            revocation_provenance
+        )
 
         with self.db.get_session() as session:
             campaign = (
@@ -500,6 +532,7 @@ class CampaignRunnerStore:
                 row.revoked_by_actor_id = normalized_actor_id
                 row.revoked_at = now
                 row.revocation_reason = normalized_reason
+                row.revocation_provenance = normalized_provenance
                 session.commit()
                 session.refresh(row)
             return _continuation_authority_row_to_dict(

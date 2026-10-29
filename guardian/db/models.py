@@ -72,6 +72,7 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    ContinuationAuthorityProvenance,
     GUARDIAN_DELEGATION_APPROVAL_MODES,
     GUARDIAN_DELEGATION_APPROVAL_SOURCES,
     GUARDIAN_DELEGATION_APPROVAL_STATES,
@@ -6450,6 +6451,17 @@ class Campaign(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+#: The canonical Campaign Continuation Authority provenance vocabulary, as a
+#: CHECK-constraint SQL fragment. The strings are generated from
+#: ``guardian.protocol_tokens`` so ORM metadata stays in lockstep with the
+#: canonical token domain. The Alembic migration carries its own
+#: revision-local string snapshot so historical replay never depends on
+#: mutable application tokens.
+_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL = ", ".join(
+    f"'{provenance.value}'" for provenance in ContinuationAuthorityProvenance
+)
+
+
 class CampaignContinuationAuthorityRecord(Base):
     """Operator-approved, Campaign-scoped continuation authority record."""
 
@@ -6476,6 +6488,16 @@ class CampaignContinuationAuthorityRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # ADR-105: actor identity and approval/revocation provenance are distinct
+    # durable facts. The actor string alone cannot tell a canonical human
+    # administrator apart from a deployment principal that shares the same
+    # bytes, so the authority record carries this discriminator per action
+    # and consumers read it directly instead of inferring it.
+    #
+    # These columns are declared last so the ORM column order matches the
+    # physical order the Alembic migration produces when it appends them.
+    approval_provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    revocation_provenance: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         CheckConstraint(
@@ -6488,6 +6510,21 @@ class CampaignContinuationAuthorityRecord(Base):
             "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
             "AND revocation_reason IS NOT NULL)",
             name="campaign_continuation_authorities_revocation_check",
+        ),
+        CheckConstraint(
+            "approval_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL})",
+            name="campaign_continuation_authorities_approval_provenance_check",
+        ),
+        CheckConstraint(
+            # ``revocation_provenance IS NOT NULL`` is stated explicitly
+            # because a CHECK constraint only rejects a FALSE result: a NULL
+            # provenance would make the ``IN`` test NULL, and NULL passes.
+            "(revoked_at IS NULL AND revocation_provenance IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revocation_provenance IS NOT NULL "
+            f"AND revocation_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL}))",
+            name="campaign_continuation_authorities_revocation_provenance_check",
         ),
         Index(
             "uq_campaign_continuation_authorities_unrevoked_campaign",
