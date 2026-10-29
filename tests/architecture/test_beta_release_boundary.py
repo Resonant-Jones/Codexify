@@ -960,6 +960,51 @@ def _blocker_bullets(section: str) -> list[str]:
     ]
 
 
+# A coordination boundary inside a clause: a comma or a coordinating
+# conjunction. A clause that enumerates obligations separates them with these,
+# and a completion word belongs to the item it modifies rather than to the
+# clause as a whole.
+_COORDINATION_BOUNDARY = re.compile(r",|\band\b|\bor\b", re.IGNORECASE)
+
+
+def _coordination_items(clause: str) -> list[str]:
+    """Split a clause into the coordinated items it enumerates.
+
+    This is deliberately finer-grained than ``_clauses``, which treats commas
+    as intra-statement detail. It exists for one purpose only: attributing a
+    completion word to the obligation it actually describes.
+    """
+    return [
+        part.strip()
+        for part in _COORDINATION_BOUNDARY.split(clause)
+        if part.strip()
+    ]
+
+
+def _claims_completion_for_topic(
+    clause: str, topic: re.Pattern[str]
+) -> bool:
+    """True when the clause claims the obligation named by ``topic`` is finished.
+
+    A completion word belongs to the coordinated item it modifies. In
+    "natural import-to-recall, and complete conversation-lifecycle proof
+    remain open" the adjective describes the completeness of a *different*
+    proof, and the sentence says every one of them remains open. Attributing
+    that adjective to the import-to-recall obligation would reject a truthful
+    document, so the completion claim is scoped to the item that names the
+    obligation.
+
+    The obligation's own unresolved state is still judged on the whole clause,
+    which is the existing ownership rule and is left untouched.
+    """
+    for item in _coordination_items(clause):
+        if not topic.search(item):
+            continue
+        if _has_affirmative(item, _COMPLETION_CLAIM):
+            return True
+    return False
+
+
 def _require_unresolved_obligation(
     section: str, topic: re.Pattern[str], label: str
 ) -> None:
@@ -969,13 +1014,18 @@ def _require_unresolved_obligation(
     unresolved state must belong to the obligation's *own* clause: a pending
     word attached to a different statement in the same bullet does not prove
     the gap, and an obligation that claims completion is rejected outright.
+
+    A completion *word* is not by itself a claim about this obligation. Only a
+    completion claim scoped to the coordinated item that names the obligation
+    rejects it; an adjective describing the completeness of a different,
+    separately unresolved proof is not attributed here.
     """
     bullets = _blocker_bullets(section)
     for bullet in bullets:
         for clause in _clauses(bullet):
             if not topic.search(clause):
                 continue
-            assert not _has_affirmative(clause, _COMPLETION_CLAIM), (
+            assert not _claims_completion_for_topic(clause, topic), (
                 f"Active blockers must not record the {label} obligation as "
                 f"complete"
             )
@@ -1217,6 +1267,66 @@ _NEGATED_UNRESOLVED_CASES = [
     "- The current-tip supported-Compose qualification is not outstanding.",
 ]
 
+# Table-driven cases for the import-to-recall obligation's completion
+# attribution. Each entry is (active-blocker bullet, accepted).
+#
+# The governing invariant is that an active blocker must not falsely claim the
+# obligation is complete. A completion *adjective* that modifies a different
+# coordinated obligation says nothing about import-to-recall, so a truthful
+# document that lists several unresolved proofs must still pass.
+_OBLIGATION_COMPLETION_ATTRIBUTION_CASES = [
+    # Truthful wordings: the adjective belongs to another proof.
+    (
+        "- The natural import-to-recall proof remains open.",
+        True,
+    ),
+    (
+        "- New-thread authored-message projection, natural import-to-recall, and "
+        "complete scope-isolation proof remain open.",
+        True,
+    ),
+    (
+        "- New-thread projection, natural import-to-recall, scope isolation, "
+        "export/restore/retention, and complete conversation-lifecycle proof "
+        "remain open.",
+        True,
+    ),
+    (
+        "- The natural import-to-recall proof has not been completed.",
+        True,
+    ),
+    # Genuine completion claims about the obligation itself must still fail,
+    # including when another statement in the same bullet is unresolved.
+    (
+        "- The natural import-to-recall proof is complete.",
+        False,
+    ),
+    (
+        "- The natural import-to-recall proof has been completed.",
+        False,
+    ),
+    (
+        "- The natural import-to-recall proof is complete; other documentation "
+        "remains pending.",
+        False,
+    ),
+    (
+        "- The natural import-to-recall proof is complete, while scope-isolation "
+        "work remains open.",
+        False,
+    ),
+    # A pending marker for another obligation must never satisfy a negated
+    # import-to-recall obligation.
+    (
+        "- The natural import-to-recall proof is not pending.",
+        False,
+    ),
+    (
+        "- The natural import-to-recall proof is no longer unresolved.",
+        False,
+    ),
+]
+
 _SUPPORTED_PROFILE_CASES = [
     # P1-3: an explicitly unsupported profile cannot satisfy the requirement.
     (
@@ -1277,6 +1387,32 @@ def test_beta_release_contract_rejects_a_negated_unresolved_state(
     )
     with pytest.raises(AssertionError):
         _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize(
+    "bullet,accepted", _OBLIGATION_COMPLETION_ATTRIBUTION_CASES
+)
+def test_beta_release_contract_attributes_completion_to_the_right_obligation(
+    bullet: str, accepted: bool
+) -> None:
+    """A completion word belongs to the obligation it actually modifies.
+
+    An adjective describing the completeness of a different, separately
+    unresolved proof must not be read as a claim that import-to-recall is
+    finished, while a genuine completion claim about import-to-recall must
+    still be rejected.
+    """
+    text = _synthetic_current_state(
+        blockers=(
+            bullet,
+            "- A fresh current-tip supported-Compose qualification is missing.",
+        )
+    )
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
 
 
 @pytest.mark.parametrize("supported,accepted", _SUPPORTED_PROFILE_CASES)
