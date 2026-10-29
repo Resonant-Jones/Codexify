@@ -1184,23 +1184,38 @@ def _trailing_status(scope: str) -> str:
     return _OBLIGATION_UNKNOWN
 
 
-def _inherits_coordinated_predicate(index: int, scopes: list[tuple[str, str]]) -> bool:
-    """True when the statement may take the next statement's predicate.
+def _shared_predicate_scope(
+    index: int, scopes: list[tuple[str, str]]
+) -> str | None:
+    """Return the scope that carries the predicate shared with this obligation.
 
-    The obligation must carry no predicate of its own, and the next statement
-    must be joined to it by a coordination boundary. A contrastive boundary
-    introduces a different subject, so that subject's pending state cannot be
-    borrowed to satisfy this obligation.
+    A coordination list may name several obligations before the predicate that
+    governs all of them, so the shared predicate is not always in the
+    immediately following scope. Only coordination boundaries may be crossed:
+    a contrastive boundary introduces a different subject, whose predicate
+    proves nothing about this obligation.
+    """
+    for next_index in range(index + 1, len(scopes)):
+        next_scope, next_separator = scopes[next_index]
+        if not _COORDINATION_BOUNDARY.fullmatch(next_separator):
+            return None
+        if _SHARED_PREDICATE.search(next_scope):
+            return next_scope
+    return None
+
+
+def _inherits_coordinated_predicate(index: int, scopes: list[tuple[str, str]]) -> bool:
+    """True when the statement may take a later statement's predicate.
+
+    The obligation must carry no predicate of its own, and the statements that
+    follow it must be joined to it by coordination boundaries only. A
+    contrastive boundary introduces a different subject, so that subject's
+    pending state cannot be borrowed to satisfy this obligation.
     """
     scope = scopes[index][0]
     if _scope_has_own_predicate(scope):
         return False
-    if index + 1 >= len(scopes):
-        return False
-    next_scope, next_separator = scopes[index + 1]
-    if not _COORDINATION_BOUNDARY.fullmatch(next_separator):
-        return False
-    return bool(_SHARED_PREDICATE.search(next_scope))
+    return _shared_predicate_scope(index, scopes) is not None
 
 
 def _clause_obligation_status(
@@ -1234,8 +1249,10 @@ def _clause_obligation_status(
             return _OBLIGATION_COMPLETED, carried
         if _has_unresolved_state(scope):
             status = _OBLIGATION_UNRESOLVED
-        elif _inherits_coordinated_predicate(index, scopes):
-            status = _trailing_status(scopes[index + 1][0])
+        elif not _scope_has_own_predicate(scope):
+            shared = _shared_predicate_scope(index, scopes)
+            if shared is not None:
+                status = _trailing_status(shared)
     return status, carried
 
 

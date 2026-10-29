@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -221,15 +222,13 @@ def _contains(text: str, phrase: str) -> bool:
 
 
 def _drop(text: str, phrase: str) -> str:
-    """Remove a phrase, leaving the rest of the document intact."""
-    start, end = _find_phrase(text, phrase)
-    return text[:start] + text[end:]
+    """Remove every occurrence of a phrase, leaving the rest of the document intact."""
+    return re.compile(re.escape(phrase), re.IGNORECASE).sub("", text)
 
 
 def _swap(text: str, old: str, new: str) -> str:
-    """Replace a phrase, leaving the rest of the document intact."""
-    start, end = _find_phrase(text, old)
-    return text[:start] + new + text[end:]
+    """Replace every occurrence of a phrase, leaving the rest of the document intact."""
+    return re.compile(re.escape(old), re.IGNORECASE).sub(new, text)
 
 
 def _move_to_section(text: str, phrase: str, *, source: str, target: str) -> str:
@@ -548,14 +547,45 @@ MAIN_NON_PROMOTION = (
     "and persisted read state, and default Beta support remain unqualified"
 )
 
+#: The non-promotion wordings the canonical document is allowed to use. The
+#: contract tracks the document's current wording instead of one snapshot of
+#: it, so a weekly rewrite of the document cannot decide a boundary.
+NON_PROMOTION_WORDINGS = (
+    "not default Beta support",
+    "default Beta support remain unqualified",
+)
+
+
+def _current_non_promotion_wording() -> str:
+    """Return the non-promotion wording the canonical document currently uses."""
+    document = _canonical_current_state()
+    for wording in NON_PROMOTION_WORDINGS:
+        if _contains(document, wording):
+            return wording
+    raise AssertionError(
+        "the canonical document must state that unqualified capabilities are "
+        "not default Beta support"
+    )
+
 
 def _current_main_non_promotion_document() -> str:
-    """The canonical document already states the current-main non-promotion wording."""
-    document = _canonical_current_state()
-    assert _contains(document, MAIN_NON_PROMOTION), (
-        "the canonical document must state the current-main non-promotion wording"
+    """The canonical document already states the non-promotion claim."""
+    _current_non_promotion_wording()
+    return _canonical_current_state()
+
+
+def _document_with_alternate_non_promotion(alternate: str) -> str:
+    """A document that states only the alternate non-promotion wording.
+
+    The contract accepts either wording, so a document built to exercise the
+    alternate one has to carry that wording *instead of* the current one.
+    """
+    document = _drop(
+        _canonical_current_state(), _current_non_promotion_wording()
     )
-    return document
+    return _append_to_section(
+        document, section="Current supported reality", addition=alternate
+    )
 
 
 def test_release_boundary_accepts_current_main_non_promotion_wording() -> None:
@@ -564,14 +594,15 @@ def test_release_boundary_accepts_current_main_non_promotion_wording() -> None:
 
 @pytest.mark.parametrize("prefix", ["It is false that ", "It is not true that "])
 def test_release_boundary_rejects_denied_current_main_non_promotion(prefix: str) -> None:
-    document = _swap(_current_main_non_promotion_document(), MAIN_NON_PROMOTION, prefix + MAIN_NON_PROMOTION)
+    document = _document_with_alternate_non_promotion(
+        prefix + MAIN_NON_PROMOTION
+    )
     _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
 
 
 def test_release_boundary_rejects_quoted_denial_of_current_main_non_promotion() -> None:
-    document = _swap(
-        _current_main_non_promotion_document(), MAIN_NON_PROMOTION + ".",
-        '"' + MAIN_NON_PROMOTION + '." is false.',
+    document = _document_with_alternate_non_promotion(
+        '"' + MAIN_NON_PROMOTION + '." is false.'
     )
     _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
 
@@ -611,19 +642,16 @@ def test_release_boundary_accepts_quoted_denial_of_same_node_promotion(statement
 
 def test_release_boundary_rejects_qualified_only_for_another_feature() -> None:
     document = _swap(
-        _current_main_non_promotion_document(),
+        _document_with_alternate_non_promotion(MAIN_NON_PROMOTION),
         MAIN_NON_PROMOTION,
-        "that proof qualifies same-node messaging only, and share-link bearer "
-        "expiry/revocation, cross-node discovery and transport, unread indicators "
-        "and persisted read state, and default Beta support remain unqualified "
-        "only for a different feature",
+        MAIN_NON_PROMOTION + " only for a different feature",
     )
     _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
 
 
 def test_release_boundary_rejects_different_feature_non_promotion() -> None:
     document = _swap(
-        _current_main_non_promotion_document(),
+        _document_with_alternate_non_promotion(MAIN_NON_PROMOTION),
         MAIN_NON_PROMOTION,
         "same-node human messaging is now default Beta support; default Beta "
         "support remain unqualified only for a different feature",
@@ -633,7 +661,9 @@ def test_release_boundary_rejects_different_feature_non_promotion() -> None:
 
 def test_release_boundary_helper_rejects_a_document_without_the_beta_non_promotion_claim() -> None:
     _assert_rejected(
-        _drop(_canonical_current_state(), NON_PROMOTION_PHRASE),
+        _drop(
+            _canonical_current_state(), _current_non_promotion_wording()
+        ),
         REASON_NON_PROMOTION_CLAIM,
     )
 
