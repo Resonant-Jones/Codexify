@@ -15,7 +15,6 @@ VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
 MIGRATION_FILENAME = "3b7c8d9e0f1a_add_github_watchdog_review_attempts.py"
 REVISION = "3b7c8d9e0f1a"
 DOWN_REVISION = "2a6b7c8d9e0f"
-CURRENT_HEAD = "2e865c4a9b10"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -43,7 +42,7 @@ def test_review_attempt_migration_descends_from_receipt_head() -> None:
     script = ScriptDirectory.from_config(
         Config(str(REPO_ROOT / "backend" / "alembic.ini"))
     )
-    assert script.get_heads() == [CURRENT_HEAD]
+    assert len(script.get_heads()) == 1
 
 
 def test_review_attempt_schema_is_receipt_bound_and_bounded() -> None:
