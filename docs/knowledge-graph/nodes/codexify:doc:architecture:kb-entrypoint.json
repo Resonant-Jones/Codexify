@@ -6,12 +6,12 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "b775eb854d6abc147f3ca72bc7cb0641ac337bf39049542104b3375b08d17336",
+  "content_hash": "d0236c6f4d1f221f413ccd44fee94c3a1893afd3b507cb34552f68287db7b9f7",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Conflict markers repaired and content hash matched to the reconciled source. The declared freshness-invalidating anchors require a separate review at the merged revision; this repair establishes JSON/schema validity only, not runtime or release qualification.",
+    "reason": "Content hash matched to the reconciled source after the ADR-102 acceptance reconciliation of the Saved Widget entries. The declared freshness-invalidating anchors require a separate review and no new verification was performed.",
     "state": "stale",
     "triggers": [
       "architecture entrypoints or validity guidance change",

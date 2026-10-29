@@ -169,6 +169,28 @@ Until one does:
 3. Widgets must never be synthesized, inferred, or derived from unrelated records — including GenUI or chat-message artifacts — to fill the filter.
 4. Persisting, versioning, and listing saved Widgets requires a separate approved architecture-impact task.
 
+That separate task has now produced a **proposed** architecture:
+[ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) and the
+[Saved Widget Contract](./saved-widget-contract.md) define what a **Saved
+Widget** is, how it is classified, how it is owned, how it is revised, and how
+it is invoked.
+
+A proposal does not change availability. The rules above continue to govern
+until an implementation lands **and** is proven:
+
+- The Widgets filter remains **unavailable**, with a stated reason.
+- No synthetic listing is permitted, and no chat-message scraping is permitted
+  to populate the filter.
+- `All` must not claim complete coverage of an unavailable source.
+- An unavailable filter is never represented as a complete empty result.
+
+The Saved Widget contract also settles the naming collision this contract
+carries: a **Saved Widget** is a durable account-owned revisioned program
+promoted out of Guardian Chat, whereas a **Widget / Space Module** below is a
+declarative composition primitive placed inside a Space. The approved Widgets
+**filter** selects Saved Widgets. Space installation of a Saved Widget is not
+authorized and is out of scope.
+
 ### Library invariants
 
 - Library view state must not redefine resource ownership.
@@ -279,6 +301,13 @@ Owner-authored or explicitly installed HTML/CSS is **Space content**, not ambien
 ### Widgets / Space Modules
 
 A **Widget** is the user-facing composition primitive for reusable Space functionality. Architecture may describe the same primitive as a **Space Module** when a distinction from operating-system widgets is useful.
+
+> **Naming boundary.** A Space **Widget / Space Module** is a *composition* primitive declared inside a Space. It is
+> not the same thing as a **Saved Widget**, which is a durable, account-owned, revisioned program promoted out of
+> Guardian Chat under [ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) and the
+> [Saved Widget Contract](./saved-widget-contract.md). The approved Library **Widgets** filter selects Saved Widgets.
+> A Saved Widget has no Space placement semantics in the current architecture, and installing one into a Space is not
+> authorized.
 
 A Widget should be declarative and may name:
 

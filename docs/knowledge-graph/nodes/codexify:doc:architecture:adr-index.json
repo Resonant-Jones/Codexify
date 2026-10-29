@@ -8,12 +8,12 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "57cf96324ff940506ff04b683a840ca99e4f9d43cce55ef7204823fb479d1ac4",
+  "content_hash": "992889181fc899f73282dbf751bf7aef520a69fbf3341ff918444163fe4447cf",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "The ADR index changed: a proposed ADR-104 entry was added while accepted allocations ADR-102 and ADR-103 remain pending separate mainline integration. The index content hash was recomputed from the changed canonical source bytes; the prior verification commit and timestamp are retained unchanged because this change was not reverified against the governed ADR sources. Documentation metadata only, not runtime or release proof.",
+    "reason": "ADR-105's review posture moved from Proposed to Accepted 2026-10-28 by Resonant Jones, and entry 105 records that acceptance, the accepted architecture, and the ordered runtime slices with the persistence foundation first. The index content hash was recomputed from the changed canonical source bytes; the prior verification commit and timestamp are retained unchanged because this change was not reverified against its governed sources. Documentation metadata only, not runtime or release proof.",
     "state": "stale",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",

@@ -17,14 +17,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from guardian.db.models import (
     DirectMessage,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
     DirectMessageConsent,
+    DirectMessageReadCursor,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
     Project,
@@ -49,6 +51,13 @@ _MAX_CLIENT_KEY_LENGTH = 128
 _MAX_SEARCH_RESULTS = 20
 _DEFAULT_PAGE_LIMIT = 100
 _MAX_PAGE_LIMIT = 200
+
+# Username search is a prefix query, not a full-grammar lookup: a partial
+# handle such as "res" is a legitimate query even though it is shorter than
+# USERNAME_MIN_LENGTH.  Two characters is the shortest query that still
+# discriminates between handles without degenerating into single-character
+# enumeration of the node's username space.
+_MIN_SEARCH_QUERY_LENGTH = 2
 
 _LOCAL_NODE_NAME_ENV = "CODEXIFY_LOCAL_NODE_NAME"
 _DEFAULT_LOCAL_NODE_NAME = "Codexify Local Node"
@@ -236,6 +245,29 @@ def social_profile_payload(profile: UserProfile) -> dict[str, Any]:
     }
 
 
+def normalize_search_query(raw_query: Any) -> str:
+    """Canonicalize a username search query into its stored-handle form.
+
+    A stored username never carries the conventional ``@`` sigil — the V1
+    username grammar admits only lowercase letters, digits, underscore, and
+    hyphen — but the People UI presents handles with the sigil and people type
+    them that way.  Stripping the sigil here means ``@resonant-`` and
+    ``resonant-`` resolve to the same same-node prefix match instead of
+    silently returning nothing.
+
+    The query is trimmed and lowercased so it compares against the lowercase
+    canonical stored form, exactly as ``normalize_username`` does for the
+    stored value itself.  The full username grammar deliberately does NOT
+    apply here: a partial handle is a legitimate query.
+    """
+    if not isinstance(raw_query, str):
+        return ""
+    candidate = raw_query.strip().lower()
+    if candidate.startswith("@"):
+        candidate = candidate[1:].strip()
+    return candidate
+
+
 def search_profiles(
     session, raw_query: Any, limit: int = _MAX_SEARCH_RESULTS
 ) -> list[dict[str, Any]]:
@@ -244,9 +276,15 @@ def search_profiles(
     Authenticated, bounded, and case-insensitive.  Only profiles with an
     actively claimed username are discoverable; responses expose social
     fields only.
+
+    The deliberately claimed username *is* the profile's public/discoverable
+    state in this contract — there is no separate visibility column, so
+    claiming a username is the opt-in act.  A profile that never claimed one
+    is indistinguishable from one that does not exist: both are simply absent
+    from the result set, and neither leaks through response details.
     """
-    query = str(raw_query or "").strip().lower()
-    if not query:
+    query = normalize_search_query(raw_query)
+    if len(query) < _MIN_SEARCH_QUERY_LENGTH:
         return []
 
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -711,6 +749,9 @@ def list_conversations_for_relationship(
     latest_by_conversation = latest_message_for_conversations(
         session, [conversation.id for conversation in conversations]
     )
+    unread_by_conversation = unread_counts_for_conversations(
+        session, profile, [conversation.id for conversation in conversations]
+    )
     return [
         conversation_payload(
             session,
@@ -718,6 +759,7 @@ def list_conversations_for_relationship(
             profile.node_id,
             profile.profile_id,
             latest_message=latest_by_conversation.get(conversation.id),
+            unread_count=unread_by_conversation.get(conversation.id, 0),
         )
         for conversation in conversations
     ]
@@ -798,6 +840,9 @@ def list_conversations_for_profile(
     latest_by_conversation = latest_message_for_conversations(
         session, [conversation.id for conversation in conversations]
     )
+    unread_by_conversation = unread_counts_for_conversations(
+        session, profile, [conversation.id for conversation in conversations]
+    )
     return [
         conversation_payload(
             session,
@@ -805,6 +850,7 @@ def list_conversations_for_profile(
             profile.node_id,
             profile.profile_id,
             latest_message=latest_by_conversation.get(conversation.id),
+            unread_count=unread_by_conversation.get(conversation.id, 0),
         )
         for conversation in conversations
     ]
@@ -975,6 +1021,7 @@ def conversation_payload(
     caller_profile_id: str,
     *,
     latest_message: DirectMessage | None = None,
+    unread_count: int | None = None,
 ) -> dict[str, Any]:
     """Safe participant-visible conversation payload."""
     require_participant(session, conversation, caller_node_id, caller_profile_id)
@@ -1005,6 +1052,10 @@ def conversation_payload(
         latest_message = latest_message_for_conversations(
             session, [conversation.id]
         ).get(conversation.id)
+    if unread_count is None:
+        unread_count = unread_counts_for_conversations(
+            session, caller_profile, [conversation.id]
+        ).get(conversation.id, 0)
     participants = _participant_social_payloads(session, conversation)
     peer = next(
         (
@@ -1038,7 +1089,268 @@ def conversation_payload(
             if latest_message is not None
             else None
         ),
+        "unread_count": int(unread_count),
     }
+
+
+# ── Recipient-local read state ────────────────────────────────────────────
+#
+# A read cursor records how far ONE profile has read ONE conversation.  It is
+# participant-local by construction and is never a read receipt: the other
+# participant can neither observe nor advance it, and no cursor state is
+# written into the shared Relationship, Conversation, or Message authority.
+#
+# Unread counts are DERIVED from the durable message store and the reading
+# profile's cursor.  There is no second message store and no stored counter.
+
+
+def unread_counts_for_conversations(
+    session,
+    profile: UserProfile,
+    conversation_ids: list[str],
+) -> dict[str, int]:
+    """Derive recipient-local unread counts from durable messages and cursor.
+
+    A message counts as unread for this profile when it was authored by the
+    *other* participant and it sorts after this profile's read cursor in the
+    canonical chronological order.  With no cursor, every peer-authored
+    message is unread.  The profile's own messages are never unread for that
+    profile, so sending a message never raises the sender's own count.
+    """
+    ids = [cid for cid in dict.fromkeys(conversation_ids) if cid]
+    if not ids:
+        return {}
+    peer_profile_id = profile.profile_id
+
+    total_rows = session.execute(
+        select(DirectMessage.conversation_id, func.count(DirectMessage.id))
+        .where(
+            DirectMessage.conversation_id.in_(ids),
+            DirectMessage.sender_profile_id != peer_profile_id,
+        )
+        .group_by(DirectMessage.conversation_id)
+    ).all()
+    totals = {str(cid): int(count) for cid, count in total_rows}
+
+    cursor_message = aliased(DirectMessage)
+    read_rows = session.execute(
+        select(DirectMessage.conversation_id, func.count(DirectMessage.id))
+        .select_from(DirectMessage)
+        .join(
+            DirectMessageReadCursor,
+            and_(
+                DirectMessageReadCursor.conversation_id == DirectMessage.conversation_id,
+                DirectMessageReadCursor.profile_id == peer_profile_id,
+            ),
+        )
+        .join(
+            cursor_message,
+            cursor_message.id == DirectMessageReadCursor.last_read_message_id,
+        )
+        .where(
+            DirectMessage.conversation_id.in_(ids),
+            DirectMessage.sender_profile_id != peer_profile_id,
+            or_(
+                DirectMessage.created_at < cursor_message.created_at,
+                and_(
+                    DirectMessage.created_at == cursor_message.created_at,
+                    DirectMessage.id <= cursor_message.id,
+                ),
+            ),
+        )
+        .group_by(DirectMessage.conversation_id)
+    ).all()
+    read_counts = {str(cid): int(count) for cid, count in read_rows}
+
+    return {
+        cid: max(totals.get(cid, 0) - read_counts.get(cid, 0), 0) for cid in ids
+    }
+
+
+def _lock_read_cursor_authority(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+) -> None:
+    """Serialize concurrent read-cursor advances for one participant.
+
+    The read cursor's primary key is ``(conversation_id, profile_id)``, so two
+    concurrent read mutations for the same conversation and the same reader
+    contend on the very same row.  Without serialization both transactions can
+    observe the same starting cursor and then write conflicting watermarks,
+    letting an *older* watermark land last and move the cursor backwards.  On
+    a first read neither row exists yet, so both transactions try to insert
+    the same primary key and one raises a uniqueness error instead of the
+    operation being idempotent.
+
+    The lock is taken on the **participant authority row** for this
+    relationship rather than on the cursor row itself.  That row is stable:
+    it exists before any cursor does and it is unique per
+    ``(relationship_id, profile_id)``, so it always serializes the
+    read-compare-write for this reader regardless of whether a cursor row
+    exists yet.
+
+    Locking the participant row is also safe against lock ordering: it is
+    created before any relationship-level work and is never locked with a
+    conflicting mode elsewhere.
+    """
+    session.scalar(
+        select(DirectMessageRelationshipParticipant)
+        .where(
+            DirectMessageRelationshipParticipant.relationship_id
+            == conversation.relationship_id,
+            DirectMessageRelationshipParticipant.profile_id == profile.profile_id,
+        )
+        # FOR NO KEY UPDATE serializes this reader's cursor writes without
+        # blocking the FK KEY SHARE checks the other participant's own
+        # writes need.
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+
+
+def advance_read_cursor(
+    session,
+    profile: UserProfile,
+    conversation: DirectMessageConversation,
+    watermark_message_id: str | None,
+) -> str | None:
+    """Advance THIS profile's read cursor to a caller-asserted watermark.
+
+    The watermark is the id of the last message the caller actually saw.  The
+    cursor moves to exactly that message and **never past it**, so a message
+    that arrived after the caller's transcript was fetched cannot be marked
+    read without ever having been shown.
+
+    Only the caller's own cursor row is written, and the cursor never moves
+    backwards.  Concurrent advances for the same reader are serialized against
+    the participant authority row, so the cursor always ends at the newest
+    watermark that was actually recorded, and a concurrent first read is
+    idempotent rather than a uniqueness error.
+
+    Returns the message id the cursor now points at, or None when there is no
+    watermark or the conversation holds no messages yet.
+    """
+    if not watermark_message_id:
+        return None
+
+    watermark = session.execute(
+        select(
+            DirectMessage.conversation_id,
+            DirectMessage.created_at,
+            DirectMessage.id,
+        ).where(DirectMessage.id == watermark_message_id)
+    ).first()
+    if watermark is None or watermark[0] != conversation.id:
+        return None
+    watermark_created_at, watermark_id = watermark[1], watermark[2]
+
+    # Serialize the read-compare-write below against concurrent advances for
+    # this same reader.  The lock is held until this transaction commits.
+    _lock_read_cursor_authority(session, conversation, profile)
+
+    # ``populate_existing`` forces a fresh read.  The identity map may still
+    # hold the cursor row as it looked *before* the lock was acquired, and
+    # reading that stale copy would reintroduce the very race the lock
+    # prevents.
+    existing = session.get(
+        DirectMessageReadCursor,
+        (conversation.id, profile.profile_id),
+        populate_existing=True,
+    )
+    if existing is not None and existing.last_read_message_id:
+        current = session.execute(
+            select(DirectMessage.created_at, DirectMessage.id).where(
+                DirectMessage.id == existing.last_read_message_id
+            )
+        ).first()
+        if current is not None and (current[0], current[1]) >= (
+            watermark_created_at,
+            watermark_id,
+        ):
+            session.commit()
+            return existing.last_read_message_id
+
+    if existing is None:
+        session.add(
+            DirectMessageReadCursor(
+                conversation_id=conversation.id,
+                profile_id=profile.profile_id,
+                last_read_message_id=watermark_id,
+            )
+        )
+    else:
+        existing.last_read_message_id = watermark_id
+        existing.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return watermark_id
+
+
+def read_conversation_for_participant(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+) -> dict[str, Any]:
+    """Read one conversation for a participant.  **Read-only.**
+
+    Retrieval never advances read state: a retry or a prefetch of a transcript
+    must not mark a conversation read without the recipient choosing to open
+    it.  The returned payload reports the caller's *current* unread count.
+
+    Advancing the cursor is the explicit action in :func:`mark_conversation_read`.
+    """
+    node_id = profile.node_id
+    profile_id = profile.profile_id
+    require_participant(session, conversation, node_id, profile_id)
+    return conversation_payload(session, conversation, node_id, profile_id)
+
+
+def mark_conversation_read(
+    session,
+    conversation: DirectMessageConversation,
+    profile: UserProfile,
+    watermark_message_id: str | None,
+) -> dict[str, Any]:
+    """Explicitly mark one conversation read for the authenticated participant.
+
+    This is the only operation that advances a read cursor.  Participation is
+    authorized first, so a non-participant can neither read the conversation
+    nor advance anybody's cursor, and only this profile's own cursor moves.
+
+    ``watermark_message_id`` is the id of the last message the caller
+    actually saw.  The cursor advances to exactly that message and never past
+    it, so a message that arrived after the caller's transcript was fetched
+    stays unread.  A watermark that is not a message of this conversation is
+    refused rather than silently ignored.
+
+    The returned payload reports the unread count *after* the advance.
+    """
+    node_id = profile.node_id
+    profile_id = profile.profile_id
+    require_participant(session, conversation, node_id, profile_id)
+
+    if watermark_message_id:
+        known = session.execute(
+            select(DirectMessage.conversation_id).where(
+                DirectMessage.id == watermark_message_id
+            )
+        ).first()
+        if known is None or known[0] != conversation.id:
+            raise _err(
+                422,
+                "read_watermark_invalid",
+                "read watermark is not a message in this conversation",
+            )
+
+    advance_read_cursor(session, profile, conversation, watermark_message_id)
+    unread = unread_counts_for_conversations(session, profile, [conversation.id])
+    return conversation_payload(
+        session,
+        conversation,
+        node_id,
+        profile_id,
+        unread_count=unread.get(conversation.id, 0),
+    )
 
 
 # ── Messages ──────────────────────────────────────────────────────────────
@@ -1225,9 +1537,11 @@ __all__ = [
     "DirectMessage",
     "DirectMessageConversation",
     "DirectMessageConversationPlacement",
+    "DirectMessageReadCursor",
     "DirectMessageRelationship",
     "ThreadSpaceNode",
     "UserProfile",
+    "advance_read_cursor",
     "claim_username",
     "conversation_payload",
     "create_conversation",
@@ -1242,13 +1556,17 @@ __all__ = [
     "list_messages",
     "list_relationships_for_profile",
     "local_node_id",
+    "mark_conversation_read",
     "message_payload",
+    "normalize_search_query",
     "participant_addresses",
     "participant_pair_key",
+    "read_conversation_for_participant",
     "relationship_payload",
     "require_participant",
     "resolve_or_create_relationship",
     "search_profiles",
     "set_conversation_placement",
     "social_profile_payload",
+    "unread_counts_for_conversations",
 ]

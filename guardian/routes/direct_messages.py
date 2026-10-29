@@ -109,6 +109,14 @@ class SendMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class MarkConversationReadRequest(BaseModel):
+    """The caller's read watermark: the last message they actually saw."""
+
+    last_read_message_id: str | None = Field(default=None, max_length=36)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # ── Social identity ───────────────────────────────────────────────────────
 
 
@@ -164,6 +172,13 @@ def search_profiles(
     fields (node_id, profile_id, username, display_name, avatar) — email,
     owning_user_id, credentials, and private account state are never
     included.
+
+    The query accepts the conventional ``@`` sigil and is matched as a
+    same-node username prefix; the canonicalization lives in
+    ``service.normalize_search_query`` so every client resolves the same
+    handles the People UI displays.  Discovery is deliberately same-node: a
+    profile on another node is not merely unmatched by prefix, it is outside
+    this endpoint's scope entirely.
     """
     db = _db()
     with db.get_session() as session:
@@ -457,7 +472,13 @@ def get_conversation(
     conversation_id: str,
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    """Read one conversation (authenticated participants only)."""
+    """Read one conversation (authenticated participants only).  **Read-only.**
+
+    Retrieval never advances read state.  A retry or a prefetch of a transcript
+    must not mark a conversation read without the recipient choosing to open
+    it, so the read cursor is advanced only by the explicit
+    ``POST /api/direct-messages/conversations/{conversation_id}/read`` action.
+    """
     db = _db()
     with db.get_session() as session:
         owner_id = _require_owner_id(request_user_scope, session)
@@ -471,11 +492,55 @@ def get_conversation(
                     "message": "conversation not found",
                 },
             )
-        caller_node_id, caller_profile_id = _profile_address(profile)
         return {
             "ok": True,
-            "conversation": service.conversation_payload(
-                session, conversation, caller_node_id, caller_profile_id
+            "conversation": service.read_conversation_for_participant(
+                session, conversation, profile
+            ),
+        }
+
+
+@router.post("/api/direct-messages/conversations/{conversation_id}/read")
+def mark_conversation_read(
+    conversation_id: str,
+    body: MarkConversationReadRequest = Body(...),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> dict[str, Any]:
+    """Explicitly mark one conversation read for the authenticated participant.
+
+    This is the only operation that advances a recipient-local read cursor
+    (ADR-103).  It advances **only the caller's own** cursor, behind canonical
+    Relationship-membership authorization, and it is idempotent: repeating it
+    never moves the cursor backward.  The cursor is not a read receipt — the
+    other participant can neither observe nor advance it.
+
+    ``last_read_message_id`` is the caller's **read watermark**: the id of the
+    last message they actually saw.  The cursor advances to exactly that
+    message and never past it, so a message that arrived after their
+    transcript was fetched is not marked read without ever having been shown.
+    Omitting it (or sending null) asserts "nothing was shown" and advances
+    nothing.
+    """
+    db = _db()
+    with db.get_session() as session:
+        owner_id = _require_owner_id(request_user_scope, session)
+        profile = service.get_or_create_owned_profile(session, owner_id)
+        conversation = session.get(service.DirectMessageConversation, conversation_id)
+        if conversation is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "conversation_not_found",
+                    "message": "conversation not found",
+                },
+            )
+        return {
+            "ok": True,
+            "conversation": service.mark_conversation_read(
+                session,
+                conversation,
+                profile,
+                body.last_read_message_id,
             ),
         }
 

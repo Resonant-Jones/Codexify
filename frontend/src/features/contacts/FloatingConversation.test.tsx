@@ -22,6 +22,7 @@ vi.mock("@/lib/direct-messages", () => {
     createDirectMessageConversation: vi.fn(),
     fetchDirectMessageConversation: vi.fn(),
     fetchDirectMessageMessages: vi.fn(),
+    markDirectMessageConversationRead: vi.fn(),
     sendDirectMessage: vi.fn(),
     fetchThreadProjectScope: vi.fn(),
     fetchProjectLabelMap: vi.fn(),
@@ -65,6 +66,7 @@ function conversationWithOrigin(originProject: number | null): DirectMessageConv
       updated_at: null,
     },
     latest_message: null,
+    unread_count: 0,
   };
 }
 
@@ -102,6 +104,9 @@ beforeEach(() => {
   portal.id = "cfy-portal-root";
   document.body.appendChild(portal);
   mocked.fetchDirectMessageConversation.mockResolvedValue(conversationWithOrigin(null));
+  mocked.markDirectMessageConversationRead.mockResolvedValue(
+    conversationWithOrigin(null),
+  );
   mocked.fetchDirectMessageMessages.mockResolvedValue([
     message("m1", "hello bob"),
     message("m2", "reply"),
@@ -371,5 +376,95 @@ describe("FloatingConversation", () => {
       mocked.sendDirectMessage.mock.calls[0][2]
     );
     expect(await screen.findByText("retry safely")).toBeInTheDocument();
+  });
+});
+
+describe("FloatingConversation read state", () => {
+  it("advances the caller's own cursor at the last rendered message", async () => {
+    mocked.markDirectMessageConversationRead.mockResolvedValue(
+      conversationWithOrigin(null),
+    );
+    let capturedState: ReturnType<typeof usePeopleMessagingState> | null = null;
+    render(
+      <Harness>
+        {(state) => {
+          capturedState = state;
+          return <FloatingConversation state={state} />;
+        }}
+      </Harness>
+    );
+    await act(async () => {
+      capturedState?.popOutConversation("c1", conversationWithOrigin(null));
+    });
+
+    // The watermark is the last message actually RENDERED, never past it.
+    await waitFor(() =>
+      expect(mocked.markDirectMessageConversationRead).toHaveBeenCalledWith(
+        "c1",
+        "m2",
+      ),
+    );
+    expect(mocked.markDirectMessageConversationRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark a minimized pill read", async () => {
+    mocked.markDirectMessageConversationRead.mockResolvedValue(
+      conversationWithOrigin(null),
+    );
+    let capturedState: ReturnType<typeof usePeopleMessagingState> | null = null;
+    render(
+      <Harness>
+        {(state) => {
+          capturedState = state;
+          return <FloatingConversation state={state} />;
+        }}
+      </Harness>
+    );
+    // The recipient collapses the window before the transcript arrives: a
+    // minimized pill is not a read.
+    await act(async () => {
+      capturedState?.popOutConversation("c1", conversationWithOrigin(null));
+      capturedState?.minimizeFloating();
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(mocked.markDirectMessageConversationRead).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed read retryable", async () => {
+    mocked.markDirectMessageConversationRead.mockRejectedValue(
+      new Error("mark read unavailable"),
+    );
+    let capturedState: ReturnType<typeof usePeopleMessagingState> | null = null;
+    render(
+      <Harness>
+        {(state) => {
+          capturedState = state;
+          return <FloatingConversation state={state} />;
+        }}
+      </Harness>
+    );
+    await act(async () => {
+      capturedState?.popOutConversation("c1", conversationWithOrigin(null));
+    });
+
+    await waitFor(() =>
+      expect(mocked.markDirectMessageConversationRead).toHaveBeenCalledTimes(1),
+    );
+
+    // Re-opening the same conversation retries the read: a failed mutation
+    // is never remembered as recorded.
+    await act(async () => {
+      capturedState?.closeFloating();
+    });
+    await act(async () => {
+      capturedState?.popOutConversation("c1", conversationWithOrigin(null));
+    });
+
+    await waitFor(() =>
+      expect(mocked.markDirectMessageConversationRead).toHaveBeenCalledTimes(2),
+    );
   });
 });

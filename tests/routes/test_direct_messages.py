@@ -29,6 +29,7 @@ from guardian.db.models import (
     DirectMessageConversation,
     DirectMessageConversationPlacement,
     DirectMessageConsent,
+    DirectMessageReadCursor,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
     MessageRequest,
@@ -53,6 +54,19 @@ TABLE_ORDER = (
     DirectMessageConversation.__table__,
     DirectMessageConversationPlacement.__table__,
     DirectMessage.__table__,
+    DirectMessageReadCursor.__table__,
+    MessageRequest.__table__,
+    MessageRequestAttempt.__table__,
+    DirectMessageConsent.__table__,
+    MessageRequestSuppression.__table__,
+    MessageRequestPreferences.__table__,
+    MessageRequestVisibility.__table__,
+)
+
+# The request-side tables are optional for suites that exercise only the
+# canonical direct-messaging domain.  Named explicitly so the recipient-local
+# read-cursor table (a direct-messaging table) is never skipped with them.
+REQUEST_TABLES = (
     MessageRequest.__table__,
     MessageRequestAttempt.__table__,
     DirectMessageConsent.__table__,
@@ -104,7 +118,7 @@ def _new_engine(
                 )
             )
         for table in TABLE_ORDER[1:]:
-            if not create_request_tables and table in TABLE_ORDER[8:]:
+            if not create_request_tables and table in REQUEST_TABLES:
                 continue
             table.create(engine)
     return engine

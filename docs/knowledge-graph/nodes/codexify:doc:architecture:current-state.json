@@ -8,12 +8,12 @@
     "current priorities",
     "present release promise"
   ],
-  "content_hash": "3dcc3e1c56833eea3cc4a9c20a16b78c06121e94917c1e355278ff86100678aa",
+  "content_hash": "d8707b0bb1313dec6288ebded8b38a191b5f4ef7d021eb3258f7208ac6531b86",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:current-state",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "Conflict markers repaired and content hash matched to the reconciled source. The declared freshness-invalidating anchors require a separate review at the merged revision; this repair establishes JSON/schema validity only, not runtime or release qualification.",
+    "reason": "Content hash matched to the reconciled source after recording the accepted saved-widget architecture and its absent-implementation boundary. The declared freshness-invalidating anchors require a separate review and no new verification was performed.",
     "state": "stale",
     "triggers": [
       "the weekly freshness window expires",
