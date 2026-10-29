@@ -33,12 +33,6 @@ def mock_db():
     mock = MagicMock()
     expected_user_id = get_test_user_id()
 
-    # This mock models the chatlog store, not a SQLAlchemy session factory.
-    # Leaving `_sa_session` on the mock would advertise a session the mock
-    # cannot provide, so callers that probe for one would take the real
-    # session path against a mock and fail on the empty result.
-    del mock._sa_session
-
     # Mock common database methods
     mock.create_chat_thread.return_value = {
         "id": 1,

@@ -90,7 +90,17 @@ def create_chat_message_with_metadata(
         thread.updated_at = now
         thread.last_interaction_at = now
         session.flush()
-        return int(message.id)
+        message_id = getattr(message, "id", None)
+        if message_id is None:
+            # The session did not materialize an id, so the row was not
+            # inserted. Persist through the store's own write path instead of
+            # reporting an id that was never assigned.
+            return int(
+                chatlog_db.create_message(
+                    thread_id, role, content, extra_meta=dict(extra_meta)
+                )
+            )
+        return int(message_id)
 
 
 def _accepted_tool_attempt(
