@@ -257,9 +257,26 @@ def _enable_consent(connection) -> None:
     )
 
 
-def test_merge_revision_is_the_only_head_and_parents_both_branches():
+def test_merge_revision_is_in_the_single_head_ancestry_and_parents_both_branches():
+    """The read-state merge stays inside the current single head's ancestry.
+
+    ``3a91d7c4e8b2`` is not the permanent head of the migration graph. A later,
+    correctly joined branch may add a mergepoint above it. What must remain
+    true is that the graph has exactly one head, that this historical merge is
+    reachable from that head, and that it still joins its two original parents
+    without rewriting either of them.
+    """
     script = _script_directory()
-    assert len(script.get_heads()) == 1
+    heads = script.get_heads()
+    assert len(heads) == 1, f"expected exactly one head, got {heads}"
+    head = heads[0]
+    lineage = {
+        revision.revision
+        for revision in script.walk_revisions(head=head)
+    }
+    assert MERGE_REVISION in lineage, (
+        "the read-state merge revision must stay in the current head's ancestry"
+    )
     merge = script.get_revision(MERGE_REVISION)
     assert set(merge.down_revision) == {
         UNIFIED_MAIN_REVISION,
@@ -317,7 +334,7 @@ def test_merge_upgrade_and_round_trip_preserves_all_three_authorities(
     config, engine = disposable_postgres
 
     if starting_point == "clean":
-        command.upgrade(config, "head")
+        command.upgrade(config, MERGE_REVISION)
     elif starting_point == "both":
         command.upgrade(config, UNIFIED_MAIN_REVISION)
         command.upgrade(config, READ_CURSOR_REVISION)
@@ -349,7 +366,7 @@ def test_merge_upgrade_and_round_trip_preserves_all_three_authorities(
         else:
             expected_consent = None
 
-    command.upgrade(config, "head")
+    command.upgrade(config, MERGE_REVISION)
 
     inspector = sa.inspect(engine)
     for table in (WIDGETS_TABLE, REVISIONS_TABLE, CURSOR_TABLE):
@@ -366,7 +383,7 @@ def test_merge_upgrade_and_round_trip_preserves_all_three_authorities(
         c["name"] for c in inspector.get_check_constraints(WIDGETS_TABLE)
     }
 
-    assert _current_heads(engine) == set(_script_directory().get_heads())
+    assert _current_heads(engine) == {MERGE_REVISION}
 
     with engine.begin() as connection:
         if expected_consent is not None:
@@ -438,8 +455,8 @@ def test_merge_upgrade_and_round_trip_preserves_all_three_authorities(
         if expected_consent is not None:
             assert _consent_record(connection) == expected_consent
 
-    command.upgrade(config, "head")
-    assert _current_heads(engine) == set(_script_directory().get_heads())
+    command.upgrade(config, MERGE_REVISION)
+    assert _current_heads(engine) == {MERGE_REVISION}
     with engine.connect() as connection:
         assert (
             connection.execute(
