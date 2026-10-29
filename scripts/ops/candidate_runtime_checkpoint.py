@@ -269,7 +269,14 @@ def no_symlinks(path: Path) -> None:
 def safe_destination(value: str | Path, snapshot: dict | None = None) -> Path:
     path = Path(value)
     no_symlinks(path)
-    path = path.resolve()
+    try:
+        path = path.resolve()
+    except OSError as exc:
+        # A destination that cannot be inspected is one we cannot prove safe,
+        # so refuse it instead of continuing with an unresolved path.
+        raise CheckpointError(
+            f"checkpoint destination cannot be inspected: {path}"
+        ) from exc
     forbidden = [
         Path("/private/tmp"),
         Path("/tmp").resolve(),
