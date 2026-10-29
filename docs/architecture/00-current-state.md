@@ -18,7 +18,7 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` is in local-first Beta hardening with a separately gated Private Preview lane. It carries integrated read-state, migration-lineage, and operator-provenance work. The Private Preview lane has now been **redeployed at the current tip** — the live Preview database migrated to Alembic head `3a91d7c4e8b2`, the serving revision is `5569f3f34`, and recipient-local read state passed a 20-of-20 live two-account test. The supported runtime has **not** been requalified beyond that one deployed surface, and the release gate remains `HOLD`.
+`main` is in local-first Beta hardening with a separately gated Private Preview lane. It carries integrated read-state, migration-lineage, and operator-provenance work. The Private Preview lane has now been **redeployed on its pinned serving worktree** — the live Preview database migrated to Alembic head `3a91d7c4e8b2`, and recipient-local read state passed a 20-of-20 live two-account test evaluated at serving revision `5569f3f34`. The serving revision has since advanced to `c8e72ef86`, which changed no application source. The supported runtime has **not** been requalified beyond that one deployed surface, and the release gate remains `HOLD`.
 
 ## What changed recently
 
@@ -27,7 +27,7 @@ This file is authoritative for:
 - Added accepted ADR-105 operator-actor and human-approval provenance boundaries; this is governance evidence, not autonomous execution or release expansion.
 - Qualified the committed migration chain on the supported `postgres:15` / PostgreSQL 15.19 path using an empty database and a restored, read-only copy of the Preview database; existing rows were preserved.
 - Rehearsed the real image/migrator mechanism and recorded two traps: the backend entrypoint's `alembic` call is a swallowed no-op, and the migrator reads migrations from the baked image rather than the source mount.
-- Reconciled local `main` with the stored remote-tracking tip; no deployment or live feature qualification followed.
+- Reconciled local `main` with the stored remote-tracking tip; the Private Preview deployment and live read-state qualification then followed, and the serving revision has since advanced from `5569f3f34` to `c8e72ef86` without changing application source.
 
 ## Current supported reality
 
@@ -35,7 +35,9 @@ This file is authoritative for:
 - The Beta Supported envelope covers local inference, ordinary chat, durable threads/messages/tasks, supported document ingestion and retrieval, account ownership, migrations, and operator diagnostics; qualification is a separate gate.
 - Mainline has bounded evidence for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, deadlines, and authorization; bounded evidence is not complete runtime qualification.
 - The migration chain is qualified on the supported PostgreSQL version in disposable clean and restored-copy runs, and has since been applied to the **live** Private Preview database, which advanced `f0d7c4b2a198` → `3a91d7c4e8b2` with every pre-existing row preserved.
-- Recipient-local read state is **deployed and live-qualified** on the Private Preview: the serving revision is `5569f3f34`, and a two-account live test passed 20 of 20 checks covering the unread projection, explicit read advancement, account isolation, watermark accuracy, idempotency, reload persistence, concurrent reads, and the absence of any sender-visible read receipt. The consent HTTP surface is quarantined by the Preview profile, so consent enforcement is proven at the storage layer rather than the endpoint.
+- Recipient-local read state is **deployed and live-qualified** on the Private Preview: a two-account live test passed 20 of 20 checks at serving revision `5569f3f34`, covering the unread projection, explicit read advancement, account isolation, watermark accuracy, idempotency, reload persistence, concurrent reads, and the absence of any sender-visible read receipt. The consent HTTP surface is quarantined by the Preview profile, so consent enforcement is proven at the storage layer rather than the endpoint.
+- The current serving revision is `c8e72ef86`. The advance from `5569f3f34` changed only `.dockerignore`, `.gitignore`, and documentation, so no application source differs from the evaluated revision. The backend's `/app/guardian` bind mount is the serving worktree's own `guardian/` tree, and the container's `guardian/db/models.py` hashes identically to the worktree copy. Post-advance observation is limited to health (`200`), the live schema head (`3a91d7c4e8b2`), the Guardian mount source, and running-model identity; **the 20 checks were not re-run against `c8e72ef86`**.
+- The Private Preview deployment sequence itself has been executed against the live Preview — runtime image rebuilt, migrator run, application containers recreated — so that prerequisite is discharged. It covers the Preview lane only and is not a supported-Compose qualification.
 - Private Preview same-node messaging has live end-to-end evidence for approved synthetic accounts; this does not qualify share links, cross-node transport, or default Beta support.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Connectors, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, and autonomous coding-worker work are not default Beta support without current-main qualification.
@@ -47,6 +49,7 @@ This file is authoritative for:
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
 - Do not treat the delegated worker canary as successful provider execution; the `reasoning_effort` contract still fails before provider execution, and worker egress was observed despite `allow_network=false`.
 - Do not treat merged suites, focused database tests, or deployment rehearsal as live runtime qualification.
+- Do not treat the serving-revision advance as a re-run of the live read-state qualification: source equivalence is an observation about code, not a fresh execution of the 20 checks, and a healthy Private Preview is not a supported-Compose qualification.
 - Do not treat Saved Widget storage and ADR-102 acceptance as lifecycle support; promotion, listing, invocation, editing, deletion, export/restore, Library Widgets filtering, Web Audio, and canvas qualification remain open.
 - Share links remain bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
 - Branch-only, origin-only, uncommitted, and local-only work is not shipped `main` reality. Capabilities without current-main qualification are not default Beta support.
@@ -55,7 +58,7 @@ This file is authoritative for:
 ## Active blockers
 
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
-- The supported deployment path has not been executed against the live Preview: the runtime image must be rebuilt, the migrator must run, and application containers must then be recreated; frontend frozen-lockfile installation also remains unrehearsed.
+- Frontend frozen-lockfile installation on the supported path remains unrehearsed.
 - Cross-browser qualification of the generative-UI containment repair is missing; Chrome 156 is the only reported browser result and Playwright cannot launch on the reported host.
 - The UMS/Chronicle lane retains an inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still needs execution against the corrected baseline.
 - The explicit-model rejection and delegated worker-to-adapter contract remain unresolved before provider execution claims.
@@ -65,7 +68,7 @@ This file is authoritative for:
 ## This week’s priorities
 
 1. Freeze the evaluated local `main` SHA and run the complete supported-Compose proof bundle.
-2. Rehearse the approved deployment sequence with the rebuilt runtime image, migrator, application restart, and frontend lockfile path before any live change.
+2. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
 3. Resolve the explicit-model/delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
 5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, browser-verified unread badges, and Saved Widget operations.

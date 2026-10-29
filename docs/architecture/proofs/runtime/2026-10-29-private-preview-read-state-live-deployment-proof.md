@@ -2,9 +2,13 @@
 
 Date: 2026-10-29
 
-Serving revision: `5569f3f34` (published `origin/main`). Serving source root:
-`/Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261029`, a clean
+Evaluated serving revision: `5569f3f34` (published `origin/main` at qualification time). Serving
+source root: `/Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261029`, a clean
 detached worktree of published `main`.
+
+The serving revision has since advanced to `c8e72ef86`. The 20 measured results recorded below were
+evaluated at `5569f3f34` and were **not** re-run; see
+[Post-qualification serving advance](#post-qualification-serving-advance).
 
 Live database before: revision `f0d7c4b2a198`, 135 tables.
 Live database after: revision `3a91d7c4e8b2`, 138 tables, every pre-existing row preserved.
@@ -266,6 +270,67 @@ The two synthetic accounts were removed: their direct-message state, their `user
 and their `users` rows. `CODEXIFY_PREVIEW_APPROVED_EMAILS` was restored from a pre-change copy
 and the restored `.env.private-preview` is byte-identical to that copy. The backend container was
 recreated on the restored allowlist.
+
+## Post-qualification serving advance
+
+Date: 2026-10-29, after the qualification run recorded above.
+
+The serving worktree was advanced from `5569f3f34` to `c8e72ef86` after the 20 measured results
+above were taken. **Those results were not re-run.** This section records only what was actually
+observed about the advance, and it extends nothing.
+
+### Source equivalence
+
+`5569f3f34` → `c8e72ef86` is three commits, and the whole-tree difference between the two
+revisions is exactly four paths:
+
+```text
+$ git diff --name-status 5569f3f34 c8e72ef86
+M       .dockerignore
+M       .gitignore
+M       docs/architecture/00-current-state.md
+A       docs/architecture/proofs/runtime/2026-10-29-private-preview-read-state-live-deployment-proof.md
+```
+
+No application source changed. The `guardian/`, `backend/`, `frontend/`, `config/`, `plugins/`,
+`scripts/`, `services/`, `codex_runner/`, `codex_tasks/`, `flows/`, and `tests/` trees carry
+identical tree-object ids at both revisions.
+
+### Checks actually performed after the advance
+
+All read-only. Nothing was redeployed, restarted, or re-tested.
+
+| Check | Result |
+| --- | --- |
+| `serving-source` pin contents | `/Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261029` |
+| Serving worktree `HEAD` | `c8e72ef8677d6c3a2ac9d7637f5d1d0d3adffa77` |
+| Serving worktree tracked status (`--untracked-files=no`) | clean |
+| `REBASE_HEAD` / `MERGE_HEAD` in the serving worktree | absent |
+| `GET http://127.0.0.1:8081/health` | 200 |
+| Live `alembic_version` | `3a91d7c4e8b2` |
+| Backend `/app/guardian` mount source | the serving worktree |
+| Container vs serving worktree `guardian/db/models.py` sha256 | `0ada48c25c5936dcafd268cc8c79416fa48f3182a71b1047359b8c14d04cb7a4` on both |
+
+### Protected paths in the serving worktree
+
+Three tracked paths carry the `skip-worktree` bit in the serving worktree:
+`.claude/commands/repo-map.md`, `.claude/commands/runtime-check.md`, and
+`.claude/commands/task-report.md`. They are agent-command helpers, not application source, and are
+not bind-mounted into any container. The sandbox that wrote the serving worktree denies creating
+those files, so they are absent on disk; the `skip-worktree` bit keeps them out of the tracked
+status read that the reconciler performs, so its guard passes. The reconciler validates a readable
+worktree with clean tracked status and no in-progress rebase or merge, and does not pin a revision
+id. The worktree still read `c8e72ef86` after 44 further reconciliation cycles.
+
+### What this observation does not establish
+
+- It does **not** re-run the 20 checks, and does **not** qualify `c8e72ef86` against the 20-check
+  contract. The qualification stands at `5569f3f34`.
+- Source equivalence is an observation about code, not an execution. The deployed behavior at
+  `c8e72ef86` is evidenced by the unchanged application source plus the health, schema-head, mount,
+  and model-identity observations above — not by a fresh live run.
+- The browser-rendered unread badge, the consent HTTP surface, and full supported-Compose
+  qualification remain exactly as unverified as they were above.
 
 ## What this receipt does not establish
 
