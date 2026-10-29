@@ -12,8 +12,13 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "2e865c4a9b10"
 MESSAGE_REQUEST_REVISION = "9e52b1d3c8fa"
+
+#: The merge revision that unified the chat-deadline and campaign-authority
+#: lineages. It is a historical revision inside the graph rather than the
+#: current head, so it is named explicitly instead of being read off the
+#: head.
+CHAT_DEADLINE_CAMPAIGN_MERGE = "2e865c4a9b10"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -123,7 +128,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert Path(message_requests.path).name == "9e52b1d3c8fa_add_message_request_consent.py"
 
     heads = script.get_heads()
-    assert heads == [CANONICAL_HEAD]
+    assert len(heads) == 1
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
@@ -132,11 +137,11 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
 
 def test_chat_deadline_campaign_merge_preserves_both_installed_lineages():
     script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
-    merge = script.get_revision(CANONICAL_HEAD)
+    merge = script.get_revision(CHAT_DEADLINE_CAMPAIGN_MERGE)
     assert merge.down_revision == ("f1a6d83b9024", "17b23052da6a")
     for installed_head in merge.down_revision:
-        pending = list(script.iterate_revisions(CANONICAL_HEAD, installed_head, implicit_base=True))
-        assert pending[0].revision == CANONICAL_HEAD
+        pending = list(script.iterate_revisions(CHAT_DEADLINE_CAMPAIGN_MERGE, installed_head, implicit_base=True))
+        assert pending[0].revision == CHAT_DEADLINE_CAMPAIGN_MERGE
         assert installed_head not in {revision.revision for revision in pending}
         other_head = next(head for head in merge.down_revision if head != installed_head)
         assert other_head in {revision.revision for revision in pending}
