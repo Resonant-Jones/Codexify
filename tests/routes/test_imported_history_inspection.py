@@ -93,10 +93,12 @@ def http(corpus, database_url, monkeypatch):
     monkeypatch.setattr(session_store, "_SESSION_STORE", store)
     with psycopg.connect(database_url) as conn:
         conn.execute("DELETE FROM authenticated_principals")
-        for account, subject in [(A, "subject-a"), (B, "subject-b")]:
+        # The stored session is the account authority. The principal mapping
+        # mirrors it so no lookup can map a subject onto a different account.
+        for account in (A, B):
             conn.execute(
                 "INSERT INTO authenticated_principals(account_id,subject_id) VALUES (%s,%s)",
-                (account, subject),
+                (account, account),
             )
     # An account credential is only accepted while its approved session is
     # stored, and the session user id is the account identity the routes
@@ -105,6 +107,9 @@ def http(corpus, database_url, monkeypatch):
     token_b = issue_session_token(B, purpose="account_session")[0]
     store.store(token_a, A, 3600)
     store.store(token_b, B, 3600)
+    # Fixture setup is not request-time activity; the routes still have to
+    # perform no session-store write of their own.
+    redis.writes = 0
     operator = issue_session_token("subject-a", purpose="operator_session")[0]
     guest = issue_guest_session_token(
         room_id="fixture-room",
@@ -474,11 +479,20 @@ def test_no_writes_or_forbidden_downstream_calls(http, monkeypatch):
             raise AssertionError("Forbidden runtime consumer")
 
     try:
-        threading.setprofile_all_threads(profile)
+        # The route runs in the TestClient's portal thread, so the guard has to
+        # be installed in that thread and not only in the calling thread.
+        # `threading.setprofile_all_threads` only exists from Python 3.12.
+        threading.setprofile(profile)
+        portal = getattr(http.client, "portal", None)
+        if portal is not None:
+            portal.call(sys.setprofile, profile)
         assert post(http).status_code == 200
         assert post(http, dict(BODY, thread_ids=[15, 16])).status_code == 200
     finally:
-        threading.setprofile_all_threads(previous)
+        threading.setprofile(previous)
+        portal = getattr(http.client, "portal", None)
+        if portal is not None:
+            portal.call(sys.setprofile, previous)
     assert snapshot(http.url) == before
     assert http.redis.writes == 0
     event_bus.emit_event.assert_not_called()
@@ -619,13 +633,18 @@ def test_legitimate_local_account_session_keeps_server_approved_identity(
 
 
 @pytest.mark.parametrize(
-    "subject,status", [(A, 200), (B, 401), ("unknown-subject", 401)]
+    "subject,status", [(A, 200), (B, 404), ("unknown-subject", 401)]
 )
 def test_remote_single_user_signed_subject_cannot_fall_back_to_another_account(
     http, subject, status
 ):
     http.settings.CODEXIFY_MULTI_USER_ENABLED = False
     token = issue_session_token(subject, purpose="account_session")[0]
+    if subject in (A, B):
+        # An account session is only approved while it is stored, and the
+        # stored account id is then the identity the route compares against
+        # the project and thread owners.
+        http.store.store(token, subject, 3600)
     response = post(http, headers={"Authorization": "Bearer " + token, "X-User-Id": B})
     if status == 200:
         assert response.status_code == 200, response.text

@@ -99,13 +99,15 @@ def test_client_identity_and_single_user_mode_cannot_widen_account_scope(http):
         )
     )
     http.settings.CODEXIFY_MULTI_USER_ENABLED = False
+    # Single-user mode cannot widen the account scope: the approved session
+    # still identifies account B, so the selection stays outside B's history.
     denied(
         post(
             http,
             body,
             headers={"Authorization": "Bearer " + http.token_b},
         ),
-        401,
+        403,
     )
     http.settings.CODEXIFY_MULTI_USER_ENABLED = True
 
