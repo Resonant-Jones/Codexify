@@ -17,6 +17,7 @@ from guardian.core.auth import (
 )
 from guardian.core.dependencies import RequestUserScope, require_task_event_read_principal
 from guardian.core.hosted_room_session import issue_guest_session_token
+from guardian.core.session_store import get_session_store
 from guardian.db.models import HostedRoom, HostedRoomInvite, HostedRoomParticipant
 from guardian.queue import task_events
 
@@ -693,6 +694,9 @@ def test_remote_account_principal_cannot_be_overridden_by_user_header(
         subject=authenticated_account,
         purpose=ACCOUNT_SESSION_PURPOSE,
     )
+    # A native account token is only an account credential when the session
+    # store also holds its approved session mapping.
+    get_session_store().store(token, authenticated_account, 60)
 
     response = client.get(
         "/api/tasks/backend-task-a/events",

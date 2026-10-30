@@ -276,16 +276,12 @@ def _is_ancestor_revision(config, ancestor: str, head: str) -> bool:
     if ancestor == head:
         return True
     script = ScriptDirectory.from_config(config)
-    seen: set[str] = set()
-    current: str | None = head
-    while current and current not in seen:
-        seen.add(current)
-        current = script.get_revision(current).down_revision
-        if isinstance(current, (tuple, list)):  # merge point; follow the first
-            current = current[0] if current else None
-        if current == ancestor:
-            return True
-    return False
+    # A merge revision has more than one parent, so lineage has to be read
+    # through every branch rather than a single ``down_revision`` chain.
+    return ancestor in {
+        revision.revision
+        for revision in script.iterate_revisions(head, None, implicit_base=True)
+    }
 
 
 def test_orm_metadata_matches_live_schema_for_governance_columns(

@@ -10,6 +10,11 @@ from unittest.mock import patch
 
 import pytest
 
+#: Guardian invocation credential authority for the authorized Pi lane. The
+#: adapter refuses an authorized invocation without it, so the fixtures must
+#: carry one.
+_CREDENTIAL_MATERIAL = "fixture-invocation-credential"
+
 from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
 from guardian.agents.adapters.pi_codex_runner import PiCodexRunnerAdapter
 from guardian.pi.evaluator_result import validate_evaluator_result
@@ -52,7 +57,7 @@ def _frame():
 def test_adapter_projects_explicit_contract_and_strips_ambient(tmp_path: Path) -> None:
     observed = {}
 
-    def fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         observed.update(env)
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(_frame()), stderr="")
 
@@ -61,7 +66,7 @@ def test_adapter_projects_explicit_contract_and_strips_ambient(tmp_path: Path) -
             result = PiCodexRunnerAdapter().execute_authorized(
                 AgentExecutionRequest(prompt="Evaluate only", cwd=str(tmp_path), timeout_seconds=10),
                 AgentExecutionIdentity(provider_id="deepseek", model_id="deepseek-v4-pro", harness_id="pi-coding-agent", harness_version="0.82.1"),
-                read_only=True, reasoning_effort="medium",
+                credential_material=_CREDENTIAL_MATERIAL, read_only=True, reasoning_effort="medium",
                 evaluator_result_contract=PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT,
             )
     assert observed["PI_GUARDIAN_RESULT_CONTRACT"] == PI_AUTHORIZED_EVALUATOR_RESULT_CONTRACT

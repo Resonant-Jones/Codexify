@@ -1,7 +1,7 @@
 """Focused PostgreSQL proof for the UMS-05C10B-W lifecycle transition writer.
 
 Proves ``MemoryVaultMutationService.transition_lifecycle`` against real
-disposable PostgreSQL, enforcing ADR-089 exactly:
+disposable PostgreSQL, enforcing ADR-107 exactly:
 
 * only ``retire`` and ``restore`` are admitted; no raw lifecycle target and
   no generic ``set_lifecycle_state`` surface exists;

@@ -78,6 +78,11 @@ def test_timeout_phase_vocabulary_and_strict_parser() -> None:
         assert _parse_authorized_timeout_phases("\n".join(invalid)) == ((), None)
 
 
+#: Guardian invocation credential authority for the authorized Pi lane. The
+#: adapter refuses an authorized invocation without it, so the fixtures must
+#: carry one.
+_CREDENTIAL_MATERIAL = "fixture-invocation-credential"
+
 IDENTITY = PiAuthorizedExecutionIdentity(
     provider_id="openai-codex",
     model_id="gpt-5.3-codex",
@@ -430,7 +435,7 @@ def test_authorized_timeout_and_missing_wrapper_are_classified_without_raw_error
         raise subprocess.TimeoutExpired("node", 1)
 
     monkeypatch.setattr(pi_codex_runner.subprocess, "run", timeout)
-    timeout_result = adapter.execute_authorized(request, identity, read_only=True)
+    timeout_result = adapter.execute_authorized(request, identity, credential_material=_CREDENTIAL_MATERIAL, read_only=True)
     assert timeout_result.failure_classification == PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value
     assert "timed out after" not in timeout_result.summary
 
@@ -438,7 +443,7 @@ def test_authorized_timeout_and_missing_wrapper_are_classified_without_raw_error
         raise FileNotFoundError("/secret/path")
 
     monkeypatch.setattr(pi_codex_runner.subprocess, "run", missing)
-    missing_result = adapter.execute_authorized(request, identity, read_only=True)
+    missing_result = adapter.execute_authorized(request, identity, credential_material=_CREDENTIAL_MATERIAL, read_only=True)
     assert missing_result.failure_classification == PiAuthorizedFailureClass.WRAPPER_UNAVAILABLE.value
     assert "/secret/path" not in missing_result.model_dump_json()
 
@@ -697,7 +702,7 @@ def test_missing_assistant_message_count_is_wrapper_protocol_failure(
             harness_id=IDENTITY.harness_id,
             harness_version=IDENTITY.harness_version,
         ),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -721,7 +726,7 @@ def test_negative_assistant_tool_call_event_count_is_wrapper_protocol_failure(
             harness_id=IDENTITY.harness_id,
             harness_version=IDENTITY.harness_version,
         ),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -746,7 +751,7 @@ def test_non_string_assistant_message_event_type_is_wrapper_protocol_failure(
             harness_id=IDENTITY.harness_id,
             harness_version=IDENTITY.harness_version,
         ),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -769,7 +774,7 @@ def test_assistant_content_block_types_not_a_list_is_wrapper_protocol_failure(
             harness_id=IDENTITY.harness_id,
             harness_version=IDENTITY.harness_version,
         ),
-        read_only=True,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=True,
     )
     assert result.status == "error"
     assert result.failure_classification == "wrapper_protocol_failed"
@@ -1006,7 +1011,7 @@ def test_ambient_required_tool_env_does_not_affect_authorized_call_with_none(
 
     observed_env: dict[str, str] = {}
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         observed_env.update(env)
         success_stdout = json.dumps(
             {
@@ -1061,7 +1066,7 @@ def test_ambient_required_tool_env_does_not_affect_authorized_call_with_none(
                     harness_id="pi-coding-agent",
                     harness_version="0.82.1",
                 ),
-                read_only=False,
+                credential_material=_CREDENTIAL_MATERIAL, read_only=False,
                 required_tool_name=None,
             )
         # Adapter was called with required_tool_name=None. The subprocess
@@ -1081,7 +1086,7 @@ def test_ambient_required_tool_env_does_not_affect_authorized_call_with_none(
 def test_execute_authorized_required_write_sets_subprocess_env(
     tmp_path: Path,
 ) -> None:
-    """execute_authorized(..., required_tool_name="write") must produce a
+    """execute_authorized(..., credential_material=_CREDENTIAL_MATERIAL, required_tool_name="write") must produce a
     subprocess environment with PI_GUARDIAN_REQUIRED_TOOL=write.
 
     The test wraps the canonical execute_authorized call and inspects
@@ -1096,7 +1101,7 @@ def test_execute_authorized_required_write_sets_subprocess_env(
 
     observed_env: dict[str, str] = {}
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         observed_env.update(env)
         success_stdout = json.dumps(
             {
@@ -1156,7 +1161,7 @@ def test_execute_authorized_required_write_sets_subprocess_env(
                     harness_id="pi-coding-agent",
                     harness_version="0.82.1",
                 ),
-                read_only=False,
+                credential_material=_CREDENTIAL_MATERIAL, read_only=False,
                 required_tool_name="write",
             )
         # Adapter MUST set PI_GUARDIAN_REQUIRED_TOOL=write on the
@@ -1193,7 +1198,7 @@ def test_required_tool_non_anthropic_provider_fails_before_subprocess(
             harness_id="pi-coding-agent",
             harness_version="0.82.1",
         ),
-        read_only=False,
+        credential_material=_CREDENTIAL_MATERIAL, read_only=False,
         required_tool_name="write",
     )
     assert result.status == "error"
@@ -1376,7 +1381,7 @@ def test_unsupported_required_tool_value_fails_closed_before_subprocess(
 
     invoked: list = []
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         invoked.append({"cmd": cmd, "env": env})
         class _R:
             stdout = ""
@@ -1398,7 +1403,7 @@ def test_unsupported_required_tool_value_fails_closed_before_subprocess(
                 harness_id="pi-coding-agent",
                 harness_version="0.82.1",
             ),
-            read_only=False,
+            credential_material=_CREDENTIAL_MATERIAL, read_only=False,
             required_tool_name="read",
         )
     assert invoked == [], (
@@ -1426,7 +1431,7 @@ def test_empty_or_whitespace_required_tool_value_fails_closed_before_subprocess(
 
     invoked: list = []
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         invoked.append({"cmd": cmd, "env": env})
         class _R:
             stdout = ""
@@ -1448,7 +1453,7 @@ def test_empty_or_whitespace_required_tool_value_fails_closed_before_subprocess(
                 harness_id="pi-coding-agent",
                 harness_version="0.82.1",
             ),
-            read_only=False,
+            credential_material=_CREDENTIAL_MATERIAL, read_only=False,
             required_tool_name="   ",
         )
     assert invoked == []
@@ -1471,7 +1476,7 @@ def test_canonical_write_required_tool_survives_to_subprocess(tmp_path: Path) ->
 
     observed_env: dict = {}
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         observed_env.update(env)
         success_stdout = json.dumps(
             {
@@ -1527,7 +1532,7 @@ def test_canonical_write_required_tool_survives_to_subprocess(tmp_path: Path) ->
                 harness_id="pi-coding-agent",
                 harness_version="0.82.1",
             ),
-            read_only=False,
+            credential_material=_CREDENTIAL_MATERIAL, read_only=False,
             required_tool_name="write",
         )
     assert observed_env.get("PI_GUARDIAN_REQUIRED_TOOL") == "write"
@@ -1606,7 +1611,7 @@ def test_malformed_required_tool_evidence_count_rejected_as_protocol_failure(
         }
     )
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         class _R:
             returncode = 0
             stdout = success_stdout
@@ -1627,7 +1632,7 @@ def test_malformed_required_tool_evidence_count_rejected_as_protocol_failure(
                 harness_id="pi-coding-agent",
                 harness_version="0.82.1",
             ),
-            read_only=False,
+            credential_material=_CREDENTIAL_MATERIAL, read_only=False,
             required_tool_name="write",
         )
     assert result.status == "error", (
@@ -1695,7 +1700,7 @@ def test_selection_failure_surfaces_provider_request_started_false(
         }
     )
 
-    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout):
+    def _fake_run(cmd, *, cwd, env, capture_output, text, timeout, input=None):
         class _R:
             returncode = 0
             stdout = selection_failure_stdout
@@ -1716,7 +1721,7 @@ def test_selection_failure_surfaces_provider_request_started_false(
                 harness_id="pi-coding-agent",
                 harness_version="0.82.1",
             ),
-            read_only=False,
+            credential_material=_CREDENTIAL_MATERIAL, read_only=False,
             required_tool_name="write",
         )
     assert result.status == "error"
@@ -1762,9 +1767,16 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
         fake_pi_dir / "source" / "index.js", materialized / "dist" / "index.js"
     )
 
+    repo_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
     env["PATH"] = os.environ.get("PATH", "/usr/bin:/bin")
     env["PI_CODING_AGENT_PACKAGE_ROOT"] = str(materialized)
+    # The authorized lane loads the Pi runtime with isolated credentials, so
+    # the wrapper resolves the credential store from the vendored runtime's
+    # own node_modules rather than from the materialized fake package.
+    env["PI_CODING_AGENT_NODE_MODULES"] = str(
+        repo_root / "codex_runner/vendor/pi-coding-agent/node_modules"
+    )
     env["PI_PROVIDER"] = "anthropic"
     env["PI_MODEL"] = "claude-sonnet-4-6"
     env["PI_GUARDIAN_AUTHORIZED"] = "1"
@@ -1778,12 +1790,18 @@ def test_guardian_authorized_required_tool_path_disables_pi_retries(
     # createAgentSession.  The wrapper's required-tool path must
     # construct one with retry.enabled=false.
     env["PI_FAKE_RECORD_SETTINGS"] = "1"
-    repo_root = Path(__file__).resolve().parents[2]
     result = subprocess.run(
         [node_binary, str(repo_root / "codex_runner/src/agent-wrapper.js"),
          "guardian-authorized-task", "fixture prompt"],
         cwd=str(materialized.parent),
         env=env,
+        # The wrapper reads the invocation credential from stdin.
+        input=json.dumps(
+            {
+                "credential_type": "api_key",
+                "api_key": _CREDENTIAL_MATERIAL,
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=30,

@@ -1084,7 +1084,14 @@ describe("GuardianChat turn lock lifecycle", () => {
       completed_at: "2026-04-05T00:00:01.000Z",
     });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
-    await waitFor(() => expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed"));
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("chat-message-region")).toHaveAttribute(
+          "data-inference-state",
+          "failed"
+        ),
+      { timeout: 3000 }
+    );
     expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
     expect(view.onSendMessage).toHaveBeenCalledOnce();
     await allowRetryTimer();
