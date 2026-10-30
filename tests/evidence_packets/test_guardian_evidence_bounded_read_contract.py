@@ -535,6 +535,37 @@ def test_release_boundary_helper_rejects_a_document_without_separate_qualificati
     )
 
 
+def test_release_boundary_helper_rejects_a_denied_qualification_separation() -> None:
+    """A denied separation states the opposite of the boundary."""
+    document = _swap(
+        _canonical_current_state(),
+        QUALIFICATION_PHRASE,
+        "It is false that qualification is a separate gate",
+    )
+    assert "It is false that qualification is a separate gate" in document
+    _assert_rejected(document, REASON_SEPARATE_QUALIFICATION)
+
+
+def test_release_boundary_helper_accepts_a_conditional_capability_promotion() -> None:
+    """A conditional rule states no present posture, so it promotes nothing."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current supported reality",
+        addition="- If connectors are default Beta support, update this document.",
+    )
+    assert_current_release_truth(document)
+
+
+def test_release_boundary_helper_rejects_an_unconditional_capability_promotion() -> None:
+    """The same wording without a conditional introducer is a promotion."""
+    document = _append_to_section(
+        _canonical_current_state(),
+        section="Current supported reality",
+        addition="- Connectors are default Beta support as of this release.",
+    )
+    _assert_rejected(document, REASON_NON_PROMOTION_CLAIM)
+
+
 def test_release_boundary_helper_rejects_a_document_whose_release_criteria_are_all_complete() -> None:
     document = _canonical_current_state().replace("- [ ]", "- [x]")
     assert "- [ ]" not in document

@@ -441,6 +441,13 @@ def assert_current_release_truth(current: str) -> None:
         _heading_key("Release definition right now"), ""
     )
 
+    def denied(prefix: str) -> bool:
+        clause = _governing_clause(prefix)
+        return bool(
+            _NEGATION_CUES.search(_NOT_ONLY.sub(" ", clause))
+            or re.search(r"\b(?:false|untrue|incorrect)\b", clause)
+        )
+
     # A. The document is authoritative for release readiness.
     assert "release readiness" in interpretation, (
         f"{REASON_RELEASE_AUTHORITY}: the Interpretation rule must name release "
@@ -453,8 +460,17 @@ def assert_current_release_truth(current: str) -> None:
         "mainline evidence as bounded evidence"
     )
 
-    # B2. ... and bounded evidence is not runtime qualification.
-    assert "qualification is a separate gate" in supported, (
+    # B2. ... and bounded evidence is not runtime qualification. The separation
+    # must be asserted: a clause that denies it states the opposite of the
+    # boundary this check preserves, so mere presence of the wording is not
+    # enough.
+    separation_claimed = any(
+        not denied(supported[: match.start()])
+        for match in re.finditer(
+            re.escape("qualification is a separate gate"), supported
+        )
+    )
+    assert separation_claimed, (
         f"{REASON_SEPARATE_QUALIFICATION}: Current supported reality must keep "
         "qualification a separate gate from bounded evidence"
     )
@@ -505,13 +521,6 @@ def assert_current_release_truth(current: str) -> None:
     )
     non_promotion_wording = re.compile(r"\bnot\s+default\s+beta\s+support\b")
 
-    def denied(prefix: str) -> bool:
-        clause = _governing_clause(prefix)
-        return bool(
-            _NEGATION_CUES.search(_NOT_ONLY.sub(" ", clause))
-            or re.search(r"\b(?:false|untrue|incorrect)\b", clause)
-        )
-
     for block in supported_blocks:
         for match in re.finditer(re.escape(current_main_phrase), block):
             prefix = block[:match.start()]
@@ -538,6 +547,12 @@ def assert_current_release_truth(current: str) -> None:
         for match in promotion_pattern.finditer(block):
             prefix = block[:match.start()]
             suffix = block[match.end():]
+            # A conditional clause states no present posture, so a promotion
+            # inside one is a rule, not a claim about the current release.
+            if _CONDITIONAL_INTRODUCER.search(
+                _governing_clause(prefix)
+            ) or _CONDITIONAL_INTRODUCER.search(_clause_suffix(suffix)):
+                continue
             quote_pairs = {'"': '"', "'": "'", '`': '`', '“': '”', '‘': '’'}
             closing = quote_pairs.get(prefix[-1:])
             quoted_denial = closing and re.match(

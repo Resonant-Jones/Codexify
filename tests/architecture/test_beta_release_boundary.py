@@ -1022,6 +1022,18 @@ _COMPLETION_COPULA = re.compile(
     re.IGNORECASE,
 )
 
+# A future or modal construction ("will be complete", "should be done",
+# "must be proven") states a forecast or an obligation, not a status the
+# document already holds. The construction is recognized immediately before
+# the completion word, so an earlier clause cannot turn a forecast into a
+# current claim.
+_FUTURE_MODAL_COMPLETION = re.compile(
+    r"\b(?:will|shall|would|can|could|may|might|must|should)\s+"
+    r"(?:be|been|being|become|becomes|get|got|have|has|had|"
+    r"remain|remains|stay|stays)?\s*$",
+    re.IGNORECASE,
+)
+
 # A plural predicate governs every obligation coordinated in its clause. A
 # singular predicate binds to its own subject and proves nothing about a
 # neighbouring obligation.
@@ -1144,6 +1156,11 @@ def _negates_completion(text: str, position: int) -> bool:
     return bool(_NEGATION_IMMEDIATELY_BEFORE.search(text[:position]))
 
 
+def _forecasts_completion(text: str, position: int) -> bool:
+    """True when a completion word sits in a future or modal construction."""
+    return bool(_FUTURE_MODAL_COMPLETION.search(text[:position]))
+
+
 def _scope_completes(scope: str, subject: str, topic: re.Pattern[str]) -> bool:
     """True when the statement claims the matched obligation is finished.
 
@@ -1155,6 +1172,8 @@ def _scope_completes(scope: str, subject: str, topic: re.Pattern[str]) -> bool:
     """
     for match in _COMPLETION_CLAIM.finditer(scope):
         if _negates_completion(scope, match.start()):
+            continue
+        if _forecasts_completion(scope, match.start()):
             continue
         noun_phrase = _completion_object_phrase(scope, match, topic)
         if noun_phrase and _names_a_subject(noun_phrase):
@@ -1177,6 +1196,8 @@ def _predicative_completion(text: str) -> bool:
     stripped = text.rstrip()
     for match in _COMPLETION_CLAIM.finditer(text):
         if _negates_completion(text, match.start()):
+            continue
+        if _forecasts_completion(text, match.start()):
             continue
         noun_phrase = _completion_noun_phrase(text, match)
         if noun_phrase and _names_a_subject(noun_phrase):
@@ -2179,6 +2200,28 @@ def test_beta_release_contract_fails_when_a_blocker_claims_completion() -> None:
     )
     with pytest.raises(AssertionError):
         _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize(
+    "forecast",
+    [
+        "will be complete tomorrow",
+        "should be complete tomorrow",
+        "must be complete tomorrow",
+        "can be complete tomorrow",
+    ],
+)
+def test_beta_release_contract_accepts_a_future_tense_blocker_forecast(
+    forecast: str,
+) -> None:
+    """A forecast states no current status, so the blocker stays unresolved."""
+    text = _synthetic_current_state(
+        blockers=(
+            "- The current-tip supported-Compose qualification is missing.",
+            f"- The natural import-to-recall proof remains open and {forecast}.",
+        )
+    )
+    _assert_beta_release_current_state_contract(text)
 
 
 def test_beta_release_contract_fails_when_blocker_language_is_outside_the_section() -> None:

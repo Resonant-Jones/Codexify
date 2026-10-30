@@ -93,8 +93,13 @@ def create_chat_message_with_metadata(
         message_id = getattr(message, "id", None)
         if message_id is None:
             # The session did not materialize an id, so the row was not
-            # inserted. Persist through the store's own write path instead of
-            # reporting an id that was never assigned.
+            # inserted. Abort the pending ORM transaction before using the
+            # store's own write path: the flushed insert and the thread update
+            # still hold their transaction, and a second write on another
+            # connection would block on the thread row lock and, if it
+            # succeeded, leave the outer commit to persist a duplicate
+            # message.
+            session.rollback()
             return int(
                 chatlog_db.create_message(
                     thread_id, role, content, extra_meta=dict(extra_meta)
