@@ -167,10 +167,18 @@ The account-bounded reset is now a reusable operator script:
 whose destructive logic and guards live in
 [`scripts/ops/private_preview_account_scoped_reset.sql`](../../../../scripts/ops/private_preview_account_scoped_reset.sql).
 It refuses to run without explicit account identifiers, refuses to run without `--confirm`, binds
-account identifiers as literals rather than splicing them into SQL, **fails closed when a named
-account shares a relationship or message request with an account that was not named**, and asserts
-inside the same transaction that no row outside the requested scope changed — so a violation rolls
-the transaction back rather than reporting a failure after the damage is committed.
+account identifiers as literals rather than splicing them into SQL, **refuses unless every
+requested identifier resolves to exactly one profile with a non-null profile id**, **fails closed
+when a named account shares a relationship or message request with an account that was not
+named**, and asserts inside the same transaction that no row outside the requested scope changed
+— so a violation rolls the transaction back rather than reporting a failure after the damage is
+committed.
+
+Two details of that fail-closed rule matter. The shared-state decision is made from **row
+counts**, not from display names: a profile without a username would otherwise be invisible to a
+name-based check, because `string_agg` ignores NULL inputs. And the deletion of `user_settings`
+is keyed by the canonical account id alone, never by the profile id, because a profile id that
+happened to equal another account's id would otherwise delete that account's settings.
 
 That fail-closed rule is the part that matters most in a multi-account database. A direct-message
 relationship is a two-party construct: deleting one participant's half of it destroys the other
@@ -189,9 +197,13 @@ The behaviour is covered by a regression test that runs the real operator script
 disposable PostgreSQL carrying the real migrated schema:
 [`tests/ops/test_private_preview_account_scoped_reset.py`](../../../../tests/ops/test_private_preview_account_scoped_reset.py).
 It proves that a mixed-account relationship and a mixed-account request are both refused with
-every row left intact, that state owned only by the named account is removed while unrelated
-accounts' rows survive, that a crafted identifier is bound as a literal and cannot widen the
-scope, and that an invocation without identifiers is refused.
+every row left intact; that the request guard fires on its own when the request names a
+counterparty that is not a participant of the relationship it references; that a counterpart
+whose profile carries no username still blocks the reset; that an identifier matching no profile
+is refused rather than silently ignored; that another account's `user_settings` row keyed by the
+target's profile id survives; that state owned only by the named account is removed while
+unrelated accounts' rows survive; that a crafted identifier is bound as a literal and cannot
+widen the scope; and that an invocation without identifiers is refused.
 
 ## What this receipt does not establish
 

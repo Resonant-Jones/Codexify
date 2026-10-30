@@ -11,17 +11,27 @@
 --
 -- SAFETY MODEL
 --
---   1. The scope is derived from the resolved profile ids of the named
+--   1. RESOLUTION. Every requested identifier must resolve to exactly one
+--      profile, and that profile must have a non-null profile id. An
+--      identifier that matches nothing, matches more than one profile, or
+--      resolves to a profile without an id is refused. Without this, a null
+--      profile id would make every "NOT IN (SELECT profile_id ...)" predicate
+--      evaluate to NULL rather than TRUE, silently excluding those rows from
+--      the preservation snapshot.
+--   2. The scope is derived from the resolved profile ids of the named
 --      accounts and nothing else.
---   2. FAIL CLOSED on shared state. A relationship or message request that
+--   3. FAIL CLOSED on shared state. A relationship or message request that
 --      joins a named account to an account that was NOT named is refused
 --      before any destructive statement runs. A relationship is a two-party
 --      construct: deleting one participant's half of it would silently
 --      destroy the other participant's messages and read cursor.
---   3. Every delete is followed, still inside the same transaction, by an
+--      The decision uses row counts, never display names, because
+--      string_agg ignores NULL inputs and a profile without a username would
+--      otherwise hide the shared state entirely.
+--   4. Every delete is followed, still inside the same transaction, by an
 --      assertion that no row outside the requested scope changed. A violated
 --      assertion raises, the transaction rolls back, and nothing is deleted.
---   4. COMMIT is reached only when the guard and every assertion passed.
+--   5. COMMIT is reached only when the guard and every assertion passed.
 
 \set ON_ERROR_STOP on
 
@@ -35,7 +45,7 @@ set local codexify_reset.apply = :'apply';
 -- Requested scope
 -- ---------------------------------------------------------------------------
 create temp table requested_accounts as
-  select jsonb_array_elements_text(:'accounts'::jsonb) as value;
+  select distinct jsonb_array_elements_text(:'accounts'::jsonb) as value;
 
 create temp table reset_profiles as
   select p.profile_id, p.user_id
@@ -46,6 +56,41 @@ create temp table reset_profiles as
            when 'email'    then u.email    in (select value from requested_accounts)
            else false
          end;
+
+-- ---------------------------------------------------------------------------
+-- GUARD 1: the requested identifiers must resolve exactly once, to a profile
+--           that has an id. Everything downstream depends on this.
+-- ---------------------------------------------------------------------------
+do $resolve$
+declare
+  requested bigint;
+  resolved bigint;
+  unmatched text;
+begin
+  select count(*) into requested from requested_accounts;
+  select count(*) into resolved from reset_profiles;
+
+  if resolved = 0 then
+    raise exception
+      'REFUSED: none of the % requested account(s) matched a profile.', requested;
+  end if;
+
+  if resolved <> requested then
+    select string_agg(coalesce(p.username, p.profile_id, '<no profile id>'), ', ' order by
+             coalesce(p.username, p.profile_id, '<no profile id>'))
+      into unmatched
+      from reset_profiles p;
+    raise exception
+      'REFUSED: % requested account(s) matched % profile(s). Every identifier must '
+      'resolve to exactly one profile. Matched: [%].', requested, resolved, unmatched;
+  end if;
+
+  if exists (select 1 from reset_profiles where profile_id is null) then
+    raise exception
+      'REFUSED: a matched account has no profile id; the scope cannot be bounded.';
+  end if;
+end
+$resolve$;
 
 create temp table reset_rels as
   select distinct relationship_id
@@ -65,20 +110,23 @@ create temp table reset_reqs as
       or recipient_profile_id in (select profile_id from reset_profiles);
 
 -- ---------------------------------------------------------------------------
--- GUARD: refuse when a named account shares state with an unnamed account
+-- GUARD 2: refuse when a named account shares state with an unnamed account.
+--           The decision is made from row counts, not from display names.
 -- ---------------------------------------------------------------------------
 do $guard$
 declare
+  mixed_rels_count bigint;
+  mixed_reqs_count bigint;
   mixed_rels text;
   mixed_reqs text;
 begin
-  select string_agg(distinct p.username, ', ' order by p.username) into mixed_rels
+  select count(*) into mixed_rels_count
     from direct_message_relationship_participants rp
-    join user_profiles p on p.profile_id = rp.profile_id
    where rp.relationship_id in (select relationship_id from reset_rels)
-     and rp.profile_id not in (select profile_id from reset_profiles);
+     and (rp.profile_id is null
+       or rp.profile_id not in (select profile_id from reset_profiles));
 
-  select string_agg(distinct p.username, ', ' order by p.username) into mixed_reqs
+  select count(*) into mixed_reqs_count
     from (
       select r.sender_profile_id as profile_id
         from message_requests r where r.id in (select id from reset_reqs)
@@ -86,29 +134,58 @@ begin
       select r.recipient_profile_id
         from message_requests r where r.id in (select id from reset_reqs)
     ) x
-    join user_profiles p on p.profile_id = x.profile_id
-   where x.profile_id not in (select profile_id from reset_profiles);
+   where x.profile_id is null
+      or x.profile_id not in (select profile_id from reset_profiles);
 
-  if mixed_rels is not null or mixed_reqs is not null then
+  if mixed_rels_count > 0 or mixed_reqs_count > 0 then
+    -- Labels are diagnostic only; coalesce guarantees a non-null label so
+    -- that an unnamed participant is still reported.
+    select string_agg(coalesce(p.username, p.profile_id, '<no profile id>'), ', ' order by
+             coalesce(p.username, p.profile_id, '<no profile id>'))
+      into mixed_rels
+      from direct_message_relationship_participants rp
+      join user_profiles p on p.profile_id = rp.profile_id
+     where rp.relationship_id in (select relationship_id from reset_rels)
+       and (rp.profile_id is null
+         or rp.profile_id not in (select profile_id from reset_profiles));
+
+    select string_agg(coalesce(p.username, p.profile_id, '<no profile id>'), ', ' order by
+             coalesce(p.username, p.profile_id, '<no profile id>'))
+      into mixed_reqs
+      from (
+        select r.sender_profile_id as profile_id
+          from message_requests r where r.id in (select id from reset_reqs)
+        union
+        select r.recipient_profile_id
+          from message_requests r where r.id in (select id from reset_reqs)
+      ) x
+      join user_profiles p on p.profile_id = x.profile_id
+     where x.profile_id is null
+        or x.profile_id not in (select profile_id from reset_profiles);
+
     if current_setting('codexify_reset.apply')::int = 1 then
       raise exception
         'REFUSED: named accounts share state with accounts outside the requested scope. '
-        'shared relationship participants: [%]; shared request counterparties: [%]. '
+        'shared relationship participants (%): [%]; shared request counterparties (%): [%]. '
         'Name every participant explicitly, or clear the shared state first.',
-        coalesce(mixed_rels, 'none'), coalesce(mixed_reqs, 'none');
+        mixed_rels_count, coalesce(mixed_rels, 'none'),
+        mixed_reqs_count, coalesce(mixed_reqs, 'none');
     else
       raise notice
         'SHARED STATE DETECTED (dry run): named accounts share state with accounts '
-        'outside the requested scope. shared relationship participants: [%]; '
-        'shared request counterparties: [%]. Applying this reset would be REFUSED.',
-        coalesce(mixed_rels, 'none'), coalesce(mixed_reqs, 'none');
+        'outside the requested scope. shared relationship participants (%): [%]; '
+        'shared request counterparties (%): [%]. Applying this reset would be REFUSED.',
+        mixed_rels_count, coalesce(mixed_rels, 'none'),
+        mixed_reqs_count, coalesce(mixed_reqs, 'none');
     end if;
   end if;
 end
 $guard$;
 
 -- ---------------------------------------------------------------------------
--- Snapshot of everything OUTSIDE the requested scope, taken before any delete
+-- Snapshot of everything OUTSIDE the requested scope, taken before any delete.
+-- Every predicate is null-safe: a row whose scoping column is NULL is
+-- counted as outside the scope rather than silently dropped.
 -- ---------------------------------------------------------------------------
 create temp table before_counts (label text primary key, value bigint);
 
@@ -128,8 +205,11 @@ insert into before_counts
       where relationship_id not in (select relationship_id from reset_rels)
  union all select 'consents', count(*) from direct_message_consents
       where relationship_id not in (select relationship_id from reset_rels)
+ union all select 'user_settings', count(*) from user_settings
+      where user_id not in (select user_id from reset_profiles)
  union all select 'user_profiles', count(*) from user_profiles
-      where profile_id not in (select profile_id from reset_profiles)
+      where profile_id is null
+         or profile_id not in (select profile_id from reset_profiles)
  union all select 'users', count(*) from users
       where id not in (select user_id from reset_profiles);
 
@@ -173,12 +253,11 @@ delete from direct_message_relationships
  where id in (select relationship_id from reset_rels);
 
 -- user_settings.user_id holds the canonical account id (user_profiles.user_id,
--- which is users.id). The profile id is accepted as well so that either
--- convention is cleaned. Both predicates are still bounded to the named
--- accounts.
+-- which is users.id). It is keyed by the account id and nothing else: also
+-- matching the profile id would let a profile id that happens to equal
+-- another account's id delete that account's settings.
 delete from user_settings
- where user_id in (select user_id from reset_profiles)
-    or user_id in (select profile_id from reset_profiles);
+ where user_id in (select user_id from reset_profiles);
 
 delete from user_profiles
  where profile_id in (select profile_id from reset_profiles);
@@ -210,8 +289,11 @@ insert into after_counts
       where relationship_id not in (select relationship_id from reset_rels)
  union all select 'consents', count(*) from direct_message_consents
       where relationship_id not in (select relationship_id from reset_rels)
+ union all select 'user_settings', count(*) from user_settings
+      where user_id not in (select user_id from reset_profiles)
  union all select 'user_profiles', count(*) from user_profiles
-      where profile_id not in (select profile_id from reset_profiles)
+      where profile_id is null
+         or profile_id not in (select profile_id from reset_profiles)
  union all select 'users', count(*) from users
       where id not in (select user_id from reset_profiles);
 

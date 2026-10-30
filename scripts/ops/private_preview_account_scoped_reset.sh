@@ -19,14 +19,18 @@ set -euo pipefail
 #   1. It refuses to run without explicit account identifiers.
 #   2. Account identifiers are passed to the database as bound literals, never
 #      spliced into SQL text, so a crafted identifier cannot widen the scope.
-#   3. It FAILS CLOSED when a named account shares a relationship or message
+#   3. It refuses unless every requested identifier resolves to exactly one
+#      profile with a non-null profile id. An identifier that matches nothing
+#      is an error, not a no-op.
+#   4. It FAILS CLOSED when a named account shares a relationship or message
 #      request with an account that was not named. Deleting one participant's
 #      half of a two-party relationship would silently destroy the other
-#      participant's messages and read cursor.
-#   4. Every assertion about rows outside the requested scope runs inside the
+#      participant's messages and read cursor. The decision is made from row
+#      counts, so a counterpart without a username cannot hide it.
+#   5. Every assertion about rows outside the requested scope runs inside the
 #      same transaction as the deletes. A violation raises, the transaction
 #      rolls back, and nothing is deleted.
-#   5. It refuses to run without --confirm.
+#   6. It refuses to run without --confirm.
 #
 # The destructive logic and its guards live in
 # scripts/ops/private_preview_account_scoped_reset.sql so that the same code
@@ -101,10 +105,12 @@ if ! docker ps --format '{{.Names}}' | grep -qx "${DB_CONTAINER}"; then
 fi
 
 # Encode the identifiers as a JSON array. psql receives this as a bound
-# literal (:'accounts'), so it is never interpreted as SQL.
+# literal (:'accounts'), so it is never interpreted as SQL. Duplicates are
+# collapsed, because the resolution guard requires every identifier to match
+# exactly one profile.
 ACCOUNTS_JSON="$(python3 -c '
 import json, sys
-print(json.dumps(sys.argv[1:]))
+print(json.dumps(list(dict.fromkeys(sys.argv[1:]))))
 ' "${IDENTIFIERS[@]}")"
 
 if [[ "$CONFIRM" == "1" ]]; then

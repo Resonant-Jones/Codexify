@@ -423,6 +423,160 @@ def test_dry_run_reports_shared_state_without_changing_anything(
     assert snapshot(engine) == before
 
 
+def test_request_guard_fires_without_a_shared_relationship(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """The request guard fires on its own.
+
+    The request names a counterpart that is not a participant of the
+    relationship it references, so the relationship guard cannot be the thing
+    that refuses.
+    """
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [TARGET_USER, OTHER_USER])
+    # A relationship whose only participant is the target...
+    seed_relationship(engine, "rel-single", [TARGET_USER])
+    # ...and a request on that relationship whose recipient is the other account.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO message_requests "
+                "(id, relationship_id, sender_profile_id, recipient_profile_id, "
+                " note, state, created_at, expires_at) "
+                "VALUES ('req-alone', 'rel-single', 'profile-target-user', "
+                "        'profile-other-user', 'note', 'pending', now(), "
+                "        now() + interval '30 days')"
+            )
+        )
+    before = snapshot(engine)
+
+    result = run_reset(container_name, database_name, TARGET_USER, confirm=True)
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "REFUSED" in (result.stdout + result.stderr)
+    assert snapshot(engine) == before
+
+
+def test_unmatched_identifier_is_refused(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """An identifier that matches no profile is refused, not silently ignored."""
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [OTHER_USER])
+    before = snapshot(engine)
+
+    result = run_reset(container_name, database_name, "nobody-by-that-name", confirm=True)
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "REFUSED" in (result.stdout + result.stderr)
+    assert snapshot(engine) == before
+
+
+def test_unnamed_counterpart_still_blocks_the_reset(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """A counterpart without a username still blocks the reset.
+
+    The guard decides from row counts, not from display names, so a profile
+    whose username is NULL cannot hide the shared state.
+    """
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [TARGET_USER])
+    seed_relationship(engine, "rel-with-unnamed", [TARGET_USER])
+
+    # A counterpart account whose profile carries no username.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO threadspace_nodes (node_id, name) "
+                "VALUES ('node-unnamed', 'Node unnamed')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash, role, email) "
+                "VALUES ('unnamed@example.invalid', 'unnamed', '!hash', 'guest', "
+                "        'unnamed@example.invalid')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO user_profiles "
+                "(user_id, profile_id, node_id, username, accent_color, "
+                " username_state) "
+                "VALUES ('unnamed@example.invalid', 'profile-unnamed', "
+                "        'node-unnamed', NULL, 'default', NULL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO direct_message_relationship_participants "
+                "(id, relationship_id, node_id, profile_id) "
+                "VALUES ('part-unnamed', 'rel-with-unnamed', 'node-unnamed', "
+                "        'profile-unnamed')"
+            )
+        )
+    before = snapshot(engine)
+
+    result = run_reset(container_name, database_name, TARGET_USER, confirm=True)
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "REFUSED" in (result.stdout + result.stderr)
+    assert snapshot(engine) == before
+
+
+def test_user_settings_of_another_account_are_not_deleted(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """A settings row keyed by the target's profile id belongs to someone else.
+
+    ``user_settings.user_id`` is the canonical account id. If another
+    account's settings row happens to be keyed by the target's *profile* id,
+    matching on the profile id would delete it.
+    """
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [TARGET_USER, OTHER_USER])
+    seed_relationship(engine, "rel-target-only", [TARGET_USER])
+    seed_relationship(engine, "rel-other-only", [OTHER_USER])
+
+    with engine.begin() as connection:
+        # Another account's settings, keyed by the target's profile id.
+        connection.execute(
+            text(
+                "INSERT INTO user_settings (user_id, memory_mode) "
+                "VALUES ('profile-target-user', 'deep')"
+            )
+        )
+        # And the other account's own settings.
+        connection.execute(
+            text(
+                "INSERT INTO user_settings (user_id, memory_mode) "
+                "VALUES ('other-user@example.invalid', 'deep')"
+            )
+        )
+
+    result = run_reset(container_name, database_name, TARGET_USER, confirm=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # The colliding row survives, and so does the other account's own row.
+    assert (
+        count(
+            engine,
+            "select count(*) from user_settings where user_id = 'profile-target-user'",
+        )
+        == 1
+    )
+    assert (
+        count(
+            engine,
+            "select count(*) from user_settings "
+            "where user_id = 'other-user@example.invalid'",
+        )
+        == 1
+    )
+
+
 def test_request_counterparty_is_refused(
     reset_database: tuple[str, str, Engine],
 ) -> None:
