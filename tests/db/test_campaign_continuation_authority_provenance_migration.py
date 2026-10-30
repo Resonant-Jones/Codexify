@@ -265,7 +265,11 @@ def _assert_column_parity(inspector) -> None:
     assert set(db_columns) == set(meta_table.columns.keys())
     for name, meta_column in meta_table.columns.items():
         db_type = db_columns[name]["type"].compile(dialect=dialect)
-        meta_type = meta_column.type.dialect_impl(dialect).compile(dialect=dialect)
+        # Compile the ORM side the same way as the database side. Going
+        # through dialect_impl() with a non-instance dialect returns the
+        # generic VARCHAR impl for Text, so a TEXT column would compare
+        # against VARCHAR and report a mismatch that does not exist.
+        meta_type = meta_column.type.compile(dialect=dialect)
         assert db_type == meta_type, f"{name}: {db_type} != {meta_type}"
         assert db_columns[name]["nullable"] == meta_column.nullable, (
             f"{name}: nullability differs"
