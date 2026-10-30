@@ -26,6 +26,7 @@ import time
 import uuid
 from collections.abc import Generator
 from pathlib import Path
+from typing import NamedTuple
 
 import psycopg
 import pytest
@@ -48,13 +49,40 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-@pytest.fixture(scope="module")
-def postgres_server() -> Generator[str, None, None]:
-    configured_url = os.getenv("TEST_DATABASE_URL")
-    if configured_url:
-        yield configured_url
-        return
+def _container_running(container_name: str) -> bool:
+    """Whether the named container is still up."""
+    result = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
+
+class DisposablePostgres(NamedTuple):
+    """A disposable Postgres container owned by this module's fixture."""
+
+    url: str
+    container_name: str
+
+
+@pytest.fixture(scope="module")
+def postgres_server() -> Generator[DisposablePostgres, None, None]:
+    """A disposable Postgres container that this module owns and can name.
+
+    The operator script under test executes psql *inside* the database
+    container and requires that container to be running by name, so the
+    fixture has to own a container whose name it can pass through.
+
+    A CI-provided TEST_DATABASE_URL cannot satisfy that. The CI service
+    container has a name this module neither knows nor may delete, and the
+    script's contract is "a container you can exec into and own". Reusing the
+    service URL therefore produced a container that was never started, which
+    is the defect this fixture previously had. This fixture now always
+    launches its own disposable container -- including on CI -- and hands its
+    name to callers directly instead of rediscovering it from the global
+    container list.
+    """
     port = _free_port()
     container_name = f"codexify_scoped_reset_{uuid.uuid4().hex[:12]}"
     try:
@@ -63,7 +91,6 @@ def postgres_server() -> Generator[str, None, None]:
                 "docker",
                 "run",
                 "--detach",
-                "--rm",
                 "--name",
                 container_name,
                 "--env",
@@ -80,18 +107,42 @@ def postgres_server() -> Generator[str, None, None]:
             capture_output=True,
             timeout=60,
         )
+    except FileNotFoundError:
+        pytest.fail(
+            "unable to start disposable Postgres: docker is not available on PATH. "
+            "This suite exercises the operator script, which runs psql inside a "
+            "database container, so Docker is required."
+        )
     except (
         subprocess.CalledProcessError,
-        FileNotFoundError,
         subprocess.TimeoutExpired,
     ) as exc:
         pytest.fail(f"unable to start disposable Postgres: {exc}")
 
     base_url = f"postgresql://postgres:postgres@127.0.0.1:{port}/postgres"
-    deadline = time.monotonic() + 30
+    # A cold postgres:15 image initialises its data directory before it
+    # accepts connections, and that can take well over 30s on a loaded CI
+    # runner. Wait generously, but fail fast with the container's own logs if
+    # the container has exited rather than spinning until the deadline.
+    deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
+        if not _container_running(container_name):
+            logs = subprocess.run(
+                ["docker", "logs", "--tail", "40", container_name],
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["docker", "rm", "--force", container_name],
+                capture_output=True,
+                timeout=30,
+            )
+            pytest.fail(
+                "disposable Postgres container exited before becoming ready:\n"
+                f"{logs.stdout}{logs.stderr}"
+            )
         try:
-            with psycopg.connect(base_url):
+            with psycopg.connect(base_url, connect_timeout=5):
                 break
         except psycopg.Error:
             time.sleep(0.5)
@@ -104,7 +155,7 @@ def postgres_server() -> Generator[str, None, None]:
         pytest.fail("disposable Postgres did not become ready")
 
     try:
-        yield base_url
+        yield DisposablePostgres(url=base_url, container_name=container_name)
     finally:
         subprocess.run(
             ["docker", "rm", "--force", container_name],
@@ -115,15 +166,15 @@ def postgres_server() -> Generator[str, None, None]:
 
 @pytest.fixture
 def reset_database(
-    postgres_server: str,
+    postgres_server: DisposablePostgres,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[tuple[str, str, Engine], None, None]:
     """A disposable database with the real migrated schema."""
     database_name = f"codexify_scoped_reset_{uuid.uuid4().hex[:12]}"
-    admin_url = make_url(postgres_server).set(database="postgres").render_as_string(
+    admin_url = make_url(postgres_server.url).set(database="postgres").render_as_string(
         hide_password=False
     )
-    sqlalchemy_url = make_url(postgres_server).set(
+    sqlalchemy_url = make_url(postgres_server.url).set(
         drivername="postgresql+psycopg", database=database_name
     ).render_as_string(hide_password=False)
 
@@ -144,8 +195,7 @@ def reset_database(
     try:
         command.upgrade(config, "head")
         engine = create_engine(sqlalchemy_url, future=True)
-        container_name = postgres_server_container()
-        yield container_name, database_name, engine
+        yield postgres_server.container_name, database_name, engine
     finally:
         if engine is not None:
             engine.dispose()
@@ -156,19 +206,6 @@ def reset_database(
                 (database_name,),
             )
             connection.execute(f'DROP DATABASE IF EXISTS "{database_name}"')
-
-
-def postgres_server_container() -> str:
-    """The running disposable container name."""
-    result = subprocess.run(
-        ["docker", "ps", "--filter", "ancestor=postgres:15", "--format", "{{.Names}}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    names = [n for n in result.stdout.split() if n.startswith("codexify_scoped_reset_")]
-    assert names, "disposable Postgres container not found"
-    return names[0]
 
 
 def run_reset(
