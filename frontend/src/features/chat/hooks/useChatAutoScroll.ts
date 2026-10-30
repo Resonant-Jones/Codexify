@@ -63,12 +63,13 @@ export function useChatAutoScroll(
     cancelPendingAutoScroll();
     pendingFrameRef.current = requestAnimationFrame(() => {
       pendingFrameRef.current = null;
-      const el = containerRef.current;
-      if (!el) return;
-      // The reader may have moved away between scheduling and the frame
-      // landing. Re-check before pulling the transcript back down.
-      const distance = el.scrollHeight - el.clientHeight - el.scrollTop;
-      if (distance > threshold) return;
+      // Re-check the reader's intent before pulling the transcript back down.
+      // `nearBottomRef` only changes on a real scroll event, so it survives
+      // the transcript growing underneath the reader. Recomputing the
+      // distance from the current geometry here would mistake a tall
+      // appended reply for the reader having moved away.
+      if (!nearBottomRef.current) return;
+      if (followLatestRef?.current === false) return;
       endRef.current?.scrollIntoView({
         behavior: prefersReducedMotion() ? "auto" : "smooth",
         block: "end",

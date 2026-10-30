@@ -249,6 +249,37 @@ describe("ConversationMinimap keyboard navigation", () => {
     expect(marks[0]).toHaveFocus();
   });
 
+  it("lets a keyboard user reach the destinations of a non-final range", async () => {
+    const sections = buildSections(240);
+    renderMinimap({ sections, maxMarks: 12 });
+
+    const marks = screen.getAllByTestId("conversation-minimap-mark");
+    // A grouped range that is not the last one.
+    const firstRange = marks[0];
+
+    await act(async () => {
+      firstRange.focus();
+    });
+    expect(firstRange).toHaveFocus();
+
+    fireEvent.keyDown(firstRange, { key: "Enter" });
+
+    // Activating a range must not leave the keyboard user stranded on the
+    // rail: the preview for that exact range has to be reachable.
+    const destinations = screen.getAllByTestId("conversation-minimap-destination");
+    expect(destinations.length).toBeGreaterThan(0);
+    expect(
+      document.activeElement?.getAttribute("data-testid")
+    ).toBe("conversation-minimap-destination");
+
+    // Escape returns the keyboard user to the mark they came from.
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "Escape",
+    });
+
+    expect(firstRange).toHaveFocus();
+  });
+
   it("commits a jump when a focused mark is activated", () => {
     const sections = buildSections(3);
     const { onJump } = renderMinimap({ sections });

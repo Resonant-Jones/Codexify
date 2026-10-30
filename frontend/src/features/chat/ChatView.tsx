@@ -295,12 +295,23 @@ export function ChatView({
   showHumanAuthorNames?: boolean;
 }) {
   const shouldStickToLatestRef = useRef(true);
+  /**
+   * Tracks whether the reader has *intentionally* left the latest turn.
+   *
+   * This is deliberately separate from `shouldStickToLatestRef`, which is
+   * derived from the transcript geometry on every measurement. Appending a
+   * reply grows the content, which makes the geometric distance from the
+   * bottom look large even though the reader never moved. Deriving
+   * "navigated away" from that value would silently stop latest-follow, so
+   * only an explicit navigation may set this to false.
+   */
+  const followLatestIntentRef = useRef(true);
   const {
     containerRef,
     endRef,
     cancelPendingAutoScroll,
   } = useChatAutoScroll(messages.length, 120, {
-    followLatestRef: shouldStickToLatestRef,
+    followLatestRef: followLatestIntentRef,
   });
   const initialScrollRef = useRef(true);
   const initialScrollAppliedRef = useRef(false);
@@ -337,6 +348,7 @@ export function ChatView({
    */
   const handleNavigateAwayFromLatest = useCallback(() => {
     shouldStickToLatestRef.current = false;
+    followLatestIntentRef.current = false;
     cancelPendingAutoScroll?.();
   }, [cancelPendingAutoScroll]);
 
@@ -480,7 +492,12 @@ export function ChatView({
       0,
       el.scrollHeight - viewportHeight - el.scrollTop
     );
-    shouldStickToLatestRef.current = distanceFromBottom <= 120;
+    const nearBottom = distanceFromBottom <= 120;
+    shouldStickToLatestRef.current = nearBottom;
+    // Returning to the bottom restores latest-follow. A growing transcript
+    // moves the reader away from the bottom without any intent, so it must
+    // never clear the intent flag.
+    if (nearBottom) followLatestIntentRef.current = true;
     const shouldShowJump = overflowing && distanceFromBottom > viewportHeight;
 
     setHasOverflow(overflowing);
@@ -493,6 +510,7 @@ export function ChatView({
 
     el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
     shouldStickToLatestRef.current = true;
+    followLatestIntentRef.current = true;
     measureChatViewport();
     el.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, [containerRef, measureChatViewport]);
@@ -503,6 +521,7 @@ export function ChatView({
     autoReadPrimedRef.current = false;
     lastAutoReadMessageIdRef.current = null;
     shouldStickToLatestRef.current = true;
+    followLatestIntentRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
