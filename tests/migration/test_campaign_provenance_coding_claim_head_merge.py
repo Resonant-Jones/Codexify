@@ -7,6 +7,9 @@ independent heads, and Alembic cannot upgrade to ``head`` while that is true:
 every database migration to the tip of the graph fails with "Multiple head
 revisions are present".
 
+PR #970 landed the mergepoint that reunifies them, ``a3115f64dda8``. This
+contract is the graph-invariant coverage for that mergepoint.
+
 This contract covers the **graph only**: that the two branches are joined by one
 explicit mergepoint, that the graph has exactly one head, that both branches
 remain reachable from it, and that the mergepoint carries no schema operation
@@ -33,7 +36,7 @@ from alembic.script import ScriptDirectory
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 #: The mergepoint that joins the two split heads back into one.
-MERGE_REVISION = "f4e8b2c6d103"
+MERGE_REVISION = "a3115f64dda8"
 #: The head the campaign-continuation branch carried.
 CAMPAIGN_HEAD = "b7e2c4a1d903"
 #: The head the Guardian coding-claim branch carried.
@@ -42,7 +45,7 @@ CODING_CLAIM_HEAD = "c8e42a91d307"
 SHARED_PARENT = "3a91d7c4e8b2"
 
 MERGE_FILENAME = (
-    "f4e8b2c6d103_merge_campaign_provenance_and_coding_claim_heads.py"
+    "a3115f64dda8_merge_guardian_coding_claim_and_campaign_heads.py"
 )
 
 
