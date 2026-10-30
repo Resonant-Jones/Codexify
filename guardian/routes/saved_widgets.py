@@ -16,16 +16,36 @@ side of that chain:
   (E1-E6). The client names coordinates; it never supplies the artifact, and a
   client-supplied payload is never accepted as evidence that it came from the
   message it names.
-* **The human decides.** The request itself is the act. This route is
-  reachable only by an authenticated **account session**, which is the
-  credential a signed-in person holds. Guardian's *service* credentials are
-  deliberately not accepted in its place, and the route is not registered as a
-  command-bus command, so the model has no dispatch path to it. There is
+* **The human decides.** The request itself is the act: promotion requires a
+  deliberate authenticated API request against this route. Which credential
+  class satisfies that request depends on the runtime mode, and no single
+  credential class is universal:
+
+  * In the **local** single-user deployment, the configured static Guardian
+    API key is an accepted credential and resolves to that deployment's own
+    local user identity. This is the existing local single-user model rather
+    than a separate account system, and this module does not change it.
+  * In the **remote** and **private-preview** lanes, an authenticated
+    **account session** is required, a static API key is refused, and
+    mixed-principal credentials are rejected.
+
+  Guardian's *service* credentials are never accepted in place of the
+  caller's own credential. The route is not registered as a command-bus
+  command, so the model has no dispatch path to it and no model output can
+  authorize a promotion. No codex-runner bridge operation promotes a widget,
+  so no sandbox bridge action grants promotion authority. There is
   deliberately no approval flag: a caller-supplied boolean is not evidence
   that a human acted.
+* **Authenticated account action, not attested human presence.** An
+  authenticated request establishes *account-action attribution* — that an
+  authenticated principal deliberately issued the promotion request — and
+  nothing more. It is not a cryptographic attestation of a physical human's
+  presence, and no such attestation is claimed or required here.
 * **The account owns the result.** Ownership is resolved from the
   authenticated transport and is never client-supplied, client-hinted, or
-  derived from a Project or a thread.
+  derived from a Project or a thread. The source artifact's E5 provenance is
+  likewise resolved server-side, from stored message content, by the
+  eligibility service.
 
 What this module does not do
 ----------------------------
@@ -47,9 +67,10 @@ Repeated promotion
 
 Each authorized promotion creates a **new** canonical widget identity with its
 own first revision. The storage contract defines no natural key for a widget,
-so two explicit promotions of the same artifact are two explicit human acts
-and produce two independently owned resources. A promotion never replaces,
-overwrites, or silently re-points an existing widget or revision.
+so two explicit promotions of the same artifact are two explicit acts by the
+promoting account and produce two independently owned resources. A promotion
+never replaces, overwrites, or silently re-points an existing widget or
+revision.
 
 Contract: docs/architecture/saved-widget-contract.md
 ADR: docs/architecture/adr/102-saved-widget-identity-and-revision-boundary.md
@@ -82,8 +103,10 @@ from guardian.core.saved_widget_store import (
 logger = logging.getLogger(__name__)
 
 #: The only actor that may promote. The value is recorded in the revision's
-#: creation context, so a persisted revision states that its promotion was
-#: user-originated.
+#: creation context, so a persisted revision records that its promotion was
+#: attributed to an authenticated account action. This is account-action
+#: attribution, not an independent attestation that a physical human was
+#: present.
 PROMOTION_ACTOR_USER = "user"
 
 #: Maximum length of a user-supplied display name. Mirrors the store's own
