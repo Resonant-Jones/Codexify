@@ -174,11 +174,21 @@ named**, and asserts inside the same transaction that no row outside the request
 — so a violation rolls the transaction back rather than reporting a failure after the damage is
 committed.
 
-Two details of that fail-closed rule matter. The shared-state decision is made from **row
+Three details of that fail-closed rule matter. The shared-state decision is made from **row
 counts**, not from display names: a profile without a username would otherwise be invisible to a
-name-based check, because `string_agg` ignores NULL inputs. And the deletion of `user_settings`
-is keyed by the canonical account id alone, never by the profile id, because a profile id that
-happened to equal another account's id would otherwise delete that account's settings.
+name-based check, because `string_agg` ignores NULL inputs. The deletion of `user_settings` is
+keyed by the canonical account id alone, never by the profile id, because a profile id that
+happened to equal another account's id would otherwise delete that account's settings. And
+resolution is validated **per identifier**, not on the totals: usernames are unique per node
+rather than globally, so one identifier matching two profiles and another matching none would
+balance the totals and let both errors cancel out.
+
+Conversations are selected **only through their relationship**. The schema does not require a
+conversation's creator to be a participant of that conversation's relationship, so selecting
+conversations by creator could reach a conversation whose other participants are outside the
+scope. Every application-created conversation has a creator who is a participant, so nothing is
+lost in practice; a malformed row is left alone, and its creator reference is nulled by the
+column's own `ON DELETE SET NULL` foreign key when the target's profile is removed.
 
 That fail-closed rule is the part that matters most in a multi-account database. A direct-message
 relationship is a two-party construct: deleting one participant's half of it destroys the other
@@ -200,10 +210,14 @@ It proves that a mixed-account relationship and a mixed-account request are both
 every row left intact; that the request guard fires on its own when the request names a
 counterparty that is not a participant of the relationship it references; that a counterpart
 whose profile carries no username still blocks the reset; that an identifier matching no profile
-is refused rather than silently ignored; that another account's `user_settings` row keyed by the
-target's profile id survives; that state owned only by the named account is removed while
-unrelated accounts' rows survive; that a crafted identifier is bound as a literal and cannot
-widen the scope; and that an invocation without identifiers is refused.
+is refused rather than silently ignored; that an identifier matching two profiles is refused even
+when another identifier matches none and the totals balance; that a conversation the target
+created outside a relationship it participates in is preserved along with its messages; that a
+pending request between two named accounts is retired without violating the request-transition
+constraint; that another account's `user_settings` row keyed by the target's profile id survives;
+that state owned only by the named account is removed while unrelated accounts' rows survive;
+that a crafted identifier is bound as a literal and cannot widen the scope; and that an
+invocation without identifiers is refused.
 
 ## What this receipt does not establish
 

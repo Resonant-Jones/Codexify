@@ -174,12 +174,15 @@ def postgres_server_container() -> str:
 def run_reset(
     container_name: str,
     database_name: str,
-    identifier: str,
+    identifier: str | list[str],
     *,
     confirm: bool,
     by: str = "username",
 ) -> subprocess.CompletedProcess[str]:
-    args = ["bash", str(SCRIPT), f"--{by}", identifier]
+    identifiers = [identifier] if isinstance(identifier, str) else list(identifier)
+    args = ["bash", str(SCRIPT)]
+    for value in identifiers:
+        args += [f"--{by}", value]
     if confirm:
         args.append("--confirm")
     env = {
@@ -574,6 +577,167 @@ def test_user_settings_of_another_account_are_not_deleted(
             "where user_id = 'other-user@example.invalid'",
         )
         == 1
+    )
+
+
+def test_ambiguous_username_is_refused(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """A username that matches two profiles is refused, even when the totals balance.
+
+    Usernames are unique per (node_id, username), not globally. One
+    identifier matching two profiles and another matching none makes the
+    total count match the total requested count, so a totals comparison would
+    let both errors cancel out.
+    """
+    container_name, database_name, engine = reset_database
+
+    with engine.begin() as connection:
+        for suffix in ("a", "b"):
+            connection.execute(
+                text(
+                    "INSERT INTO threadspace_nodes (node_id, name) "
+                    "VALUES (:node_id, :name)"
+                ),
+                {"node_id": f"node-dup-{suffix}", "name": f"Node dup {suffix}"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, username, password_hash, role, email) "
+                    "VALUES (:id, :username, '!hash', 'guest', :email)"
+                ),
+                {
+                    "id": f"dup-{suffix}@example.invalid",
+                    "username": f"dup-user-{suffix}",
+                    "email": f"dup-{suffix}@example.invalid",
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO user_profiles "
+                    "(user_id, profile_id, node_id, username, accent_color, "
+                    " username_state) "
+                    "VALUES (:user_id, :profile_id, :node_id, 'dup-user', "
+                    "        'default', 'active')"
+                ),
+                {
+                    "user_id": f"dup-{suffix}@example.invalid",
+                    "profile_id": f"profile-dup-{suffix}",
+                    "node_id": f"node-dup-{suffix}",
+                },
+            )
+
+    before = snapshot(engine)
+
+    # 'dup-user' matches two profiles; 'missing-user' matches none. The totals
+    # are equal, so only a per-identifier check can catch this.
+    result = run_reset(
+        container_name, database_name, ["dup-user", "missing-user"], confirm=True
+    )
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "REFUSED" in (result.stdout + result.stderr)
+    assert snapshot(engine) == before
+
+
+def test_conversation_created_outside_the_relationship_survives(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """A conversation the target created outside its relationship is not deleted.
+
+    The schema does not require a conversation's creator to be a participant of
+    the conversation's relationship. Selecting conversations by creator would
+    reach a conversation whose other participants are outside the scope.
+    """
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [TARGET_USER, OTHER_USER])
+    seed_relationship(engine, "rel-other-only", [OTHER_USER])
+
+    # A conversation in the other account's relationship, created by the target.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO direct_message_conversations "
+                "(id, relationship_id, created_by_profile_id) "
+                "VALUES ('conv-foreign', 'rel-other-only', 'profile-target-user')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO direct_messages "
+                "(id, conversation_id, sender_node_id, sender_profile_id, "
+                " content_type, body) "
+                "VALUES ('msg-foreign', 'conv-foreign', 'node-other-user', "
+                "        'profile-other-user', 'text/plain', 'not the target''s')"
+            )
+        )
+    before = snapshot(engine)
+
+    result = run_reset(container_name, database_name, TARGET_USER, confirm=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # The foreign conversation and its message survive.
+    assert (
+        count(
+            engine,
+            "select count(*) from direct_message_conversations where id = 'conv-foreign'",
+        )
+        == 1
+    )
+    assert (
+        count(engine, "select count(*) from direct_messages where id = 'msg-foreign'")
+        == 1
+    )
+    # Only the target's own state was removed.
+    after = snapshot(engine)
+    assert after["messages"] == before["messages"]
+    assert after["conversations"] == before["conversations"]
+    assert after["profiles"] == before["profiles"] - 1
+    assert after["users"] == before["users"] - 1
+
+
+def test_pending_request_between_named_accounts_resets_cleanly(
+    reset_database: tuple[str, str, Engine],
+) -> None:
+    """A pending request between two named accounts is retired without breaking the constraint."""
+    container_name, database_name, engine = reset_database
+    seed_accounts(engine, [TARGET_USER, OTHER_USER])
+    seed_relationship(engine, "rel-both", [TARGET_USER, OTHER_USER])
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO message_requests "
+                "(id, relationship_id, sender_profile_id, recipient_profile_id, "
+                " note, state, created_at, expires_at) "
+                "VALUES ('req-pending', 'rel-both', 'profile-target-user', "
+                "        'profile-other-user', 'note', 'pending', now(), "
+                "        now() + interval '30 days')"
+            )
+        )
+    assert (
+        count(
+            engine,
+            "select count(*) from message_requests where id = 'req-pending' "
+            "and transitioned_at is null",
+        )
+        == 1
+    )
+
+    result = run_reset(
+        container_name, database_name, [TARGET_USER, OTHER_USER], confirm=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # Both accounts were named, so the shared state is in scope and the
+    # request is retired rather than refused.
+    assert count(engine, "select count(*) from message_requests") == 0
+    assert (
+        count(
+            engine,
+            "select count(*) from direct_message_relationships where id = 'rel-both'",
+        )
+        == 0
     )
 
 

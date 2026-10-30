@@ -48,7 +48,11 @@ create temp table requested_accounts as
   select distinct jsonb_array_elements_text(:'accounts'::jsonb) as value;
 
 create temp table reset_profiles as
-  select p.profile_id, p.user_id
+  select p.profile_id, p.user_id,
+         case :'kind'
+           when 'username' then p.username
+           when 'email'    then u.email
+         end as matched_value
     from user_profiles p
     join users u on u.id = p.user_id
    where case :'kind'
@@ -58,31 +62,39 @@ create temp table reset_profiles as
          end;
 
 -- ---------------------------------------------------------------------------
--- GUARD 1: the requested identifiers must resolve exactly once, to a profile
---           that has an id. Everything downstream depends on this.
+-- GUARD 1: every requested identifier must resolve to EXACTLY ONE profile.
+--
+--           The check is per identifier, not on the totals. Usernames are
+--           unique per (node_id, username) rather than globally, so one
+--           identifier can match two profiles while another matches none; a
+--           total-vs-total comparison would let those two errors cancel out
+--           and delete the two matched accounts.
 -- ---------------------------------------------------------------------------
 do $resolve$
 declare
-  requested bigint;
-  resolved bigint;
   unmatched text;
+  ambiguous text;
 begin
-  select count(*) into requested from requested_accounts;
-  select count(*) into resolved from reset_profiles;
+  select string_agg(coalesce(r.value, '<null>'), ', ' order by coalesce(r.value, '<null>'))
+    into unmatched
+    from requested_accounts r
+   where not exists (
+     select 1 from reset_profiles p where p.matched_value = r.value);
 
-  if resolved = 0 then
+  select string_agg(coalesce(r.value, '<null>'), ', ' order by coalesce(r.value, '<null>'))
+    into ambiguous
+    from requested_accounts r
+   where (select count(*) from reset_profiles p where p.matched_value = r.value) > 1;
+
+  if unmatched is not null then
     raise exception
-      'REFUSED: none of the % requested account(s) matched a profile.', requested;
+      'REFUSED: requested account(s) matched no profile: [%].', unmatched;
   end if;
 
-  if resolved <> requested then
-    select string_agg(coalesce(p.username, p.profile_id, '<no profile id>'), ', ' order by
-             coalesce(p.username, p.profile_id, '<no profile id>'))
-      into unmatched
-      from reset_profiles p;
+  if ambiguous is not null then
     raise exception
-      'REFUSED: % requested account(s) matched % profile(s). Every identifier must '
-      'resolve to exactly one profile. Matched: [%].', requested, resolved, unmatched;
+      'REFUSED: requested account(s) matched more than one profile (usernames are '
+      'unique per node, not globally): [%].', ambiguous;
   end if;
 
   if exists (select 1 from reset_profiles where profile_id is null) then
@@ -97,11 +109,18 @@ create temp table reset_rels as
     from direct_message_relationship_participants
    where profile_id in (select profile_id from reset_profiles);
 
+-- Conversations are reached ONLY through their relationship. A conversation
+-- is not selected because the target created it: the schema does not require
+-- the creator to be a participant of the relationship, so that path could
+-- reach a conversation whose other participants are outside the scope and
+-- delete their messages. Every application-created conversation has a
+-- creator who is a participant, so this loses nothing in practice; a
+-- malformed row is simply left alone, and the creator reference is nulled by
+-- its own ON DELETE SET NULL foreign key when the target's profile goes.
 create temp table reset_convs as
   select c.id
     from direct_message_conversations c
-   where c.relationship_id in (select relationship_id from reset_rels)
-      or c.created_by_profile_id in (select profile_id from reset_profiles);
+   where c.relationship_id in (select relationship_id from reset_rels);
 
 create temp table reset_reqs as
   select id
@@ -221,8 +240,15 @@ insert into before_counts
 delete from direct_message_read_cursors
  where profile_id in (select profile_id from reset_profiles);
 
+-- A pending request carries no conversation and no first message. Retiring it
+-- to 'declined' must also stamp transitioned_at: ck_message_requests_transition
+-- requires a non-null transition time for every non-pending state. The
+-- original transition time is preserved for requests that already had one.
 update message_requests
-   set state = 'declined', first_message_id = null, conversation_id = null
+   set state = 'declined',
+       transitioned_at = coalesce(transitioned_at, now()),
+       first_message_id = null,
+       conversation_id = null
  where id in (select id from reset_reqs);
 
 delete from message_request_attempts
