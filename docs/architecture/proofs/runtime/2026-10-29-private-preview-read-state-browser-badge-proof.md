@@ -130,6 +130,12 @@ record of how far a participant has read. The unscoped statement was caught befo
 replaced with account-bounded deletes. **This was a prevented data-integrity incident, not
 observed data loss.**
 
+Account-bounded deletes are necessary but not sufficient. A relationship is a two-party construct,
+so removing one participant's half of it also removes the other participant's messages and their
+read cursor — and a count-based check that classifies those rows as "in scope" cannot detect the
+loss. The reusable procedure therefore refuses to run at all when a named account shares state
+with an account that was not named, rather than widening its own scope silently.
+
 The scoped reset produced these counts, and the non-target counts did not move. The "before" column
 is the state while the two proof accounts existed; the "after" column is the state once they were
 removed:
@@ -157,9 +163,35 @@ back to 13 entries with no proof account present, and the backend was recreated 
 allowlist. Both proof accounts now return 401 from `/api/auth/login`.
 
 The account-bounded reset is now a reusable operator script:
-[`scripts/ops/private_preview_account_scoped_reset.sh`](../../../../scripts/ops/private_preview_account_scoped_reset.sh).
-It refuses to run without explicit account identifiers, refuses to run without `--confirm`, bounds
-every delete to the resolved scope, and fails if any non-target row count moves.
+[`scripts/ops/private_preview_account_scoped_reset.sh`](../../../../scripts/ops/private_preview_account_scoped_reset.sh),
+whose destructive logic and guards live in
+[`scripts/ops/private_preview_account_scoped_reset.sql`](../../../../scripts/ops/private_preview_account_scoped_reset.sql).
+It refuses to run without explicit account identifiers, refuses to run without `--confirm`, binds
+account identifiers as literals rather than splicing them into SQL, **fails closed when a named
+account shares a relationship or message request with an account that was not named**, and asserts
+inside the same transaction that no row outside the requested scope changed — so a violation rolls
+the transaction back rather than reporting a failure after the damage is committed.
+
+That fail-closed rule is the part that matters most in a multi-account database. A direct-message
+relationship is a two-party construct: deleting one participant's half of it destroys the other
+participant's messages and their durable read cursor. The script therefore refuses rather than
+silently widening its own scope. A live dry run against a synthetic account that was mid-proof
+against the running Preview reported the shared participants and would have refused:
+
+```text
+SHARED STATE DETECTED (dry run): named accounts share state with accounts outside the
+requested scope. shared relationship participants: [proofbeta, proofcharlie, proofdelta];
+shared request counterparties: [proofbeta, proofcharlie, proofdelta]. Applying this reset
+would be REFUSED.
+```
+
+The behaviour is covered by a regression test that runs the real operator script against a
+disposable PostgreSQL carrying the real migrated schema:
+[`tests/ops/test_private_preview_account_scoped_reset.py`](../../../../tests/ops/test_private_preview_account_scoped_reset.py).
+It proves that a mixed-account relationship and a mixed-account request are both refused with
+every row left intact, that state owned only by the named account is removed while unrelated
+accounts' rows survive, that a crafted identifier is bound as a literal and cannot widen the
+scope, and that an invocation without identifiers is refused.
 
 ## What this receipt does not establish
 

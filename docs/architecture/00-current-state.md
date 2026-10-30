@@ -73,7 +73,7 @@ This file is authoritative for:
 2. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
 3. Resolve the explicit-model/delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
-5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, browser-verified unread badges, and Saved Widget operations.
+5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, cross-browser verification of the now-proven unread badge, and Saved Widget operations.
 
 ## Release definition right now
 
