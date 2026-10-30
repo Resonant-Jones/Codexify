@@ -1013,12 +1013,14 @@ class _Predication(NamedTuple):
 def _predications(clause: str) -> list[_Predication]:
     """Split a clause into the predications it makes.
 
-    Two shapes decide release truth:
+    Three shapes decide release truth:
 
     * "has been tested and proven" is one predicate over one subject, so the
       completion word stays attached to that subject.
     * "Natural import-to-recall and scope isolation are complete" is one
       predicate over two subjects, so the completion word governs both.
+    * "remains open and is complete" is one predicate over one subject, so the
+      completion word in the second conjunct is not lost.
 
     A subject that stands on its own ("natural import-to-recall") shares the
     predicate that follows it. That is how an enumerated list of unresolved
@@ -1050,28 +1052,40 @@ def _predications(clause: str) -> list[_Predication]:
                 pending = []
             continue
 
-        if open_subjects:
-            predications.append(
-                _Predication(open_subjects, " ".join(open_predicate))
-            )
-            open_subjects = ()
-            open_predicate = []
-
         match = _FINITE_VERB.search(text)
         if match is None:
-            # A bare subject: it shares the predicate that follows it.
+            # A bare subject: it shares the predicate that follows it, and it
+            # ends the predication that was open.
+            if open_subjects:
+                predications.append(
+                    _Predication(open_subjects, " ".join(open_predicate))
+                )
+                open_subjects = ()
+                open_predicate = []
             pending.append(text)
             continue
 
         subject = text[: match.start()].strip()
         predicate = text[match.start():].strip()
         if not subject:
-            # A predicate with no subject of its own belongs to the subjects
-            # that were waiting for it.
+            # A continuation with no subject of its own keeps the subject it
+            # already describes: "remains open and is complete" is one
+            # predicate over one subject, so the completion word is not lost.
+            if open_subjects:
+                open_predicate.append(predicate)
+                continue
             if pending:
                 predications.append(_Predication(tuple(pending), predicate))
                 pending = []
             continue
+
+        # A new subject ends the predication that was open.
+        if open_subjects:
+            predications.append(
+                _Predication(open_subjects, " ".join(open_predicate))
+            )
+            open_subjects = ()
+            open_predicate = []
         # The predicate governs this subject together with any subject that
         # was enumerated immediately before it.
         open_subjects = tuple(pending) + (subject,)
@@ -1090,11 +1104,18 @@ def _predications(clause: str) -> list[_Predication]:
 def _obligation_predications(
     clause: str, topic: re.Pattern[str]
 ) -> list[_Predication]:
-    """The predications of ``clause`` that describe the obligation ``topic``."""
+    """The predications of ``clause`` that describe the obligation ``topic``.
+
+    A predication describes the obligation when one of its subjects names it,
+    or when the obligation is named inside its predicate: "There remains an
+    unresolved natural import-to-recall proof" identifies the obligation in
+    the predicate, and that is the same obligation.
+    """
     return [
         predication
         for predication in _predications(clause)
         if any(topic.search(subject) for subject in predication.subjects)
+        or topic.search(predication.predicate)
     ]
 
 
@@ -1125,19 +1146,56 @@ def _has_unresolved_state_for(
     return any(_has_unresolved_state(subject) for subject in subjects)
 
 
+def _subject_completion_claim(
+    subject: str, topic: re.Pattern[str]
+) -> bool:
+    """True when a completion modifier is attached to the obligation itself.
+
+    A completion term that precedes the obligation's name modifies that
+    obligation — "the completed natural import-to-recall proof" characterizes
+    the required proof as finished — so it is an affirmative completion claim.
+    A completion term that belongs to another obligation ("the natural
+    import-to-recall proof for the completed scope-isolation work") does not
+    modify the obligation and is not attributed here.
+    """
+    match = topic.search(subject)
+    if match is None:
+        return False
+    return _has_affirmative(subject[: match.start()], _COMPLETION_CLAIM)
+
+
+def _target_completion_claim(
+    predication: _Predication, topic: re.Pattern[str]
+) -> bool:
+    """True when the predication claims the obligation is finished.
+
+    A completion word in the predicate that governs the obligation is a
+    claim, and so is a completion modifier attached to the obligation's own
+    subject. A completion term attached to a different obligation is not
+    attributed to this one.
+    """
+    if _has_affirmative(predication.predicate, _COMPLETION_CLAIM):
+        return True
+    return any(
+        _subject_completion_claim(subject, topic)
+        for subject in _topic_subjects(predication, topic)
+    )
+
+
 def _claims_completion_for_topic(
     clause: str, topic: re.Pattern[str]
 ) -> bool:
     """True when the clause claims the obligation named by ``topic`` is finished.
 
     A completion word is a claim about the subjects its predicate governs. A
-    completion adjective that modifies a noun phrase inside the subject
-    ("complete scope-isolation proof") describes the completeness of that
-    phrase rather than asserting a state, so it is not a claim. A completion
-    predicate shared by several subjects is a claim about every one of them.
+    completion adjective that modifies a noun phrase inside a *different*
+    subject ("complete scope-isolation proof") describes the completeness of
+    that phrase rather than asserting a state, so it is not a claim. A
+    completion predicate shared by several subjects is a claim about every one
+    of them.
     """
     for predication in _obligation_predications(clause, topic):
-        if _has_affirmative(predication.predicate, _COMPLETION_CLAIM):
+        if _target_completion_claim(predication, topic):
             return True
     return False
 
@@ -1158,6 +1216,11 @@ def _require_unresolved_obligation(
     separately unresolved proof is not attributed here. A predicate shared by
     several subjects is attributed to each of them, and a coordinated predicate
     stays with the subject it already described.
+
+    One predication has to record the obligation as outstanding. A passing
+    mention of the obligation that carries no status of its own does not fail
+    the contract when another predication states the unresolved state, but it
+    does not satisfy the contract either.
     """
     bullets = _blocker_bullets(section)
     for bullet in bullets:
@@ -1166,18 +1229,19 @@ def _require_unresolved_obligation(
             if not matching:
                 continue
             for predication in matching:
-                assert not _has_affirmative(
-                    predication.predicate, _COMPLETION_CLAIM
-                ), (
+                assert not _target_completion_claim(predication, topic), (
                     f"Active blockers must not record the {label} obligation as "
                     f"complete"
                 )
-                assert _has_unresolved_state_for(
+            assert any(
+                _has_unresolved_state_for(
                     predication, _topic_subjects(predication, topic)
-                ), (
-                    f"Active blockers must record the {label} obligation as "
-                    f"unresolved"
                 )
+                for predication in matching
+            ), (
+                f"Active blockers must record the {label} obligation as "
+                f"unresolved"
+            )
             return
     raise AssertionError(
         f"Active blockers must record the {label} obligation"
@@ -1548,6 +1612,44 @@ _COORDINATED_PREDICATE_CASES = [
     ),
 ]
 
+# Table-driven cases for the four remaining predicate-attribution gaps.
+# Each entry is (active-blocker bullet, accepted).
+#
+# A completion claim about the named obligation must always be rejected, and
+# an equivalent unresolved-obligation wording must always be accepted however
+# the obligation is phrased.
+_PREDICATE_ATTRIBUTION_GAP_CASES = [
+    # Gap 1: an auxiliary-bearing coordinated predicate keeps its subject, so
+    # "remains open and is complete" still carries the completion claim.
+    (
+        "- The natural import-to-recall proof remains open and is complete.",
+        False,
+    ),
+    # Gap 2: an existential construction names the obligation inside the
+    # predicate, which is still the obligation being recorded.
+    (
+        "- There remains an unresolved natural import-to-recall proof.",
+        True,
+    ),
+    # Gap 3: a completion modifier attached to the obligation's own subject
+    # characterizes that obligation as finished.
+    (
+        "- The completed natural import-to-recall proof remains open.",
+        False,
+    ),
+    (
+        "- A proven natural import-to-recall obligation remains pending.",
+        False,
+    ),
+    # Gap 4: a contextual mention without a status marker does not fail when
+    # an explicit unresolved declaration for the same obligation follows.
+    (
+        "- Import-to-recall was tested, but the natural import-to-recall proof "
+        "remains open.",
+        True,
+    ),
+]
+
 _SUPPORTED_PROFILE_CASES = [
     # P1-3: an explicitly unsupported profile cannot satisfy the requirement.
     (
@@ -1649,6 +1751,33 @@ def test_beta_release_contract_keeps_coordinated_predicates_with_their_subject(
     obligation that happens to remain open nearby. "… and scope isolation are
     complete" is one predicate over two subjects, so the completion word is a
     claim about both of them.
+    """
+    text = _synthetic_current_state(
+        blockers=(
+            bullet,
+            "- A fresh current-tip supported-Compose qualification is missing.",
+        )
+    )
+    if accepted:
+        _assert_beta_release_current_state_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_beta_release_current_state_contract(text)
+
+
+@pytest.mark.parametrize(
+    "bullet,accepted", _PREDICATE_ATTRIBUTION_GAP_CASES
+)
+def test_beta_release_contract_attributes_predicate_status_to_the_obligation(
+    bullet: str, accepted: bool
+) -> None:
+    """A status belongs to the obligation it names, however it is phrased.
+
+    A completion claim about the named obligation is rejected even when it
+    rides on a coordinated predicate, when it modifies the obligation's own
+    subject, or when the obligation is named inside an existential predicate.
+    An unresolved declaration for the same obligation is accepted even when
+    the sentence also mentions it in passing.
     """
     text = _synthetic_current_state(
         blockers=(
