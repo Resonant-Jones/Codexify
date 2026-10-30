@@ -28,6 +28,7 @@ This file is authoritative for:
 - Qualified the committed migration chain on the supported `postgres:15` / PostgreSQL 15.19 path using an empty database and a restored, read-only copy of the Preview database; existing rows were preserved.
 - Rehearsed the real image/migrator mechanism and recorded two traps: the backend entrypoint's `alembic` call is a swallowed no-op, and the migrator reads migrations from the baked image rather than the source mount.
 - Reconciled local `main` with the stored remote-tracking tip; the Private Preview deployment and live read-state qualification then followed, and the serving revision has since advanced from `5569f3f34` to `c8e72ef86` without changing application source.
+- Proved the unread badge in a real browser against the running Private Preview — Inbox and launcher badges render and agree with the API, and opening a conversation clears that reader's badge only — and recorded the account-scoped cleanup that removed the proof accounts without touching another account's durable read cursor.
 
 ## Current supported reality
 
@@ -38,6 +39,7 @@ This file is authoritative for:
 - Recipient-local read state is **deployed and live-qualified** on the Private Preview: a two-account live test passed 20 of 20 checks at serving revision `5569f3f34`, covering the unread projection, explicit read advancement, account isolation, watermark accuracy, idempotency, reload persistence, concurrent reads, and the absence of any sender-visible read receipt. The consent HTTP surface is quarantined by the Preview profile, so consent enforcement is proven at the storage layer rather than the endpoint.
 - The current serving revision is `c8e72ef86`. The advance from `5569f3f34` changed only `.dockerignore`, `.gitignore`, and documentation, so no application source differs from the evaluated revision. The backend's `/app/guardian` bind mount is the serving worktree's own `guardian/` tree, and the container's `guardian/db/models.py` hashes identically to the worktree copy. Post-advance observation is limited to health (`200`), the live schema head (`3a91d7c4e8b2`), the Guardian mount source, and running-model identity; **the 20 checks were not re-run against `c8e72ef86`**.
 - The Private Preview deployment sequence itself has been executed against the live Preview — runtime image rebuilt, migrator run, application containers recreated — so that prerequisite is discharged. It covers the Preview lane only and is not a supported-Compose qualification.
+- The unread badge is **browser-rendered and proven** on the Private Preview: in Chrome 156 against the running service at serving revision `c8e72ef86`, the Inbox rendered per-conversation badges reading `3` and `1`, the launcher total read `4` and agreed with the API, and opening a conversation advanced the reader's own cursor and cleared its badge while the neighbouring conversation stayed unread. The API and the database confirmed the same result, and the sender observed no read state. The badge is proven in one browser only; Firefox, Safari, and the floating conversation window remain unverified.
 - Private Preview same-node messaging has live end-to-end evidence for approved synthetic accounts; this does not qualify share links, cross-node transport, or default Beta support.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
 - Connectors, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, and autonomous coding-worker work are not default Beta support without current-main qualification.
@@ -63,7 +65,7 @@ This file is authoritative for:
 - The UMS/Chronicle lane retains an inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still needs execution against the corrected baseline.
 - The explicit-model rejection and delegated worker-to-adapter contract remain unresolved before provider execution claims.
 - New-thread projection, natural import-to-recall, scope isolation, export/restore/retention, and complete conversation-lifecycle proof remain open.
-- Private Preview still lacks share-link expiry/revocation, cross-node messaging proof, browser-verified unread badges, and consent-enforcement coverage at a profile that mounts `iddb`; Saved Widget lifecycle and complete browser qualification also remain open.
+- Private Preview still lacks share-link expiry/revocation, cross-node messaging proof, and consent-enforcement coverage at a profile that mounts `iddb`; the unread badge is proven in Chrome 156 only, and Saved Widget lifecycle and complete browser qualification also remain open.
 
 ## This week’s priorities
 
@@ -71,7 +73,7 @@ This file is authoritative for:
 2. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
 3. Resolve the explicit-model/delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
 4. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
-5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, browser-verified unread badges, and Saved Widget operations.
+5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, cross-browser verification of the now-proven unread badge, and Saved Widget operations.
 
 ## Release definition right now
 
