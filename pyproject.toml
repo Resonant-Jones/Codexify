@@ -6,7 +6,15 @@ authors = [
     { name="Catalyst Design Labs", email="dev@catalystlabs.ai" }
 ]
 dependencies = [
-    "fastapi",
+    # Pinned to the version `backend/requirements.txt` already resolves
+    # (`fastapi==0.119.1`). CI installs this project with `-e .`, so an open
+    # `fastapi` requirement let CI resolve the newest release instead of the
+    # locked one. From 0.137 `include_router` defers route materialization
+    # behind `_IncludedRouter`, so `app.routes` stops exposing concrete
+    # `APIRoute` objects; this codebase and its route-posture tests read
+    # `app.routes` directly. Keep the eager behaviour until that traversal is
+    # migrated to a lazy-aware helper.
+    "fastapi==0.119.1",
     "httpx",
     "python-dotenv",
     "uvicorn",

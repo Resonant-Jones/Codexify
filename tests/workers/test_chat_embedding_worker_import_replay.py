@@ -71,8 +71,11 @@ def test_import_embedding_redelivery_uses_one_canonical_vector_id(monkeypatch):
         def embed_and_index(self, _texts, *, metadatas, ids):
             self.ids.append((ids, metadatas[0]["source_message_id"]))
 
-    chroma_store = object.__new__(VectorStore)
-    chroma_store.store = "chroma"
+    # Build the store through its real constructor so the embedder lock and
+    # runtime resolution are the production ones; only the native embedder is
+    # replaced by a recording double.
+    monkeypatch.setenv("CODEXIFY_VECTOR_STORE", "chroma")
+    chroma_store = VectorStore(initialize_embedder=False)
     chroma_store.embedder = _Embedder()
     for item in store.items:
         chroma_store.add_texts([item])

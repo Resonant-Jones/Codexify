@@ -30,6 +30,11 @@ WRAPPER_PATH = REPO_ROOT / "codex_runner" / "src" / "agent-wrapper.js"
 FAKE_SOURCE_DIR = REPO_ROOT / "tests" / "pi" / "fixtures" / "fake_pi_package"
 FAKE_SOURCE_INDEX = FAKE_SOURCE_DIR / "source" / "index.js"
 FAKE_PACKAGE_JSON = FAKE_SOURCE_DIR / "package.json"
+
+#: Guardian invocation credential authority for the authorized Pi lane. The
+#: adapter and the wrapper both refuse an authorized invocation without it,
+#: so the fixtures must carry one.
+_CREDENTIAL_MATERIAL = "fixture-invocation-credential"
 VENDORED_ANTHROPIC = (
     REPO_ROOT
     / "codex_runner"
@@ -1007,6 +1012,12 @@ def _run_real_wrapper(
         "HOME": str(fake_home),
         "TMPDIR": str(cwd),
         "PI_CODING_AGENT_PACKAGE_ROOT": str(materialized_fake_pi),
+        # The authorized lane loads the Pi runtime with isolated credentials,
+        # so the wrapper resolves the credential store from the vendored
+        # runtime's own node_modules rather than from the fake package.
+        "PI_CODING_AGENT_NODE_MODULES": str(
+            REPO_ROOT / "codex_runner/vendor/pi-coding-agent/node_modules"
+        ),
         "PI_PROVIDER": "anthropic",
         "PI_MODEL": "claude-sonnet-4-6",
         "PI_GUARDIAN_AUTHORIZED": "1",
@@ -1024,6 +1035,13 @@ def _run_real_wrapper(
         ["node", str(WRAPPER_PATH), "guardian-authorized-task", "fixture prompt"],
         cwd=str(cwd),
         env=env,
+        # The wrapper reads the invocation credential from stdin.
+        input=json.dumps(
+            {
+                "credential_type": "api_key",
+                "api_key": _CREDENTIAL_MATERIAL,
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=30,

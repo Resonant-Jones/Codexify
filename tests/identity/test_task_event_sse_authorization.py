@@ -348,7 +348,7 @@ def _install_guest_db(
 
 
 def _redis_probe(monkeypatch: pytest.MonkeyPatch, events=None):
-    """Count task_events.read_events calls so denial can be proven zero-read."""
+    """Count task_events.read_events_bounded calls so denial can be proven zero-read."""
     calls: list[tuple] = []
 
     def _read_events(task_id, last_id, **kwargs):
@@ -357,7 +357,7 @@ def _redis_probe(monkeypatch: pytest.MonkeyPatch, events=None):
 
     import guardian.queue.task_events as real_task_events
 
-    monkeypatch.setattr(real_task_events, "read_events", _read_events)
+    monkeypatch.setattr(real_task_events, "read_events_bounded", _read_events)
     return calls
 
 
@@ -662,8 +662,18 @@ def guardian_api_module():
 
 
 async def _stream(module, request, task_id, last_id_query="0-0", last_event_id=None):
+    # Resolve the principal the way the route's dependency does, then hand it
+    # to the route explicitly. Calling the route function directly bypasses
+    # FastAPI's dependency injection, and the route still performs its own
+    # durable-lineage authorization before any Redis read.
+    principal = require_task_event_read_principal(
+        request,
+        x_api_key=request.headers.get("X-API-Key"),
+        authorization=request.headers.get("Authorization"),
+        gc_session=request.cookies.get("gc_session"),
+    )
     response = await module.stream_task_events(
-        request, task_id, last_id_query, last_event_id
+        request, task_id, last_id_query, last_event_id, principal=principal
     )
     chunks: list[str] = []
     async for chunk in response.body_iterator:
@@ -679,7 +689,7 @@ def _install_route_events(monkeypatch: pytest.MonkeyPatch, module, events):
         return list(events)
 
     monkeypatch.setattr(module, "chatlog_db", _chatlog())
-    monkeypatch.setattr(module.task_events, "read_events", _read_events)
+    monkeypatch.setattr(module.task_events, "read_events_bounded", _read_events)
     return calls
 
 
@@ -703,7 +713,7 @@ def test_authorized_request_preserves_sse_framing(
         module,
         [("1-0", {"type": "task.completed", "data": {"marker": "synthetic-complete"}})],
     )
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     body = asyncio.run(_stream(module, _request(bearer=token), TASK_A))
 
     assert body.startswith("retry: 3000\n\n")
@@ -723,7 +733,7 @@ def test_last_event_id_resume_starts_from_requested_cursor(
         module,
         [("9-4", {"type": "task.completed", "data": {"marker": "resumed"}})],
     )
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     body = asyncio.run(
         _stream(module, _request(bearer=token), TASK_A, last_event_id="5-2")
     )
@@ -741,7 +751,7 @@ def test_malformed_cursor_is_normalized(
         module,
         [("1-0", {"type": "task.completed", "data": {"marker": "normalized"}})],
     )
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     asyncio.run(_stream(module, _request(bearer=token), TASK_A, last_id_query="garbage"))
     assert calls == [(TASK_A, "0-0")]
 
@@ -755,7 +765,7 @@ def test_cross_account_route_request_performs_zero_redis_reads(
         module,
         [("1-0", {"type": "task.completed", "data": {"marker": "account-a-secret"}})],
     )
-    token, _ = issue_session_token(subject=ACCOUNT_B, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_B)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(_stream(module, _request(bearer=token), TASK_A))
     assert exc.value.status_code == 403
@@ -772,7 +782,7 @@ def test_missing_attempt_route_request_performs_zero_redis_reads(
         module,
         [("1-0", {"type": "task.completed", "data": {"marker": "unreachable"}})],
     )
-    token, _ = issue_session_token(subject=ACCOUNT_A, purpose=ACCOUNT_SESSION_PURPOSE)
+    token = _account_jwt(subject=ACCOUNT_A)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(_stream(module, _request(bearer=token), TASK_MISSING))
     assert exc.value.status_code == 404

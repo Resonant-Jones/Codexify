@@ -114,6 +114,11 @@ class PiAuthorizedHarnessRequest:
     # `files.write` grant.
     required_tool_name: str | None = None
     evaluator_result_contract: str | None = None
+    # Invocation-scoped credential authority for the harness. The value is
+    # forwarded to the adapter and never recorded in an envelope, a capability
+    # record, or any durable artifact (ADR-093: secret values stay outside
+    # capability and provenance records).
+    credential_material: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +250,7 @@ def invoke_guardian_authorized_pi(
     required_tool_name: str | None = None,
     reasoning_effort: str = "medium",
     evaluator_result_contract: str | None = None,
+    credential_material: str | None = None,
 ) -> PiLiveInvocationOutcome:
     """Authorize and invoke one Pi harness call without durable side effects.
 
@@ -350,6 +356,7 @@ def invoke_guardian_authorized_pi(
         reasoning_effort=reasoning_effort,
         required_tool_name=normalized_required_tool,
         evaluator_result_contract=evaluator_result_contract,
+        credential_material=credential_material,
     )
     runner = harness_runner or _run_with_pi_adapter
     evidence: PiHarnessRuntimeEvidence | None = None
@@ -640,6 +647,7 @@ def _run_with_pi_adapter(
         reasoning_effort=request.reasoning_effort,
         required_tool_name=request.required_tool_name,
         evaluator_result_contract=request.evaluator_result_contract,
+        credential_material=request.credential_material,
     )
     return PiHarnessRuntimeEvidence(
         status=result.status,
