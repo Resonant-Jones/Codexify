@@ -200,7 +200,7 @@ describe("useProjectsCache", () => {
 
     render(<ProjectsHarness />);
 
-    expect(await screen.findByTestId("project-count")).toHaveTextContent("2");
+    await waitFor(() => expect(screen.getByTestId("project-count")).toHaveTextContent("2"));
     expect(screen.getByTestId("account-id")).toHaveTextContent("none");
   });
 });
