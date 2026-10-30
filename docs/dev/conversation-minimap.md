@@ -61,9 +61,16 @@ overflows and more than one section exists.
 - On touch input a tap opens the preview, and the separate **Go to turn**
   action commits the navigation.
 - `Escape` and any outside interaction dismiss the preview.
-- The rail is keyboard navigable with arrow keys, `Home`, and `End`. Focus is
-  visible and there is no focus trap. The preview stays usable when the
-  pointer leaves the rail and enters the preview.
+- The rail is one composite widget: a single mark sits in the tab order and the
+  arrow keys move between them. A dense history would otherwise put dozens of
+  marks in the tab order and make the preview unreachable.
+- `Enter` or `Space` on a mark enters the preview for that exact range and
+  moves focus onto its destinations, so a keyboard-only reader can activate an
+  exact destination without tabbing through the remaining rail marks (each of
+  which would replace the preview on the way). `Escape` inside the preview
+  returns focus to the mark the preview was opened from.
+- Focus is visible and there is no focus trap. The preview stays usable when
+  the pointer leaves the rail and enters the preview.
 
 ### Dense histories
 
@@ -92,9 +99,15 @@ survives older messages being prepended, because the anchor is an identity and
 the content offset is re-read from the live DOM at restore time.
 
 A committed jump intentionally leaves the latest turn: pending auto-scroll
-work is cancelled and the follow-latest flag is cleared, so streaming updates
+work is cancelled and the follow-latest intent is cleared, so streaming updates
 and incoming messages do not pull the reader back down. The existing **Jump to
 latest** action restores normal latest-follow behaviour.
+
+Latest-follow is driven by *intent*, not by the measured distance from the
+bottom. Appending a reply grows the transcript, which makes that distance look
+large even though the reader never moved, so the two are tracked separately:
+only an explicit navigation may clear the follow-latest intent, and returning
+to the bottom restores it.
 
 If a destination has been removed, the jump fails safely and does not land on
 an unrelated message. Preview state, the return position, observers, and

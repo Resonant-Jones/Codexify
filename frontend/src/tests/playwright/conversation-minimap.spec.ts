@@ -516,6 +516,34 @@ test.describe("Conversation minimap", () => {
       .toBeGreaterThan(0);
   });
 
+  test("lets a keyboard user enter the preview of a grouped range", async ({
+    page,
+  }) => {
+    await openFixture(page);
+    await mountFixture(page, { messages: denseHistory() });
+
+    const marks = page.getByTestId("conversation-minimap-mark");
+    await expect(marks.first()).toBeVisible();
+
+    // The first mark of a grouped range that is not the last one.
+    const firstRange = marks.nth(0);
+    await firstRange.focus();
+    await expect(firstRange).toBeFocused();
+
+    await page.keyboard.press("Enter");
+
+    // The keyboard user lands inside the preview for that exact range instead
+    // of having to tab through the remaining rail marks.
+    const destination = page
+      .getByTestId("conversation-minimap-destination")
+      .first();
+    await expect(destination).toBeFocused();
+
+    // Escape returns the keyboard user to the mark they came from.
+    await page.keyboard.press("Escape");
+    await expect(firstRange).toBeFocused();
+  });
+
   test("tracks the active turn from real message geometry", async ({
     page,
   }) => {
