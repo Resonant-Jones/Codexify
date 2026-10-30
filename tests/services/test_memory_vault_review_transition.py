@@ -1,11 +1,11 @@
 """Focused PostgreSQL proof for the UMS-05C10A-W review transition writer.
 
 Proves ``MemoryVaultMutationService.transition_review`` against real
-disposable PostgreSQL, enforcing ADR-088 exactly:
+disposable PostgreSQL, enforcing ADR-106 exactly:
 
 * only ``approve`` / ``reject`` / ``dispute`` are admitted, and no path can
   target ``pending``;
-* the full ADR-088 matrix across all four canonical states;
+* the full ADR-106 matrix across all four canonical states;
 * same-state actions are no-ops *after* a fresh CAS check;
 * a stale CAS conflicts even when the action would otherwise be a no-op, and
   allocates nothing;
@@ -143,7 +143,7 @@ def session_factory(database_url):
 
 
 def _seed(session, *, review_state: str, reviewed_at=sa.func.now()) -> dict:
-    # ADR-088 first-approval semantics: a never-approved memory has no
+    # ADR-106 first-approval semantics: a never-approved memory has no
     # reviewed_at, and the frozen review-before-activation CHECK then
     # requires activated_at to be NULL too.
     session.add(User(id=ACCOUNT_A, username=ACCOUNT_A, password_hash="x", role="guest"))
@@ -377,7 +377,7 @@ def test_only_three_admitted_actions_are_accepted(session_factory):
 
 
 def test_caller_cannot_target_pending(session_factory):
-    """ADR-088: no direct action targets pending, from any state."""
+    """ADR-106: no direct action targets pending, from any state."""
     ctx = _make(session_factory, review_state="approved")
     for state in ("pending", "approved", "rejected", "disputed"):
         with session_factory() as session:
@@ -402,7 +402,7 @@ def test_caller_cannot_target_pending(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# ADR-088 matrix.
+# ADR-106 matrix.
 # ---------------------------------------------------------------------------
 
 
@@ -794,7 +794,7 @@ def test_adjacent_authority_is_unchanged(session_factory, action):
     _fresh(_service(session_factory), session_factory, ctx["ordinary_id"], action)
 
     after = _row(session_factory, ctx["ordinary_id"])
-    # ADR-088 review/lifecycle independence and no collateral mutation.
+    # ADR-106 review/lifecycle independence and no collateral mutation.
     assert after.lifecycle_state == before.lifecycle_state
     assert after.text_content == before.text_content
     assert after.pinned == before.pinned

@@ -62,6 +62,10 @@ EXPECTED_UNIFIED_MEMORY_FIELDS = {
         "valid_until",
         "created_at",
     },
+    # Mirrors the canonical memory_records export column list in
+    # guardian/core/pgdb.py and the required-field contract in
+    # guardian/services/account_export.py. Ordinary-memory governance state
+    # (review_state / lifecycle_state) is part of that contract.
     "memory_records": {
         "memory_id",
         "user_id",
@@ -75,6 +79,8 @@ EXPECTED_UNIFIED_MEMORY_FIELDS = {
         "activated_at",
         "pinned",
         "held",
+        "review_state",
+        "lifecycle_state",
         "extensions",
         "created_at",
         "updated_at",

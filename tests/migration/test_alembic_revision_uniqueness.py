@@ -12,7 +12,8 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "2e865c4a9b10"
+CANONICAL_HEAD = "3a91d7c4e8b2"
+CAMPAIGN_AUTHORITY_MERGE = "2e865c4a9b10"
 MESSAGE_REQUEST_REVISION = "9e52b1d3c8fa"
 
 
@@ -132,7 +133,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
 
 def test_chat_deadline_campaign_merge_preserves_both_installed_lineages():
     script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
-    merge = script.get_revision(CANONICAL_HEAD)
+    merge = script.get_revision(CAMPAIGN_AUTHORITY_MERGE)
     assert merge.down_revision == ("f1a6d83b9024", "17b23052da6a")
     for installed_head in merge.down_revision:
         pending = list(script.iterate_revisions(CANONICAL_HEAD, installed_head, implicit_base=True))
@@ -140,3 +141,20 @@ def test_chat_deadline_campaign_merge_preserves_both_installed_lineages():
         assert installed_head not in {revision.revision for revision in pending}
         other_head = next(head for head in merge.down_revision if head != installed_head)
         assert other_head in {revision.revision for revision in pending}
+
+
+def test_canonical_head_joins_the_current_installed_lineages():
+    """The head must merge both branches, not replace or split them."""
+    script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
+    head = script.get_revision(CANONICAL_HEAD)
+    assert head.down_revision == ("7f2c9e1a4b63", "b3c8d1e5f7a2")
+    for branch in head.down_revision:
+        pending = list(script.iterate_revisions(CANONICAL_HEAD, branch, implicit_base=True))
+        assert pending[0].revision == CANONICAL_HEAD
+        assert branch not in {revision.revision for revision in pending}
+    # The campaign-authority merge stays an ancestor of the head, so every
+    # installed lineage it preserved remains preserved.
+    assert CAMPAIGN_AUTHORITY_MERGE in {
+        revision.revision
+        for revision in script.iterate_revisions(CANONICAL_HEAD, None, implicit_base=True)
+    }

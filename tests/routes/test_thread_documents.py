@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
 from guardian.core.dependencies import RequestUserScope
+from guardian.core.session_store import SessionStore
 from guardian.routes import documents
 
 
@@ -805,6 +806,29 @@ class TestMultiUserOwnershipEnforcement:
         # through, which would expose the regression this test guards against.
 
 
+class _SessionRedis:
+    """Minimal in-memory Redis surface for the Guardian session store."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def set(self, key, value, **kwargs):
+        self.values[key] = value
+
+
+@pytest.fixture
+def session_store(monkeypatch):
+    """Isolate the account-session store for the duration of one test."""
+    from guardian.core import session_store as session_store_module
+
+    store = SessionStore(redis_client=_SessionRedis())
+    monkeypatch.setattr(session_store_module, "_SESSION_STORE", store)
+    return store
+
+
 @contextmanager
 def _thread_documents_client(
     monkeypatch,
@@ -883,7 +907,9 @@ def test_thread_documents_list_allows_local_api_key_in_local_safe(monkeypatch):
     assert response.json() == {"ok": True, "documents": []}
 
 
-def test_thread_documents_list_allows_bearer_in_public_allowlist(monkeypatch):
+def test_thread_documents_list_allows_bearer_in_public_allowlist(
+    monkeypatch, session_store
+):
     with _thread_documents_client(
         monkeypatch,
         exposure_mode="public_allowlist",
@@ -894,6 +920,11 @@ def test_thread_documents_list_allows_bearer_in_public_allowlist(monkeypatch):
             subject="thread-documents-route-auth-test",
             ttl_seconds=60,
             purpose=ACCOUNT_SESSION_PURPOSE,
+        )
+        # An account credential is only accepted while its approved session is
+        # stored, and the stored session user id is the account identity.
+        session_store.store(
+            session_token, "thread-documents-route-auth-test", 60
         )
         response = client.get(
             "/api/threads/1/documents",

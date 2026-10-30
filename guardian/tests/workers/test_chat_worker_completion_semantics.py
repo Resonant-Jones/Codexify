@@ -105,7 +105,7 @@ def _stubbed_success_setup(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
     monkeypatch.setattr(
-        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_a, **_k: True
     )
     monkeypatch.setattr(
         chat_worker,
@@ -196,7 +196,7 @@ def test_retry_after_metadata_failure_reuses_cached_turn_anchor(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
     monkeypatch.setattr(
-        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_a, **_k: True
     )
     monkeypatch.setattr(
         chat_worker.dependencies,
@@ -268,7 +268,7 @@ def test_eval_enqueue_failure_is_non_fatal(monkeypatch, caplog):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
     monkeypatch.setattr(
-        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_a, **_k: True
     )
     monkeypatch.setattr(
         chat_worker,
@@ -373,7 +373,7 @@ def test_worker_failure_before_assistant_emit_marks_failed_and_emits_completion_
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
     monkeypatch.setattr(
-        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_a, **_k: True
     )
     monkeypatch.setattr(
         chat_worker,
@@ -1219,7 +1219,7 @@ def test_duplicate_turn_is_prevented_before_new_completion(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_a, **_k: False)
     monkeypatch.setattr(
-        chat_worker, "release_turn_lock", lambda *_a, **_k: True
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_a, **_k: True
     )
     monkeypatch.setattr(
         chat_worker,

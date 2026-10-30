@@ -1,5 +1,10 @@
 # Core Framework
-fastapi
+# fastapi and redis are pinned to the versions `backend/requirements.txt`
+# locks. Both drifted when CI resolved them unpinned: fastapi >= 0.137 defers
+# route materialization behind `_IncludedRouter`, so `app.routes` stops
+# exposing concrete routes, and redis >= 8 negotiates RESP3 on connect, which
+# the Redis protocol fakes in the test suite do not speak.
+fastapi==0.119.1
 uvicorn
 aiofiles
 aiosqlite
@@ -9,7 +14,7 @@ psycopg[binary]>=3.2.10
 python-dotenv
 pydantic-settings
 structlog
-redis
+redis==7.0.0
 prometheus-client>=0.20.0
 
 # Core Utils
