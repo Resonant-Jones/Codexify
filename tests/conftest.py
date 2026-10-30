@@ -1,3 +1,4 @@
+import logging.config
 import os
 
 import pytest
@@ -13,6 +14,21 @@ os.environ["CODEXIFY_MULTI_USER_ENABLED"] = "false"
 os.environ["CODEXIFY_BETA_CORE_ONLY"] = "0"
 
 from tests.utils import get_test_auth_headers
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _preserve_application_logging():
+    # Alembic's env.py configures logging with fileConfig. In this shared
+    # process that disables already-imported application loggers and replaces
+    # pytest's handlers, affecting unrelated tests after an in-process
+    # migration finishes. In-process migrations run from several test packages
+    # (services, identity, integration, guardian), so the guard belongs at the
+    # session root rather than inside one package.
+    # Own the patch context so this fixture does not change teardown ordering
+    # for tests that depend on pytest's shared monkeypatch fixture.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(logging.config, "fileConfig", lambda *args, **kwargs: None)
+        yield
 
 
 @pytest.fixture

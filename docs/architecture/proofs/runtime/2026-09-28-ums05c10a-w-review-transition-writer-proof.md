@@ -4,7 +4,7 @@
 **Slice:** `UMS-05C10A-W` — approve / reject / dispute writer
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-28
-**ADR impact:** Implements **ADR-088** (Ordinary Memory Review Transition Semantics), aligned with ADR-084. No new ADR.
+**ADR impact:** Implements **ADR-106** (Ordinary Memory Review Transition Semantics), aligned with ADR-084. No new ADR.
 **Class:** Canonical mutation authority / optimistic concurrency / review-history append / API adapter
 
 ---
@@ -39,7 +39,7 @@ DIRECT CREATION REVIEWED_AT OBLIGATION: SATISFIED
 `review_state="approved"` and `reviewed_at=now()` in the **same** insert, from
 one `now()` expression, and its post-flush readback explicitly fails closed if
 `reviewed_at is None`. An approved ordinary memory therefore always carries a
-first-authoritative-approval timestamp, which is exactly ADR-088's meaning. No
+first-authoritative-approval timestamp, which is exactly ADR-106's meaning. No
 repair of creation semantics was needed or performed.
 
 ### 2.2 Derived review-eligibility obligation
@@ -78,7 +78,7 @@ created. Account authority remains constructor-bound via
 `authenticated_account_id`; no method argument can override it.
 
 An action-oriented method was chosen over a generic `set_review_state(...)`
-because ADR-088 admits only three actions and no `pending` target. The frozen
+because ADR-106 admits only three actions and no `pending` target. The frozen
 mapping is:
 
 ```text
@@ -115,7 +115,7 @@ no-op** — proven by `test_stale_cas_conflicts_even_on_same_state_action`.
 
 ---
 
-## 4. ADR-088 enforcement
+## 4. ADR-106 enforcement
 
 | Current state | `approve` | `reject` | `dispute` |
 | --- | --- | --- | --- |
@@ -379,7 +379,7 @@ completely when run alone. No test assertion ever failed.
 
 ```text
 current review authority remains memory_records.review_state:  YES
-ADR-088 transition graph enforced:                             YES
+ADR-106 transition graph enforced:                             YES
 direct target pending available:                               NO
 same-state action mutates canonical state:                     NO
 stale same-state action conflicts:                              YES

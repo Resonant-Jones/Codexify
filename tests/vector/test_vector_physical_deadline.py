@@ -207,6 +207,7 @@ def test_search_expiry_reaps_serializer_and_native_child(monkeypatch):
 def test_chroma_bound_search_preserves_results_and_deferred_parent_handle(
     tmp_path, monkeypatch
 ):
+    pytest.importorskip("chromadb")
     children = track_children(monkeypatch)
     path = str(tmp_path / "chroma")
     original = LocalSemanticEmbedder(store="chroma", backend="mock", chroma_path=path)
@@ -261,7 +262,7 @@ def test_failed_fork_closes_both_owned_snapshot_descriptors(monkeypatch):
 
 
 def test_changed_native_tensor_weights_cannot_silently_rebind(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
     from guardian.vector.accepted_child import load_bound_model, model_weight_digest
 
     monkeypatch.setenv("CODEXIFY_ALLOW_EMBEDDINGS_FALLBACK", "1")
