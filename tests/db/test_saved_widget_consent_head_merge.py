@@ -435,9 +435,12 @@ def test_merge_upgrade_and_round_trip_preserves_both_authorities(
             )
 
     # A relative -1 is ambiguous at a merge; target one parent explicitly.
-    # The merge alone is removed, leaving both branch heads applied.
+    # The merge alone is removed, leaving both branch heads applied. Other
+    # branches may also survive that downgrade — the Guardian Coding
+    # integration adds a third — so the invariant is that both authorities
+    # are present, not that they are the only heads.
     command.downgrade(config, SAVED_WIDGET_REVISION)
-    assert _current_heads(engine) == {SAVED_WIDGET_REVISION, CONSENT_REVISION}
+    assert {SAVED_WIDGET_REVISION, CONSENT_REVISION} <= _current_heads(engine)
     with engine.connect() as connection:
         assert (
             connection.execute(
