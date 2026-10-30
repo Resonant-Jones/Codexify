@@ -30,7 +30,7 @@ READ_STATE_CAMPAIGN_MERGE = "3a91d7c4e8b2"
 #: branch with the Guardian coding-claim branch. It is a mergepoint rather than
 #: a permanent head, so it is named explicitly and asserted to stay inside the
 #: current head's ancestry.
-CAMPAIGN_CODING_CLAIM_MERGE = "e2a7f3c1b9d4"
+CAMPAIGN_CODING_CLAIM_MERGE = "a3115f64dda8"
 
 #: The two lineages that ``CAMPAIGN_CODING_CLAIM_MERGE`` joins. The campaign
 #: provenance revision was rooted at the pre-merge main head instead of at the
