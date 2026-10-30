@@ -600,6 +600,98 @@ def test_client_supplied_artifact_payload_is_rejected(client, seeded) -> None:
     assert _widget_rows(adapter) == 0
 
 
+# ---------------------------------------------------------------------------
+# The display name is a required, requester-supplied field
+# ---------------------------------------------------------------------------
+
+
+def test_the_display_name_is_required(client, seeded) -> None:
+    """An absent display name is rejected by the request schema.
+
+    The accepted contract makes the display name one of the five things an
+    explicit promotion requires, and it is supplied by the requester. A
+    promotion without one never reaches the store.
+    """
+    adapter, make_thread, make_message, make_attempt = seeded
+    thread_id = make_thread(ACCOUNT_A)
+    message_id = make_message(thread_id, ACCOUNT_A, _marker(ELIGIBLE_ARTIFACT))
+    make_attempt(thread_id, message_id)
+
+    body = _promotion_body(thread_id, message_id)
+    del body["name"]
+
+    response = client.post("/saved-widgets", json=body)
+
+    assert response.status_code == 422, response.text
+    # A missing required field is reported by the schema, not by the route.
+    errors = response.json()["detail"]
+    assert isinstance(errors, list), errors
+    assert any("name" in str(error.get("loc", "")) for error in errors), errors
+    assert _widget_rows(adapter) == 0
+    assert _revision_rows(adapter) == 0
+
+
+def test_a_blank_display_name_is_rejected(client, seeded) -> None:
+    """Whitespace-only satisfies the schema's length rule but is not a name."""
+    adapter, make_thread, make_message, make_attempt = seeded
+    thread_id = make_thread(ACCOUNT_A)
+    message_id = make_message(thread_id, ACCOUNT_A, _marker(ELIGIBLE_ARTIFACT))
+    make_attempt(thread_id, message_id)
+
+    body = _promotion_body(thread_id, message_id, name="   ")
+
+    response = client.post("/saved-widgets", json=body)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["error"] == "invalid_request"
+    assert _widget_rows(adapter) == 0
+    assert _revision_rows(adapter) == 0
+
+
+def test_an_over_long_display_name_is_rejected(client, seeded) -> None:
+    """The display name is bounded by the same bound the store enforces."""
+    adapter, make_thread, make_message, make_attempt = seeded
+    thread_id = make_thread(ACCOUNT_A)
+    message_id = make_message(thread_id, ACCOUNT_A, _marker(ELIGIBLE_ARTIFACT))
+    make_attempt(thread_id, message_id)
+
+    body = _promotion_body(thread_id, message_id, name="x" * 256)
+
+    response = client.post("/saved-widgets", json=body)
+
+    assert response.status_code == 422, response.text
+    assert _widget_rows(adapter) == 0
+    assert _revision_rows(adapter) == 0
+
+
+def test_the_persisted_widget_retains_the_requester_supplied_display_name(
+    client, seeded
+) -> None:
+    """The name the requester supplied is the name that is stored.
+
+    Surrounding whitespace is normalized away; the name itself is kept
+    verbatim, so the widget is identifiable by what its owner called it.
+    """
+    adapter, make_thread, make_message, make_attempt = seeded
+    thread_id = make_thread(ACCOUNT_A)
+    message_id = make_message(thread_id, ACCOUNT_A, _marker(ELIGIBLE_ARTIFACT))
+    make_attempt(thread_id, message_id)
+
+    requested = "Q3 Revenue Dashboard"
+    response = client.post(
+        "/saved-widgets",
+        json=_promotion_body(thread_id, message_id, name=f"  {requested}  "),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["name"] == requested
+
+    widget_id = response.json()["widget_id"]
+    readback = client.get(f"/saved-widgets/{widget_id}")
+    assert readback.status_code == 200, readback.text
+    assert readback.json()["name"] == requested
+
+
 def test_promotion_requires_an_account_session(seeded, monkeypatch) -> None:
     adapter, make_thread, make_message, make_attempt = seeded
     monkeypatch.setattr(dependencies, "chatlog_db", adapter)
