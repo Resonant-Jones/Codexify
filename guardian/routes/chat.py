@@ -90,6 +90,21 @@ from guardian.core.dependencies import (
     get_single_user_id,
     require_service_capability,
 )
+from guardian.core import dependencies as _core_dependencies
+from guardian.core.account_history_recall import (
+    MAX_DATE_BOUND_CHARACTERS,
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+    AccountHistoryRecallAccessDenied,
+    AccountHistoryRecallUnavailable,
+    InvalidAccountHistoryRecallRequest,
+    parse_recall_bound,
+    search_account_history,
+)
+from guardian.core.auth import (
+    reject_mixed_principal_credentials,
+    resolve_account_session_subject,
+)
 from guardian.core.db import get_chat_completion_attempt_by_task_id
 from guardian.core.thread_access import require_thread_read_access
 from guardian.core.event_graph import get_event_writer
@@ -5790,3 +5805,172 @@ async def receive_provider_request_capture(
         byte_size=byte_size,
     )
     return JSONResponse({"stored": stored}, headers={"Cache-Control": "no-store"})
+
+
+# ============================================================================
+# Account-scoped historical recall (read-only)
+# ============================================================================
+#
+# One bounded capability: retrieve the authenticated account's own historical
+# conversation evidence, inside one canonical Project, for an explicit recall
+# request. See ``docs/architecture/account-history-recall-contract.md``.
+#
+# The account identity is derived from authenticated authority only. It is
+# never read from a query parameter, a request header, a model-visible tool
+# argument, or historical message content.
+
+
+def _history_recall_principal(request: Request) -> RequestUserScope:
+    """Bind the recall account to authenticated authority only.
+
+    A caller-supplied ``X-User-Id`` header never establishes the principal.
+    A static operator key binds to the configured local account; it is never
+    authority to inspect another account. Missing or ambiguous ownership
+    fails closed instead of falling back to a default account.
+    """
+    authorization = request.headers.get("Authorization")
+    cookie = request.cookies.get("gc_session")
+    key = request.headers.get("X-API-Key")
+    remote = (
+        _core_dependencies.is_private_preview()
+        or _core_dependencies._auth_mode() == "remote"
+    )
+    reject_mixed_principal_credentials(
+        request,
+        enabled=True,
+        authorization=authorization,
+        gc_session=cookie,
+        operator_key_values=(key,) if remote else (),
+    )
+    if "codexify_hosted_room_session" in request.cookies:
+        raise HTTPException(
+            status_code=401, detail="Account authentication required"
+        )
+    subjects = []
+    if cookie:
+        subjects.append(resolve_account_session_subject(cookie))
+    if authorization:
+        if not authorization.lower().startswith("bearer "):
+            raise HTTPException(
+                status_code=401, detail="Account authentication required"
+            )
+        # A configured static key is only the existing local-user credential.
+        # Every other session selector needs exact account purpose.
+        if remote or not _core_dependencies._valid_local_api_key_candidate(
+            None, authorization
+        ):
+            subjects.append(
+                resolve_account_session_subject(authorization[7:].strip())
+            )
+    if len(set(subjects)) > 1:
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    if (
+        not remote
+        and subjects
+        and _core_dependencies._valid_local_api_key_candidate(key, authorization)
+    ):
+        # A local static key and an account session name different credential
+        # contexts. Do not let header precedence silently select the local user.
+        raise HTTPException(
+            status_code=400, detail="Conflicting authentication contexts"
+        )
+    _core_dependencies.require_account_session(
+        credential=_core_dependencies.verify_account_session(
+            request, key, authorization, cookie
+        )
+    )
+    scope = _core_dependencies.get_request_user_scope(
+        request=request,
+        x_user_id=None,
+        authorization=authorization,
+        gc_session=cookie,
+    )
+    scope = _core_dependencies.get_account_user_scope(
+        _account_gate=None, request_user_scope=scope
+    )
+    if not scope.user_id or (
+        scope.account_id and scope.account_id != scope.user_id
+    ):
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    if subjects and (scope.subject_id or scope.user_id) != subjects[0]:
+        # A fallback to the configured local user cannot impersonate a signed
+        # account subject.
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    # Static-key local authentication binds to get_single_user_id(), never to
+    # X-User-Id, DEBUG, LOCAL_DEV or a client-supplied account field.
+    if scope.account_id is None:
+        scope = _core_dependencies.RequestUserScope(
+            user_id=scope.user_id,
+            account_id=scope.user_id,
+            subject_id=scope.subject_id,
+            multi_user_enabled=scope.multi_user_enabled,
+        )
+    return scope
+
+
+@api_chat_router.get(
+    "/projects/{project_id}/history/search",
+    operation_id="history.search",
+)
+def api_chat_search_account_history(
+    project_id: int,
+    q: str = Query(..., min_length=1, max_length=MAX_QUERY_CHARACTERS),
+    start: Optional[str] = Query(
+        default=None, max_length=MAX_DATE_BOUND_CHARACTERS
+    ),
+    end: Optional[str] = Query(
+        default=None, max_length=MAX_DATE_BOUND_CHARACTERS
+    ),
+    limit: int = Query(
+        default=MAX_RETURNED_MATCHES, ge=1, le=MAX_RETURNED_MATCHES
+    ),
+    principal: RequestUserScope = Depends(_history_recall_principal),
+):
+    """Search the authenticated account's native conversation history.
+
+    Read-only. The Project is the only scope the caller may name; the
+    account, the thread scope, and every record-read check are resolved
+    server-side. The operation never writes, promotes, approves, activates,
+    or summarizes anything.
+    """
+    try:
+        start_at = parse_recall_bound(start, is_end=False)
+        end_at = parse_recall_bound(end, is_end=True)
+    except InvalidAccountHistoryRecallRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    database = getattr(_core_dependencies, "chatlog_db", None)
+    get_session = getattr(database, "get_session", None)
+    if not callable(get_session):
+        raise HTTPException(
+            status_code=503, detail="Canonical history read unavailable"
+        )
+
+    try:
+        with get_session() as session:
+            recall = search_account_history(
+                session,
+                principal=principal,
+                project_id=project_id,
+                query=q,
+                start_at=start_at,
+                end_at=end_at,
+                result_limit=limit,
+            )
+    except InvalidAccountHistoryRecallRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except AccountHistoryRecallAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+    except AccountHistoryRecallUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error(
+            "[chat.history] account history recall failed", exc_info=True
+        )
+        raise HTTPException(
+            status_code=503, detail="Canonical history read unavailable"
+        ) from None
+
+    return {"ok": True, **recall.to_payload()}

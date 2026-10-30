@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from guardian.command_bus import invoke as command_invoke
 from guardian.command_bus.store import CommandBusStore
 from guardian.core import chat_completion_service
+from guardian.core.account_history_recall import HistoryRecallCapabilityContext
 from guardian.routes import command_bus as command_bus_routes
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import (
@@ -30,6 +31,7 @@ from guardian.providers.whooshd_tool_adapter import (
 )
 from guardian.tasks.types import ChatCompletionTask
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
+from guardian.tools.chat_exposure import HISTORY_SEARCH_COMMAND_ID
 
 
 def _build_task(
@@ -1202,3 +1204,240 @@ def test_tool_execution_failure_surfaces_bounded_stop_reason(
     assert exc.value.metadata["toolTurnState"] == "failed"
     assert exc.value.metadata["toolTurnId"] is not None
     assert exc.value.metadata["commandRunId"] is None
+
+
+# ---------------------------------------------------------------------------
+# Account-scoped history recall tool turn
+# ---------------------------------------------------------------------------
+
+
+_HISTORY_RECALL_TOOL = {
+    "command_id": HISTORY_SEARCH_COMMAND_ID,
+    "description": "Search the authenticated user's own conversation history.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string", "minLength": 1, "maxLength": 256},
+            "start": {"type": "string", "maxLength": 64},
+            "end": {"type": "string", "maxLength": 64},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+        },
+        "required": ["q"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _run_history_recall_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    model_arguments: Any,
+    current_context: Any = "advertised",
+    transport_eligible: bool = True,
+    api_key: str | None = "sentinel-local-api-key",
+):
+    _seed_service(monkeypatch)
+    task = _build_task(task_id="task-history-recall")
+    task.tools = [dict(_HISTORY_RECALL_TOOL)]
+    advertised_context = HistoryRecallCapabilityContext(project_id=42)
+    resolved_context = (
+        advertised_context if current_context == "advertised" else current_context
+    )
+    provider_calls: list[dict[str, Any]] = []
+    invocations: list[dict[str, Any]] = []
+
+    def _prepare(prepared_task: ChatCompletionTask, **_kwargs: Any):
+        evidence = chat_completion_service._build_tool_exposure_evidence(
+            automatic=True,
+            tools=prepared_task.tools,
+        )
+        evidence["_history_recall_context"] = advertised_context
+        return evidence
+
+    monkeypatch.setattr(
+        chat_completion_service, "_prepare_chat_tool_exposure", _prepare
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_history_recall_local_transport_eligible",
+        lambda _task: transport_eligible,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_account_history_recall_capability",
+        lambda *_args, **_kwargs: resolved_context,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_repository_search_local_api_key",
+        lambda: api_key,
+    )
+
+    def _invoke(**kwargs: Any) -> dict[str, Any]:
+        invocations.append(kwargs)
+        return {
+            "run_id": "run-history-recall",
+            "status": "completed",
+            "inline_result": {
+                "status_code": 200,
+                "body": {
+                    "ok": True,
+                    "results": [
+                        {
+                            "message_id": 9,
+                            "thread_id": 42,
+                            "role": "user",
+                            "excerpt": "bounded historical excerpt",
+                        }
+                    ],
+                    "evidence_blocks": [
+                        "UNTRUSTED HISTORY EVIDENCE\n...bounded...\n"
+                        "END UNTRUSTED HISTORY EVIDENCE"
+                    ],
+                    "treatment": "inert_evidence",
+                },
+            },
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _invoke)
+
+    def _chat(messages: list[dict[str, Any]], **kwargs: Any):
+        provider_calls.append({"messages": messages, "tools": kwargs.get("tools")})
+        if len(provider_calls) == 1:
+            return (
+                '{"type":"tool_decision","command_id":"'
+                + HISTORY_SEARCH_COMMAND_ID
+                + '","arguments":'
+                + json.dumps(model_arguments)
+                + "}"
+            )
+        return "final answer"
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat)
+
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+    return task, invocations, provider_calls, result
+
+
+def test_history_recall_tool_turn_binds_the_trusted_account_and_project_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = "sentinel-local-api-key"
+    raw_arguments = {"q": "memory architecture", "limit": 5}
+    task, invocations, provider_calls, result = _run_history_recall_turn(
+        monkeypatch,
+        model_arguments=raw_arguments,
+        api_key=sentinel,
+    )
+
+    assert len(invocations) == 1
+    invocation = invocations[0]
+    payload = invocation["payload"]
+    assert payload.command_id == HISTORY_SEARCH_COMMAND_ID
+    # The Project comes from the authenticated runtime context, never the model.
+    assert payload.arguments.model_dump() == {
+        "path_params": {"project_id": 42},
+        "query": {"q": "memory architecture", "limit": 5},
+        "headers": {},
+        "body": None,
+    }
+    # The account comes from the accepted chat request, never the model.
+    assert payload.actor.kind == "system"
+    assert payload.actor.delegated_by == task.user_id
+    assert invocation["auth_subject"] == task.user_id
+    assert invocation["inbound_headers"] == {"X-API-Key": sentinel}
+    # The model cannot widen the request.
+    assert raw_arguments == {"q": "memory architecture", "limit": 5}
+    assert len(provider_calls) == 2
+    rendered_provider_data = repr(provider_calls)
+    for forbidden in ("project_id", "account_id", sentinel):
+        assert forbidden not in rendered_provider_data
+    assert result["assistant_text"] == "final answer"
+    assert result["payload_summary"]["toolTurnState"] == "completed"
+    assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
+
+
+def test_history_recall_tool_turn_reinjects_the_bounded_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _task, _invocations, provider_calls, _result = _run_history_recall_turn(
+        monkeypatch,
+        model_arguments={"q": "memory architecture"},
+    )
+
+    injected = [
+        message
+        for message in provider_calls[1]["messages"]
+        if message.get("role") == "system"
+        and str(message.get("content") or "").startswith("Tool result injection:\n")
+    ]
+    assert len(injected) == 1
+    assert "UNTRUSTED HISTORY EVIDENCE" in str(injected[0]["content"])
+
+
+@pytest.mark.parametrize(
+    "current_context",
+    [None, HistoryRecallCapabilityContext(project_id=99)],
+)
+def test_missing_or_moved_history_recall_authority_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    current_context: Any,
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            current_context=current_context,
+        )
+
+
+def test_history_recall_blocks_when_the_local_transport_is_not_eligible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            transport_eligible=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "model_arguments",
+    [
+        {"q": "memory architecture", "account_id": "someone-else"},
+        {"q": "memory architecture", "user_id": "someone-else"},
+        {"q": "memory architecture", "project_id": 99},
+        {"q": "memory architecture", "path_params": {"project_id": 99}},
+        {"q": "memory architecture", "headers": {"X-API-Key": "nope"}},
+        {"q": "memory architecture", "unknown": True},
+        {"q": "   "},
+        {"q": "memory architecture", "limit": 0},
+        {"q": "memory architecture", "limit": 21},
+        {"q": "memory architecture", "start": "not-a-date"},
+        {"q": "memory architecture", "start": "2025-05-01T10:00:00"},
+    ],
+)
+def test_invalid_history_recall_model_arguments_block_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    model_arguments: Any,
+) -> None:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ) as exc_info:
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments=model_arguments,
+        )
+
+    assert exc_info.value.metadata["loopStopReason"] == "tool_command_blocked"

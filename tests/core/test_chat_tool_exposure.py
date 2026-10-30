@@ -12,6 +12,11 @@ from fastapi import FastAPI
 
 from guardian.command_bus.manifest import build_manifest
 from guardian.core import chat_completion_service
+from guardian.core.account_history_recall import (
+    MAX_DATE_BOUND_CHARACTERS,
+    MAX_QUERY_CHARACTERS as HISTORY_MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
+)
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.repository_chat_capability import (
     RepositoryChatCapabilityContext,
@@ -34,12 +39,14 @@ from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
-from guardian.routes import health, projects
+from guardian.routes import chat, health, projects
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.tools.chat_exposure import (
     HEALTH_COMMAND_ID,
+    HISTORY_SEARCH_COMMAND_ID,
     REPOSITORY_SEARCH_COMMAND_ID,
+    history_search_is_advertised,
     resolve_ordinary_chat_tools,
 )
 
@@ -491,6 +498,145 @@ def test_repository_search_stays_provider_qualified() -> None:
                 provider_vendor=vendor,
                 manifest_commands=commands,
                 repository_search_eligible=True,
+            )
+            is None
+        )
+
+
+def _history_manifest_app() -> FastAPI:
+    app = _command_bus_app()
+    app.include_router(chat.api_chat_router)
+    return app
+
+
+def _history_manifest_commands() -> list[Any]:
+    return build_manifest(_history_manifest_app()).commands
+
+
+def test_history_search_manifest_projection_is_exact_and_authority_free() -> None:
+    commands = _history_manifest_commands()
+    history_command = next(
+        command
+        for command in commands
+        if command.command_id == HISTORY_SEARCH_COMMAND_ID
+    )
+
+    assert history_command.method == "GET"
+    assert (
+        history_command.path_template
+        == "/api/chat/projects/{project_id}/history/search"
+    )
+    assert history_command.operation_id == "history.search"
+    assert history_command.effect == "read"
+    assert history_command.risk == "read_only"
+    assert history_command.idempotency == "safe"
+    assert history_command.approval_mode == "none"
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_search_eligible=True,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [
+        HEALTH_COMMAND_ID,
+        HISTORY_SEARCH_COMMAND_ID,
+    ]
+    projection = tools[1]
+    assert projection["input_schema"] == {
+        "type": "object",
+        "properties": {
+            "q": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": HISTORY_MAX_QUERY_CHARACTERS,
+            },
+            "start": {
+                "type": "string",
+                "maxLength": MAX_DATE_BOUND_CHARACTERS,
+            },
+            "end": {
+                "type": "string",
+                "maxLength": MAX_DATE_BOUND_CHARACTERS,
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": HISTORY_MAX_RETURNED_MATCHES,
+            },
+        },
+        "required": ["q"],
+        "additionalProperties": False,
+    }
+    # The model-visible surface carries no account, Project, or transport
+    # authority field. The description may state who resolves the account.
+    schema_text = json.dumps(projection["input_schema"], sort_keys=True)
+    for forbidden in (
+        "project_id",
+        "projectId",
+        "path_params",
+        "account_id",
+        "user_id",
+        "account",
+        "headers",
+        "body",
+        "sql",
+        "query_text",
+    ):
+        assert forbidden not in schema_text
+    assert "Guardian selects the Project and resolves the account" in (
+        projection["description"]
+    )
+
+
+def test_history_search_is_not_advertised_without_eligibility() -> None:
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_search_eligible=False,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
+
+
+def test_unsafe_history_manifest_is_suppressed_without_disabling_health() -> None:
+    commands = _history_manifest_commands()
+    history_command = next(
+        command
+        for command in commands
+        if command.command_id == HISTORY_SEARCH_COMMAND_ID
+    )
+    unsafe_history_command = history_command.model_copy(
+        update={"risk": "mutating", "effect": "write"}
+    )
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=[_health_command(), unsafe_history_command],
+        history_search_eligible=True,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+
+
+def test_history_search_stays_provider_qualified() -> None:
+    commands = _history_manifest_commands()
+    for provider, vendor in (("openai", None), ("groq", None), ("local", "other")):
+        assert (
+            resolve_ordinary_chat_tools(
+                provider=provider,
+                model="model",
+                provider_vendor=vendor,
+                manifest_commands=commands,
+                history_search_eligible=True,
             )
             is None
         )
