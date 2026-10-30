@@ -732,9 +732,9 @@ which is **Accepted as of 2026-10-25** by Resonant Jones.
 Acceptance is a decision about **architecture only**. It does not implement or runtime-qualify anything described
 here: Saved Widget listing, cross-thread invocation, revision editing, deletion, and export/restore remain
 unimplemented and unproven, the Library Widgets filter remains unavailable, and the release gate remains HOLD.
-Saved Widget storage and revision persistence have since been implemented and proven as a separate authorized task,
-and Guardian-authorized promotion with account-scoped readback is proposed on PR #962; neither is merged, and
-neither changes any requirement in this contract.
+Saved Widget storage and revision persistence have since been implemented, proven as a separate authorized task,
+and merged into `main`. Guardian-authorized promotion with account-scoped readback is proposed on PR #962 and is
+not yet merged. Neither changes any requirement in this contract.
 
 No accepted ADR is superseded by this contract. ADR-003, ADR-069, ADR-077, ADR-081, ADR-082, and ADR-091 remain in
 force, and this contract is written to preserve them.
