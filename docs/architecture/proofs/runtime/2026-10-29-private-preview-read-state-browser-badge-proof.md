@@ -239,6 +239,19 @@ No ADR change. ADR-097 (existing DM consent), ADR-102 (Saved Widget identity/rev
 ADR-103 (participant-local read state) and ADR-104 are unchanged. This proof exercises the
 contracts those ADRs define; it does not alter them.
 
+## A note on the knowledge-graph node corpus
+
+`docs/architecture/00-current-state.md` is the canonical source for the
+`codexify:doc:architecture:current-state` knowledge-graph node, and that node records the source
+bytes in a `content_hash`. Changing the document invalidates the recorded hash.
+
+PR **#941** merged the matching refresh for the document as it stood at `a5d871a0c`, leaving
+`main`'s node corpus consistent. The change that closes the browser-badge gap changes that
+document again, so it carries the refresh forward for the bytes it introduces — a one-line change
+to the node file, the same pattern the repository already uses in `15cfb58d5`. Without it, the
+recorded hash would go stale and the `Architecture Contracts` workflow would go red on `main`
+again. The knowledge-graph validator reports no errors against the branch that carries it.
+
 ## Reproduction
 
 ```sh
