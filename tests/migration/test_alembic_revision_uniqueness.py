@@ -12,9 +12,19 @@ from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "guardian" / "db" / "migrations" / "versions"
-CANONICAL_HEAD = "3a91d7c4e8b2"
-CAMPAIGN_AUTHORITY_MERGE = "2e865c4a9b10"
 MESSAGE_REQUEST_REVISION = "9e52b1d3c8fa"
+
+#: The merge revision that unified the chat-deadline and campaign-authority
+#: lineages. It is a historical revision inside the graph rather than the
+#: current head, so it is named explicitly instead of being read off the
+#: head.
+CHAT_DEADLINE_CAMPAIGN_MERGE = "2e865c4a9b10"
+
+#: The merge revision that joined the unified main lineage with the read-cursor
+#: lineage. Like ``CHAT_DEADLINE_CAMPAIGN_MERGE`` it is a mergepoint rather than
+#: the permanent head, so it is named explicitly and asserted to stay inside the
+#: current head's ancestry.
+READ_STATE_CAMPAIGN_MERGE = "3a91d7c4e8b2"
 
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
@@ -124,7 +134,7 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
     assert Path(message_requests.path).name == "9e52b1d3c8fa_add_message_request_consent.py"
 
     heads = script.get_heads()
-    assert heads == [CANONICAL_HEAD]
+    assert len(heads) == 1
     assert script.get_revision("d0e1f2a3b4c6").down_revision == (
         "8c4d2e7f1a9b",
         "c8d9e0f1a2b3",
@@ -133,28 +143,43 @@ def test_alembic_revision_ids_are_unique_and_hosted_room_lineage_is_preserved():
 
 def test_chat_deadline_campaign_merge_preserves_both_installed_lineages():
     script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
-    merge = script.get_revision(CAMPAIGN_AUTHORITY_MERGE)
+    merge = script.get_revision(CHAT_DEADLINE_CAMPAIGN_MERGE)
     assert merge.down_revision == ("f1a6d83b9024", "17b23052da6a")
     for installed_head in merge.down_revision:
-        pending = list(script.iterate_revisions(CANONICAL_HEAD, installed_head, implicit_base=True))
-        assert pending[0].revision == CANONICAL_HEAD
+        pending = list(script.iterate_revisions(CHAT_DEADLINE_CAMPAIGN_MERGE, installed_head, implicit_base=True))
+        assert pending[0].revision == CHAT_DEADLINE_CAMPAIGN_MERGE
         assert installed_head not in {revision.revision for revision in pending}
         other_head = next(head for head in merge.down_revision if head != installed_head)
         assert other_head in {revision.revision for revision in pending}
 
 
-def test_canonical_head_joins_the_current_installed_lineages():
-    """The head must merge both branches, not replace or split them."""
+def test_read_state_merge_joins_its_lineages_inside_the_current_head():
+    """The read-state merge must join both branches, not replace or split them.
+
+    Which revision is the head legitimately advances whenever a migration or a
+    mergepoint is added above it, so the invariant under test is that this
+    mergepoint still joins its two original parents and remains reachable from
+    the single current head -- not that it is still the head itself.
+    """
     script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
-    head = script.get_revision(CANONICAL_HEAD)
-    assert head.down_revision == ("7f2c9e1a4b63", "b3c8d1e5f7a2")
-    for branch in head.down_revision:
-        pending = list(script.iterate_revisions(CANONICAL_HEAD, branch, implicit_base=True))
-        assert pending[0].revision == CANONICAL_HEAD
+    merge = script.get_revision(READ_STATE_CAMPAIGN_MERGE)
+    assert merge.down_revision == ("7f2c9e1a4b63", "b3c8d1e5f7a2")
+    for branch in merge.down_revision:
+        pending = list(
+            script.iterate_revisions(
+                READ_STATE_CAMPAIGN_MERGE, branch, implicit_base=True
+            )
+        )
+        assert pending[0].revision == READ_STATE_CAMPAIGN_MERGE
         assert branch not in {revision.revision for revision in pending}
-    # The campaign-authority merge stays an ancestor of the head, so every
-    # installed lineage it preserved remains preserved.
-    assert CAMPAIGN_AUTHORITY_MERGE in {
+
+    heads = script.get_heads()
+    assert len(heads) == 1, f"expected exactly one head, got {heads}"
+    head_lineage = {
         revision.revision
-        for revision in script.iterate_revisions(CANONICAL_HEAD, None, implicit_base=True)
+        for revision in script.iterate_revisions(heads[0], None, implicit_base=True)
     }
+    # Both historical mergepoints stay ancestors of the head, so every
+    # installed lineage they preserved remains preserved.
+    assert READ_STATE_CAMPAIGN_MERGE in head_lineage
+    assert CHAT_DEADLINE_CAMPAIGN_MERGE in head_lineage
