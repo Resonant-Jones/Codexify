@@ -260,8 +260,16 @@ def within(path: Path, base: Path) -> bool:
 
 def no_symlinks(path: Path) -> None:
     require(path.is_absolute(), "absolute destination/checkpoint path is required")
+    try:
+        symlinked = any(p.is_symlink() for p in (path, *path.parents))
+    except OSError as exc:
+        # A destination we cannot inspect is one we cannot prove safe, so
+        # refuse it instead of continuing with an unchecked path.
+        raise CheckpointError(
+            f"checkpoint destination cannot be inspected: {path}"
+        ) from exc
     require(
-        not any(p.is_symlink() for p in (path, *path.parents)),
+        not symlinked,
         "symlinked checkpoint paths are forbidden",
     )
 
@@ -269,7 +277,14 @@ def no_symlinks(path: Path) -> None:
 def safe_destination(value: str | Path, snapshot: dict | None = None) -> Path:
     path = Path(value)
     no_symlinks(path)
-    path = path.resolve()
+    try:
+        path = path.resolve()
+    except OSError as exc:
+        # A destination that cannot be inspected is one we cannot prove safe,
+        # so refuse it instead of continuing with an unresolved path.
+        raise CheckpointError(
+            f"checkpoint destination cannot be inspected: {path}"
+        ) from exc
     forbidden = [
         Path("/private/tmp"),
         Path("/tmp").resolve(),

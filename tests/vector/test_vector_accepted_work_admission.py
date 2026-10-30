@@ -6,6 +6,7 @@ import pytest
 
 from guardian.core import chat_completion_service as completion
 from guardian.core import chat_postgres_deadline as bounds
+from guardian.core.config import VectorStoreRuntimeConfig
 from guardian.tasks.chat_deadline import (
     AcceptedChatTaskDeadlineExceeded,
     build_accepted_chat_task_deadline,
@@ -17,6 +18,20 @@ def envelope(remaining):
     return build_accepted_chat_task_deadline(
         datetime.now(timezone.utc) - timedelta(seconds=720 - remaining)
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_vector_store(monkeypatch):
+    """Keep this module independent of the shared vector-store global.
+
+    ``guardian.core.dependencies._vector_store`` is populated by application
+    startup, so earlier test modules leave it populated. The VectorStore
+    constructor reads that global while initialising its embedder, which made
+    these assertions depend on test execution order.
+    """
+    from guardian.core import dependencies as core_dependencies
+
+    monkeypatch.setattr(core_dependencies, "_vector_store", None, raising=False)
 
 
 @pytest.mark.parametrize('backend', ['chroma', 'faiss'])
@@ -129,7 +144,9 @@ def test_expiry_between_legacy_native_calls_never_starts_replacement(fallback):
 def test_constructor_checks_again_after_runtime_resolution(monkeypatch):
     import time
 
-    runtime = SimpleNamespace(backend='chroma', chroma_path='/existing', collection='existing')
+    runtime = VectorStoreRuntimeConfig(
+        backend='chroma', chroma_path='/existing', collection='existing'
+    )
 
     def resolve():
         time.sleep(0.04)

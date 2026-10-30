@@ -858,7 +858,7 @@ _LIFECYCLE_INVALID_DETAIL = "Action must be one of: retire, restore"
 
 
 class VaultReviewTransitionRequest(_VaultMutationRequest):
-    """ADR-088 direct review action.
+    """ADR-106 direct review action.
 
     Only the admitted action is accepted. A raw ``review_state`` is never
     taken from the caller, so ``pending`` cannot be requested.
@@ -874,7 +874,7 @@ class VaultReviewTransitionRequest(_VaultMutationRequest):
 
 
 class VaultLifecycleTransitionRequest(_VaultMutationRequest):
-    """ADR-089 direct lifecycle action.
+    """ADR-107 direct lifecycle action.
 
     Only the admitted action is accepted. A raw lifecycle target is never
     taken from the caller, so ``active`` / ``dormant`` / ``retired`` cannot
@@ -889,7 +889,7 @@ class VaultLifecycleTransitionRequest(_VaultMutationRequest):
 class VaultLifecycleTransitionResponse(BaseModel):
     """Serialized direct lifecycle transition result (UMS-05C10B-W).
 
-    All three identity fields are ``None`` for an ADR-089 same-state no-op.
+    All three identity fields are ``None`` for an ADR-107 same-state no-op.
     No internal history-validation diagnostic is exposed.
     """
 
@@ -974,7 +974,7 @@ class VaultReviewTransitionResponse(BaseModel):
     """Serialized direct review-transition result (UMS-05C10A-W).
 
     ``receipt_id`` / ``review_revision_id`` / ``review_revision_number`` are
-    all ``None`` for an ADR-088 same-state no-op. No separate copy of memory
+    all ``None`` for an ADR-106 same-state no-op. No separate copy of memory
     content is exposed for review-history purposes.
     """
 

@@ -14,7 +14,7 @@ are *proven*. Both were absent: no relation, no service, no route, no proof.
 Contract §12 also twice deferred its own implementation to UMS-11, so the
 capability had no owner. This module is that owner.
 
-Retirement is not purge. ``retired`` (ADR-089, UMS-05C10B-W) is canonically
+Retirement is not purge. ``retired`` (ADR-107, UMS-05C10B-W) is canonically
 retained and reversibly restorable. Purge is neither: it destroys content and
 leaves only a minimum non-content tombstone. The two are never conflated here.
 

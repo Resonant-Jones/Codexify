@@ -223,6 +223,9 @@ def test_cli_returns_machine_readable_json_for_successful_issuance_flow(
     )
 
     runner = CliRunner()
+    # A time-boxed grant has to end after it starts, and the grant starts now,
+    # so the window is relative to now rather than a fixed past date.
+    ends_at = datetime.now(timezone.utc) + timedelta(days=30)
     result = runner.invoke(
         capability_grants_cli,
         [
@@ -235,7 +238,7 @@ def test_cli_returns_machine_readable_json_for_successful_issuance_flow(
             "--grant-scope",
             CapabilityGrantScope.ACCOUNT.value,
             "--ends-at",
-            "2026-05-13T12:00:00+00:00",
+            ends_at.isoformat(),
             "--reason",
             "manual unlock",
             "--campaign",

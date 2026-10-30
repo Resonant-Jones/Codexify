@@ -4,7 +4,7 @@ This file is the canonical short-form source of truth for Codexify's current ope
 
 ## Last updated
 
-2026-10-28
+2026-10-29
 
 ## Interpretation rule
 
@@ -18,80 +18,70 @@ This file is authoritative for:
 
 ## Current phase
 
-`main` remains in local-first Beta hardening with a separately gated Private Preview lane. Recent merges harden account authority, consent, terminal-state evidence, transport selection, and Saved Widget persistence, but none establishes fresh supported-path qualification. The release gate remains `HOLD`.
+`main` is in local-first Beta hardening with a separately gated Private Preview lane. It carries integrated read-state, migration-lineage, and operator-provenance work. The Private Preview lane has now been **redeployed on its pinned serving worktree** — the live Preview database migrated to Alembic head `3a91d7c4e8b2`, and recipient-local read state passed a 20-of-20 live two-account test evaluated at serving revision `5569f3f34`. The serving revision has since advanced to `c8e72ef86`, which changed no application source. The supported runtime has **not** been requalified beyond that one deployed surface, and the release gate remains `HOLD`.
 
 ## What changed recently
 
-- Merged account-bound agent run readback and fail-closed cancellation behavior; unsupported cancellation remains unavailable rather than mutating state.
-- Added account consent and scoped settings enforcement for automatic personal-fact collection; this is privacy/authority hardening, not a broader memory release claim.
-- Reconciled durable chat terminal/readback assertions, Whoosh'd transport-selection checks, and shared evidence release-truth contracts; these are bounded code/test evidence.
-- Merged the canonical Saved Widget storage foundation: account-owned identity, immutable revision snapshots, forward-only current revision, and retained provenance. This is storage only, not lifecycle support.
-- Unified the mainline Alembic graph with a no-DDL merge revision `7f2c9e1a4b63` joining the Saved Widget head `a6b9d2e4f701` and the automatic-collection consent head `c59e4d1a28f0`, leaving one head. The previous two-head state was not cosmetic: it made every "upgrade to head" test on the Saved Widget and consent surfaces fail with `MultipleHeads`, and the merge repair takes that surface from 13 failed and 45 errors to 153 passed. A full backend suite run on the single-head candidate repairs 595 previously failing node ids against the same-tree baseline, with no regression; 275 pre-existing failures remain inherited. Disposable PostgreSQL 16.2 (a locally patched build) evidence only; see [the promotion proof](./proofs/runtime/2026-10-28-saved-widget-alembic-main-promotion-proof.md) and [the combination proof](./proofs/runtime/2026-10-28-read-state-main-head-merge-proof.md).
-- Joined the read-cursor branch to that unified head with a second no-DDL merge revision `3a91d7c4e8b2`, so the mainline carries Saved Widget storage, account consent, and participant-local read state in one Alembic lineage with a single head `3a91d7c4e8b2`. Both `7f2c9e1a4b63` and the read-cursor revision `b3c8d1e5f7a2` remain intact as its parents; see [the read-state integration proof](./proofs/runtime/2026-10-28-read-state-main-head-merge-proof.md).
-- Retained the generated-UI navigation containment repair and Chrome 156 evidence from the prior audit; cross-browser and supported-release equivalence remain unproven.
-- Fixed personal-fact candidate listing to use shared SQL filters, deterministic pagination/counting, and batched evidence reads; this remains bounded behavior, not a supported-path qualification.
-- Fixed People search handling of the `@` sigil and completed related inbox/share-surface coverage; this remains bounded messaging behavior.
-- Qualified same-node private-preview messaging end to end against the running preview at serving commit `57184dfbe`, using synthetic approved test accounts; the proof is same-node only and does not qualify default Beta, cross-node messaging, or share links (see `./proofs/private-preview-direct-messaging-e2e-proof.md`).
-- Implemented recipient-local direct-message read state and integrated it onto this mainline: a shared caller-local unread projection, an explicit caller-asserted read watermark, and a monotonic per-participant read cursor whose concurrent updates are serialized against the participant authority row; the projection is shared across the Inbox, the launcher badge, and the floating window rather than duplicated per surface. Focused backend evidence includes the read-cursor concurrency and migration proofs against a disposable PostgreSQL 16.2 (a locally patched build, not the stock container image), with focused frontend suites. This is test-evidenced on the mainline only — it is not deployed and not live-qualified on the running preview, which still serves `57184dfbe`.
-- No fresh integrated-tip supported-Compose qualification, provider inference, or complete export/restore qualification landed.
-- Local `main` reconciles upstream through `533542773`; the stored `origin/main` has since advanced to `494a60260` and is not yet contained in local `main`. No push was performed, so origin-only work is excluded from shipped claims.
+- Integrated recipient-local direct-message read state across the Inbox, launcher, and floating conversation surfaces, with monotonic watermarks and serialized concurrent cursor updates.
+- Reconciled Saved Widget, automatic-collection consent, and read-cursor migrations into one Alembic head: `3a91d7c4e8b2`; focused migration evidence and the full-suite comparison show inherited failures remain.
+- Added accepted ADR-105 operator-actor and human-approval provenance boundaries; this is governance evidence, not autonomous execution or release expansion.
+- Qualified the committed migration chain on the supported `postgres:15` / PostgreSQL 15.19 path using an empty database and a restored, read-only copy of the Preview database; existing rows were preserved.
+- Rehearsed the real image/migrator mechanism and recorded two traps: the backend entrypoint's `alembic` call is a swallowed no-op, and the migrator reads migrations from the baked image rather than the source mount.
+- Reconciled local `main` with the stored remote-tracking tip; the Private Preview deployment and live read-state qualification then followed, and the serving revision has since advanced from `5569f3f34` to `c8e72ef86` without changing application source.
 
 ## Current supported reality
 
 - The named supported install path is local Docker Compose profile `v1-local-core-web-mcp` with `LLM_PROVIDER=local`, `CODEXIFY_LOCAL_ONLY_MODE=true`, and `ALLOW_CLOUD_PROVIDERS=false`.
 - The Beta Supported envelope covers local inference, ordinary chat, durable threads/messages/tasks, supported document ingestion and retrieval, account ownership, migrations, and operator diagnostics; qualification is a separate gate.
-- Mainline has bounded evidence at evaluated tips for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, and deadline behavior.
-- Mainline now has account-scoped run-readback and consent-gated personal-fact code/test coverage, plus Saved Widget eligibility/provenance and storage evidence; none is a default Beta expansion.
+- Mainline has bounded evidence for topology, health, browser chat, durable readback, retrieval provenance, queue/worker lifecycle, locks, cancellation, deadlines, and authorization; bounded evidence is not complete runtime qualification.
+- The migration chain is qualified on the supported PostgreSQL version in disposable clean and restored-copy runs, and has since been applied to the **live** Private Preview database, which advanced `f0d7c4b2a198` → `3a91d7c4e8b2` with every pre-existing row preserved.
+- Recipient-local read state is **deployed and live-qualified** on the Private Preview: a two-account live test passed 20 of 20 checks at serving revision `5569f3f34`, covering the unread projection, explicit read advancement, account isolation, watermark accuracy, idempotency, reload persistence, concurrent reads, and the absence of any sender-visible read receipt. The consent HTTP surface is quarantined by the Preview profile, so consent enforcement is proven at the storage layer rather than the endpoint.
+- The current serving revision is `c8e72ef86`. The advance from `5569f3f34` changed only `.dockerignore`, `.gitignore`, and documentation, so no application source differs from the evaluated revision. The backend's `/app/guardian` bind mount is the serving worktree's own `guardian/` tree, and the container's `guardian/db/models.py` hashes identically to the worktree copy. Post-advance observation is limited to health (`200`), the live schema head (`3a91d7c4e8b2`), the Guardian mount source, and running-model identity; **the 20 checks were not re-run against `c8e72ef86`**.
+- The Private Preview deployment sequence itself has been executed against the live Preview — runtime image rebuilt, migrator run, application containers recreated — so that prerequisite is discharged. It covers the Preview lane only and is not a supported-Compose qualification.
+- Private Preview same-node messaging has live end-to-end evidence for approved synthetic accounts; this does not qualify share links, cross-node transport, or default Beta support.
 - `local` is the provider/policy class; `whooshd` is runtime identity; `local-chat` is the logical route; physical model display metadata is observation only.
-- UMS ORM imports and migration-to-ORM parity are recorded; this does not establish complete UMS or supported-Compose qualification.
-- Private Preview is opt-in: Whoosh'd remains the default local lane, DeepSeek is the only admitted cloud lane, and its profile admits bounded same-node messaging plus share routes. Same-node messaging now carries live end-to-end evidence on the running preview (see `./proofs/private-preview-direct-messaging-e2e-proof.md`); that proof qualifies same-node messaging only, and share-link bearer expiry/revocation, cross-node discovery and transport, unread indicators and persisted read state, and default Beta support remain unqualified. Recipient-local read state is implemented, test-evidenced, and integrated onto this mainline; because it is not deployed, the running preview does not serve it and no live read-state evidence exists.
-- The legacy continuity operator surface is fail-closed for remote, Preview, and multi-user execution because operator credentials do not establish account authority.
+- Connectors, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, and autonomous coding-worker work are not default Beta support without current-main qualification.
 
 ## Not yet true / do not assume
 
-- Do not call the supported path release-ready; the latest complete supported-Compose qualification is `HOLD`.
-- Do not infer current-tip restart/shutdown recovery, browser/event/provenance coherence, ordinary chat after restart, or a complete natural import-to-recall path.
+- Do not call the supported path release-ready or treat migration qualification as deployment.
+- Do not infer a fresh integrated-tip Compose run, restart recovery, browser/event/provenance coherence, ordinary chat after restart, or a complete natural import-to-recall path.
 - Do not infer exact unavailable-model rejection; the recorded complete Compose proof accepted work with model substitution and no assistant fallback flag.
-- Do not treat the delegation canary as successful worker-path execution: it stopped at a `reasoning_effort` mismatch before provider execution, and worker egress was observed despite `allow_network=false`.
-- Do not treat merged regression suites, bounded evidence contracts, or focused database tests as live runtime qualification.
-- Do not treat the merged recovery/retention decision brief as accepted architecture, implemented export/restore, object-store write-back, or lifecycle-cleanup proof.
-- Do not treat Saved Widget validation, storage, or ADR-102 acceptance as lifecycle implementation: promotion, listing, invocation, editing, deletion, export/restore, Library Widgets filtering, Web Audio, and canvas qualification remain open.
-- Do not treat Chrome 156 containment evidence as cross-browser, Tauri, Playwright, or supported-Compose proof; the committed Playwright suite remains blocked by browser launch failure on the reported host.
-- Do not promote connectors, direct messaging/share, activation, browser host/import, Watchdog, hosted sandbox, Atlas, Pi, federation, or autonomous coding-worker work to default Beta support without current-main qualification.
-- Share links in the private-preview route are bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
-- Branch-only implementation, origin-only accounting, uncommitted checkout work, and local-only commits are not shipped `main` reality.
-- Do not read the recipient-local read state as shipped or live-qualified behavior: it is implemented, test-evidenced, and integrated onto this mainline, but the running preview serves commit `57184dfbe` without it, and no live read-state or unread-indicator evidence exists.
-- The current-state knowledge-graph node parses but its freshness is stale; validity is not current release proof.
+- Do not treat the delegated worker canary as successful provider execution; the `reasoning_effort` contract still fails before provider execution, and worker egress was observed despite `allow_network=false`.
+- Do not treat merged suites, focused database tests, or deployment rehearsal as live runtime qualification.
+- Do not treat the serving-revision advance as a re-run of the live read-state qualification: source equivalence is an observation about code, not a fresh execution of the 20 checks, and a healthy Private Preview is not a supported-Compose qualification.
+- Do not treat Saved Widget storage and ADR-102 acceptance as lifecycle support; promotion, listing, invocation, editing, deletion, export/restore, Library Widgets filtering, Web Audio, and canvas qualification remain open.
+- Share links remain bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
+- Branch-only, origin-only, uncommitted, and local-only work is not shipped `main` reality. Capabilities without current-main qualification are not default Beta support.
+- The current-state knowledge-graph node parses but has stale freshness metadata; it is not current release proof.
 
 ## Active blockers
 
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
-- Cross-browser qualification of the integrated generative-UI containment repair is missing; Chrome 156 is the only reported browser-specific result and Playwright cannot launch on the reported host.
-- The UMS/Chronicle lane retains one inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still requires execution against the corrected baseline.
-- The explicit-model worker/test contradiction and delegated worker-to-adapter `reasoning_effort` mismatch remain unresolved before provider execution claims.
-- New-thread authored-message projection, natural import-to-recall, and complete scope-isolation proof remain open.
-- Export/restore and conversation-lifecycle coverage remains incomplete: v3 is the public export default, v4 compatibility flags conflict with recorded restore evidence, binary write-back is unsupported, and cleanup dependencies lack complete proof.
-- Private-preview same-node messaging is live end-to-end qualified on the running preview (two approved synthetic test accounts on one node: search, request, acceptance, reply, read-back, second message, reload persistence, decline, and prevented further contact). Still open: share-link bearer expiry and revocation, cross-node discovery/transport, and live qualification of the unread indicator and persisted read state. Recipient-local read state is implemented, test-evidenced, and integrated onto this mainline — unread projection, explicit read watermark, and a monotonic per-participant read cursor with serialized concurrent updates — but it is not deployed and not live-qualified; the running preview still serves commit `57184dfbe` without it.
-- Saved Widget remains blocked on authorized promotion, authoritative listing, lifecycle operations, and complete browser qualification; current evidence proves bounded validation, the canonical storage foundation, and a Chrome 156 containment repair.
-- Release metadata freshness and local-main publication state must be reconciled before treating them as shared release evidence.
+- Frontend frozen-lockfile installation on the supported path remains unrehearsed.
+- Cross-browser qualification of the generative-UI containment repair is missing; Chrome 156 is the only reported browser result and Playwright cannot launch on the reported host.
+- The UMS/Chronicle lane retains an inherited stale migration-head assertion, and blocked Chronicle HTTP coverage still needs execution against the corrected baseline.
+- The explicit-model rejection and delegated worker-to-adapter contract remain unresolved before provider execution claims.
+- New-thread projection, natural import-to-recall, scope isolation, export/restore/retention, and complete conversation-lifecycle proof remain open.
+- Private Preview still lacks share-link expiry/revocation, cross-node messaging proof, browser-verified unread badges, and consent-enforcement coverage at a profile that mounts `iddb`; Saved Widget lifecycle and complete browser qualification also remain open.
 
 ## This week’s priorities
 
 1. Freeze the evaluated local `main` SHA and run the complete supported-Compose proof bundle.
-2. Repair the stale migration-head expectation and execute the blocked Chronicle HTTP regression cases.
-3. Close the explicit-model rejection and delegated adapter contract contradictions before provider execution.
-4. Reprove new-thread projection, browser/event coherence, restart recovery, and ordinary chat on one evaluated tip.
-5. Resolve export/restore/retention and import-to-recall proof gaps; private-preview same-node messaging is closed by live proof, while share-link expiry/revocation, cross-node messaging, live read-state qualification, and saved-widget qualification gaps remain open.
+2. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
+3. Resolve the explicit-model/delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
+4. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
+5. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export/restore, browser-verified unread badges, and Saved Widget operations.
 
 ## Release definition right now
 
 - [x] Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.
-- [x] Bounded chat, cancellation, durable readback, retrieval, and authorization evidence exists at evaluated mainline tips.
+- [x] Bounded chat, cancellation, durable readback, retrieval, authorization, and migration-chain evidence exists at evaluated mainline tips.
 - [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery.
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
-- [ ] Queue/worker, deadline, graceful-stop, lock, migration, browser, import-recall, and scope-isolation gates are green on one evaluated tip.
-- [ ] Delegated execution has a passing worker-to-adapter reasoning-effort contract and live proof.
-- [ ] Claimed Preview or public-ingress paths have current live evidence, and changed release metadata points to the evaluated mainline.
+- [ ] Queue/worker, deadline, graceful-stop, lock, migration deployment, browser, import-recall, and scope-isolation gates are green on one evaluated tip.
+- [ ] Delegated execution has a passing worker-to-adapter `reasoning_effort` contract and live proof.
+- [ ] Claimed Preview or public-ingress paths have current live evidence, and release metadata points to the evaluated mainline.
 
 ## How to read the rest of the KB
 
