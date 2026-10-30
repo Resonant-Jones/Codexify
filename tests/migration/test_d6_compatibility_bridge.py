@@ -23,7 +23,6 @@ SIBLING_HEAD = "6e2b9c4a7d1f"
 MERGE_REVISION = "8f3c1a7d2e6b"
 NORMALIZATION_REVISION = "9d4c2a7e1b6f"
 ORIGIN_SYSTEM_REVISION = "1c0a2b3c4d5e"
-CANONICAL_HEAD = "3a91d7c4e8b2"
 
 D6_FILENAME = "d6f7a8b9c0d1_add_threadspace_node_membership.py"
 MERGE_FILENAME = "8f3c1a7d2e6b_merge_d6f7a8b9c0d1_compatibility.py"
@@ -194,7 +193,13 @@ def test_merge_revision_is_metadata_only() -> None:
 
 
 def test_final_graph_has_exactly_one_head() -> None:
-    assert _script().get_heads() == [CANONICAL_HEAD]
+    """The canonical graph carries exactly one head.
+
+    Which revision is the head legitimately advances whenever a migration
+    or a mergepoint is added, so the invariant under test is the single
+    head itself rather than a pinned head identifier.
+    """
+    assert len(_script().get_heads()) == 1
 
 
 def test_forward_ancestry_from_d6_and_sibling_to_merge_head() -> None:
@@ -229,10 +234,12 @@ def test_canonical_head_preserves_origin_system_and_d6_compatibility_ancestry() 
     assert origin_system.down_revision == NORMALIZATION_REVISION
     assert isinstance(origin_system.down_revision, str)
 
-    canonical_head = script.get_revision(CANONICAL_HEAD)
+    heads = script.get_heads()
+    assert len(heads) == 1
+    canonical_head = script.get_revision(heads[0])
     assert canonical_head is not None
 
-    ancestors = _ancestor_revisions(script, CANONICAL_HEAD)
+    ancestors = _ancestor_revisions(script, heads[0])
     assert ORIGIN_SYSTEM_REVISION in ancestors
     assert NORMALIZATION_REVISION in ancestors
     assert MERGE_REVISION in ancestors
