@@ -1,5 +1,28 @@
 # Audits Directory
 
+## Daily audits (morning / evening) — RETIRED
+
+`docs/audits/daily/morning/` and `docs/audits/daily/evening/` are **historical
+artifacts, not live reports**.
+
+The daily audit pipeline (`scripts/daily_audit.py`, automation `daily-audit`)
+was paused on 2026-08-12. Its last output is dated **2026-08-09**. Nothing in
+those two directories describes the current state of the repository, and no
+scheduled job writes to them.
+
+It was retired because the generator resolved its output directory from the
+checkout it ran in (`REPO_ROOT = Path(__file__).resolve().parents[1]`), so each
+run wrote into whichever checkout or worktree happened to host the script. The
+resulting reports were not comparable across runs and could not be aggregated.
+The files that exist in other worktrees under the same paths are copies
+inherited when those worktrees were created, not independent runs — they carry
+identical timestamps.
+
+The live release-truth artifact is `docs/architecture/00-current-state.md`,
+published by the weekly mainline release audit. See
+[`docs/Ops/AUDIT_PIPELINE_RUNBOOK.md`](../Ops/AUDIT_PIPELINE_RUNBOOK.md) for
+the current pipeline, its isolation guarantees, and its publication path.
+
 ## Guardian Work Brief
 
 The daily audit artifacts are evidence inputs for the original Axis instance in
