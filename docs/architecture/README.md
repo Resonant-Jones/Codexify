@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: start with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-10-29
+Last updated: 2026-10-31
 Source anchors:
 - docs/architecture/
 - guardian/guardian_api.py
@@ -455,4 +455,4 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 - A Saved Widget has one canonical ID, one server-resolved account owner, placements that are never ownership authorities, and provenance proven by server-owned completion-attempt linkage and captured as an immutable snapshot that survives source-thread deletion.
 - Revisions are immutable, monotonic, and linear, with a forward-only pointer, explicit edit-base conflict detection, create-on-restore rather than rewind, and invocations pinned to the revision they resolved. Invocation is a canonical reference, never a replayed artifact or a fabricated assistant response.
 - Sandbox containment, the host bridge action set, the artifact envelope, the wire format, and normal provider-source stripping are unchanged. The conversational edit path is one bounded, explicitly authorized, inference-only exception that fails closed where its isolation cannot be enforced.
-- ADR-102 is **Accepted** (2026-10-25) as architecture only. No persistence, listing, invocation, revision, editing, deletion, or export path exists, Web Audio and canvas remain unqualified pending browser proof, the Library Widgets filter remains unavailable, and [`00-current-state.md`](./00-current-state.md) remains release truth.
+- ADR-102 is **Accepted** (2026-10-25). The promotion slice is implemented on `main`: `POST /saved-widgets`, widget fetch, and revision list and fetch, backed by canonical revision persistence in the database, registered behind `CODEXIFY_ENABLE_SAVED_WIDGET_ROUTES`, and listed in the `enabled` route posture of the supported profile. The rest of the lifecycle — Library Widgets collection listing and filtering, invocation, conversational revision and editing, deletion, and export and restore — does not exist, Web Audio and canvas remain unqualified pending browser proof, and this slice is promotion and revision storage rather than a qualified widget lifecycle. [`00-current-state.md`](./00-current-state.md) remains release truth.
