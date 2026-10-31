@@ -26,6 +26,18 @@ CHAT_DEADLINE_CAMPAIGN_MERGE = "2e865c4a9b10"
 #: current head's ancestry.
 READ_STATE_CAMPAIGN_MERGE = "3a91d7c4e8b2"
 
+#: The merge revision that joined the Campaign Continuation Authority provenance
+#: branch with the Guardian coding-claim branch. It is a mergepoint rather than
+#: a permanent head, so it is named explicitly and asserted to stay inside the
+#: current head's ancestry.
+CAMPAIGN_CODING_CLAIM_MERGE = "a3115f64dda8"
+
+#: The two lineages that ``CAMPAIGN_CODING_CLAIM_MERGE`` joins. The campaign
+#: provenance revision was rooted at the pre-merge main head instead of at the
+#: merge above it, which left the graph with two heads.
+CAMPAIGN_PROVENANCE_REVISION = "b7e2c4a1d903"
+CODING_CLAIM_MERGE_REVISION = "c8e42a91d307"
+
 
 def _literal_assignment(tree: ast.Module, name: str) -> object:
     for node in tree.body:
@@ -183,3 +195,74 @@ def test_read_state_merge_joins_its_lineages_inside_the_current_head():
     # installed lineage they preserved remains preserved.
     assert READ_STATE_CAMPAIGN_MERGE in head_lineage
     assert CHAT_DEADLINE_CAMPAIGN_MERGE in head_lineage
+
+
+def test_campaign_coding_claim_merge_joins_its_lineages_inside_the_current_head():
+    """The campaign/coding-claim merge must join both branches, not replace them.
+
+    The campaign provenance revision was rooted at the pre-merge main head
+    rather than at the merge above it, so the graph carried two heads and
+    ``alembic upgrade head`` failed with "Multiple head revisions are
+    present".  The repair is a graph-only mergepoint.
+
+    Which revision is the head legitimately advances whenever a migration or a
+    mergepoint is added above it, so the invariant under test is that this
+    mergepoint still joins its two original parents, that the graph has
+    exactly one head, and that this mergepoint stays reachable from that head
+    -- not that it is still the head itself.
+    """
+    script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "backend" / "alembic.ini")))
+
+    # 1. The mergepoint exists and is a revision of this repository.
+    merge = script.get_revision(CAMPAIGN_CODING_CLAIM_MERGE)
+    assert merge is not None
+
+    # 2. It joins exactly the two expected parents.
+    assert merge.down_revision == (
+        CAMPAIGN_PROVENANCE_REVISION,
+        CODING_CLAIM_MERGE_REVISION,
+    )
+
+    # 3. The graph has exactly one current head.
+    heads = script.get_heads()
+    assert len(heads) == 1, f"expected exactly one head, got {heads}"
+
+    # 4. The mergepoint is reachable from that head, and both of its former
+    #    heads remain in the head's ancestry.
+    head_lineage = {
+        revision.revision
+        for revision in script.iterate_revisions(heads[0], None, implicit_base=True)
+    }
+    assert CAMPAIGN_CODING_CLAIM_MERGE in head_lineage
+    for former_head in merge.down_revision:
+        assert former_head in head_lineage
+
+    # Neither parent lineage was rewritten: walking down from the mergepoint
+    # reaches the other parent, and stops at the named one without containing
+    # it.
+    for installed_head in merge.down_revision:
+        pending = list(
+            script.iterate_revisions(
+                CAMPAIGN_CODING_CLAIM_MERGE, installed_head, implicit_base=True
+            )
+        )
+        assert pending[0].revision == CAMPAIGN_CODING_CLAIM_MERGE
+        assert installed_head not in {revision.revision for revision in pending}
+        other_head = next(head for head in merge.down_revision if head != installed_head)
+        assert other_head in {revision.revision for revision in pending}
+
+    # 5. Earlier historical mergepoints stay reachable, so the lineages they
+    #    preserved remain preserved.
+    assert READ_STATE_CAMPAIGN_MERGE in head_lineage
+    assert CHAT_DEADLINE_CAMPAIGN_MERGE in head_lineage
+
+    # 6. Revision IDs remain unique, including this mergepoint's.
+    metadata = _migration_metadata()
+    matching = [
+        filename
+        for filename, values in metadata.items()
+        if values["revision"] == CAMPAIGN_CODING_CLAIM_MERGE
+    ]
+    assert len(matching) == 1, (
+        f"{CAMPAIGN_CODING_CLAIM_MERGE} must be hosted by exactly one file, got {matching}"
+    )
