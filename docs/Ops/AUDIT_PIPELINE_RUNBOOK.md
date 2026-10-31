@@ -116,7 +116,7 @@ scheduled invokes it.
 
 ## Worktree Sprawl — Known Hazard
 
-The repository has **234 worktrees** across `/Volumes/Dev_SSD/Codexify-main/.worktrees`,
+The repository has **240 worktrees** across `/Volumes/Dev_SSD/Codexify-main/.worktrees`,
 `~/.codex/worktrees`, and `/Volumes/Dev_SSD/offload/codex/worktrees`. This is
 not cosmetic: it filled the volume to 100% (2.0 GiB free as of 2026-10-30),
 and during the audit-pipeline investigation a `cd` into the primary checkout
