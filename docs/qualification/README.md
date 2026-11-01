@@ -391,14 +391,23 @@ is indistinguishable from one that was never qualified.
 
 Freshness is computed from repository history, not asserted by hand.
 
-A run is `current` when the tip is the commit it tested, or when no path in
-its rubric's `surface_paths` changed between the tested commit and the tip.
-It is `stale` when the surface moved under it. A surface with no run
-receipt is never `current`.
+A run is `current` when the tested commit is an ancestor of the tip and no
+path in its rubric's `surface_paths` changed between them. It is `stale`
+otherwise. A surface with no run receipt is never `current`.
 
 The comparison runs against `git diff --name-only <tested> <tip>`, so it
 answers a concrete question: *did meaningful changes to this surface land
 after the evidence was gathered?*
+
+Ancestry is tested with `git merge-base --is-ancestor`, which answers
+identically in every checkout. That distinction matters: a revision that
+was never merged to `main` may exist as a dangling object in one
+developer's clone and be absent from another. Comparing against it
+directly would make the verdict depend on which objects happened to be
+present locally, and the drift check would disagree between a developer and
+CI. A run whose tested commit is outside the tip's lineage is reported as
+not current, because it cannot be shown to describe the code the tip
+contains.
 
 ### What the validator enforces
 
