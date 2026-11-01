@@ -15,6 +15,7 @@ from guardian.core.account_history_recall import (
     MAX_DATE_BOUND_CHARACTERS,
     MAX_QUERY_CHARACTERS as HISTORY_MAX_QUERY_CHARACTERS,
     MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
+    HistoryRecallGrant,
 )
 from guardian.core.repository_search import (
     MAX_QUERY_CHARACTERS,
@@ -307,13 +308,18 @@ def resolve_ordinary_chat_tools(
     manifest_commands: Iterable[CommandSpec | dict[str, Any]],
     whooshd_capability: WhooshdToolCapabilityProjection | None = None,
     repository_search_eligible: bool = False,
-    history_search_eligible: bool = False,
+    history_recall_grant: HistoryRecallGrant | None = None,
 ) -> list[dict[str, Any]] | None:
     """Return the fixed ordinary-chat subset or no automatic tools.
 
     The manifest supplies the canonical command identity and safety facts.  A
     matching Whoosh'd Stage 2G projection is eligibility evidence only; the
     returned list is still the exact subset Stage 1 checks later.
+
+    Historical recall is advertised only when a request-scoped authorization
+    grant is supplied. Eligibility is not authority: owning the account, the
+    Project, and the thread does not by itself authorize a history read, so a
+    missing grant suppresses the command rather than exposing it.
     """
 
     commands = list(manifest_commands)
@@ -348,7 +354,7 @@ def resolve_ordinary_chat_tools(
             repository_command
         ):
             tools.append(_repository_search_model_tool())
-    if history_search_eligible:
+    if isinstance(history_recall_grant, HistoryRecallGrant):
         history_command = _find_command(
             commands,
             expected_command_id=HISTORY_SEARCH_COMMAND_ID,

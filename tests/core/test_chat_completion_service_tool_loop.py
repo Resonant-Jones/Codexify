@@ -12,7 +12,14 @@ from fastapi import FastAPI
 from guardian.command_bus import invoke as command_invoke
 from guardian.command_bus.store import CommandBusStore
 from guardian.core import chat_completion_service
-from guardian.core.account_history_recall import HistoryRecallCapabilityContext
+from guardian.core.account_history_recall import (
+    GRANT_EXCLUSIONS,
+    MODEL_EXPOSED_ORIGIN_SYSTEM,
+    RECALL_PURPOSE,
+    HistoryRecallAuthorization,
+    HistoryRecallCapabilityContext,
+    HistoryRecallGrant,
+)
 from guardian.routes import command_bus as command_bus_routes
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import (
@@ -1228,6 +1235,69 @@ _HISTORY_RECALL_TOOL = {
 }
 
 
+def _authorization_with_grant(grant: Any) -> Any:
+    """Return a recall authorization that carries one grant."""
+
+    if grant is None:
+        return HistoryRecallAuthorization(
+            decision="deny",
+            interpretation="incidental_or_unrelated_mention",
+            reason="no_explicit_recall_request",
+            account_id="local",
+            request_id="request-history-recall",
+            turn_id="11111111-1111-4111-8111-111111111111",
+        )
+    return HistoryRecallAuthorization(
+        decision="grant",
+        interpretation="explicit_historical_request",
+        reason="explicit_user_authored_recall_request",
+        account_id=grant.account_id,
+        request_id=grant.request_id,
+        turn_id=grant.turn_id,
+        source_message_id=grant.source_message_id,
+        project_id=grant.project_id,
+        source_family=grant.source_family,
+        purpose=grant.purpose,
+        permitted_query_terms=grant.permitted_query_terms,
+        window_start=grant.window_start,
+        window_end=grant.window_end,
+        exclusions=grant.exclusions,
+        grant=grant,
+    )
+
+
+def _history_grant(
+    *,
+    account_id: str = "local",
+    request_id: str = "request-history-recall",
+    turn_id: str = "11111111-1111-4111-8111-111111111111",
+    project_id: int = 42,
+    source_message_id: int = 2,
+    permitted_query_terms: tuple[str, ...] = ("memory", "architecture"),
+    window_start: str | None = None,
+    window_end: str | None = None,
+    issued_at: str = "2026-11-01T12:00:00+00:00",
+    expires_at: str | None = None,
+) -> HistoryRecallGrant:
+    """Return one request-scoped recall grant for the tool-turn tests."""
+
+    return HistoryRecallGrant(
+        account_id=account_id,
+        request_id=request_id,
+        turn_id=turn_id,
+        source_message_id=source_message_id,
+        project_id=project_id,
+        source_family=MODEL_EXPOSED_ORIGIN_SYSTEM,
+        purpose=RECALL_PURPOSE,
+        permitted_query_terms=permitted_query_terms,
+        window_start=window_start,
+        window_end=window_end,
+        exclusions=GRANT_EXCLUSIONS,
+        issued_at=issued_at,
+        expires_at=expires_at,
+    )
+
+
 def _run_history_recall_turn(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -1235,13 +1305,24 @@ def _run_history_recall_turn(
     current_context: Any = "advertised",
     transport_eligible: bool = True,
     api_key: str | None = "sentinel-local-api-key",
+    advertised_grant: Any = "derived",
+    current_grant: Any = "derived",
+    advertise_grant: bool = True,
 ):
     _seed_service(monkeypatch)
     task = _build_task(task_id="task-history-recall")
+    # Pin the accepted request identity so a grant can be bound to it.
+    task.request_id = "request-history-recall"
     task.tools = [dict(_HISTORY_RECALL_TOOL)]
+    request_id = chat_completion_service._completion_request_id(task)
     advertised_context = HistoryRecallCapabilityContext(project_id=42)
     resolved_context = (
         advertised_context if current_context == "advertised" else current_context
+    )
+    resolved_grant = (
+        _history_grant(request_id=request_id)
+        if current_grant == "derived"
+        else current_grant
     )
     provider_calls: list[dict[str, Any]] = []
     invocations: list[dict[str, Any]] = []
@@ -1252,6 +1333,12 @@ def _run_history_recall_turn(
             tools=prepared_task.tools,
         )
         evidence["_history_recall_context"] = advertised_context
+        if advertise_grant:
+            evidence["_history_recall_grant"] = (
+                _history_grant(request_id=request_id)
+                if advertised_grant == "derived"
+                else advertised_grant
+            )
         return evidence
 
     monkeypatch.setattr(
@@ -1266,6 +1353,11 @@ def _run_history_recall_turn(
         chat_completion_service,
         "resolve_account_history_recall_capability",
         lambda *_args, **_kwargs: resolved_context,
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_history_recall_authorization_for_task",
+        lambda *_args, **_kwargs: _authorization_with_grant(resolved_grant),
     )
     monkeypatch.setattr(
         chat_completion_service,
@@ -1441,3 +1533,254 @@ def test_invalid_history_recall_model_arguments_block_before_dispatch(
         )
 
     assert exc_info.value.metadata["loopStopReason"] == "tool_command_blocked"
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped authorization gate for the history tool turn
+# ---------------------------------------------------------------------------
+
+
+def test_a_history_tool_turn_without_an_advertised_grant_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model tool call cannot create a grant by asking for one."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertise_grant=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "advertised_grant",
+    [
+        "not-a-grant",
+        0,
+        {},
+        [],
+    ],
+)
+def test_a_malformed_advertised_grant_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    advertised_grant: Any,
+) -> None:
+    """Only a real grant object can authorize the execution gate."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertised_grant=advertised_grant,
+        )
+
+
+def test_a_forged_grant_for_another_account_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A grant minted for another account cannot authorize this request."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertised_grant=_history_grant(account_id="someone-else"),
+        )
+
+
+def test_a_grant_for_another_request_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A grant for another accepted request cannot authorize this turn."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertised_grant=_history_grant(request_id="another-request"),
+        )
+
+
+def test_a_grant_for_another_turn_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A grant for another turn cannot be replayed against this turn."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertised_grant=_history_grant(turn_id="another-turn"),
+        )
+
+
+def test_an_expired_grant_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A grant that expired with its accepted request cannot be used."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            advertised_grant=_history_grant(
+                expires_at="2020-01-01T00:00:00+00:00",
+            ),
+        )
+
+
+def test_a_grant_that_disagrees_with_the_derived_grant_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The advertised grant must equal the grant re-derived from the request."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            current_grant=_history_grant(
+                permitted_query_terms=("something", "else"),
+            ),
+        )
+
+
+def test_a_missing_derived_grant_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request no longer authorizes recall, so execution is refused."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture"},
+            current_grant=None,
+        )
+
+
+def test_a_model_query_outside_the_grant_topic_blocks_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model-generated search cannot exceed the grant's topic."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "credentials"},
+        )
+
+
+def test_a_model_query_outside_the_grant_topic_is_refused_even_when_related(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A related but unauthorized topic is still refused."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={"q": "memory architecture and diary"},
+        )
+
+
+def test_a_model_window_outside_the_grant_window_is_narrowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model window is bounded by the grant, not by the model."""
+
+    _task, invocations, _provider_calls, _result = _run_history_recall_turn(
+        monkeypatch,
+        model_arguments={
+            "q": "memory architecture",
+            "start": "2020-01-01",
+            "end": "2030-01-01",
+        },
+        advertised_grant=_history_grant(
+            window_start="2025-10-01T00:00:00+00:00",
+            window_end="2025-11-01T00:00:00+00:00",
+        ),
+        current_grant=_history_grant(
+            window_start="2025-10-01T00:00:00+00:00",
+            window_end="2025-11-01T00:00:00+00:00",
+        ),
+    )
+
+    assert len(invocations) == 1
+    query = invocations[0]["payload"].arguments.model_dump()["query"]
+    assert query["start"] == "2025-10-01T00:00:00+00:00"
+    assert query["end"] == "2025-11-01T00:00:00+00:00"
+
+
+def test_a_model_window_entirely_outside_the_grant_window_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A window outside the authorized bounds is refused, not widened."""
+
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError,
+        match="tool_command_blocked",
+    ):
+        _run_history_recall_turn(
+            monkeypatch,
+            model_arguments={
+                "q": "memory architecture",
+                "start": "2024-01-01",
+                "end": "2024-02-01",
+            },
+            advertised_grant=_history_grant(
+                window_start="2025-10-01T00:00:00+00:00",
+                window_end="2025-11-01T00:00:00+00:00",
+            ),
+            current_grant=_history_grant(
+                window_start="2025-10-01T00:00:00+00:00",
+                window_end="2025-11-01T00:00:00+00:00",
+            ),
+        )
+
+
+def test_the_grant_authority_never_reaches_the_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The grant is internal and is never a model-visible input."""
+
+    _task, _invocations, provider_calls, _result = _run_history_recall_turn(
+        monkeypatch,
+        model_arguments={"q": "memory architecture"},
+    )
+    rendered = repr(provider_calls)
+    for forbidden in (
+        "permitted_query_terms",
+        "recall_purpose",
+        "source_family",
+        "grant",
+    ):
+        assert forbidden not in rendered

@@ -38,8 +38,9 @@ Bus owns tool admission; the completion service owns trusted scope binding.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import func, select
@@ -813,3 +814,1491 @@ def resolve_account_history_recall_capability(
         return None
 
     return HistoryRecallCapabilityContext(project_id=project_id)
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped historical recall authorization
+# ---------------------------------------------------------------------------
+#
+# ADR-084 (as amended at 6ead26697) separates three layers:
+#
+#   1. Interpretation - advisory recognition of user intent.
+#   2. Authorization  - Guardian-owned issuance or denial of a bounded grant.
+#   3. Execution      - Command Bus retrieval inside that grant.
+#
+# This section owns layer 2, plus the smallest interpretation mechanism needed
+# to feed it. It never executes a read, never widens a grant, and never treats
+# model output as authority.
+#
+# The decision vocabulary below is module-local implementation state. It is
+# deliberately not a canonical protocol token, it is never persisted, and it is
+# never exposed to the model as an authority-bearing input.
+
+AUTHORIZATION_GRANT = "grant"
+AUTHORIZATION_DENY = "deny"
+AUTHORIZATION_CLARIFY = "clarify"
+AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION = "deny_independent_exclusion"
+
+INTERPRETATION_EXPLICIT = "explicit_historical_request"
+INTERPRETATION_INCIDENTAL = "incidental_or_unrelated_mention"
+INTERPRETATION_NEGATED = "negated"
+INTERPRETATION_QUOTED = "quoted_or_pasted"
+INTERPRETATION_HYPOTHETICAL = "hypothetical_or_illustrative"
+INTERPRETATION_AMBIGUOUS = "ambiguous"
+INTERPRETATION_NON_USER_AUTHORED = "non_user_authored"
+
+# The one purpose this slice can authorize. It is deliberately narrow: a grant
+# exists to answer the explicit recall request that produced it, and for
+# nothing else.
+RECALL_PURPOSE = "answer_current_explicit_recall_request"
+
+# Every grant carries the exclusions that apply to the bounded read.
+GRANT_EXCLUSIONS: tuple[str, ...] = (
+    EXCLUSION_IMPORTED_ARCHIVE,
+    EXCLUSION_DIARY,
+    EXCLUSION_RECORD_READ,
+)
+
+# The minimum length of a model-proposed search token. Short tokens are refused
+# rather than matched loosely against the request vocabulary.
+MIN_QUERY_TOKEN_CHARACTERS = 3
+
+
+# ---------------------------------------------------------------------------
+# Authorization vocabulary helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HistoryRecallGrant:
+    """One ephemeral, request-bound authority to read bounded history.
+
+    A grant is a value, not a capability that persists. It is minted for exactly
+    one accepted request and turn, it is carried in memory only, and it can be
+    re-derived from the trusted request context rather than reconstructed from
+    untrusted content.
+    """
+
+    account_id: str
+    request_id: str
+    turn_id: str
+    source_message_id: int
+    project_id: int
+    source_family: str
+    purpose: str
+    permitted_query_terms: tuple[str, ...]
+    window_start: str | None
+    window_end: str | None
+    exclusions: tuple[str, ...]
+    issued_at: str
+    expires_at: str | None = None
+
+    def __post_init__(self) -> None:
+        if not str(self.account_id or "").strip():
+            raise ValueError("history recall grant requires an account id")
+        if not str(self.request_id or "").strip():
+            raise ValueError("history recall grant requires a request id")
+        if not str(self.turn_id or "").strip():
+            raise ValueError("history recall grant requires a turn id")
+        if (
+            not isinstance(self.source_message_id, int)
+            or isinstance(self.source_message_id, bool)
+            or self.source_message_id <= 0
+        ):
+            raise ValueError("history recall grant requires a source message id")
+        if (
+            not isinstance(self.project_id, int)
+            or isinstance(self.project_id, bool)
+            or self.project_id <= 0
+        ):
+            raise ValueError("history recall grant requires a positive project id")
+        if str(self.source_family or "").strip() != MODEL_EXPOSED_ORIGIN_SYSTEM:
+            raise ValueError(
+                "history recall grant is limited to codexify-native conversation evidence"
+            )
+        if str(self.purpose or "").strip() != RECALL_PURPOSE:
+            raise ValueError("history recall grant requires the bounded recall purpose")
+        if not self.permitted_query_terms:
+            raise ValueError("history recall grant requires permitted query terms")
+
+
+@dataclass(frozen=True)
+class HistoryRecallAuthorization:
+    """One internal, typed, non-model-authoritative recall decision.
+
+    ``decision`` is one of :data:`AUTHORIZATION_GRANT`,
+    :data:`AUTHORIZATION_DENY`, :data:`AUTHORIZATION_CLARIFY`, or
+    :data:`AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION`. Only a ``grant`` decision
+    carries a :class:`HistoryRecallGrant`.
+    """
+
+    decision: str
+    interpretation: str
+    reason: str
+    account_id: str
+    request_id: str
+    turn_id: str
+    source_message_id: int | None = None
+    project_id: int | None = None
+    source_family: str | None = None
+    purpose: str | None = None
+    permitted_query_terms: tuple[str, ...] = ()
+    window_start: str | None = None
+    window_end: str | None = None
+    exclusions: tuple[str, ...] = ()
+    clarification_prompt: str | None = None
+    confirmation_required: bool = False
+    evidence_read: bool = False
+    grant: HistoryRecallGrant | None = None
+
+    @property
+    def is_grant(self) -> bool:
+        return self.decision == AUTHORIZATION_GRANT and self.grant is not None
+
+    @property
+    def requires_clarification(self) -> bool:
+        return self.decision == AUTHORIZATION_CLARIFY
+
+
+# ---------------------------------------------------------------------------
+# Conservative, non-model intent recognition
+# ---------------------------------------------------------------------------
+#
+# The recognizer is deterministic. It evaluates request form and grounding
+# rather than the mere presence of words such as "memory" or "recall", and it
+# never reads history. Anything it cannot establish unambiguously fails closed.
+
+_RECALL_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "again",
+        "all",
+        "also",
+        "and",
+        "any",
+        "are",
+        "around",
+        "asked",
+        "asking",
+        "back",
+        "been",
+        "before",
+        "being",
+        "but",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "doing",
+        "done",
+        "for",
+        "from",
+        "get",
+        "give",
+        "had",
+        "has",
+        "have",
+        "having",
+        "her",
+        "here",
+        "him",
+        "his",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "just",
+        "know",
+        "like",
+        "made",
+        "make",
+        "me",
+        "mentioned",
+        "my",
+        "of",
+        "on",
+        "one",
+        "only",
+        "or",
+        "other",
+        "our",
+        "out",
+        "over",
+        "please",
+        "said",
+        "same",
+        "say",
+        "saying",
+        "she",
+        "should",
+        "show",
+        "so",
+        "some",
+        "something",
+        "tell",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "thing",
+        "things",
+        "this",
+        "those",
+        "thought",
+        "to",
+        "told",
+        "up",
+        "us",
+        "use",
+        "very",
+        "want",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+        # Request-form vocabulary. A retrieval demand is not its own subject.
+        "find",
+        "locate",
+        "pull",
+        "surface",
+        "retrieve",
+        "dig",
+        "look",
+        "search",
+        "recall",
+        "summarize",
+        "conversation",
+        "conversations",
+        "history",
+        "discussion",
+        "discussions",
+        "chat",
+        "chats",
+        "thread",
+        "threads",
+        "exchange",
+        "exchanges",
+        "discuss",
+        "discussed",
+        "discussing",
+        "talk",
+        "talked",
+        "talking",
+        "decide",
+        "decided",
+        "chose",
+        "chosen",
+        "agree",
+        "agreed",
+        "remember",
+        "worked",
+        "working",
+        "first",
+        "initially",
+        "ever",
+        # Temporal vocabulary. A time reference is not a historical subject.
+        "last",
+        "recently",
+        "yesterday",
+        "today",
+        "tonight",
+        "night",
+        "week",
+        "weeks",
+        "month",
+        "months",
+        "year",
+        "years",
+        "happened",
+        "happen",
+        "occurred",
+        "whether",
+        "check",
+        "checked",
+        "finished",
+    }
+)
+
+# Words that name a historical subject only vaguely. A subject made only of
+# these cannot bound an evidence set before history is read.
+_VAGUE_REFERENTS = frozenset(
+    {
+        "any",
+        "back",
+        "before",
+        "earlier",
+        "else",
+        "everything",
+        "one",
+        "ones",
+        "other",
+        "others",
+        "stuff",
+        "that",
+        "thing",
+        "things",
+        "those",
+        "time",
+        "times",
+        "whatever",
+    }
+)
+
+# An explicit request for historical conversation evidence. Each pattern must
+# express a retrieval demand against prior conversation, not merely mention it.
+_REQUEST_FORM_PATTERNS: tuple[str, ...] = (
+    r"\bwhat\s+(?:were|have)\s+we\s+(?:discussing|talking\s+about|working\s+on|saying)\b",
+    r"\bwhat\s+we\s+(?:discussed|talked\s+about|said|worked\s+on|decided)\b",
+    r"\bwhat\s+did\s+we\s+(?:discuss|talk\s+about|say|decide|choose|agree|work\s+on)\b",
+    r"\bwhat\s+(?:did|do)\s+i\s+(?:say|tell\s+you|write|ask|decide)\b",
+    r"\bwhat\s+have\s+i\s+(?:said|told\s+you)\b",
+    r"\bwhat\s+was\s+i\s+(?:saying|talking\s+about)\b",
+    r"\bwhen\s+did\s+we\s+(?:first\s+|ever\s+|initially\s+)?"
+    r"(?:discuss|talk\s+about|say|mention|decide|agree)\b",
+    r"\bdid\s+we\s+(?:ever\s+)?(?:discuss|talk\s+about|say|mention|decide)\b",
+    r"\bhave\s+we\s+(?:ever\s+)?(?:discussed|talked\s+about|said|mentioned)\b",
+    r"\bsummarize\b[^.?!]{0,80}?\b(?:what\s+i\s+said|what\s+we\s+"
+    r"(?:said|discussed|talked\s+about)|our\s+(?:conversation|discussion))\b",
+    r"\b(?:find|locate|pull\s+up|show\s+me|surface|retrieve|dig\s+up|look\s+up)\b"
+    r"[^.?!]{0,140}?\b(?:conversation|conversations|history|discussion|"
+    r"discussions|chat|chats|thread|threads|exchange|exchanges)\b",
+    r"\b(?:search|recall)\b[^.?!]{0,140}?\b(?:conversation|conversations|history|"
+    r"discussion|discussions|chat|chats|thread|threads|exchange|exchanges)\b",
+    r"\b(?:search|recall)\b[^.?!]{0,80}?\b(?:what\s+i\s+said|what\s+we\s+said|"
+    r"everything\s+(?:that\s+)?i(?:'ve|\s+have)\s+(?:ever\s+)?said|"
+    r"all\s+(?:that\s+)?i(?:'ve|\s+have)\s+(?:ever\s+)?said)\b",
+    r"\bshow\s+me\s+(?:the|our)\b[^.?!]{0,60}?\b(?:conversation|conversations|"
+    r"history|chat|chats|discussion|discussions)\b",
+)
+
+_COMPILED_REQUEST_FORM_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in _REQUEST_FORM_PATTERNS
+)
+
+# Explicit negation of a retrieval demand.
+_NEGATION_PATTERN = re.compile(
+    r"\b(?:do\s+not|don'?t|never|no\s+need\s+to|without|refrain\s+from|stop|avoid)\s+"
+    r"(?:recall|recalling|search|searching|look\s+up|retrieve|pull\s+up|dig\s+up|"
+    r"browse|check)\b",
+    re.IGNORECASE,
+)
+
+# Hypothetical or illustrative framing. A retrieval demand inside a
+# hypothetical is not a request for evidence.
+_HYPOTHETICAL_PATTERN = re.compile(
+    r"(?:\bif\s+i\s+(?:asked|were\s+to\s+ask|had\s+asked)\b"
+    r"|\bif\s+we\s+(?:asked|were\s+to\s+ask|had\s+asked)\b"
+    r"|\bhypothetically\b"
+    r"|\bin\s+theory\b"
+    r"|\bsuppose\s+(?:i|we)\b"
+    r"|\bwhat\s+if\s+i\b"
+    r"|\bjust\s+imagine\b"
+    r"|\bfor\s+example\s*,?\s*if\b"
+    r"|\bhow\s+would\s+(?:that|you|it)\s+(?:work|behave)\b)",
+    re.IGNORECASE,
+)
+
+# Signals that the message may concern prior conversation at all.
+_HISTORICAL_REFERENCE_PATTERNS: tuple[str, ...] = (
+    r"\bwe\s+(?:were\s+)?(?:discussing|discussed|talking\s+about|talked\s+about|"
+    r"working\s+on|worked\s+on)\b",
+    r"\bwe\s+(?:first\s+|ever\s+|initially\s+)?(?:discuss|talk\s+about|say|"
+    r"mention|decide|agree)\b",
+    r"\bwhat\s+(?:were|have)\s+we\b",
+    r"\bwhat\s+did\s+we\b",
+    r"\bwhat\s+(?:did|do)\s+i\b",
+    r"\bthe\s+conversation\s+(?:where|about|in)\b",
+    r"\bour\s+(?:conversation|conversations|history|discussion|discussions|chats)\b",
+    r"\b(?:conversation|chat|past|previous|prior|earlier)\s+history\b",
+    r"\b(?:past|previous|prior|earlier|old)\s+conversations?\b",
+    r"\blast\s+time\s+we\b",
+    r"\bdo\s+you\s+remember\b",
+    r"\bwe\s+(?:decided|chose|agreed)\b",
+    r"\blast\s+(?:week|month|year|night|weekend)\b",
+    r"\blast\s+(?:january|february|march|april|may|june|july|august|september|"
+    r"october|november|december)\b",
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|"
+    r"november|december)\s+\d{4}\b",
+)
+
+_COMPILED_HISTORICAL_REFERENCE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in _HISTORICAL_REFERENCE_PATTERNS
+)
+
+# An open question. Used only to separate "the user is asking but the target is
+# unresolved" from "the user merely mentioned prior work".
+_INTERROGATIVE_PATTERN = re.compile(
+    r"(?:\?|\b(?:what|when|where|who|why|how|which|did|do|does|is|are|was|were|"
+    r"can|could|would|should|remind|remember)\b)",
+    re.IGNORECASE,
+)
+
+# Quoted, pasted, or otherwise external material is not authorization evidence.
+_QUOTE_INTRODUCER_PATTERN = re.compile(
+    r"^.*\b(?:quote|quoted|transcript|pasted|excerpt)\b[^:\n]*:",
+    re.IGNORECASE,
+)
+_INLINE_QUOTE_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])'[^'\n]{3,}'(?![A-Za-z0-9])"
+    r"|\"[^\"\n]{3,}\""
+    r"|\u201c[^\u201d\n]{3,}\u201d",
+)
+_FENCED_BLOCK_PATTERN = re.compile(r"```.*?```", re.DOTALL)
+
+# Imported source families. ADR-016 keeps imported archive inspection on a
+# human-only path, so an explicit request aimed at imported history is denied
+# independently and terminally.
+_IMPORTED_SOURCE_PATTERN = re.compile(
+    r"(?:\bimported\b|\bchatgpt\b|\bopenai\b|\banthropic\b|\bclaude\b"
+    r"|\bexported\s+(?:history|chat|conversation|archive)\b"
+    r"|\bimport\s+(?:history|chat|conversation|archive)\b)",
+    re.IGNORECASE,
+)
+
+# Account-wide scope widening. It is answered with clarification offering the
+# permitted current-Project scope, never with a widened grant.
+_ACCOUNT_WIDE_PATTERNS: tuple[str, ...] = (
+    r"\beverything\s+(?:that\s+)?(?:i|we)(?:'ve|\s+have)\s+(?:ever\s+)?said\b",
+    r"\ball\s+(?:of\s+)?(?:my|our)\s+(?:history|conversations?|chats?|messages?)\b",
+    r"\bevery\s+(?:conversation|chat|message|thread)\b",
+    r"\ball\s+(?:my|our)\s+projects?\b",
+    r"\bacross\s+(?:all\s+)?(?:my|our)\s+(?:projects?|history|conversations?)\b",
+    r"\bmy\s+entire\s+(?:history|account)\b",
+    r"\bthe\s+whole\s+account\b",
+)
+
+_COMPILED_ACCOUNT_WIDE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in _ACCOUNT_WIDE_PATTERNS
+)
+
+# Generic cross-Project references. These name no specific target, so the
+# scope is unresolved rather than denied.
+_GENERIC_PROJECT_REFERENCES = frozenset(
+    {
+        "a",
+        "all",
+        "an",
+        "another",
+        "any",
+        "different",
+        "each",
+        "every",
+        "my",
+        "no",
+        "one",
+        "other",
+        "others",
+        "our",
+        "some",
+        "that",
+        "the",
+        "their",
+        "these",
+        "this",
+        "those",
+        "various",
+    }
+)
+
+_PROJECT_WORD_PATTERN = re.compile(r"\bprojects?\b", re.IGNORECASE)
+
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+
+
+def _normalize_recall_text(text: str) -> str:
+    """Collapse whitespace and lowercase a request body for matching."""
+
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _segment_quoted_regions(text: str) -> tuple[str, str]:
+    """Split a message into the user's own words and quoted/pasted material.
+
+    ADR-084 treats quoted instructions and pasted conversation text as
+    non-evidence. Segregating them here lets the recognizer tell "the user
+    asked" apart from "the user pasted something that asked".
+    """
+
+    own_parts: list[str] = []
+    quoted_parts: list[str] = []
+
+    remainder = str(text or "")
+    remainder = _FENCED_BLOCK_PATTERN.sub(
+        lambda match: quoted_parts.append(match.group(0)) or " ", remainder
+    )
+
+    kept_lines: list[str] = []
+    in_quote_block = False
+    for line in remainder.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(">"):
+            quoted_parts.append(line)
+            continue
+        if in_quote_block:
+            if stripped:
+                quoted_parts.append(line)
+                continue
+            in_quote_block = False
+        if _QUOTE_INTRODUCER_PATTERN.match(stripped):
+            quoted_parts.append(line)
+            in_quote_block = True
+            continue
+        kept_lines.append(line)
+    remainder = "\n".join(kept_lines)
+
+    remainder = _INLINE_QUOTE_PATTERN.sub(
+        lambda match: quoted_parts.append(match.group(0)) or " ", remainder
+    )
+
+    own_parts.append(remainder)
+    return ("\n".join(own_parts).strip(), "\n".join(quoted_parts).strip())
+
+
+def _request_form_present(text: str) -> bool:
+    """Return whether the text contains an explicit retrieval demand."""
+
+    return any(pattern.search(text) for pattern in _COMPILED_REQUEST_FORM_PATTERNS)
+
+
+def _historical_reference_present(text: str) -> bool:
+    """Return whether the text may concern prior conversation at all."""
+
+    return any(
+        pattern.search(text) for pattern in _COMPILED_HISTORICAL_REFERENCE_PATTERNS
+    )
+
+
+def _recall_content_tokens(text: str) -> list[str]:
+    """Return the meaningful normalized tokens of a request body.
+
+    Request-form vocabulary and temporal expressions are removed because
+    neither identifies a historical subject.
+    """
+
+    tokens = _TOKEN_PATTERN.findall(_normalize_recall_text(text))
+    return [
+        token
+        for token in tokens
+        if token not in _RECALL_STOPWORDS
+        and token not in _MONTH_NUMBERS
+        and not (len(token) == 4 and token.isdigit())
+    ]
+
+
+def _recall_subject_is_identifiable(text: str) -> bool:
+    """Return whether a historical subject can be named without reading history."""
+
+    tokens = _recall_content_tokens(text)
+    if not tokens:
+        return False
+    return not all(token in _VAGUE_REFERENTS for token in tokens)
+
+
+_PROJECT_NAME_TRIM = frozenset(
+    {
+        "a",
+        "an",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "my",
+        "of",
+        "on",
+        "our",
+        "the",
+        "to",
+        "with",
+    }
+)
+
+
+def _cross_project_references(text: str) -> list[tuple[str, str, bool]]:
+    """Return the candidate Project names a request refers to.
+
+    Each entry is ``(head, lookup_name, is_proper_name)``. The head noun
+    before the word "project" decides whether the reference names a target at
+    all: in "the conversations in another Project" the head is "another", which
+    names none, while in "the Apollo Project" the head is "Apollo", which
+    names one. Capitalization separates a named target from a descriptive use
+    of the word "project".
+    """
+
+    references: list[tuple[str, str, bool]] = []
+    for match in _PROJECT_WORD_PATTERN.finditer(text):
+        prefix = text[: match.start()]
+        tokens = prefix.split()
+        if not tokens:
+            continue
+        while tokens and tokens[-1].lower().strip(",.") in _PROJECT_NAME_TRIM:
+            tokens = tokens[:-1]
+        if not tokens:
+            continue
+        head = tokens[-1]
+        lookup_tokens = list(tokens[-2:])
+        while lookup_tokens and lookup_tokens[0].lower().strip(",.") in (
+            _PROJECT_NAME_TRIM
+        ):
+            lookup_tokens = lookup_tokens[1:]
+        while lookup_tokens and lookup_tokens[-1].lower().strip(",.") in (
+            _PROJECT_NAME_TRIM
+        ):
+            lookup_tokens = lookup_tokens[:-1]
+        lookup_name = " ".join(lookup_tokens).lower().strip(",.")
+        if not lookup_name:
+            continue
+        entry = (head.lower().strip(",."), lookup_name, head[:1].isupper())
+        if entry not in references:
+            references.append(entry)
+    return references
+
+
+def _cross_project_is_generic(head: str) -> bool:
+    """Return whether a Project reference names no specific target."""
+
+    token = str(head or "").strip().lower()
+    if not token:
+        return True
+    return token in _GENERIC_PROJECT_REFERENCES
+
+
+_MONTH_NUMBERS: dict[str, int] = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+_MONTH_YEAR_PATTERN = re.compile(
+    r"\b(january|february|march|april|may|june|july|august|september|october|"
+    r"november|december)\s+(\d{4})\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_YEAR_PATTERN = re.compile(r"\b(?:in|during|from)\s+(20\d{2})\b", re.IGNORECASE)
+_LAST_MONTH_PATTERN = re.compile(
+    r"\blast\s+(january|february|march|april|may|june|july|august|september|october|"
+    r"november|december)\b",
+    re.IGNORECASE,
+)
+
+
+def _iso_utc(moment: datetime) -> str:
+    return moment.astimezone(timezone.utc).isoformat()
+
+
+def _derive_recall_window(
+    text: str, *, now: datetime
+) -> tuple[str | None, str | None]:
+    """Derive an unambiguous temporal bound from a request body.
+
+    Only explicit, unambiguous expressions produce a bound. An unresolvable
+    temporal expression leaves the window unbounded rather than guessing.
+    """
+
+    normalized = _normalize_recall_text(text)
+
+    match = _MONTH_YEAR_PATTERN.search(normalized)
+    if match:
+        month = _MONTH_NUMBERS[match.group(1).lower()]
+        year = int(match.group(2))
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            end = datetime(year, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        return _iso_utc(start), _iso_utc(end)
+
+    match = _EXPLICIT_YEAR_PATTERN.search(normalized)
+    if match:
+        year = int(match.group(1))
+        start = datetime(year, 1, 1, tzinfo=timezone.utc)
+        end = datetime(year, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+        return _iso_utc(start), _iso_utc(end)
+
+    match = _LAST_MONTH_PATTERN.search(normalized)
+    if match:
+        month = _MONTH_NUMBERS[match.group(1).lower()]
+        year = now.year
+        if month >= now.month:
+            year -= 1
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            end = datetime(year, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        return _iso_utc(start), _iso_utc(end)
+
+    if "last month" in normalized:
+        year = now.year
+        month = now.month - 1
+        if month == 0:
+            month = 12
+            year -= 1
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            end = datetime(year, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        return _iso_utc(start), _iso_utc(end)
+
+    if "last week" in normalized:
+        start = now - timedelta(days=7)
+        return _iso_utc(start), _iso_utc(now)
+
+    if "yesterday" in normalized:
+        start = (now - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end = start + timedelta(days=1)
+        return _iso_utc(start), _iso_utc(end)
+
+    return (None, None)
+
+
+def _clarification_prompt(text: str) -> str:
+    """Return the clarification Guardian asks when the scope is unresolved."""
+
+    normalized = _normalize_recall_text(text)
+    if any(
+        pattern.search(normalized) for pattern in _COMPILED_ACCOUNT_WIDE_PATTERNS
+    ):
+        return (
+            "I can search this conversation history inside the current Project "
+            "only. Which Project should I search?"
+        )
+    if _cross_project_references(str(text or "")):
+        return (
+            "I can search this conversation history inside the current Project "
+            "only. Which conversation history should I search?"
+        )
+    return (
+        "Which conversation history should I search? I can search inside the "
+        "current Project only."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Authorization resolution
+# ---------------------------------------------------------------------------
+
+
+def _authorization_denial(
+    decision: str,
+    *,
+    interpretation: str,
+    reason: str,
+    account_id: str,
+    request_id: str,
+    turn_id: str,
+    source_message_id: int | None = None,
+    project_id: int | None = None,
+    exclusions: tuple[str, ...] = (),
+    clarification_prompt: str | None = None,
+) -> HistoryRecallAuthorization:
+    return HistoryRecallAuthorization(
+        decision=decision,
+        interpretation=interpretation,
+        reason=reason,
+        account_id=account_id,
+        request_id=request_id,
+        turn_id=turn_id,
+        source_message_id=source_message_id,
+        project_id=project_id,
+        source_family=None,
+        purpose=None,
+        permitted_query_terms=(),
+        window_start=None,
+        window_end=None,
+        exclusions=exclusions,
+        clarification_prompt=clarification_prompt,
+        confirmation_required=decision == AUTHORIZATION_CLARIFY,
+        evidence_read=False,
+        grant=None,
+    )
+
+
+def _load_accepted_user_message(
+    session: Session, *, message_id: int
+) -> Mapping[str, Any] | None:
+    """Load the accepted user message by its canonical identity."""
+
+    statement = select(
+        ChatMessage.id.label("id"),
+        ChatMessage.thread_id.label("thread_id"),
+        ChatMessage.user_id.label("user_id"),
+        ChatMessage.role.label("role"),
+        ChatMessage.content.label("content"),
+        ChatMessage.kind.label("kind"),
+    ).where(ChatMessage.id == message_id)
+    row = session.execute(statement).mappings().first()
+    return row
+
+
+def resolve_history_recall_authorization(
+    chatlog_db: Any,
+    *,
+    authenticated_account_id: str,
+    request_id: str,
+    turn_id: str,
+    thread_id: int,
+    source_message_id: int | None,
+    expires_at: str | None = None,
+    retrieval_proposed: bool = False,
+    now: datetime | None = None,
+) -> HistoryRecallAuthorization:
+    """Resolve one request-bound historical recall authorization.
+
+    The decision is derived from the authenticated account, the accepted
+    request and turn, the canonical Project, and the accepted user message
+    itself. It never reads historical evidence, it never accepts a
+    caller-supplied account as an override, and it never treats a tool name, a
+    tool argument, or model output as authority.
+
+    ``retrieval_proposed`` records that a retrieval demand was observed
+    somewhere in the current turn. It can only ever explain a denial; it can
+    never create a grant.
+    """
+
+    account_id = str(authenticated_account_id or "").strip()
+    normalized_request_id = str(request_id or "").strip()
+    normalized_turn_id = str(turn_id or "").strip()
+    normalized_thread_id = (
+        thread_id
+        if isinstance(thread_id, int)
+        and not isinstance(thread_id, bool)
+        and thread_id > 0
+        else None
+    )
+    normalized_message_id = (
+        source_message_id
+        if isinstance(source_message_id, int)
+        and not isinstance(source_message_id, bool)
+        and source_message_id > 0
+        else None
+    )
+    moment = now or datetime.now(timezone.utc)
+
+    if not account_id:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="unauthenticated_account",
+            account_id="",
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if not normalized_request_id or not normalized_turn_id:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="request_binding_incomplete",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if normalized_thread_id is None or normalized_message_id is None:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="request_binding_incomplete",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if chatlog_db is None:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="canonical_store_unavailable",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+
+    get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
+    get_session = _read_only_session_factory(chatlog_db)
+    if not callable(get_chat_thread) or not callable(get_session):
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="canonical_store_unavailable",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+
+    try:
+        thread = get_chat_thread(normalized_thread_id)
+    except Exception:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="canonical_store_unavailable",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if not isinstance(thread, Mapping):
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="thread_not_found",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if str(thread.get("user_id") or "").strip() != account_id:
+        return _authorization_denial(
+            AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="thread_not_owned_by_account",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+    if _thread_is_imported(thread):
+        return _authorization_denial(
+            AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="thread_is_imported",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            exclusions=(EXCLUSION_IMPORTED_ARCHIVE,),
+        )
+
+    project_id = thread.get("project_id")
+    if (
+        not isinstance(project_id, int)
+        or isinstance(project_id, bool)
+        or project_id <= 0
+    ):
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="thread_has_no_canonical_project",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+
+    try:
+        with get_session() as session:
+            try:
+                project = _require_project_authority(
+                    session, account=account_id, project_id=project_id
+                )
+            except AccountHistoryRecallAccessDenied:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="project_ownership_unresolved",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+
+            message = _load_accepted_user_message(
+                session, message_id=normalized_message_id
+            )
+            if message is None:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="accepted_message_not_found",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+            if int(message.get("thread_id") or 0) != normalized_thread_id:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="accepted_message_outside_request_thread",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+            if str(message.get("user_id") or "").strip() != account_id:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="accepted_message_not_owned_by_account",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+            if str(message.get("role") or "").strip().lower() != "user":
+                return _authorization_denial(
+                    AUTHORIZATION_DENY,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="accepted_message_is_not_user_authored",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+            if str(message.get("kind") or "").strip() in _EXCLUDED_MESSAGE_KINDS:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY,
+                    interpretation=INTERPRETATION_INCIDENTAL,
+                    reason="accepted_message_kind_excluded",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    project_id=project_id,
+                )
+
+            project_name = str(getattr(project, "name", "") or "").strip()
+    except Exception:
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_INCIDENTAL,
+            reason="canonical_store_unavailable",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+        )
+
+    message_text = str(message.get("content") or "")
+    own_text, quoted_text = _segment_quoted_regions(message_text)
+    own_normalized = _normalize_recall_text(own_text)
+
+    # --- Interpretation ----------------------------------------------------
+    if _NEGATION_PATTERN.search(own_normalized):
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_NEGATED,
+            reason="request_negates_recall",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+        )
+
+    if _HYPOTHETICAL_PATTERN.search(own_normalized):
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=INTERPRETATION_HYPOTHETICAL,
+            reason="request_is_hypothetical",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+        )
+
+    if not _request_form_present(own_normalized):
+        if _request_form_present(_normalize_recall_text(quoted_text)):
+            return _authorization_denial(
+                AUTHORIZATION_DENY,
+                interpretation=INTERPRETATION_QUOTED,
+                reason="request_form_is_quoted_or_pasted",
+                account_id=account_id,
+                request_id=normalized_request_id,
+                turn_id=normalized_turn_id,
+                source_message_id=normalized_message_id,
+                project_id=project_id,
+            )
+        if (
+            _historical_reference_present(own_normalized)
+            and _INTERROGATIVE_PATTERN.search(own_normalized)
+            and not _recall_subject_is_identifiable(own_normalized)
+        ):
+            return _authorization_denial(
+                AUTHORIZATION_CLARIFY,
+                interpretation=INTERPRETATION_AMBIGUOUS,
+                reason="historical_subject_unresolved",
+                account_id=account_id,
+                request_id=normalized_request_id,
+                turn_id=normalized_turn_id,
+                source_message_id=normalized_message_id,
+                project_id=project_id,
+                clarification_prompt=_clarification_prompt(own_normalized),
+            )
+        interpretation = INTERPRETATION_INCIDENTAL
+        reason = "no_explicit_recall_request"
+        if retrieval_proposed:
+            interpretation = INTERPRETATION_NON_USER_AUTHORED
+            reason = "recall_proposed_outside_user_authored_request"
+        return _authorization_denial(
+            AUTHORIZATION_DENY,
+            interpretation=interpretation,
+            reason=reason,
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+        )
+
+    # An explicit request form was established in the user's own words.
+    if _IMPORTED_SOURCE_PATTERN.search(own_normalized):
+        return _authorization_denial(
+            AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+            interpretation=INTERPRETATION_EXPLICIT,
+            reason="imported_history_is_not_model_exposable",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+            exclusions=(EXCLUSION_IMPORTED_ARCHIVE,),
+        )
+
+    if any(
+        pattern.search(own_normalized) for pattern in _COMPILED_ACCOUNT_WIDE_PATTERNS
+    ):
+        return _authorization_denial(
+            AUTHORIZATION_CLARIFY,
+            interpretation=INTERPRETATION_EXPLICIT,
+            reason="account_wide_scope_is_not_granted",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+            clarification_prompt=_clarification_prompt(own_normalized),
+        )
+
+    for head, lookup_name, is_proper_name in _cross_project_references(own_text):
+        normalized_project_name = _normalize_recall_text(project_name)
+        if normalized_project_name and lookup_name in {
+            normalized_project_name,
+            normalized_project_name.split()[-1] if normalized_project_name else "",
+        }:
+            continue
+        if _cross_project_is_generic(head):
+            return _authorization_denial(
+                AUTHORIZATION_CLARIFY,
+                interpretation=INTERPRETATION_EXPLICIT,
+                reason="cross_project_scope_is_not_granted",
+                account_id=account_id,
+                request_id=normalized_request_id,
+                turn_id=normalized_turn_id,
+                source_message_id=normalized_message_id,
+                project_id=project_id,
+                clarification_prompt=_clarification_prompt(own_normalized),
+            )
+        # A specific other Project was named. Its ownership must pass under
+        # ADR-081 before any scope could be authorized, and a target that fails
+        # that check is a terminal denial rather than a confirmation.
+        try:
+            with get_session() as session:
+                named_projects = list(
+                    session.execute(
+                        select(Project).where(func.lower(Project.name) == lookup_name)
+                    ).scalars()
+                )
+        except Exception:
+            named_projects = []
+        if not named_projects:
+            if not is_proper_name:
+                # A descriptive use of the word "project" names no target.
+                continue
+            return _authorization_denial(
+                AUTHORIZATION_CLARIFY,
+                interpretation=INTERPRETATION_EXPLICIT,
+                reason="cross_project_target_unresolved",
+                account_id=account_id,
+                request_id=normalized_request_id,
+                turn_id=normalized_turn_id,
+                source_message_id=normalized_message_id,
+                project_id=project_id,
+                clarification_prompt=_clarification_prompt(own_normalized),
+            )
+        for named_project in named_projects:
+            owner = str(getattr(named_project, "user_id", "") or "").strip()
+            if owner != account_id:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+                    interpretation=INTERPRETATION_EXPLICIT,
+                    reason="named_project_not_owned_by_account",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    source_message_id=normalized_message_id,
+                    project_id=project_id,
+                )
+            if classify_project_ownership(named_project).has_authority_conflict:
+                return _authorization_denial(
+                    AUTHORIZATION_DENY_INDEPENDENT_EXCLUSION,
+                    interpretation=INTERPRETATION_EXPLICIT,
+                    reason="named_project_ownership_conflicted",
+                    account_id=account_id,
+                    request_id=normalized_request_id,
+                    turn_id=normalized_turn_id,
+                    source_message_id=normalized_message_id,
+                    project_id=project_id,
+                )
+        return _authorization_denial(
+            AUTHORIZATION_CLARIFY,
+            interpretation=INTERPRETATION_EXPLICIT,
+            reason="cross_project_scope_is_not_granted",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+            clarification_prompt=_clarification_prompt(own_normalized),
+        )
+
+    if not _recall_subject_is_identifiable(own_normalized):
+        return _authorization_denial(
+            AUTHORIZATION_CLARIFY,
+            interpretation=INTERPRETATION_AMBIGUOUS,
+            reason="historical_subject_unresolved",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+            clarification_prompt=_clarification_prompt(own_normalized),
+        )
+
+    permitted_terms = tuple(
+        dict.fromkeys(_recall_content_tokens(own_normalized))
+    )
+    if not permitted_terms:
+        return _authorization_denial(
+            AUTHORIZATION_CLARIFY,
+            interpretation=INTERPRETATION_AMBIGUOUS,
+            reason="historical_subject_unresolved",
+            account_id=account_id,
+            request_id=normalized_request_id,
+            turn_id=normalized_turn_id,
+            source_message_id=normalized_message_id,
+            project_id=project_id,
+            clarification_prompt=_clarification_prompt(own_normalized),
+        )
+
+    window_start, window_end = _derive_recall_window(own_normalized, now=moment)
+
+    grant = HistoryRecallGrant(
+        account_id=account_id,
+        request_id=normalized_request_id,
+        turn_id=normalized_turn_id,
+        source_message_id=normalized_message_id,
+        project_id=project_id,
+        source_family=MODEL_EXPOSED_ORIGIN_SYSTEM,
+        purpose=RECALL_PURPOSE,
+        permitted_query_terms=permitted_terms,
+        window_start=window_start,
+        window_end=window_end,
+        exclusions=GRANT_EXCLUSIONS,
+        issued_at=_iso_utc(moment),
+        expires_at=expires_at,
+    )
+
+    return HistoryRecallAuthorization(
+        decision=AUTHORIZATION_GRANT,
+        interpretation=INTERPRETATION_EXPLICIT,
+        reason="explicit_user_authored_recall_request",
+        account_id=account_id,
+        request_id=normalized_request_id,
+        turn_id=normalized_turn_id,
+        source_message_id=normalized_message_id,
+        project_id=project_id,
+        source_family=MODEL_EXPOSED_ORIGIN_SYSTEM,
+        purpose=RECALL_PURPOSE,
+        permitted_query_terms=permitted_terms,
+        window_start=window_start,
+        window_end=window_end,
+        exclusions=GRANT_EXCLUSIONS,
+        clarification_prompt=None,
+        confirmation_required=False,
+        evidence_read=False,
+        grant=grant,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Grant validation and bounded search formulation
+# ---------------------------------------------------------------------------
+
+
+def history_recall_grant_is_live(
+    grant: HistoryRecallGrant | None,
+    *,
+    account_id: str,
+    request_id: str,
+    turn_id: str,
+    source_message_id: int | None,
+    project_id: int | None,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether a grant still matches the request actually being served.
+
+    A stale, mismatched, missing, or expired grant fails closed.
+    """
+
+    if grant is None:
+        return False
+    if str(grant.account_id or "").strip() != str(account_id or "").strip():
+        return False
+    if str(grant.request_id or "").strip() != str(request_id or "").strip():
+        return False
+    if str(grant.turn_id or "").strip() != str(turn_id or "").strip():
+        return False
+    if source_message_id is None or grant.source_message_id != source_message_id:
+        return False
+    if project_id is None or grant.project_id != project_id:
+        return False
+    if grant.expires_at:
+        moment = now or datetime.now(timezone.utc)
+        try:
+            expiry = datetime.fromisoformat(str(grant.expires_at))
+        except ValueError:
+            return False
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if moment.astimezone(timezone.utc) > expiry.astimezone(timezone.utc):
+            return False
+    return True
+
+
+def history_recall_grants_equivalent(
+    advertised: HistoryRecallGrant | None,
+    current: HistoryRecallGrant | None,
+) -> bool:
+    """Return whether two grants carry the same authority.
+
+    The comparison covers the authority-bearing fields only. Issue and expiry
+    timestamps are re-derived on every resolution, so they cannot be part of
+    the identity of the authority itself.
+    """
+
+    if advertised is None or current is None:
+        return False
+    return (
+        advertised.account_id == current.account_id
+        and advertised.request_id == current.request_id
+        and advertised.turn_id == current.turn_id
+        and advertised.source_message_id == current.source_message_id
+        and advertised.project_id == current.project_id
+        and advertised.source_family == current.source_family
+        and advertised.purpose == current.purpose
+        and advertised.permitted_query_terms == current.permitted_query_terms
+        and advertised.window_start == current.window_start
+        and advertised.window_end == current.window_end
+    )
+
+
+def bound_history_recall_query(
+    grant: HistoryRecallGrant,
+    query: str,
+) -> str:
+    """Return a model-proposed query that stays inside the grant's topic.
+
+    The model may choose a formulation, but it may not widen the authorized
+    evidence set: every term it proposes must already be part of the user's own
+    request vocabulary. A term outside that vocabulary is refused.
+    """
+
+    normalized_query = _normalize_recall_text(query)
+    tokens = _TOKEN_PATTERN.findall(normalized_query)
+    if not tokens:
+        raise InvalidAccountHistoryRecallRequest("Search text must not be empty.")
+    vocabulary = [term.lower() for term in grant.permitted_query_terms]
+    for token in tokens:
+        if len(token) < MIN_QUERY_TOKEN_CHARACTERS:
+            raise InvalidAccountHistoryRecallRequest(
+                "Search terms must be at least "
+                f"{MIN_QUERY_TOKEN_CHARACTERS} characters to stay inside the "
+                "authorized topic."
+            )
+        if not any(token in term for term in vocabulary):
+            raise InvalidAccountHistoryRecallRequest(
+                "Search terms must stay within the authorized recall topic."
+            )
+    return normalized_query
+
+
+def bound_history_recall_window(
+    grant: HistoryRecallGrant,
+    *,
+    window_start: str | None,
+    window_end: str | None,
+) -> tuple[str | None, str | None]:
+    """Return a search window that stays inside the grant's temporal bounds.
+
+    The model's window is intersected with the grant's window. A model request
+    that falls entirely outside the authorized window is refused rather than
+    silently widened.
+    """
+
+    if not grant.window_start and not grant.window_end:
+        return window_start, window_end
+
+    def _parse(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    grant_start = _parse(grant.window_start)
+    grant_end = _parse(grant.window_end)
+    requested_start = _parse(window_start)
+    requested_end = _parse(window_end)
+
+    effective_start = grant_start
+    if requested_start is not None and (
+        effective_start is None or requested_start > effective_start
+    ):
+        effective_start = requested_start
+    effective_end = grant_end
+    if requested_end is not None and (
+        effective_end is None or requested_end < effective_end
+    ):
+        effective_end = requested_end
+
+    if effective_start is not None and effective_end is not None:
+        if effective_start > effective_end:
+            raise InvalidAccountHistoryRecallRequest(
+                "Search window falls outside the authorized recall window."
+            )
+    return (
+        _iso_utc(effective_start) if effective_start is not None else None,
+        _iso_utc(effective_end) if effective_end is not None else None,
+    )

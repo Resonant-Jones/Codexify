@@ -33,12 +33,177 @@ The backend resolves the account; the model never chooses it.
 **Classification: aligned with existing ADRs.** This implementation does not
 require a new interpretation of imported-history model exposure and does not
 introduce a new standing recall permission. See
-[Unsupported cases](#8-unsupported-cases-and-the-decisions-they-need) for the
+[Unsupported cases](#9-unsupported-cases-and-the-decisions-they-need) for the
 two boundaries that remain closed and the exact decision each one needs.
 
-## 3. Surfaces
+## 3. Request-scoped recall authorization
 
-### 3.1 Route
+ADR-084, as amended at `6ead26697`, separates three layers:
+
+| Layer | Owner | Meaning |
+| --- | --- | --- |
+| Interpretation | Guardian | Advisory recognition of user intent. |
+| Authorization | Guardian | Issuance or denial of a bounded grant. |
+| Execution | Guardian | Command Bus retrieval inside that grant. |
+
+This document previously described only the third layer. The implementation
+now owns the second layer as well, plus the minimum interpretation mechanism
+required to feed it. The model participates in none of them.
+
+### 3.1 Trusted intent source
+
+The **sole** source of historical-recall intent is the canonical accepted user
+message of the request being served.
+
+- The message is resolved by its Guardian-assigned identity
+  (`latest_turn_message_id`), never by searching message text.
+- The resolver verifies that the message is the authenticated account's own
+  message, that it belongs to the executing thread, that its role is `user`,
+  and that its kind is not an internal evidence row.
+- The thread must be Codexify-native. An imported thread cannot establish
+  intent.
+- Assistant content, persona instructions, retrieved documents, historical
+  messages, and tool outputs cannot establish intent.
+- A tool name, a tool argument, or a model-generated retrieval request is
+  **not** proof of user authorization.
+
+The resolver reads exactly one message row, by primary key, and never reads
+historical evidence to decide. The grant's permitted vocabulary is derived
+from that one message, so vocabulary that exists only in history cannot enter
+the grant.
+
+### 3.2 Recognition method and its limits
+
+Recognition is deterministic and non-model. It is a conservative, ordered rule
+cascade that evaluates **request form and grounding**, not the presence of
+words such as "memory" or "recall". A word is not a request: "automobile
+recall notices" is an unrelated sense and is denied.
+
+The cascade is:
+
+1. Negation of a retrieval demand → denied as `negated`.
+2. Hypothetical or illustrative framing → denied as `hypothetical_or_illustrative`.
+3. A retrieval demand that exists only inside quoted or pasted material →
+   denied as `quoted_or_pasted`. Quoted, fenced, blockquoted, and
+   quote-introduced transcript regions are segregated before matching, so a
+   pasted transcript cannot authorize anything.
+4. No retrieval demand in the user's own words → denied as
+   `incidental_or_unrelated_mention`, or as `non_user_authored` when a
+   retrieval was proposed elsewhere in the turn.
+5. An explicit retrieval demand in the user's own words → the scope checks in
+   [section 3.5](#35-scope-enforcement) apply.
+
+**Deliberate limitations of this first implementation:**
+
+- It recognizes a bounded set of unambiguous retrieval forms. A phrasing that
+  falls outside that set is denied rather than guessed at.
+- It does not use a model, an inference service, or an additional provider
+  call. Model-assisted recognition beyond the proven subset remains deferred.
+- `classify_query_intent` in `guardian/context/retrieval_router_policy.py` is
+  **not** used as a grant authority. It is keyword-based, and the "automobile
+  recall" case shows why keyword presence is not intent.
+- No general Turn Intake Compiler and no new general-purpose intent
+  infrastructure was introduced.
+
+### 3.3 The authorization decision
+
+The decision is an internal, typed, non-model-authoritative value
+(`HistoryRecallAuthorization`). It records:
+
+- the decision: `grant`, `deny`, `clarify`, or `deny_independent_exclusion`;
+- the interpretation that produced it;
+- the trusted account binding;
+- the accepted request and turn binding;
+- the source user-message identity;
+- the canonical Project scope;
+- the eligible source family (`codexify`);
+- the historical recall purpose
+  (`answer_current_explicit_recall_request`);
+- the permitted temporal and query bounds;
+- the applicable exclusions;
+- the clarification prompt, when clarification is required.
+
+Only a `grant` decision carries a `HistoryRecallGrant`. The decision is never
+persisted, never exposed to the model, and never derived from model output.
+It is not a new canonical protocol token and no new table was added.
+
+### 3.4 Grant binding and lifetime
+
+A grant is an ephemeral, in-memory value bound to exactly one accepted
+request:
+
+| Binding | Value |
+| --- | --- |
+| Account | The authenticated account of the accepted request. |
+| Request | The canonical accepted request id. |
+| Turn | The canonical accepted turn id. |
+| Source message | The accepted user message id. |
+| Project | The canonical Project of the executing thread. |
+| Source family | `codexify` only. |
+| Purpose | `answer_current_explicit_recall_request`. |
+| Expiry | The accepted task's own terminal deadline. |
+
+A grant is:
+
+- never persisted as standing recall permission;
+- never transferred between requests, or replayed against another turn;
+- never extended by a tool decision or expanded after model output;
+- never reconstructed from untrusted content;
+- never converted into memory approval.
+
+### 3.5 Scope enforcement
+
+A positive authorization is restricted to the authenticated account, the
+current canonical Project, eligible native conversation evidence, the
+applicable thread and content permissions, and the current request's recall
+purpose.
+
+- **Project ownership is necessary but insufficient.** Ownership is resolved
+  under ADR-081 independently of the request form. A Project that the account
+  does not own, or whose ownership is conflicted, is an independent denial.
+- **The model may select a formulation only inside the grant.** Every term the
+  model proposes must already be part of the user's own request vocabulary,
+  and the model's window is intersected with the grant's window. A request
+  about one topic therefore cannot authorize a search for credentials, diary
+  content, or another Project.
+- **Ambiguous scope fails closed.** A request that names no resolvable target,
+  or that asks for account-wide or cross-Project scope, is answered with
+  clarification offering the permitted current-Project scope, never with a
+  widened grant.
+
+### 3.6 Denial and clarification behavior
+
+- **Denial** means no grant, no scope, and no historical read.
+- **Clarification** is used when intent is recognized but the target or scope
+  is unresolved, and when a wider scope was asked for than can be granted. The
+  decision carries the question Guardian asks. Because a clarifying decision
+  mints no grant, the history command is not advertised and the conversation
+  continues through the existing conversational clarification behavior already
+  present in the runtime. No new confirmation UI was added, and no
+  instruction was added to the system prompt.
+- **Independent hard denial** is used for imported history, a Project the
+  account does not own, and conflicted Project ownership. A confirmation
+  cannot override an independent hard denial.
+
+### 3.7 Imported-history exclusions
+
+Imported archives remain on ADR-016's human-only inspection path. An explicit
+request aimed at imported history is denied as an independent exclusion, and
+imported threads can never establish intent in the first place. The grant's
+exclusion list carries the imported-archive, diary, and unresolved
+record-read markers so that the bounded read reports them honestly.
+
+### 3.8 No memory promotion
+
+Resolving an authorization, holding a grant, and executing a bounded read
+never create or approve memory, activate imported candidates, modify Personal
+Facts, alter identity, persist Chronicle summaries, change continuity
+treatment, add instructions to the system prompt, or mutate conversation
+records. Retrieved evidence remains non-instructional.
+
+## 4. Surfaces
+
+### 4.1 Route
 
 ```
 GET /api/chat/projects/{project_id}/history/search
@@ -70,7 +235,7 @@ same `operation_id` on a second router would make the manifest command id
 non-unique and silently disable the capability, so the single registration is
 load-bearing.
 
-### 3.2 Model-visible tool projection
+### 4.2 Model-visible tool projection
 
 ```json
 {
@@ -93,7 +258,7 @@ The model-visible schema contains **no** `account_id`, `user_id`, `project_id`,
 `path_params`, `headers`, or `body` field. The account and the Project scope
 are resolved by Guardian and injected server-side.
 
-### 3.3 Result surface
+### 4.3 Result surface
 
 ```json
 {
@@ -143,7 +308,7 @@ are resolved by Guardian and injected server-side.
 `coverage` is a content-free receipt. It states what the read did and did not
 do, so a caller can distinguish "no match" from "scope excluded".
 
-## 4. Trusted account binding
+## 5. Trusted account binding
 
 The account identity is resolved in three independent places, and all three
 must agree.
@@ -177,7 +342,7 @@ The model can therefore never select a different account: it has no field that
 names one, and every server-side resolution is anchored to the authenticated
 principal or to the accepted request.
 
-## 5. Retrieval scope
+## 6. Retrieval scope
 
 Default scope is the **active Project**, resolved from the authenticated
 runtime context:
@@ -205,7 +370,7 @@ state is carried on each returned record (`modeling_excluded`,
 `identity_excluded`) so the model can see the restriction instead of silently
 inferring the record is unrestricted.
 
-## 6. Imported-history authorization behavior
+## 7. Imported-history authorization behavior
 
 ADR-016's owner archive inspection path is **unchanged and remains human-only**.
 The existing human inspection reader
@@ -227,7 +392,7 @@ the reviewed per-message Chronicle approval with digest (2025-10-11) — are
 purpose-bound, request-local, consent-gated, and local-only. Neither is a
 general historical-recall path, and neither is reused here.
 
-## 7. Read-only behavior
+## 8. Read-only behavior
 
 The operation never writes. It does not create memories, promote Personal
 Facts, approve imported candidates, modify identity records, activate
@@ -239,29 +404,34 @@ Existing Command Bus operational auditing continues under its own contract. The
 recall result contains conversation excerpts by design — that is the point of
 the capability — but the audit trail records the command, not the transcript.
 
-## 8. Unsupported cases, and the decisions they need
+## 9. Unsupported cases, and the decisions they need
 
-### 8.1 Account-wide recall widening — not enabled
+### 9.1 Account-wide recall widening — not enabled
 
 The default scope is one Project. Account-wide recall is **structurally
-present but not enabled**: there is no backend recall-grant resolver that
-derives widening from authenticated user intent, so a widening request fails
-closed rather than guessing.
+present but not enabled**: the request-scoped resolver derives only a
+current-Project grant, so a widening request fails closed rather than
+guessing.
+
+The resolver now recognizes an account-wide or cross-Project widening request
+and answers it with **clarification** that offers the permitted
+current-Project scope, rather than with a widened grant. A named Project that
+the account does not own, or whose ownership is conflicted, is an independent
+denial that a confirmation cannot override.
 
 This is deliberate. ADR-084 states that request fields are *preferences, not
 permissions*, and that Guardian derives a bounded grant from authenticated user
-intent. Deriving that intent requires either:
+intent. Deriving wider intent requires either:
 
 - an accepted intent→grant resolver with an ADR-approved rule for what user
   wording authorizes account scope, or
 - an explicit, authenticated, request-scoped user action that names the scope.
 
 The decision needed: **an ADR amendment to ADR-084 (or a new ADR) that defines
-the recall-grant resolver, its grant record shape, its scope semantics, and its
-binding to one authenticated account principal and one request.** Until that
-exists, cross-Project recall fails closed.
+how account-wide and cross-Project scope may be granted.** Until that exists,
+cross-Project recall fails closed.
 
-### 8.2 Multi-user and remote deployments — worker lane not eligible
+### 9.2 Multi-user and remote deployments — worker lane not eligible
 
 The route itself works in every mode in which an account session resolves. The
 **worker-executed tool lane** is confined to the accepted local posture —
@@ -278,16 +448,16 @@ subject to the worker** — for example a short-lived, purpose-scoped account
 credential in the loopback adapter — or an approved alternative binding. The
 transport change is out of scope for this task.
 
-### 8.3 Imported archive model exposure — not permitted
+### 9.3 Imported archive model exposure — not permitted
 
-See [section 6](#6-imported-history-authorization-behavior). The decision
+See [section 7](#7-imported-history-authorization-behavior). The decision
 needed: **an ADR amendment that extends the ADR-016 request-local consent
 pattern (or its per-message approved/digest pattern) to general explicit
 historical recall**, with an explicit treatment, scope binding, and
 record-read recheck. Until that exists, imported archive content is not
 model-exposed.
 
-## 9. Performance and safety envelope
+## 10. Performance and safety envelope
 
 | Bound | Value |
 | --- | --- |
@@ -303,22 +473,75 @@ The excerpt is bounded **in the database query** (`substr(content, 1, 800)`), so
 full message bodies are never transferred into the process for truncation. The
 whole account archive is never loaded into model context.
 
-## 10. Tool advertisement and execution
+The authorization layer adds a bounded read of its own, on the same canonical
+store: one thread row, one Project row, and exactly one message row fetched
+**by primary key**. It reads no historical evidence. It runs only in the
+accepted local single-user posture, because that is the only posture in which
+the transport can carry the configured account identity.
+
+## 11. Tool advertisement and execution
+
+The two boundaries are independent, and each re-derives the grant from the
+trusted request context.
+
+### 11.1 Advertisement gate
 
 - The capability is advertised through the existing ordinary-chat
-  tool-advertisement boundary (`guardian/tools/chat_exposure.py`), only when the
-  request is eligible.
+  tool-advertisement boundary (`guardian/tools/chat_exposure.py`), and only
+  when a request-scoped `HistoryRecallGrant` is supplied. Eligibility is not
+  authority: owning the account, the Project, and the thread does not by
+  itself advertise the command.
+- The gate accepts a real grant object only. A missing, malformed, or
+  forged grant suppresses the command without disabling health.
 - The manifest command is re-checked against a fixed projection
   (method, path template, operation id, effect, risk, idempotency, approval
   mode, and exact argument schema). A drifted or unsafe manifest entry
-  suppresses the tool without disabling health.
+  suppresses the tool without disabling health, and a grant never overrides
+  that projection.
 - A caller-supplied tool list cannot smuggle the capability in: a supplied
   `op::history.search` entry is stripped before dispatch, and the tool must be
   present in the advertised set to be authorized.
+- A grant that was never advertised is never usable at execution.
+
+### 11.2 Execution gate
+
+Immediately before the history command is dispatched, the worker:
+
+1. requires the advertised recall capability context;
+2. requires the accepted local transport posture;
+3. re-resolves the canonical Project from the authenticated account;
+4. requires the advertised grant to be present and to be a real grant;
+5. **re-derives the authorization from the trusted request context** and
+   compares it against the advertised grant;
+6. checks that both grants are still live for this account, request, turn,
+   source message, and Project, and that the accepted request has not expired;
+7. binds the model's formulation to the grant — the search text must stay
+   inside the grant's topic and the window inside the grant's temporal
+   bounds.
+
+A stale, mismatched, missing, expired, or revoked execution context denies
+retrieval before the Command Bus is reached. A direct or forged invocation
+cannot bypass the gate: the command is absent from the advertised set, the
+advertised grant is absent from the evidence, or the re-derived grant
+disagrees with the advertised one.
+
 - The existing one-tool-turn limit, command allowlisting, checkpoint behavior,
   and tool-result reinjection semantics are unchanged.
+- The grant itself is never rendered into the provider payload.
 
-## 11. Evidence handling in the model context
+### 11.3 Ordinary-chat advertisement is still inactive
+
+The ordinary-chat path resolves the grant but does not yet forward it into
+the exposure resolver, because review finding #2 — the missing forwarding of
+the history capability in the main ordinary-chat integration — is a separate
+repair. The command therefore stays invisible to the model on that path even
+when a grant exists.
+
+This is asserted by test, not assumed. The authorization gates are proven
+independently of that availability failure, so the two concerns cannot mask
+each other.
+
+## 12. Evidence handling in the model context
 
 Each returned record is rendered as a delimited inert block, built
 server-side outside model-generated text:
@@ -359,7 +582,7 @@ Guardian is expected to distinguish, in its answer:
 - missing or incomplete evidence (the `coverage` receipt names the exclusions),
 - unknown current validity (a historical record says nothing about the present).
 
-## 12. Failure behavior
+## 13. Failure behavior
 
 | Condition | Result |
 | --- | --- |
@@ -375,47 +598,67 @@ A failed canonical read is **never** reported as a successful empty search. The
 service converts an unexpected read failure into
 `AccountHistoryRecallUnavailable`, which the route maps to `503`.
 
-## 13. Validation results
+## 14. Validation results
 
 ### Focused suites
 
 Automated test evidence (SQLAlchemy over a disposable in-memory database, plus
 the real HTTP route and the real tool-turn loop). All four suites were run
-together and passed: **132 passed, 0 failed**.
+together and passed: **234 passed, 0 failed**.
 
 | Suite | Result |
 | --- | --- |
-| `tests/core/test_account_history_recall.py` | 24 passed — service boundary, account binding, Project isolation, imported/diary exclusion, bounds, wildcard and injection handling, read-only proof, failure mapping |
-| `tests/routes/test_account_history_recall.py` | 12 passed — authenticated recall, window bounds, missing auth, model-supplied account field ignored, `X-User-Id` cannot redirect the account, cross-account denial, imported exclusion, invalid bound, empty result, database failure, no mutation |
-| `tests/core/test_chat_tool_exposure.py` | 56 passed — manifest projection exactness, authority-free model schema, eligibility gating, unsafe-manifest suppression, provider qualification |
-| `tests/core/test_chat_completion_service_tool_loop.py` | 40 passed — trusted account binding, server-side Project hydration, evidence reinjection, missing/moved authority blocking, transport gating, invalid-argument blocking |
+| `tests/core/test_account_history_recall.py` | 96 passed — service boundary, account binding, Project isolation, imported/diary exclusion, bounds, wildcard and injection handling, read-only proof, failure mapping, the 16-case authorization fixture matrix, grant lifecycle, cross-account and cross-request denial, topic and temporal bounding, prompt-injection and quoted-instruction resistance, ordinary and negated phrasing never grant |
+| `tests/routes/test_account_history_recall.py` | 15 passed — authenticated recall, window bounds, missing auth, model-supplied account field ignored, `X-User-Id` cannot redirect the account, cross-account denial, imported exclusion, invalid bound, empty result, database failure, no mutation, supplied-grant and supplied-scope override ignored |
+| `tests/core/test_chat_tool_exposure.py` | 67 passed — manifest projection exactness, authority-free model schema, grant-gated advertisement, malformed-grant refusal, unsafe-manifest suppression, provider qualification, ordinary-chat advertisement still inactive |
+| `tests/core/test_chat_completion_service_tool_loop.py` | 56 passed — trusted account binding, server-side Project hydration, evidence reinjection, missing/moved authority blocking, transport gating, invalid-argument blocking, missing/forged/replayed/expired grant blocking, model query and window bounded by the grant |
+
+The 16 behavioral fixtures in
+`docs/architecture/fixtures/history-recall-intent.v1.json` are executed as a
+data-driven matrix. The test reads the fixture file at run time, so the
+expected interpretation, authorization, scope, confirmation, and
+evidence-read values come from the fixture rather than from a copy in the
+test.
 
 ### Full backend suite, against a baseline
 
-The full suite was run twice in the same worktree on the same machine: once at
-the pre-change commit `ba8be8dbc`, and once with this change applied. Both
-runs report the same pre-existing failures, which are concentrated in
-environment-dependent suites: Redis queue deadlines, worker shutdown, and the
-suites that require a disposable PostgreSQL instance.
+The full suite was run twice on the same machine: once at the base commit
+`6ead26697` in a separate worktree, and once with this change applied. The
+two runs are compared by the **exact set of failing and erroring test ids**,
+not only by count.
 
-| Run | Failures |
-| --- | --- |
-| Baseline (`ba8be8dbc`, pre-change) | 33 |
-| With this change | 35 |
+| Run | Failed | Errors | Passed | Collected |
+| --- | --- | --- | --- | --- |
+| Baseline (`6ead26697`, pre-change) | 18 | 579 | 8,648 | 9,744 |
+| With this change | 13 | 566 | 8,768 | 9,846 |
 
-Two tests differed, and both are explained by the fact that the two runs
-overlapped with another concurrent test suite on the same machine:
+The collected count rises by exactly 102 — the number of new tests this change
+adds — and every one of them passes.
 
-- `tests/pi/test_pi_required_tool_selection.py::test_vendored_deepseek_builder_projects_off_and_named_write`
-- `tests/workers/test_document_worker_shutdown.py::test_faiss_success_preserves_worker_index_between_jobs`
+The failure sets were compared id by id:
 
-Neither touches the recall capability: the first drives the vendored Node.js Pi
-runtime, whose lock file is contended when a second suite runs concurrently;
-the second depends on a faiss worker index that is also contended. Both were
-re-run three times with this change applied and nothing else running, and
-passed **3 of 3** each time, in isolation and in a group of four files. The
-effective failure set with this change is therefore identical to the baseline
-failure set: **no regression is attributable to this change.**
+- **0 failures and 0 errors exist with this change that do not also exist at
+  the baseline.** No regression is attributable to this change.
+- The set of failing and erroring ids with this change is a **strict subset**
+  of the baseline set: 18 baseline ids did not reproduce in the changed run.
+- The 13 error ids that did not reproduce are all in
+  `tests/server/test_rate_limiting.py` and `tests/routes/test_workspace.py`,
+  and the 5 failures that did not reproduce are in
+  `tests/architecture/test_guardian_evidence_packet_make_target.py`,
+  `tests/routes/test_imprint_routes.py`, `tests/server/test_core_route_wiring.py`,
+  and `tests/server/test_rate_limiting.py`. These are order- and
+  environment-dependent suites.
+
+The failures and errors that **do** occur in both runs are concentrated in
+suites that need infrastructure this environment does not provide:
+
+| Area | Example | Cause |
+| --- | --- | --- |
+| MCP server | `tests/mcp/test_no_unsafe_retrieval.py`, `tests/mcp/test_server_lifecycle.py` | The installed `mcp` SDK exposes neither `mcp.Client` nor `mcp.server.MCPServer`. This is the same environment mismatch that makes `tests/mcp/test_stdio.py` fail at collection, which is why that module is excluded from both runs. It reproduces identically at the baseline. |
+| Imported history, memory vault, chronicle, personal facts | `tests/routes/test_imported_history_inspection.py`, `tests/services/test_memory_vault_*`, `tests/routes/test_chronicle_*` | Require a disposable PostgreSQL instance. No `TEST_DATABASE_URL` is available here. |
+| Migrations, export/restore, continuity readback | `tests/migration/*`, `tests/services/test_account_export_restore_unified_memory_roundtrip.py`, `tests/continuity/*` | Require a disposable PostgreSQL instance. |
+| Ops checkpoint and tester services | `tests/ops/test_candidate_runtime_checkpoint.py`, `tests/ops/test_codexify_tester_services.py` | Depend on local service state. |
+| Document RAG embedding status | `tests/test_document_rag_retrieval_gate.py` | Depends on a faiss worker index. |
 
 **Not verified here:**
 
@@ -432,11 +675,56 @@ failure set: **no regression is attributable to this change.**
 - The imported archive path was confirmed to remain human-only; no
   imported-archive model exposure exists to test.
 
-## 14. File map
+## 15. File map
 
 | File | Role |
 | --- | --- |
-| `guardian/core/account_history_recall.py` | Bounded retrieval service and the worker capability resolver |
+| `guardian/core/account_history_recall.py` | Bounded retrieval service, the worker capability resolver, and the request-scoped authorization decision, grant, and conservative recognizer |
 | `guardian/routes/chat.py` | `_history_recall_principal` and the authenticated read-only route |
-| `guardian/tools/chat_exposure.py` | Conditional advertisement and the fixed model projection |
-| `guardian/core/chat_completion_service.py` | Trusted scope binding, argument hydration, and bounded dispatch |
+| `guardian/tools/chat_exposure.py` | Grant-gated advertisement and the fixed model projection |
+| `guardian/core/chat_completion_service.py` | Trusted scope binding, grant re-derivation, grant-bounded argument hydration, and bounded dispatch |
+
+## 16. Remaining review findings and runtime limitations
+
+The independent review of the historical-recall implementation raised five
+findings. This change closes the authorization finding. The others remain
+open, and none of them is repaired here:
+
+| Finding | Status |
+| --- | --- |
+| #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
+| #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
+| #3 — Message-level imported provenance filtering | **Open.** Not repaired. ADR-016's human-only imported-archive path is unchanged, and the grant excludes imported threads. |
+| #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
+| #5 — 500-thread coverage truncation | **Open.** Not repaired. |
+
+Dependency-ordered follow-on work: #3 message-level imported provenance
+exclusion, #1 PostgreSQL session compatibility, #5 retrieval coverage and
+truncation, then #2 ordinary-chat advertisement and final activation.
+
+**Known documentation drift.** The `implementationStatus` string in
+`docs/architecture/fixtures/history-recall-intent.v1.json` still says that no
+runtime classifier, resolver, grant representation, or executable test exists
+for that file. That statement is now stale for the classifier, the resolver,
+the grant representation, and the executable tests; it remains accurate for
+tool advertisement and for a confirmation surface. The fixture file is
+behavioral source of truth for the expectations and was deliberately left
+unmodified by this change, so the stale status line is reported here rather
+than corrected in place.
+
+**Runtime limitations of this slice:**
+
+- No live runtime qualification was performed. The tool turn is exercised
+  through the production code path with the provider, Command Bus, and
+  transport mocked at their seams.
+- The data-access boundary was exercised against SQLAlchemy over SQLite, not a
+  disposable PostgreSQL instance — no `TEST_DATABASE_URL` was available in this
+  environment. PostgreSQL-specific behavior is not proven here.
+- The multi-user and remote worker lanes are **unverified and closed by
+  design**, not qualified.
+- Recognition is deterministic and covers only the proven subset of explicit
+  recall forms. Model-assisted recognition remains deferred.
+- The route remains the account owner's own read surface. It is bound to
+  authenticated authority and canonical Project ownership, and it never
+  accepts a caller-supplied account, Project, or grant. The request-scoped
+  grant governs the **model-facing** recall path, not the owner's direct call.

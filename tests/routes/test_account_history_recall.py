@@ -336,3 +336,97 @@ def test_the_recall_route_does_not_mutate_records(client, session_factory):
             (row.id, row.content) for row in session.query(ChatMessage).all()
         ]
     assert before == after
+
+
+# ---------------------------------------------------------------------------
+# Relationship to the request-scoped authorization layer
+# ---------------------------------------------------------------------------
+
+
+def test_the_route_ignores_a_caller_supplied_grant_or_scope_override(
+    client, session_factory
+):
+    """The route resolves the account from authority, not from a supplied grant."""
+
+    _seed(
+        session_factory,
+        messages=[
+            ("user", "memory architecture", "2025-05-02T10:00:00+00:00"),
+        ],
+    )
+
+    response = client.get(
+        RECALL_PATH.format(project_id=1),
+        params={
+            "q": "memory architecture",
+            "grant": "forged-grant",
+            "request_id": "another-request",
+            "turn_id": "another-turn",
+            "account_id": ACCOUNT_B,
+            "user_id": ACCOUNT_B,
+            "source_message_id": 999,
+        },
+        headers=_auth(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # The decision follows the authenticated account, not the supplied fields.
+    assert body["account_id"] == ACCOUNT_A
+    assert body["project_id"] == 1
+    # A grant is never part of the caller-visible result surface.
+    assert "grant" not in body
+
+
+def test_a_project_owned_by_another_account_is_denied_by_the_route(
+    client, session_factory
+):
+    """ADR-081 ownership is enforced on the route independently of the request."""
+
+    _seed(
+        session_factory,
+        account_id=ACCOUNT_B,
+        project_owner=ACCOUNT_B,
+        messages=[("user", "other account history", "2025-05-02T10:00:00+00:00")],
+    )
+
+    response = client.get(
+        RECALL_PATH.format(project_id=1),
+        params={"q": "other account history"},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 403
+    assert "other account history" not in response.text
+
+
+def test_the_route_does_not_expose_an_imported_archive_even_with_a_direct_call(
+    client, session_factory
+):
+    """ADR-016 keeps imported archives off every model-exposed surface."""
+
+    _seed(
+        session_factory,
+        thread_kwargs={"origin_system": "openai"},
+        messages=[
+            ("user", "exported chatgpt transcript", "2025-05-02T10:00:00+00:00"),
+        ],
+    )
+
+    response = client.get(
+        RECALL_PATH.format(project_id=1),
+        params={"q": "exported chatgpt transcript"},
+        headers=_auth(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] == []
+    assert body["evidence_blocks"] == []
+    assert body["coverage"]["excluded_imported_threads"] == 1
+    assert "imported_archive_not_model_exposable" in body["coverage"]["exclusions"]
+    # The imported record itself is never returned as evidence.
+    assert all(
+        "exported chatgpt transcript" not in str(result)
+        for result in body["results"]
+    )
