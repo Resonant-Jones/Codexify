@@ -6,7 +6,7 @@
     "Codexify subsystem orientation",
     "architecture change-location guidance"
   ],
-  "content_hash": "de639ff37cab1241b7cb9bf79da24ac3d445763e1f23eaa4c2c92b8a341e628b",
+  "content_hash": "2a011aa888d24f4c025fbaa0204b12cf680f946be976a4ea5ed2b1f805687406",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:kb-entrypoint",
   "evidence_class": "documented-contract",
@@ -19,7 +19,7 @@
       "the current-state routing boundary changes"
     ],
     "verified_at": "2026-09-24T20:46:58Z",
-    "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+    "verified_commit": "35ac2256a4a35da7c195b86c588ae0609871b0c8"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

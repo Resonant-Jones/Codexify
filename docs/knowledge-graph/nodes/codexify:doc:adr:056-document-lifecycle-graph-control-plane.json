@@ -17,7 +17,7 @@
   "freshness": {
     "state": "current",
     "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "157d0279f80ed2db377873f9bd225a4c8d493c53",
+    "verified_commit": "35ac2256a4a35da7c195b86c588ae0609871b0c8",
     "triggers": [
       "the decision is superseded or contradicted",
       "the accepted DLG scope or canonical persistence doctrine materially changes",

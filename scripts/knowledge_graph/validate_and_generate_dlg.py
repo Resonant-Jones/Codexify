@@ -315,6 +315,24 @@ def _git_revision_timestamp(repository_root: Path, revision: str) -> str:
     return stdout.strip()
 
 
+def _git_blob_bytes(repository_root: Path, revision: str, path: str) -> bytes | None:
+    """Return the bytes of `path` as recorded at `revision`.
+
+    Returns None when the path does not exist at that revision. The bytes
+    come from the Git object database, never from the working tree, so the
+    result is identical in every checkout and does not depend on which
+    worktree, branch, or dirty state the command was run from.
+    """
+    completed = subprocess.run(
+        ["git", "-C", str(repository_root), "cat-file", "blob", f"{revision}:{path}"],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
 def _parse_datetime(value: str) -> datetime:
     if not isinstance(value, str) or not value:
         raise ValueError("timestamp must be a non-empty RFC3339 date-time")
@@ -611,6 +629,11 @@ def _load_canonical_nodes(
         return
     entries = sorted(node_dir.iterdir(), key=lambda item: item.name)
     for entry in entries:
+        # Dotfiles are tooling artifacts (editor scratch, in-progress
+        # writes), not corpus records. Only a tracked, non-JSON file is a
+        # policy violation.
+        if entry.name.startswith("."):
+            continue
         if not entry.is_file() or entry.suffix != ".json":
             result.add(
                 "error",
@@ -709,8 +732,28 @@ def _detect_active_path_collisions(result: ValidationResult) -> None:
         )
 
 
-def _validate_source_integrity(result: ValidationResult) -> dict[tuple[str, str], list[Path]]:
-    """Validate governed source files, hashes, source anchors, and local links."""
+def _validate_source_integrity(
+    result: ValidationResult,
+    *,
+    check_git: bool,
+) -> dict[tuple[str, str], list[Path]]:
+    """Validate governed source files, hashes, source anchors, and local links.
+
+    The hash comparison is bound to a revision. A node's `content_hash` is
+    compared against the canonical bytes recorded at that node's
+    `freshness.verified_commit`, and the bytes at the revision under
+    validation are checked for existence at that same revision.
+
+    Both reads come from the Git object database rather than the working
+    tree. That makes the verdict a function of the repository's history
+    alone: it no longer depends on which worktree, branch, or dirty state
+    the validator was run from, which is what let the corpus drift
+    silently under multi-worktree development.
+
+    When `check_git` is disabled the corpus is not backed by Git at all
+    (synthetic fixtures), so the hash is compared against the working-tree
+    bytes and no revision binding is required.
+    """
     anchor_matches: dict[tuple[str, str], list[Path]] = {}
     for node in result.nodes:
         document_id = str(node.get("document_id", ""))
@@ -725,30 +768,92 @@ def _validate_source_integrity(result: ValidationResult) -> dict[tuple[str, str]
                 path=str(source_path_value or ""),
             )
         else:
-            try:
-                source_bytes = source_path.read_bytes()
-            except OSError as exc:
-                result.add(
-                    "error",
-                    "canonical_source_unreadable",
-                    f"Cannot read canonical source: {exc}",
-                    document_id=document_id,
-                    path=str(source_path_value),
-                )
-            else:
-                expected_hash = node.get("content_hash")
-                if expected_hash == _sha256(source_bytes):
-                    result.source_hash_match_count += 1
-                else:
+            if not check_git:
+                # The corpus is not backed by Git in this mode, so there is
+                # no revision to bind the hash to. Compare against the
+                # working-tree bytes directly.
+                try:
+                    source_bytes = source_path.read_bytes()
+                except OSError as exc:
                     result.add(
                         "error",
-                        "content_hash_mismatch",
-                        "Canonical source bytes do not match node content_hash.",
+                        "canonical_source_unreadable",
+                        f"Cannot read canonical source: {exc}",
                         document_id=document_id,
                         path=str(source_path_value),
                     )
-                if source_path.suffix.lower() in {".md", ".markdown"}:
-                    _validate_markdown_links(result, document_id, source_path)
+                else:
+                    expected_hash = node.get("content_hash")
+                    if expected_hash == _sha256(source_bytes):
+                        result.source_hash_match_count += 1
+                    else:
+                        result.add(
+                            "error",
+                            "content_hash_mismatch",
+                            "Canonical source bytes do not match node content_hash.",
+                            document_id=document_id,
+                            path=str(source_path_value),
+                        )
+            else:
+                freshness = node.get("freshness")
+                verified_commit = (
+                    freshness.get("verified_commit") if isinstance(freshness, dict) else None
+                )
+                if not isinstance(verified_commit, str) or not SHA_RE.fullmatch(verified_commit):
+                    # Without a revision to bind to, there is no well-defined
+                    # revision-independent hash to compare. The
+                    # verified_commit_integrity check reports this separately.
+                    result.add(
+                        "error",
+                        "verified_commit_unbound",
+                        "Node does not declare a verified_commit to bind its content hash to.",
+                        document_id=document_id,
+                        path=str(source_path_value),
+                    )
+                else:
+                    verified_bytes = _git_blob_bytes(
+                        result.repository_root,
+                        verified_commit,
+                        str(source_path_value or ""),
+                    )
+                    if verified_bytes is None:
+                        result.add(
+                            "error",
+                            "canonical_source_missing_at_verified_commit",
+                            "Canonical source does not exist at the node's verified_commit.",
+                            document_id=document_id,
+                            path=str(source_path_value),
+                        )
+                    else:
+                        expected_hash = node.get("content_hash")
+                        if expected_hash == _sha256(verified_bytes):
+                            result.source_hash_match_count += 1
+                        else:
+                            result.add(
+                                "error",
+                                "content_hash_mismatch",
+                                "Canonical source bytes at verified_commit do not match node "
+                                "content_hash. The node's recorded hash and its declared "
+                                "revision disagree.",
+                                document_id=document_id,
+                                path=str(source_path_value),
+                            )
+
+                if _git_blob_bytes(
+                    result.repository_root,
+                    result.repository_revision,
+                    str(source_path_value or ""),
+                ) is None:
+                    result.add(
+                        "error",
+                        "canonical_source_missing_at_revision",
+                        "Canonical source does not exist at the revision under validation.",
+                        document_id=document_id,
+                        path=str(source_path_value),
+                    )
+
+            if source_path.suffix.lower() in {".md", ".markdown"}:
+                _validate_markdown_links(result, document_id, source_path)
 
         for anchor in node.get("source_anchors", []):
             if not isinstance(anchor, dict):
@@ -1433,7 +1538,7 @@ def validate_repository(
     result.graph_revision = compute_graph_revision(schema, schema_bytes, result.nodes)
     _detect_document_id_collisions(result)
     _detect_active_path_collisions(result)
-    anchor_matches = _validate_source_integrity(result)
+    anchor_matches = _validate_source_integrity(result, check_git=check_git)
     _validate_relation_targets_and_self_edges(result)
     _validate_duplicate_relations(result)
     _validate_acyclic_predicates(result)
@@ -1735,7 +1840,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Validate and generate deterministic DLG Phase 3A projections."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for command in ("validate", "generate", "check-generated"):
+    for command in ("validate", "generate", "check-generated", "rehash"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument(
             "--repository-root",
@@ -1751,6 +1856,23 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--generated-at",
                 help="Optional RFC3339 value; defaults deterministically to the chosen commit timestamp.",
             )
+        elif command == "rehash":
+            subparser.add_argument(
+                "--repository-revision",
+                required=True,
+                help="Revision to bind every canonical node to.",
+            )
+            subparser.add_argument(
+                "--node-id",
+                action="append",
+                dest="node_ids",
+                help="Restrict the rebind to this document ID (repeatable).",
+            )
+            subparser.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="Report what would change without writing any node.",
+            )
         else:
             subparser.add_argument("--repository-revision", required=True)
             subparser.add_argument("--generated-at", required=True)
@@ -1761,6 +1883,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     repository_root = Path(args.repository_root).resolve()
+
+    if args.command == "rehash":
+        from scripts.knowledge_graph.rebind_dlg_nodes import (
+            RebindError,
+            describe_outcomes,
+            rebind_corpus,
+        )
+
+        try:
+            outcomes = rebind_corpus(
+                repository_root,
+                revision=args.repository_revision,
+                node_ids=args.node_ids,
+                dry_run=args.dry_run,
+            )
+        except RebindError as exc:
+            print(f"DLG rebind error: {exc}", file=sys.stderr)
+            return 1
+        changed = [outcome for outcome in outcomes if outcome.changed]
+        print(
+            f"Rebound {len(changed)} of {len(outcomes)} canonical node(s) to "
+            f"{args.repository_revision}"
+            f"{' (dry run)' if args.dry_run else ''}."
+        )
+        for line in describe_outcomes(outcomes):
+            print(line)
+        return 0
+
     try:
         repository_revision = (
             args.repository_revision
