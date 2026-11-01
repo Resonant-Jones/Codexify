@@ -201,6 +201,64 @@ Facts, alter identity, persist Chronicle summaries, change continuity
 treatment, add instructions to the system prompt, or mutate conversation
 records. Retrieved evidence remains non-instructional.
 
+### 3.9 Message-level source eligibility prerequisite (2026-11-01)
+
+The single governing origin rule is now
+[ADR-016's authoritative chat message origin clarification](adr/016-continuity-governance-surface-contract.md#authoritative-chat-message-origin-clarification-2026-11-01).
+This section projects that rule; it does not create a second provenance
+authority. The [documentation-only message fixtures](fixtures/history-message-provenance.v1.json)
+separate persisted evidence, trusted write custody, origin classification, and
+conditional model-visible recall eligibility.
+
+**Current truth:** finding #3 is reproduced and remains open. The reader at
+`guardian/core/account_history_recall.py::_candidate_message_rows` currently
+filters message owner/kind and later formats `source_platform="codexify"`, but
+does not independently establish each message's source. Canonical ChatGPT
+import metadata inside a native thread passed that filter, was labeled native,
+and produced no provenance exclusion. The valid ADR-084 grant did not prevent
+this. Earlier authorization tests below do not qualify this evidence boundary.
+
+**Required subsequent implementation, not current behavior:**
+
+- For every candidate, require positive message-level native evidence: a
+  protected, backend-assigned `extra_meta.message_origin` assertion written
+  atomically at native creation, or ADR-016's exact-message trusted historical
+  assistant-completion witness. A native thread, absent import flags, owner,
+  role, storage location, or grant is insufficient.
+- Preserve existing importer `origin`, profile, timestamps, source IDs, raw
+  metadata, and lineage. Imported messages in native threads remain imported;
+  partial, unsupported, or unproven metadata is unknown, and incompatible
+  native/imported evidence is conflicting. All are excluded from ordinary
+  native recall before excerpts reach the model.
+- Evaluate each member of a mixed-origin thread independently. Retain all
+  existing account, canonical Project, thread/content/kind, grant, tool-turn,
+  and Command Bus checks. Native origin does not make an internal evidence
+  record recallable or authorize memory promotion.
+- Assign `source_platform="codexify"` only after native origin is established;
+  never use the output label as proof. Preserve accurate canonical IDs, role,
+  source lineage, timestamp semantics, and uncertainty.
+- Extend the existing bounded coverage receipt with content-free candidate
+  message exclusion counts distinguishing imported, unknown, and conflicting
+  origin, separately from thread exclusions. Do not leak omitted text, raw
+  provider IDs/metadata, or instructions. Do not imply complete history when
+  provenance or other bounds omit records. The separate 500-thread coverage
+  defect remains out of scope.
+- Unknown legacy rows remain unchanged and ineligible for native model-visible
+  recall, even if likely native. Future restore must preserve historical
+  origin and proof custody across local-ID remapping, not stamp restored data
+  as native. Arbitrary uploaded assertion JSON is not proof. No backfill or
+  retrospective rewrite is authorized here.
+
+`extra_meta` can carry the protected assertion without new storage, but current
+native writers, direct ORM inserts, route/worker JSON merges, fallback adapters,
+and restore paths do not universally enforce its trust/immutability rules.
+Those guards and per-message filtering/receipts require a later runtime slice;
+merely rejecting known import markers would leave the unknown-origin gap open.
+Origin classification never grants recall permission; the request grant cannot
+override origin exclusion. Imported human inspection and ADR-016's separately
+bounded Chronicle authorizations remain unchanged. Ordinary-chat advertisement
+stays inactive, and this document makes no PostgreSQL or live-worker claim.
+
 ## 4. Surfaces
 
 ### 4.1 Route
@@ -600,6 +658,12 @@ service converts an unexpected read failure into
 
 ## 14. Validation results
 
+The runtime results below belong to the request-authorization implementation
+at `fb06e9d96`, not to this documentation-only origin clarification. They do
+not prove message-level origin enforcement. This clarification is checked by
+JSON, documentation, diagram-freshness, and architecture tests only; it changes
+no supported-release claim.
+
 ### Focused suites
 
 Automated test evidence (SQLAlchemy over a disposable in-memory database, plus
@@ -694,7 +758,7 @@ open, and none of them is repaired here:
 | --- | --- |
 | #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
 | #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
-| #3 — Message-level imported provenance filtering | **Open.** Not repaired. ADR-016's human-only imported-archive path is unchanged, and the grant excludes imported threads. |
+| #3 — Message-level imported provenance filtering | **Open; reproduced.** ADR-016 now defines the positive native-origin evidence contract and unknown/conflicting disposition; origin stamping/guards and per-message filtering remain unimplemented. Thread checks and request grants do not close this defect. |
 | #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
 | #5 — 500-thread coverage truncation | **Open.** Not repaired. |
 

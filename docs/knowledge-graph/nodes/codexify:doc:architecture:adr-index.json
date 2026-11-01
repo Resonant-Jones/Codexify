@@ -8,12 +8,12 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "4a73ff4b4f1274d5527583b59f80e938e51f655d3fec1be30c99725b4868d5a4",
+  "content_hash": "cfacdecf4dd1e3483a702368b9aba676096a6a48a431edf104ed23578983a84d",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "ADR-084 gained an accepted clarification dated 2026-11-01 for historical conversation recall intent authorization, and the indexed ADR-084 entry now records that amendment with a link to its documentation-only fixtures. The index content hash was recomputed from the changed canonical source bytes; the prior verification commit and timestamp are retained unchanged because this change was not reverified against its governed sources. Documentation metadata only, not runtime or release proof.",
+    "reason": "ADR-016 gained an accepted 2026-11-01 clarification defining authoritative message-level native creation evidence, imported/unknown/conflicting origin treatment, and restore custody; its indexed entry links documentation-only provenance fixtures. The ADR-084 recall-authorization clarification remains indexed. The index content hash was recomputed from canonical source bytes; the prior verification commit and timestamp are retained because the corpus was not reverified. Documentation only.",
     "state": "stale",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
