@@ -19,7 +19,7 @@
       "the current-state routing boundary changes"
     ],
     "verified_at": "2026-09-24T20:46:58Z",
-    "verified_commit": "07947c84560034d200a2cfbd6179a0b223579751"
+    "verified_commit": "e14b172edd1d9ef522a27a710f648c39c0fe8294"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

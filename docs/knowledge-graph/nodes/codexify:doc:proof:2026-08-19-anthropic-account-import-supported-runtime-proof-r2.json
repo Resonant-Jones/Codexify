@@ -17,7 +17,7 @@
   "freshness": {
     "state": "current",
     "verified_at": "2026-08-20T00:03:57Z",
-    "verified_commit": "07947c84560034d200a2cfbd6179a0b223579751",
+    "verified_commit": "e14b172edd1d9ef522a27a710f648c39c0fe8294",
     "triggers": [
       "the immutable receipt's source bytes change",
       "a corrected replacement receipt supersedes this record"

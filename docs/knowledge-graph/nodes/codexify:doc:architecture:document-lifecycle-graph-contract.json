@@ -18,7 +18,7 @@
   "freshness": {
     "state": "current",
     "verified_at": "2026-08-08T13:54:04Z",
-    "verified_commit": "07947c84560034d200a2cfbd6179a0b223579751",
+    "verified_commit": "e14b172edd1d9ef522a27a710f648c39c0fe8294",
     "triggers": [
       "ADR-056 is superseded or its accepted scope changes",
       "the DLG node or packet schemas change",
