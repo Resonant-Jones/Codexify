@@ -8,6 +8,15 @@
 > evidence of any running integration. No OpenConnector runtime is installed,
 > deployed, or connected by this task.
 
+### Decisions of record
+
+| Decision | Outcome |
+| --- | --- |
+| **Licensing baseline** | OpenConnector `v1.9.4`, Apache-2.0. Adopted. |
+| **Upstream maintenance policy** | **Pin, but track upstream releases** (§1.4). v1.9.4 remains the licensed baseline; monitoring, evaluation, and remediation are an explicit operator responsibility. Tracking later releases does **not** authorize copying code newly published under more restrictive licensing. Deliberately lightweight — **no dedicated security-monitoring subsystem**. |
+| **Deployment boundary** | **Separate Compose project**, not a Codexify stack overlay (§2.1). Independent deployment, storage, and lifecycle. The private network is **containment, not authorization** (§2.3); Guardian-to-gateway authentication and connection scoping remain load-bearing. |
+| **Integration posture** | **Prove before integrating.** Gate A is disposable and answers one question (§6, Gate A). No Guardian adapter work and **no ADR amendment** until Gate A passes. No sunk-cost attachment if it does not. |
+
 ---
 
 ## Purpose
@@ -195,27 +204,73 @@ update a running container** — the container must be recreated.
 
 ### 1.4 Independent-fork and future-upgrade boundaries
 
-- **No upstream fork is authorized or proposed.** Codexify consumes upstream
-  release artifacts unmodified. A fork would create a permanent maintenance
-  and security-patch obligation that Codexify has not accepted, and would
-  undermine the upstream `SECURITY.md` support window.
-- **Upstream support window is narrow and must be treated as an upgrade
-  obligation.** Upstream applies security fixes to the **latest release and
-  `main` only**; older releases receive none. Pinning `v1.9.4` therefore
-  means Codexify inherits a **time-bounded security exposure** that grows with
-  every upstream release. This is an explicit, accepted consequence of the
-  pinning decision, not an oversight, and it is a named stopping condition in
-  Gate D.
-- **Upgrade path:** move the digest forward to a newer upstream release tag,
-  re-run the Gate A qualification suite against the new digest, and re-verify
-  the action catalog and provider auth contracts. `v1.9.4` must not be
-  silently replaced by a floating reference.
-- **Database compatibility:** the upstream runtime applies migrations at
-  startup for SQLite; for PostgreSQL the image exposes an explicit `migrate`
-  subcommand and the server **never** applies DDL during startup. Migration
-  and server must use the **same** image tag/digest. Codexify's Gate A uses
-  SQLite (see §2) so that no external database migration is introduced into a
-  deployment whose qualification is still pending.
+**No upstream fork is authorized or proposed.** Codexify consumes upstream
+release artifacts unmodified. A fork would create a permanent maintenance
+and security-patch obligation that Codexify has not accepted, and would
+undermine the upstream `SECURITY.md` support window.
+
+The operative constraint is upstream's own support policy: upstream applies
+security fixes to the **latest release and `main` only**; older releases
+receive none. Pinning `v1.9.4` therefore means Codexify inherits a
+**time-bounded security exposure** that grows with every upstream release.
+
+That exposure is **accepted deliberately**, and the following policy is the
+governing maintenance commitment. It is a **named operator responsibility**,
+not an assumption that upstream's maintainers will cover Codexify's exposure.
+
+#### The maintenance policy: pin, but track upstream releases
+
+| Phase | Commitment |
+| --- | --- |
+| **Pin** | Preserve the exact source commit (`d89dc9f24f5a057bb500272d7dbf333837c77c68`), the Apache-2.0 `LICENSE.txt`, the `NOTICE.md`, and the immutable container digest (`sha256:9cbc8cbb52d22553bd153d02a83ee1247b7470932bd5f6469d80895a17b3ef9c`). The pinned baseline is the licensed artifact Codexify actually depends on. |
+| **Monitor** | Track upstream releases, security advisories, and relevant dependency vulnerabilities. Upstream publishes at `github.com/oomol-lab/open-connector` (releases and `SECURITY.md`); vulnerability reports go to upstream's private advisory channel or `support@oomol.com`. |
+| **Evaluate** | For each discovered vulnerability, determine whether it **actually affects our deployment and exposure model** — our pinned version, our hardened configuration, our network posture, our action allowlist, and our credential-custody model. Not every upstream advisory is in our path. |
+| **Remediate** | Independently implement compatible fixes, update dependencies where possible, purchase a newer license, or switch providers. |
+| **Stop condition** | A **material unpatched vulnerability affecting our deployment** blocks promotion or requires disabling the affected capability. |
+
+**This is deliberately lightweight.** Codexify does **not** stand up a
+security-monitoring subsystem, a bespoke scanner, or a dedicated pipeline for
+OpenConnector. Monitoring is an **operator responsibility performed by
+reading upstream's release and advisory channels** — the same manual practice
+already applied to every other upstream dependency. Automation, if it ever
+becomes warranted, must be justified by the number of tracked upstream
+dependencies, not created for this one in isolation.
+
+**Licensing boundary on remediation.** Tracking later upstream releases does
+**not** authorize copying code that is newly published under more restrictive
+licensing. The pinned baseline is the Apache-2.0-licensed v1.9.4 artifact, and
+that is the licensed material Codexify may use and modify. If a future
+upstream release changes its license — for example to a source-available or
+proprietary term — then:
+
+- code from that release may **not** be copied into the Codexify
+  baseline, backported into it, or vendored from it;
+- "purchase a newer license" in the remediation table means **obtaining
+  rights** to the new artifact on acceptable terms, not assuming the new
+  terms apply retroactively to the Apache-2.0 baseline;
+- if the new terms are unacceptable, the remediation path is **switching
+  providers**, and the Apache-2.0 baseline remains a valid, separately
+  licensed, self-contained artifact.
+
+Any license change upstream is therefore an **Evaluate** input, not a routine
+upgrade step, and must be surfaced to the operator before any action is taken.
+
+#### Upgrade path
+
+Move the digest forward to a newer upstream release tag, re-run the Gate A
+qualification suite against the new digest, and re-verify the action catalog
+and provider auth contracts. `v1.9.4` must not be silently replaced by a
+floating reference, and a new upstream release is **not** a mandate to
+upgrade: adopting it is a deliberate Evaluate-then-Remediate decision.
+
+#### Database compatibility
+
+The upstream runtime applies migrations at startup for SQLite; for PostgreSQL
+the image exposes an explicit `migrate` subcommand and the server **never**
+applies DDL during startup. Migration and server must use the **same** image
+tag/digest. Codexify's Gate A uses SQLite (see §2) so that no external
+database migration is introduced into a deployment whose qualification is
+still pending.
 
 ### 1.5 Third-party provider API and OAuth obligations
 
@@ -374,6 +429,19 @@ networks:
 - **No public administrative interface.** The Web Console, `/api/*`, and
   `/docs` are reachable only from inside `codexify_internal`, and are
   additionally protected by `OOMOL_CONNECT_ADMIN_TOKEN` (§2.4).
+- **The private network is containment, not authorization.** Network
+  separation is a **blast-radius and reachability control**: it keeps the
+  gateway off the public interface and out of unrelated services' reach. It
+  grants **no identity, no tenant isolation, and no credential scoping**. A
+  container attached to `codexify_internal` is not thereby a trusted caller —
+  it can still reach the admin surface if it holds the admin token, and it can
+  still reach another user's connection if it holds an unrestricted token.
+  Therefore the network posture is **necessary but not sufficient**: the
+  Guardian-to-gateway authentication, per-user runtime-token scoping, and
+  explicit user-to-connection binding in §4 remain **load-bearing
+  requirements**. Treating the private network as the security boundary would
+  be a category error, and no Gate evidence may be produced by pointing at
+  network isolation alone.
 - **Egress posture.** `OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK` stays `"false"`,
   preserving upstream's default SSRF guard that restricts provider calls to
   public destinations. `OOMOL_CONNECT_EGRESS_TRUSTED_HOSTS` is left empty
@@ -1046,16 +1114,45 @@ start until the prior gate's evidence is recorded.
 
 ### Gate A — Isolated OpenConnector runtime qualification
 
-**Purpose.** Prove the pinned gateway runs, is internally sound, and is
-isolated. No Codexify code changes.
+**Purpose.** Answer one question:
+
+> **Can we run this connector engine reliably, invoke useful actions, and
+> isolate credentials without introducing a competing authority system?**
+
+If **yes**, proceed toward Guardian integration. If **no**, stop. There is no
+sunk-cost attachment to a dependency Codexify has not yet adopted.
+
+#### Scope discipline
+
+This plan is a **specification of intent**, not an implementation commitment.
+Its length reflects the number of boundaries that must be respected, not a
+required amount of code. Gate A is deliberately **small and disposable**: a
+standalone Compose project, a host-local secret file, and a throwaway trial
+harness. The following are explicitly **out of Gate A scope** and must not be
+started on the strength of this document:
+
+- **No Guardian adapter work.** No `guardian/connections/openconnector/`
+  package, no new routes, no Command Bus registration.
+- **No ADR amendment.** The §4.7(a) delegated credential-vault question is
+  **not** opened in Gate A. It is settled only **after** Gate A demonstrates
+  the substrate is worth adopting — an amendment to an ADR nobody has
+  validated is premature.
+- **No migration, no schema, no UI, no catalog entry.**
+- **No promotion, no release claim, no supported-profile change.**
+
+If Gate A passes, the **next** meaningful milestone is Gate B, and it remains
+separately authorized. Gate A's own conclusion may legitimately be "the
+substrate does not meet the bar," and that outcome is a **successful
+execution of the gate**, not a failure to be rationalized away.
 
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Docker available; the pinned image digest verified; `OOMOL_CONNECT_ENCRYPTION_KEY`, `OOMOL_CONNECT_ADMIN_TOKEN`, and the action allowlist generated into a host secret store; the standalone Compose project from §2.2 authored; the §5.1 trial definition agreed. |
 | **Authorized implementation surface** | A **new, separate** Compose project file for the gateway. A host-local secret file outside the repository. A throwaway trial harness that calls the gateway directly over `codexify_internal`. **No file under `guardian/`, `frontend/`, `config/`, or the existing `docker-compose.yml` may be modified.** |
-| **Tests and observable evidence** | §5.3 Group 1 (rows 1–12) and Group 2 (rows 13–16) pass against the pinned digest. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, and the two-account isolation results. |
+| **Tests and observable evidence** | §5.3 Group 1 (rows 1–12) and Group 2 (rows 13–16) pass against the pinned digest. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, and the two-account isolation results. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
 | **Rollback procedure** | Stop and remove the standalone project; remove the `codexify_openconnector_data` volume if the trial is abandoned; revoke the trial tokens; destroy the trial provider credentials at the provider. **Nothing to roll back inside Codexify**, because nothing inside Codexify changed. |
 | **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** |
+
 
 ### Gate B — Guardian read-only adapter and Command Bus integration
 
@@ -1116,6 +1213,15 @@ catalog identity for gateway-backed providers — are **future** decisions. A
 future implementation must explicitly resolve them and determine whether an
 ADR addition or amendment is required.
 
+**Sequencing decision.** None of these three is opened during Gate A. The
+§4.7(a) delegated credential-vault amendment is settled **only after** Gate A
+demonstrates that the substrate is worth adopting, and **before** Gate B
+begins. Amending an ADR on the strength of a plan for a dependency that has
+never been exercised would be premature: it would commit Codexify's
+architecture doctrine to a component that may yet fail its own qualification
+gate. Gate A's outcome may legitimately be "not worth adopting," in which case
+**no ADR is amended and no adapter is written**.
+
 ---
 
 ## 8. Proof Surface
@@ -1161,6 +1267,10 @@ Explicitly **not** done here, and not authorized by this task:
     change, and no ADR addition or amendment.
 11. No upstream fork.
 12. No decision on the §4.7 authority questions.
+13. No security-monitoring subsystem, bespoke scanner, or dedicated pipeline
+    for OpenConnector. The §1.4 monitoring commitment is an operator
+    responsibility performed by reading upstream's release and advisory
+    channels.
 
 ---
 
@@ -1212,19 +1322,26 @@ Apache-2.0 with a `NOTICE.md` that must be reproduced) is a credible
 implementation substrate for Codexify's external-application access, deployed
 as an **optional, isolated service** with its own pinned image digest, its own
 encrypted credential volume, a **private network with no published ports**, and
-an **admin token that is never reachable from a model or a runtime path**.
-Codexify does **not** gain a second control plane: the gateway is not a
-catalog entry; it is the `runtime_binding.adapter` behind ordinary provider
-entries in the existing catalog, and every agent-invocable operation is a
-**GET-only route** so the Command Bus derives `read`/`read_only` semantics
-mechanically rather than by assertion. Credential authority splits cleanly —
-the gateway holds provider credentials, Codexify holds an explicit
-**per-user binding** to a gateway connection plus a per-user persistent runtime
-token whose `allowedConnections` grant is the enforcement mechanism — and
-because that split makes the gateway a **delegated credential vault**, it is
-the one decision that must be settled by an **ADR amendment before Gate B
-begins**. The first validation slice is a no-auth Hacker News action against
+an **admin token that is never reachable from a model or a runtime path** —
+while the private network itself is treated as containment rather than as the
+authorization boundary. Codexify does **not** gain a second control plane: the
+gateway is not a catalog entry; it is the `runtime_binding.adapter` behind
+ordinary provider entries in the existing catalog, and every agent-invocable
+operation is a **GET-only route** so the Command Bus derives
+`read`/`read_only` semantics mechanically rather than by assertion. Credential
+authority splits cleanly — the gateway holds provider credentials, Codexify
+holds an explicit **per-user binding** to a gateway connection plus a per-user
+persistent runtime token whose `allowedConnections` grant is the enforcement
+mechanism. The upstream dependency is **pinned but tracked**: v1.9.4 remains
+the licensed baseline, while monitoring, evaluation, and remediation of
+upstream releases and advisories is an explicit operator responsibility that
+does not extend to copying code newly published under more restrictive
+licensing. The first validation slice is a no-auth Hacker News action against
 the pinned build, proven locally, with two synthetic accounts, before any
-real provider API is touched. Nothing in this document installs, deploys, or
-promotes anything; `docs/architecture/00-current-state.md` remains the release
-truth, and OpenConnector remains outside Beta support.
+real provider API is touched. Gate A asks one question — can this engine run
+reliably, invoke useful actions, and isolate credentials without introducing
+a competing authority system? — and its answer may legitimately be **no**, in
+which case nothing is adopted, no ADR is amended, and no adapter is written.
+Nothing in this document installs, deploys, or promotes anything;
+`docs/architecture/00-current-state.md` remains the release truth, and
+OpenConnector remains outside Beta support.
