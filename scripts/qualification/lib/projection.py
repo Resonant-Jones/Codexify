@@ -130,14 +130,17 @@ def build_registry(
         if current is not None:
             freshness = "stale"
             reasons: list[str] = []
+            blockers: list[str] = []
             if history is not None:
-                freshness, reasons = compute_freshness(
+                freshness, reasons, blockers = compute_freshness(
                     rubric, current, history, tip_sha
                 )
             if reasons:
                 warnings.append(
-                    f"{rubric.qualification_id}: {len(reasons)} surface path(s) "
-                    f"changed since the tested commit, so the run is stale"
+                    f"{rubric.qualification_id}: not current "
+                    f"({reasons[0]}); {len(reasons)} reason(s)"
+                    if len(reasons) > 1
+                    else f"{rubric.qualification_id}: not current ({reasons[0]})"
                 )
 
             entry.update(
@@ -148,7 +151,7 @@ def build_registry(
                     "tested_commit": current.commit,
                     "last_qualified_at": current.date,
                     "evidence": _merge_evidence(rubric.evidence, current.evidence),
-                    "blockers": _blockers_for(freshness, superseded),
+                    "blockers": _blockers_for(blockers, superseded),
                 }
             )
 
@@ -196,17 +199,11 @@ def _metrics_for(receipts: Sequence[RunReceipt]) -> dict[str, int]:
     }
 
 
-def _blockers_for(freshness: str, superseded: Sequence[RunReceipt]) -> list[str]:
+def _blockers_for(
+    freshness_blockers: Sequence[str], superseded: Sequence[RunReceipt]
+) -> list[str]:
     """Describe why a projected qualification is not a current PASS."""
-    if freshness == "current" and not superseded:
-        return []
-
-    blockers: list[str] = []
-    if freshness == "stale":
-        blockers.append(
-            "The tested commit no longer describes the current tip: meaningful "
-            "changes touched this qualification surface since the run."
-        )
+    blockers = list(freshness_blockers)
     if superseded:
         blockers.append(
             f"{len(superseded)} earlier run receipt(s) for this surface were "

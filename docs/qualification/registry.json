@@ -24,7 +24,7 @@
     },
     "supported-compose": {
       "blockers": [
-        "The tested commit no longer describes the current tip: meaningful changes touched this qualification surface since the run."
+        "The tested commit 5da79431fa059b7da80688380550cf29d4854b18 is not an ancestor of the current tip, so this run cannot be shown to describe the code the tip contains. A qualification run must test a revision that is part of the lineage it qualifies."
       ],
       "evidence": [
         "docs/architecture/proofs/supported-compose/2026-09-22-current-tip-final-supported-compose-qualification.md"

@@ -9,9 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from scripts.qualification.lib.freshness import match_surface
+from scripts.qualification.lib.freshness import (
+    GitHistory,
+    compute_freshness,
+    match_surface,
+)
 from scripts.qualification.lib.parsing import (
     QualificationParseError,
+    RunReceipt,
     parse_rubric,
     parse_run_receipt,
 )
@@ -285,6 +290,128 @@ def test_projection_merges_rubric_and_receipt_evidence(tmp_path: Path) -> None:
     entry = result.registry["qualifications"]["sample-surface"]
 
     assert entry["evidence"] == ["docs/architecture/proofs/example-proof.md"]
+
+
+def test_projection_reports_a_missing_tested_commit_distinctly(
+    tmp_path: Path,
+) -> None:
+    """An unresolvable tested commit is a provenance problem, not staleness.
+
+    A receipt may cite a revision that is not present in the repository's
+    history. That must not be reported as though the surface merely aged.
+    """
+    commit = "9" * 40
+    rubric = parse_rubric(_write_rubric(tmp_path), tmp_path)
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+
+    history = GitHistory(tmp_path)
+    result = build_registry(
+        [rubric],
+        [receipt],
+        repo_root=tmp_path,
+        tip_sha="8" * 40,
+        history=history,
+    )
+    entry = result.registry["qualifications"]["sample-surface"]
+
+    assert entry["freshness"] == "stale"
+    assert any(
+        "not an ancestor of the current tip" in blocker
+        for blocker in entry["blockers"]
+    )
+
+
+def test_freshness_is_independent_of_local_object_presence(
+    tmp_path: Path,
+) -> None:
+    """A commit outside the tip's lineage must read the same everywhere.
+
+    A revision that was never merged to `main` may exist as a dangling
+    object in one developer's clone and be absent from another. The
+    freshness verdict must not depend on which objects happen to be
+    present locally, or the CI drift check would disagree with the local
+    one.
+    """
+    commit = "5" * 40
+    rubric = parse_rubric(_write_rubric(tmp_path), tmp_path)
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+
+    _init_git_repo(tmp_path)
+    history = GitHistory(tmp_path)
+    tip = history.resolve_commit("HEAD")
+    assert tip is not None
+
+    freshness, reasons, _ = compute_freshness(rubric, receipt, history, tip)
+
+    assert freshness == "stale"
+    assert reasons == ["tested_commit_not_in_tip_lineage"]
+
+
+def test_freshness_of_a_merged_commit_uses_the_surface_diff(
+    tmp_path: Path,
+) -> None:
+    """A commit inside the tip's lineage is compared by surface changes."""
+    commit = "6" * 40
+    _write_rubric(tmp_path)
+    _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit))
+    _init_git_repo(tmp_path)
+    history = GitHistory(tmp_path)
+    tip = history.resolve_commit("HEAD")
+    assert tip is not None
+
+    rubric = parse_rubric(_write_rubric(tmp_path), tmp_path)
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+
+    # An all-digit SHA that is not in the repository's history reads as
+    # outside the tip's lineage, never as a surface change.
+    freshness, reasons, _ = compute_freshness(rubric, receipt, history, tip)
+    assert freshness == "stale"
+    assert reasons == ["tested_commit_not_in_tip_lineage"]
+
+
+def test_projection_marks_a_run_current_when_the_surface_is_untouched(
+    tmp_path: Path,
+) -> None:
+    commit = "7" * 40
+    rubric = parse_rubric(_write_rubric(tmp_path), tmp_path)
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+
+    _init_git_repo(tmp_path)
+    history = GitHistory(tmp_path)
+    tip = history.resolve_commit("HEAD")
+    assert tip is not None
+
+    # The receipt tested the tip itself, so nothing can have moved.
+    receipt_at_tip = RunReceipt(
+        qualification_id=receipt.qualification_id,
+        rubric_version=receipt.rubric_version,
+        verdict=receipt.verdict,
+        commit=tip,
+        date=receipt.date,
+        path=receipt.path,
+        repo_root=tmp_path,
+        evidence=receipt.evidence,
+    )
+
+    result = build_registry(
+        [rubric],
+        [receipt_at_tip],
+        repo_root=tmp_path,
+        tip_sha=tip,
+        history=history,
+    )
+    entry = result.registry["qualifications"]["sample-surface"]
+
+    assert entry["freshness"] == "current"
+    assert entry["blockers"] == []
 
 
 # ── Validator ────────────────────────────────────────────────────────────

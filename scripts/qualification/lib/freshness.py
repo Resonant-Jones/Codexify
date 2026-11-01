@@ -79,14 +79,17 @@ class GitHistory:
             return None
         return [line for line in result.stdout.splitlines() if line.strip()]
 
-    def is_ancestor(self, older: str, newer: str) -> bool | None:
-        """Return whether `older` is an ancestor of `newer`."""
+    def is_ancestor(self, older: str, newer: str) -> bool:
+        """Return whether `older` is an ancestor of `newer`.
+
+        A revision that cannot be resolved is reported as not an ancestor.
+        `git merge-base --is-ancestor` exits 1 when the revisions are
+        unrelated and 128 when a revision is unresolvable; both mean the
+        older revision is not part of the newer one's lineage, and neither
+        depends on which objects happen to exist locally.
+        """
         result = self._run(["merge-base", "--is-ancestor", older, newer])
-        if result.returncode == 0:
-            return True
-        if result.returncode == 1:
-            return False
-        return None
+        return result.returncode == 0
 
 
 def match_surface(paths: Sequence[str], surface_paths: Sequence[str]) -> list[str]:
@@ -177,25 +180,67 @@ def compute_freshness(
     receipt: RunReceipt,
     history: GitHistory,
     tip_sha: str,
-) -> tuple[str, list[str]]:
-    """Return the freshness of one receipt and the reasons behind it.
+) -> tuple[str, list[str], list[str]]:
+    """Return the freshness of one receipt, the reasons, and the blockers.
 
     The freshness vocabulary is the one the registry schema permits:
     `current`, `stale`, `superseded`. `superseded` is decided by the caller
     when a later run exists for the same qualification, so this function
     returns only `current` or `stale`.
+
+    `reasons` explains why the run is not current. `blockers` is the subset
+    a reader of the registry should act on.
+
+    The result must not depend on which objects happen to be present in the
+    local object store. A commit that was never merged to `main` may still
+    exist as a dangling object in one developer's clone and be absent from
+    another, so ancestry is tested with `git merge-base --is-ancestor`,
+    which answers "is this an ancestor of the tip?" identically in every
+    checkout: exit 0 for an ancestor, non-zero for both a known
+    non-ancestor and an unresolvable revision.
     """
     if receipt.commit == tip_sha:
-        return "current", []
+        return "current", [], []
+
+    if not history.is_ancestor(receipt.commit, tip_sha):
+        # Either the tested commit is not part of the tip's lineage, or it
+        # cannot be resolved at all. Both mean the same thing for a reader:
+        # this run cannot be shown to describe the code the tip contains.
+        return (
+            "stale",
+            ["tested_commit_not_in_tip_lineage"],
+            [
+                f"The tested commit {receipt.commit} is not an ancestor of the "
+                "current tip, so this run cannot be shown to describe the "
+                "code the tip contains. A qualification run must test a "
+                "revision that is part of the lineage it qualifies."
+            ],
+        )
 
     changed = history.changed_paths(receipt.commit, tip_sha)
     if changed is None:
         # The comparison could not be performed. Treating this as current
         # would assert freshness that was never demonstrated.
-        return "stale", ["freshness_comparison_unavailable"]
+        return (
+            "stale",
+            ["freshness_comparison_unavailable"],
+            [
+                "Freshness could not be computed for this run because the "
+                "comparison against the current tip failed. The run is "
+                "treated as not current."
+            ],
+        )
 
     touched = match_surface(changed, rubric.surface_paths)
     if not touched:
-        return "current", []
+        return "current", [], []
 
-    return "stale", sorted(touched)
+    return (
+        "stale",
+        sorted(touched),
+        [
+            "The tested commit no longer describes the current tip: "
+            f"{len(touched)} path(s) in this qualification surface changed "
+            "since the run."
+        ],
+    )
