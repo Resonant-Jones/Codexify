@@ -18,6 +18,8 @@
 | **Integration posture** | **Prove before integrating.** Gate A is disposable and answers one question (§6, Gate A). No Guardian adapter work and **no ADR amendment** until Gate A passes. No sunk-cost attachment if it does not. |
 | **Runtime authentication** | **Explicit bootstrap sequence** (§2.4). Containment first, then the first scoped persistent token, then proof that unauthenticated `/v1` is rejected, then credentials. `OOMOL_CONNECT_RUNTIME_TOKEN` is never set as an environment variable. |
 | **Connection grants** | **Never empty.** An empty or omitted `allowedConnections` is *unrestricted access*, not deny-all (§5.1.1). Every token carries an explicit non-empty grant, and the unrestricted-grant token is revoked before any credential-bearing connection exists. |
+| **Authentication lifecycle** | **The token store is never empty** (§5.1.1). Upstream re-derives runtime auth from a **live** store query on every request, so revoking the last token **reopens** the unauthenticated window. A **sentinel token** keeps the store non-empty for the gateway's life, and every handoff **overlaps** (create successor → verify → revoke predecessor). |
+| **Trigger surface** | **Explicitly blocked** at the deployment layer (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`). Triggers are an **independent** execution policy from Actions and Proxies, so blocking proxies does not block them. |
 | **Read-only enforcement** | The Command Bus GET-only rule is a **classification**, not a safety guarantee (§3.4). Gate B requires a **reviewed, server-controlled read-only action allowlist** — upstream actions carry no read-only marker. |
 | **OAuth callback** | **Gate C design decision, deferred** (§2.8, §4.7(b)). Two open options: a restricted HTTPS reverse proxy in front of upstream's own `/oauth/callback`, or a Guardian-owned forwarding handler. **No ADR amendment opened yet.** |
 
@@ -403,6 +405,15 @@ services:
       # proxy is allowed until one of these variables restricts it.
       OOMOL_CONNECT_BLOCKED_PROXIES: "*"
       OOMOL_CONNECT_ALLOWED_PROXIES: ""
+      # Provider Triggers are disabled outright. Triggers are evaluated by an
+      # INDEPENDENT policy (allowedTriggers / blockedTriggers), separate from
+      # Actions and Proxies, so blocking proxies does not block them. A
+      # Trigger can perform provider API calls its registered operation needs
+      # "without a public proxy grant", so it is a distinct execution surface.
+      # Blocked at the DEPLOYMENT layer so the denial holds even when no
+      # runtime token is present (see the zero-token window in section 2.4).
+      OOMOL_CONNECT_BLOCKED_TRIGGERS: "*"
+      OOMOL_CONNECT_ALLOWED_TRIGGERS: ""
       # Keep upstream's SSRF guard in its default posture.
       OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK: "false"
       OOMOL_CONNECT_EGRESS_TRUSTED_HOSTS: ""
@@ -522,21 +533,41 @@ exactly where action execution lives.
 
 **This closes once the first persistent runtime token exists**, because
 `hasStoredRuntimeTokens()` then becomes true and `hasValidToken` stops
-short-circuiting to `true`. The safe bootstrap is therefore an explicit,
-ordered sequence:
+short-circuiting to `true`.
+
+**And it re-opens if the store becomes empty again.** The check is a **live
+per-request query**, not a startup-time flag:
+
+```ts
+// src/server/connect-app.ts
+const hasStoredRuntimeTokens = async (): Promise<boolean> =>
+  (await runtimeTokens.listTokens()).length > 0;
+```
+
+Because `revoke` deletes the row (`delete from runtime_tokens where id = $1`),
+**revoking the last persistent token reopens the unauthenticated window.**
+The bootstrap fix and the token-lifecycle fix are therefore the same problem:
+the store must never be empty. See §5.1.1's standing invariant and the
+overlapping-handoff procedure.
+
+The safe bootstrap is an explicit, ordered sequence:
 
 | Step | Action | State after |
 | --- | --- | --- |
 | **1** | Establish network containment **first**: the container runs with **no published ports** on `codexify_internal` only, and the admin token and encryption key are already in place via `env_file`. | Runtime API unauthenticated, but reachable **only** from attached containers. |
-| **2** | Using the **admin token** against `POST /api/runtime-tokens`, create the first persistent runtime token, restricted to the exact connection ids and action ids the trial will use. | `hasStoredRuntimeTokens()` is now true; the runtime API **requires** a bearer token. |
-| **3** | **Verify** that an unauthenticated `/v1` request is now rejected (expect `401`/`403`), and that the new token is accepted. | The bootstrap window is **closed and proven closed**. |
-| **4** | Only now introduce provider credentials, and only via the admin surface. | Credentials exist, and the runtime surface is already authenticated. |
+| **2** | Using the **admin token** against `POST /api/runtime-tokens`, create the **sentinel token** (§5.1.1) — the token that keeps the store non-empty for the gateway's whole life. | `hasStoredRuntimeTokens()` is now true; the runtime API **requires** a bearer token. |
+| **3** | Create the **first working token** (P0), with its explicit non-empty grant. | Store = `{sentinel, P0}` — non-empty. |
+| **4** | **Verify** that an unauthenticated `/v1` request is now rejected (expect `401`/`403`), that the new tokens are accepted, and that the sentinel **cannot** authorize any operation. | The bootstrap window is **closed and proven closed**. |
+| **5** | Only now introduce provider credentials, and only via the admin surface. | Credentials exist, and the runtime surface is already authenticated. |
 
 **Constraints on this sequence:**
 
-- Steps 1–3 are **ordering requirements, not suggestions**. Introducing a
-  provider credential at step 1 rather than step 4 would place a stored
+- Steps 1–4 are **ordering requirements, not suggestions**. Introducing a
+  provider credential at step 1 rather than step 5 would place a stored
   credential behind an unauthenticated runtime API.
+- **The sentinel token is created first** and is **never revoked** while the
+  gateway runs with credentials present. It is what makes the store
+  non-empty a *standing* property rather than a transient one.
 - The bootstrap token, if one is used at all, must be **created, used, and
   deleted within step 2** — it must never outlive the initialization, and
   `OOMOL_CONNECT_RUNTIME_TOKEN` must never be set as an environment variable
@@ -545,8 +576,10 @@ ordered sequence:
   absolutely here: **the window is survivable only because the runtime
   surface is not network-reachable.** Removing the no-published-ports posture
   would make this window an internet-exposed unauthenticated action API.
-- **Evidence:** step 3's rejection check is a required Gate A observation
-  (§5.3, row 5a), not an inference from configuration.
+- **Evidence:** step 4's rejection check is a required Gate A observation
+  (§5.3, row 0a), not an inference from configuration — and it must be
+  **repeated after every subsequent token handoff**, because the protection
+  is re-derived per request and can vanish silently.
 
 #### A note on `requireRuntimeAuth`
 
@@ -585,26 +618,69 @@ startup on any missing or empty required key** rather than proceeding with a
 degraded posture:
 
 ```bash
-# Fail-closed preflight. Exits non-zero on any missing/empty required key.
+# Fail-closed preflight. Exits non-zero on any violation.
+# Reports KEY NAMES and violation reasons only — never secret values.
 set -euo pipefail
-SECRETS=/run/secrets/openconnector.env
+SECRETS="${1:-/run/secrets/openconnector.env}"
+# The exact action ids approved for the trial. Anything else fails.
+APPROVED_ACTIONS="hackernews.get_top_stories"
 fail=0
+
+# 1. Required keys present and non-empty.
+#    NOTE: the value check requires at least ONE non-space character,
+#    so a legitimate single-character value is not falsely rejected.
 for key in OOMOL_CONNECT_ENCRYPTION_KEY OOMOL_CONNECT_ADMIN_TOKEN OOMOL_CONNECT_ALLOWED_ACTIONS; do
-  if ! grep -qE "^${key}=.+[^[:space:]]+$" "$SECRETS"; then
+  if ! grep -qE "^${key}=[^[:space:]]" "$SECRETS"; then
     echo "PREFLIGHT FAIL: missing or empty ${key}" >&2
     fail=1
   fi
 done
-if grep -qE '^OOMOL_CONNECT_RUNTIME_TOKEN=.+' "$SECRETS"; then
-  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN must be absent (unrestricted grant)" >&2
+
+# 2. OOMOL_CONNECT_RUNTIME_TOKEN must be ABSENT as a KEY, regardless of value.
+#    An empty 'OOMOL_CONNECT_RUNTIME_TOKEN=' is still a present key, and its
+#    presence is exactly what this rule forbids. (Upstream's optionalEnv()
+#    would treat an empty value as unset, but the rule is about the key.)
+if grep -qE '^OOMOL_CONNECT_RUNTIME_TOKEN=' "$SECRETS"; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN key present (unrestricted grant)" >&2
   fail=1
 fi
+
+# 3. The action allowlist must be EXACTLY the approved trial actions.
+#    Rejects wildcards ('*', 'github.*') and any unapproved action id.
+actual_actions="$(grep -E '^OOMOL_CONNECT_ALLOWED_ACTIONS=' "$SECRETS" | head -1 | cut -d= -f2- || true)"
+if [ "$actual_actions" != "$APPROVED_ACTIONS" ]; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_ALLOWED_ACTIONS is not exactly the approved trial actions" >&2
+  fail=1
+fi
+
+# 4. No wildcard may appear in the allowlist.
+if printf '%s' "$actual_actions" | grep -qE '(^|,)\*|\.\*'; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_ALLOWED_ACTIONS contains a wildcard" >&2
+  fail=1
+fi
+
 [ "$fail" -eq 0 ] || exit 1
+echo "PREFLIGHT OK"
 ```
+
+**What the preflight now enforces**, and why each check exists:
+
+| Check | Failure it prevents |
+| --- | --- |
+| Required keys present and non-empty | A missing or blank `OOMOL_CONNECT_ENCRYPTION_KEY` silently degrades to **plaintext credential storage**; a missing admin token leaves `/api/*` open. |
+| `OOMOL_CONNECT_RUNTIME_TOKEN` key **absent regardless of value** | A present key is the thing the plan forbids. Checking only for a *non-empty* value would let `OOMOL_CONNECT_RUNTIME_TOKEN=` through, which reads as "configured" to anyone auditing the file. (Upstream's `optionalEnv()` maps an empty value to unset, so this is a strictness-and-clarity rule, not an exploit path — but a strict rule that matches the documented policy is worth having.) |
+| Allowlist **exactly** equals the approved trial actions | A wildcard or a broader list silently widens the executable surface. This is the check the earlier preflight was missing: it accepted `github.*` as "non-empty" when the trial approves exactly one action. |
+| No wildcard in the allowlist | Defense in depth against the exact-match check above being weakened by a future edit (e.g. a list joined across lines). |
+
+**The preflight is a policy gate, not a security control.** It validates the
+*operator's* configuration before startup; it does not constrain the running
+gateway. The gateway's own enforcement remains the deployment-level
+allowlist plus each token's grant (§3.6).
 
 Additional preflight properties:
 
-- The preflight reports **key names only** — never values.
+- The preflight reports **key names and violation reasons only** — never
+  values.
 - **Do not use `docker compose config` as the verification step.** It renders
   the resolved configuration, which **prints expanded secret values** to
   stdout and into shell history and CI logs. If it is used at all for
@@ -613,6 +689,9 @@ Additional preflight properties:
 - The secret file must be mode `0600`, owned by the deploying user, and
   **outside the repository**. It is never committed, never written into the
   data volume, and never echoed.
+- The approved-action list is **supplied by the reviewer of the trial**, not
+  derived from the gateway's catalog at runtime. A preflight that read the
+  allowlist from the thing it is meant to constrain would be circular.
 
 #### Verified: the deployment-level execution restrictions survived the switch to `env_file`
 
@@ -626,6 +705,8 @@ environment:
 | --- | --- |
 | `OOMOL_CONNECT_BLOCKED_PROXIES` is `"*"` | **PASS** |
 | `OOMOL_CONNECT_ALLOWED_PROXIES` is empty (no proxy allowlist) | **PASS** |
+| `OOMOL_CONNECT_BLOCKED_TRIGGERS` is `"*"` | **PASS** (Triggers blocked at the deployment layer) |
+| `OOMOL_CONNECT_ALLOWED_TRIGGERS` is empty (no trigger allowlist) | **PASS** |
 | `OOMOL_CONNECT_ALLOWED_ACTIONS` is non-empty | **PASS** |
 | `OOMOL_CONNECT_ALLOWED_ACTIONS` is narrowly scoped (exactly the trial action id) | **PASS** |
 | `OOMOL_CONNECT_BLOCKED_ACTIONS` is empty | **PASS** |
@@ -1358,18 +1439,116 @@ pinned commit). The same permissive-empty convention applies to
 the **deployment-level** `OOMOL_CONNECT_ALLOWED_ACTIONS` is the only thing
 constraining an action when the token's own list is empty.
 
-This makes token construction a **phased** concern. The trial therefore uses
-**three distinct tokens**, each with an explicit non-empty grant, and the
-unrestricted-grant token exists only while the database contains no
-credential-bearing connection:
+##### The standing invariant
 
-| Phase | Token | `allowedConnections` | `allowedActions` | Valid only while |
-| --- | --- | --- | --- | --- |
-| **P0 — bootstrap** | `trial-bootstrap` | the exact `no_auth` connection id for the trial provider (see the `no_auth` note below) | the exact trial action id(s) | the database holds **no credential-bearing connection** |
-| **P1 — credentialed** | `trial-credentialed` | the exact id of the newly created credential-bearing connection | the exact read-only action id(s) | one credentialed connection exists |
-| **P2 — isolation** | `trial-user-a`, `trial-user-b` | each user's **own** connection id, and **never** the other's | each user's own read-only action id(s) | two connections exist |
+> **The persistent-token store must never be empty while the gateway is
+> running with credentials stored, and must never be empty between any two
+> token lifecycle operations.**
 
-**The `no_auth` grant exemption.** Upstream's `resolveExecutionTarget`
+This is not a stylistic rule. Upstream's runtime-auth decision is
+**re-evaluated on every request** against the **live** token store:
+
+```ts
+// src/server/connect-app.ts
+const hasStoredRuntimeTokens = async (): Promise<boolean> =>
+  (await runtimeTokens.listTokens()).length > 0;
+```
+
+and in `src/server/api/auth.ts`:
+
+```ts
+async function hasValidToken(context: Context, options: LocalAuthOptions, scope: AuthScope): Promise<boolean> {
+  const token = tokenForScope(options, scope);
+  if (!token) {
+    if (scope === "admin") return true;
+    const hasRuntimeTokens = options.hasRuntimeTokens
+      ? await options.hasRuntimeTokens()      // <-- live store query, per request
+      : options.resolveRuntimeToken !== undefined;
+    if (!options.requireRuntimeAuth && !hasRuntimeTokens && !options.verifyRuntimeJwt) {
+      return true;                              // <-- PERMISSIVE: unauthenticated allowed
+    }
+    return hasValidRuntimeToken(context, options);
+  }
+  ...
+}
+```
+
+With no environment bootstrap token, no `requireRuntimeAuth`, and no JWT
+verifier, **an empty token store means the runtime API is unauthenticated** —
+and `revoke` deletes the row outright (`delete from runtime_tokens where id
+= $1`), so revoking the *last* token reopens the window that the first token
+closed.
+
+This also means the protection is **not** a startup-time property. It is
+re-derived per request, which is precisely why it can silently disappear
+mid-run. The consequence for the plan is that "we created a token at
+bootstrap" is **not** sufficient evidence; the store must be **observed
+non-empty** at every point where authentication is supposed to hold.
+
+##### Overlapping-token handoff (no zero-token window)
+
+The P0-to-P1 transition must **overlap**, never gap. The successor is created
+and **proven valid** *before* the predecessor is revoked:
+
+| Step | Action | Store state | Authentication state |
+| --- | --- | --- | --- |
+| **1** | Create successor token `S` with its full, explicit, non-empty grant. | `{P0, S}` — **non-empty** | **Enforced** |
+| **2** | **Verify `S` works**: an action authorized only by `S`'s grant succeeds, and `S` cannot reach any connection `S` was not granted. | `{P0, S}` | **Enforced** |
+| **3** | Revoke predecessor `P0`. | `{S}` — **non-empty** | **Enforced** |
+| **4** | **Verify the store is still non-empty** and unauthenticated `/v1` is **still rejected**. | `{S}` | **Enforced** |
+
+The store is non-empty at **every** step. There is no moment at which the
+gateway has zero tokens.
+
+**A grant may reference a connection id that does not exist yet.** Upstream's
+token-creation input validation (`readConnectionIds` in
+`src/server/api/policy-input.ts`) checks only that each id is a non-empty
+string within size limits — it does **not** verify that the connection
+exists. A successor token can therefore be created with the **future**
+connection id **before** that connection is created, which is what makes a
+genuinely gapless handoff possible: the successor is scoped to a connection
+that does not exist yet, and starts working the moment that connection
+appears. Upstream separately documents that *"updates must send
+`allowedConnections` so a PUT cannot drop an existing restriction"* — the same
+rule applies to creation.
+
+##### Token inventory
+
+| Token | `allowedConnections` | `allowedActions` | Purpose |
+| --- | --- | --- | --- |
+| **`trial-bootstrap` (P0)** | the `no_auth` connection id for the trial provider (see the `no_auth` note below) | the exact trial action id(s) | Executes the no-auth trial actions. **Revoked via overlapping handoff**, never as the first step of creating a credential. |
+| **`trial-credentialed` (P1)** | the id of the credential-bearing connection — **may be created before that connection exists** | the exact read-only action id(s) | Executes the credentialed provider action. |
+| **`trial-user-a`, `trial-user-b` (P2)** | each user's **own** connection id, and **never** the other's | each user's own read-only action id(s) | The two-account isolation proof. |
+| **`trial-sentinel`** | a **non-existent** connection id (a reserved placeholder) | a **non-existent** action id | **Never used to execute anything.** Exists solely so the store is never empty. |
+
+##### The sentinel token
+
+Because the invariant must survive *account deletion*, *token rotation*, and
+*restart* — not just the initial bootstrap — the plan keeps a **dedicated
+sentinel token** in the store at all times.
+
+- Its grant names a **connection id that does not exist** and an **action id
+  that does not exist**, so it can **never** authorize a real operation even
+  if it were presented to the runtime.
+- It is **never** used as a credential by any caller.
+- It exists for exactly one reason: to keep `hasStoredRuntimeTokens()` true,
+  so the runtime API never falls back to the permissive branch.
+- It is **not** a substitute for the other grants — it grants nothing. Its
+  only function is to keep the store non-empty.
+
+**The invariant holds even if every user token is deleted**, because the
+sentinel remains. Without it, deleting the last user token — for example
+during account deletion — would silently turn runtime authentication off
+while stored credentials remained.
+
+**Deleting the sentinel is therefore a deliberate, privileged act** that
+must be the **last** token operation, performed only when no credential
+exists, and immediately followed by a verification that the gateway is
+stopped or that authentication is otherwise re-established.
+
+##### The `no_auth` grant exemption
+
+Upstream's `resolveExecutionTarget`
 (`src/execution-target.ts`) skips the connection-grant evaluation entirely
 for a `no_auth` connection:
 
@@ -1400,13 +1579,21 @@ is interpreted:
    exists — but the *enforcement* observed during the P0 phase comes from the
    action allowlist, not the connection grant.
 
-**Hard rules:**
+##### Hard rules
 
+- **The store is never empty.** At no point — not during bootstrap, not
+  during a handoff, not during account deletion, not during rotation, not
+  between a restart and its first health check — may the persistent-token
+  store contain zero tokens while the gateway is running.
+- **Every handoff overlaps.** Create successor → verify successor → revoke
+  predecessor → verify store non-empty and unauthenticated `/v1` still
+  rejected. Never revoke first.
+- **The sentinel token is present from the first token creation onward**,
+  and is revoked only as the final token operation (§5.1.1's "Deleting the
+  sentinel").
 - **The unrestricted-grant token must not survive into the credentialed or
-  two-account phases.** Before any credential-bearing connection is created,
-  the P0 token is **revoked** (`DELETE /api/runtime-tokens/:id`), and its
-  revocation is **observed** — a follow-up call with the revoked token must
-  be rejected.
+  two-account phases**, and its revocation happens **through the overlapping
+  handoff**, not as a standalone step.
 - **`allowedConnections` is never left empty or omitted on any token that
   exists while a credential-bearing connection is present.** An empty list at
   that moment is a cross-tenant capability.
@@ -1439,6 +1626,23 @@ variable. A failure at this stage is unambiguously a gateway problem.
 
 Each row states its **observable evidence**. Rows are grouped by evidence type,
 because the distinction matters (§5.4).
+
+**Group 0 — authentication and the never-empty-store invariant.** This group
+runs **first**, before any credential exists, and is **re-run at every token
+lifecycle transition**. It is deliberately separate from Group 4: the
+bootstrap assertion must be observable **before** credentials are introduced,
+not after.
+
+| # | Test | Observable evidence |
+| --- | --- | --- |
+| 0a | **Unauthenticated runtime rejected after bootstrap** | Immediately after the sentinel token is created (§2.4 step 2), a `/v1` request with **no** bearer token is rejected (`401`/`403`). **This proves the bootstrap window is closed** and is the single most important observation in Gate A. |
+| 0b | **Store is non-empty** | `GET /api/runtime-tokens` (admin surface) lists at least one token. Evidence: the listed token ids. This is the direct check of the §5.1.1 invariant — the runtime's auth decision is a live per-request query of this store, so an empty store means an unauthenticated runtime API. |
+| 0c | **Invalid/absent token rejected** | A `/v1` request with a syntactically invalid bearer token, and one with no bearer token at all, are both rejected. Evidence: gateway auth rejection. |
+| 0d | **Sentinel authorizes nothing** | The sentinel token, presented to `/v1`, cannot execute any action and cannot select any connection. Evidence: a bounded denial. Its grant names a non-existent connection and action id, so it must grant nothing. |
+| 0e | **Trigger denial** | A Trigger execution attempt is refused (`trigger_blocked`), proving `OOMOL_CONNECT_BLOCKED_TRIGGERS="*"` is effective. Triggers are an **independent** execution policy from Actions and Proxies, so blocking proxies does not block them; this row is what proves the separate surface is closed. |
+| 0f | **Post-handoff re-assertion** | After **every** token handoff (successor created → verified → predecessor revoked), rows 0a–0c are **re-run** and still pass: unauthenticated `/v1` is still rejected, the store is still non-empty, and invalid tokens are still rejected. Evidence: the repeated rejection statuses and the token list at each transition. |
+| 0g | **Post-restart re-assertion** | After a container restart, rows 0a–0c are re-run and still pass — the store persisted, so the runtime API did not become unauthenticated during the restart. Evidence: the repeated results and the persisted token list. |
+| 0h | **Post-deletion re-assertion** | After deleting the **last user token** (simulating account deletion), the sentinel remains, the store is still non-empty, and unauthenticated `/v1` is **still rejected**. Evidence: the token list still containing the sentinel, and the rejection status. This is the row that proves the invariant survives account deletion. |
 
 **Group 1 — gateway-internal behavior (no external provider call).** These
 tests exercise the gateway's own logic. They make **no call to any external
@@ -1488,13 +1692,15 @@ separately authorized).**
 | 18 | **Real provider read** | The separately authorized read-only provider action succeeds against the **real** provider API and returns real provider content. Evidence: the live upstream response, recorded separately from Groups 1 and 1b. |
 
 **Group 4 — lifecycle, encryption, and idempotency.** These require the
-credentialed connection from Group 3 and therefore run last.
+credentialed connection from Group 3 and therefore run last. **The
+authentication rows (formerly 5a/5b) live in Group 0**, because the
+bootstrap rejection must be observed *before* credentials exist — placing it
+here would make it unobservable at the moment it matters.
 
 | # | Test | Observable evidence |
 | --- | --- | --- |
-| 5a | **Unauthenticated runtime rejected after bootstrap** | After the P0 token is created (§2.4 bootstrap step 3), a `/v1` request with **no** bearer token is rejected. Evidence: the gateway's rejection status. **This proves the bootstrap window is closed**, and is the single most important observation in Gate A. |
-| 5b | **Missing runtime token rejected** | A `/v1` request with a syntactically invalid or absent bearer token is rejected by the gateway. Evidence: gateway auth rejection. |
-| 7 | **Restart and persistence** | The container is restarted; a previously created named connection and its credential are still present and still usable. Evidence: the connection id is unchanged and the action still succeeds. |
+| 5 | **Overlapping handoff, no zero-token gap** | The P0→P1 handoff is executed as: create successor with its full explicit grant → **verify the successor works** → revoke the predecessor → **re-run Group 0 rows 0a–0c**. Evidence: at no point in the sequence does `GET /api/runtime-tokens` return an empty list, and unauthenticated `/v1` is rejected at every step. The predecessor's revocation is confirmed by a rejected follow-up call with the revoked token. |
+| 7 | **Restart and persistence** | The container is restarted; a previously created named connection and its credential are still present and still usable. Evidence: the connection id is unchanged and the action still succeeds. **Group 0 rows 0a–0c are re-run after the restart** (see row 0g). |
 | 8 | **Credential encryption and recovery** | With `OOMOL_CONNECT_ENCRYPTION_KEY` set, the stored credential record on disk is **not** plaintext. Evidence: the raw secret string does not appear in the database file. Then: with the same key and a restored volume, the credential still decrypts and the action still succeeds; with a **wrong** key, decryption fails and the failure is classified, not silently ignored. |
 | 9 | **Cancellation and timeout classification** | A request cancelled before completion reports `execution_cancelled` / `timed_out`, and — per upstream's own semantics — is **not** automatically replayed. Evidence: no automatic second dispatch, observed at dispatch level (see row 12). |
 | 12 | **Idempotency — dispatch-level proof** | A repeated request with the same `Idempotency-Key` returns the replayed stored response rather than re-executing, and a conflicting reuse returns `409 idempotency_key_conflict`. **Evidence must be dispatch-level, not response-level:** receiving the same response body twice does **not** prove the provider was not contacted twice. The proof requires either (a) **dispatch-level instrumentation** — an upstream request counter or gateway-side dispatch log proving exactly one upstream dispatch — or (b) a **controlled provider fixture** that counts inbound requests. Recording two identical responses is **insufficient** and must not be reported as proof. |
@@ -1504,7 +1710,13 @@ credentialed connection from Group 3 and therefore run last.
 This distinction is explicit and must not be blurred in any future proof
 document:
 
-- **Groups 1, 1b, 2, and 4 differ in kind, and the difference matters.**
+- **Groups 0, 1, 1b, 2, and 4 differ in kind, and the difference matters.**
+  - **Group 0 (authentication invariant)** — the never-empty-store invariant.
+    Runs **before** any credential exists and is **re-run at every
+    transition**. Its evidence is the gateway's **rejection** of
+    unauthenticated and invalid requests, plus the token list at each
+    moment. This is the evidence that distinguishes "authentication is
+    configured" from "authentication is currently enforced."
   - **Group 1 (gateway-internal)** — discovery, denials, unavailability,
     redaction, runtime baseline. **No external provider call.**
   - **Group 1b (unauthenticated live call)** — `hackernews.get_top_stories`
@@ -1580,9 +1792,9 @@ execution of the gate**, not a failure to be rationalized away.
 | --- | --- |
 | **Prerequisites** | Docker available; the pinned image digest verified; `OOMOL_CONNECT_ENCRYPTION_KEY`, `OOMOL_CONNECT_ADMIN_TOKEN`, and the action allowlist generated into a host secret store; the standalone Compose project from §2.2 authored; the §5.1 trial definition agreed. |
 | **Authorized implementation surface** | A **new, separate** Compose project file for the gateway. A host-local secret file outside the repository. A throwaway trial harness that calls the gateway directly over `codexify_internal`. **No file under `guardian/`, `frontend/`, `config/`, or the existing `docker-compose.yml` may be modified.** |
-| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The resolved Compose configuration is confirmed to still carry `OOMOL_CONNECT_BLOCKED_PROXIES="*"`, a **non-empty** `OOMOL_CONNECT_ALLOWED_ACTIONS`, no `OOMOL_CONNECT_RUNTIME_TOKEN`, and **no published ports** (§2.5 verification table). The §2.4 **bootstrap sequence** is executed in order: containment first, then the first scoped persistent token, then **proof that an unauthenticated `/v1` request is now rejected** (§5.3 row 5a), and only then any provider credential. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest, with the §5.1.1 token lifecycle observed: the P0 unrestricted-grant token is **revoked before** the credential-bearing connection is created, and its revocation is **verified** by a rejected follow-up call. Group 2 is exercised against **credential-bearing** connections, with row 16a recording the `no_auth` grant exemption as expected behavior. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the two-account isolation results, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
+| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The resolved Compose configuration is confirmed to still carry `OOMOL_CONNECT_BLOCKED_PROXIES="*"`, `OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`, a **non-empty** `OOMOL_CONNECT_ALLOWED_ACTIONS` **exactly equal to the approved trial actions**, no `OOMOL_CONNECT_RUNTIME_TOKEN`, and **no published ports** (§2.5 verification table). The §2.4 **bootstrap sequence** is executed in order: containment first, then the **sentinel token**, then the first working token, then **proof that an unauthenticated `/v1` request is now rejected** — and only then any provider credential. **§5.3 Group 0 runs first**, before any credential exists, and is **re-run after every token handoff, after restart, and after deleting the last user token** (rows 0a–0c, 0f–0h). The §5.1.1 **overlapping handoff** is executed and observed (row 5): the store is **never observed empty** at any step, and unauthenticated `/v1` is rejected throughout. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest. Group 2 is exercised against **credential-bearing** connections, with row 16a recording the `no_auth` grant exemption as expected behavior. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the trigger-denial result, the two-account isolation results, the token-list snapshots at each transition, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
 | **Rollback procedure** | Stop and remove the standalone project; remove the `codexify_openconnector_data` volume if the trial is abandoned; revoke the trial tokens; destroy the trial provider credentials at the provider. **Nothing to roll back inside Codexify**, because nothing inside Codexify changed. |
-| **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; **the fail-closed preflight cannot be made to run before startup, or a required secret is missing/empty at startup**; **an unauthenticated `/v1` request is still accepted after the first persistent token is created** (§2.4 bootstrap step 3); **a token with an empty or omitted `allowedConnections` is observed while a credential-bearing connection exists**; **the P0 unrestricted-grant token survives into the credentialed or two-account phase**; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** |
+| **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; **the fail-closed preflight cannot be made to run before startup, or a required secret is missing/empty at startup**; **an unauthenticated `/v1` request is still accepted after the first token is created** (§2.4 bootstrap step 4); **the token store is observed empty at any point** — including during a handoff, after a restart, or after deleting the last user token — **or unauthenticated `/v1` is accepted at any such point**; **the sentinel token is absent, or is able to authorize any operation**; **a token with an empty or omitted `allowedConnections` is observed while a credential-bearing connection exists**; **the P0 unrestricted-grant token survives into the credentialed or two-account phase**; **a Trigger execution is not refused** (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"` ineffective); **the resolved allowlist is not exactly the approved trial actions, or contains a wildcard**; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** In particular, if the gateway cannot maintain authenticated execution through ordinary token lifecycle operations **without** relying on an unrestricted runtime credential, that is **meaningful negative Gate A evidence and a legitimate reason to reject the dependency.** |
 
 
 ### Gate B — Guardian read-only adapter and Command Bus integration
@@ -1740,10 +1952,12 @@ Explicitly **not** done here, and not authorized by this task:
 | `docs/runtime-api.md` | Runtime surfaces (`/v1/*`, `/mcp`); runtime-token vs admin-token split; `allowedConnections` exact-allowlist semantics; `403 connection_not_allowed` before credential lookup; unfiltered admin discovery; alias selection; bounded error codes; idempotency; timeout and cancellation semantics. |
 | `docs/configuration.md` | Environment-variable reference; `ALLOW_PRIVATE_NETWORK` default `false`; `EGRESS_TRUSTED_HOSTS`; JWT configuration and its Node-only, unrestricted-by-connection characteristics. |
 | `docs/credentials.md` | AES-256-GCM at rest and the plaintext fallback without a key; key rotation and recovery semantics; connection identity (`accountId`, `displayName`, `grantedScopes`); named connections and aliases; action and proxy policy independence; the `hackernews.get_top_stories` no-auth path. |
+| `src/server/connect-app.ts` | `runtimeAuthConfigured = requireRuntimeAuth \|\| runtimeToken \|\| verifyRuntimeJwt \|\| hasStoredRuntimeTokens()` — the value that turns runtime authentication on once the first persistent token exists. **Also `hasStoredRuntimeTokens = async () => (await runtimeTokens.listTokens()).length > 0`** — a **live per-request** store query, which is why an empty store reopens the unauthenticated window (§2.4, §5.1.1). |
 | `src/server/api/auth.ts` | The auth-mode resolution: `createLocalAuthMiddleware` installs a **pass-through** (no-auth) middleware when no admin token, runtime token, `requireRuntimeAuth`, stored runtime tokens, or JWT verifier exists; `hasValidToken` returns `true` for runtime scope in the same conditions. **This is the source of the bootstrap window in §2.4.** |
-| `src/server/connect-app.ts` | `runtimeAuthConfigured = requireRuntimeAuth \|\| runtimeToken \|\| verifyRuntimeJwt \|\| hasStoredRuntimeTokens()` — the value that turns runtime authentication on once the first persistent token exists. |
+| `src/server/storage/postgres/runtime-store.ts` | `revoke` executes `delete from runtime_tokens where id = $1` — revoking the **last** token empties the store and therefore **reopens** the unauthenticated window. The basis for the §5.1.1 never-empty invariant and the overlapping handoff. |
+| `src/server/api/policy-input.ts` | `readConnectionIds` validates only that each connection id is a non-empty, size-bounded, unique string — it does **not** verify the connection exists. This is what makes a gapless handoff possible: a successor token can be created with the **future** connection id before that connection exists. |
 | `src/server/index.ts` | The startup warnings: `runtime API authentication is disabled; create a runtime token in the web console, set OOMOL_CONNECT_RUNTIME_TOKEN, or configure JWT authentication`; the admin-token warning; the encryption-key warning. |
-| `src/core/action-policy.ts` | `evaluateConnection` returns `allowed: true` when `allowedConnections` is **empty** (§5.1.1); `evaluateAction` skips a policy layer whose `allowedActions` list is empty (the permissive-empty convention); `compileActionRule` — the `*`, `service.*`, and exact-id pattern semantics. |
+| `src/core/action-policy.ts` | `evaluateConnection` returns `allowed: true` when `allowedConnections` is **empty** (§5.1.1); `evaluateAction` skips a policy layer whose `allowedActions` list is empty (the permissive-empty convention); `compileActionRule` — the `*`, `service.*`, and exact-id pattern semantics; `evaluateProxy` (blocked wins across layers) and **`evaluateTrigger`** — Triggers are evaluated by an **independent** policy from Actions and Proxies, so blocking proxies does **not** block triggers. |
 | `src/core/provider-definition.ts` | The action definition shape (`id`, `name`, `description`, `requiredScopes`, `providerPermissions`, `followUpActions`) — **no read-only marker**, which is the basis for the §3.4 allowlist requirement. |
 | `src/execution-target.ts` | `resolveExecutionTarget`'s `authorize` — the **`no_auth` connection-grant exemption** (`authType === "no_auth"` returns before `evaluateConnection`). The basis for the §5.1.1 note and the Group 2 sequencing rule. |
 | `src/oauth/oauth-flow-service.ts` | OAuth `state` as a short-lived record binding `service`, `connectionName`, `retirementGeneration`, PKCE verifier, scopes, and `redirect_uri`; `completeAuthorization` consumes it via the **destructive single-use** `states.take(...)`; `discardAuthorization` uses the same take; expiry enforced by `isExpiredOAuthState`. The basis for the §2.8 correlation property. |
@@ -1809,7 +2023,11 @@ authenticated by
 an **explicit bootstrap sequence** rather than by a long-lived bootstrap
 token: containment first, then the first scoped persistent token, then proof
 that an unauthenticated request is rejected, and only then provider
-credentials. The upstream dependency is **pinned but tracked**: v1.9.4 remains
+credentials. Critically, that protection is re-derived from a **live** store
+query on every request, so **revoking the last token reopens the window**:
+the store must therefore **never be empty**, a **sentinel token** keeps it
+non-empty for the gateway's life, and every handoff **overlaps** rather than
+gaps. The upstream dependency is **pinned but tracked**: v1.9.4 remains
 the licensed baseline, while monitoring, evaluation, and remediation of
 upstream releases and advisories is an explicit operator responsibility that
 does not extend to copying code newly published under more restrictive
