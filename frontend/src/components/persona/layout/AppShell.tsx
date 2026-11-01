@@ -281,11 +281,13 @@ const APP_SHELL_VIEWS = [
   "personaStudio",
 ] as const satisfies readonly AppShellView[];
 
+// Documents and Gallery are no longer top-level application destinations.
+// Library is the single browsing surface for both resource families, per
+// docs/architecture/library-projects-spaces-product-surface-contract.md.
+// The /documents and /gallery routes stay live and addressable by URL.
 const PHONE_NAVIGATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
   { view: "library", label: "Library", priority: "primary" },
-  { view: "documents", label: "Documents", priority: "primary" },
-  { view: "gallery", label: "Gallery", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
   { view: "settings", label: "Settings", priority: "secondary" },
 ] as const satisfies readonly MobileApplicationDestination[];
@@ -3884,26 +3886,6 @@ export default function AppShell({
                 style={getMobileNavPillStyle("library")}
               >
                 Library
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={activeRoomId == null && view === "documents" ? "active" : "inactive"}
-                aria-current={activeRoomId == null && view === "documents" ? "page" : undefined}
-                onClick={() => navigateToView("documents")}
-                style={getMobileNavPillStyle("documents")}
-              >
-                Documents
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={activeRoomId == null && view === "gallery" ? "active" : "inactive"}
-                aria-current={activeRoomId == null && view === "gallery" ? "page" : undefined}
-                onClick={() => navigateToView("gallery")}
-                style={getMobileNavPillStyle("gallery")}
-              >
-                Gallery
               </PhonePressButton>
               <PhonePressButton
                 isPhoneShell={isPhoneShell}

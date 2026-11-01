@@ -20,10 +20,12 @@ const apiSpies = vi.hoisted(() => ({
   delete: vi.fn(),
 }));
 
+// Mirrors the production application destinations in AppShell. Documents and
+// Gallery are no longer top-level destinations; Library is the single
+// browsing surface for both resource families.
 const APPLICATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
-  { view: "documents", label: "Documents", priority: "primary" },
-  { view: "gallery", label: "Gallery", priority: "primary" },
+  { view: "library", label: "Library", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
   { view: "settings", label: "Settings", priority: "secondary" },
 ] as const satisfies readonly GuardianApplicationDestination[];

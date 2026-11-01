@@ -116,7 +116,13 @@ test.describe("desktop media contract", () => {
       page.getByRole("img", { name: "Desktop contract image" }).first()
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Gallery" }).click();
+    // Gallery has no top-level navigation entry any more; the route stays
+    // reachable by URL. Navigate in-app so the in-session gallery state that
+    // was just published is preserved across the view change.
+    await page.evaluate(() => {
+      window.history.pushState({}, "", "/gallery");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
     await expect(
       page.getByRole("img", { name: "Desktop contract image" }).first()
     ).toBeVisible();

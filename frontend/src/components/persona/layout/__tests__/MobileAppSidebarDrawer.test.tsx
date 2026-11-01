@@ -9,10 +9,12 @@ import type {
   MobileApplicationView,
 } from "../mobileNavigationContract";
 
+// Mirrors the production application destinations in AppShell. Documents and
+// Gallery are no longer top-level destinations; Library is the single
+// browsing surface for both resource families.
 const DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
-  { view: "documents", label: "Documents", priority: "primary" },
-  { view: "gallery", label: "Gallery", priority: "primary" },
+  { view: "library", label: "Library", priority: "primary" },
   { view: "dashboard", label: "Dashboard", priority: "secondary" },
   { view: "settings", label: "Settings", priority: "secondary" },
 ] as const satisfies readonly MobileApplicationDestination[];
@@ -134,7 +136,7 @@ describe("MobileAppSidebarDrawer", () => {
       within(navigation)
         .getAllByRole("button")
         .map((button) => button.textContent)
-    ).toEqual(["Guardian", "Documents", "Gallery", "Dashboard", "Settings"]);
+    ).toEqual(["Guardian", "Library", "Dashboard", "Settings"]);
     expect(
       navigation.compareDocumentPosition(workspace) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -190,20 +192,20 @@ describe("MobileAppSidebarDrawer", () => {
     render(
       <DrawerHarness
         initialExpanded
-        activeApplicationView="documents"
+        activeApplicationView="library"
         onNavigateApplicationView={navigate}
       />
     );
 
     const drawer = await openDrawer(user);
     expect(
-      within(drawer).getByTestId("mobile-app-sidebar-destination-documents")
+      within(drawer).getByTestId("mobile-app-sidebar-destination-library")
     ).toHaveAttribute("aria-current", "page");
     await user.click(
-      within(drawer).getByTestId("mobile-app-sidebar-destination-gallery")
+      within(drawer).getByTestId("mobile-app-sidebar-destination-dashboard")
     );
 
-    expect(navigate).toHaveBeenCalledWith("gallery");
+    expect(navigate).toHaveBeenCalledWith("dashboard");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     const reopened = await openDrawer(user);

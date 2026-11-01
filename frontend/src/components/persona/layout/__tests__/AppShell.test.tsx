@@ -860,11 +860,11 @@ describe("AppShell Guardian mobile navigation seam", () => {
     const latestProps = guardianShellPropsSpy.mock.calls.at(-1)?.[0];
 
     expect(latestProps?.activeApplicationView).toBe("guardian");
+    // Documents and Gallery are no longer top-level application destinations;
+    // Library is the single browsing surface for both resource families.
     expect(latestProps?.applicationDestinations).toEqual([
       { view: "guardian", label: "Guardian", priority: "primary" },
       { view: "library", label: "Library", priority: "primary" },
-      { view: "documents", label: "Documents", priority: "primary" },
-      { view: "gallery", label: "Gallery", priority: "primary" },
       { view: "dashboard", label: "Dashboard", priority: "secondary" },
       { view: "settings", label: "Settings", priority: "secondary" },
     ]);
@@ -875,11 +875,11 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByTestId("guardian-mobile-nav-documents-mock")
+      screen.getByTestId("guardian-mobile-nav-dashboard-mock")
     );
 
-    await screen.findByTestId("documents-view-mock");
-    expect(window.location.pathname).toBe("/documents");
+    await screen.findByTestId("dashboard-view-mock");
+    expect(window.location.pathname).toBe("/dashboard");
     expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Guardian" })
@@ -892,7 +892,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
     expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Documents" })
+      screen.getByRole("button", { name: "Library" })
     ).toBeInTheDocument();
 
     cleanup();
@@ -902,7 +902,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
     expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Documents" })
+      screen.getByRole("button", { name: "Library" })
     ).toBeInTheDocument();
   });
 
@@ -999,14 +999,15 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       isApplicationNavigationExpanded: true,
     });
-    await user.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+    await user.click(screen.getByTestId("guardian-mobile-nav-dashboard-mock"));
 
-    expect(await screen.findByTestId("documents-primary-frame")).toBeInTheDocument();
+    expect(await screen.findByTestId("dashboard-primary-frame")).toBeInTheDocument();
     expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
     expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
 
+    // Documents and Gallery are no longer application destinations, so they
+    // are not offered by the phone application drawer.
     for (const [destination, expectedPath, expectedFrame] of [
-      ["gallery", "/gallery", "gallery-primary-frame"],
       ["dashboard", "/dashboard", "dashboard-primary-frame"],
       ["settings", "/settings", "settings-framecard"],
     ] as const) {
@@ -1203,8 +1204,7 @@ describe("AppShell settings utility trigger", () => {
         [
         "Guardian",
         "Dashboard",
-        "Documents",
-        "Gallery",
+        "Library",
         "Lens",
       ].includes(label)
     );
@@ -1212,14 +1212,16 @@ describe("AppShell settings utility trigger", () => {
     expect(navButtonOrder).toEqual([
       "Guardian",
       "Dashboard",
-      "Documents",
-      "Gallery",
+      "Library",
       "Lens",
     ]);
     expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Library" })).toBeInTheDocument();
+    // Documents and Gallery converged into Library and are no longer
+    // top-level navigation destinations.
+    expect(primaryNav.queryByRole("button", { name: "Documents" })).not.toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Gallery" })).not.toBeInTheDocument();
     expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Lens" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
@@ -1423,7 +1425,11 @@ describe("AppShell settings utility trigger", () => {
     });
 
     await user.click(screen.getByTestId("guardian-set-project-2"));
-    await user.click(screen.getByRole("button", { name: "Documents" }));
+    // Documents has no menu entry any more; the route stays reachable by URL.
+    act(() => {
+      setRoutePath("/documents");
+      notifyRouteChange();
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
@@ -2128,7 +2134,6 @@ describe("AppShell workspace drawer shell", () => {
   });
 
   it("retires the phone rail when a non-primary route enters a primary view", async () => {
-    const user = userEvent.setup();
     setViewportWidth(390);
     setRoutePath("/flow-builder");
 
@@ -2140,7 +2145,11 @@ describe("AppShell workspace drawer shell", () => {
     expect(railStyle).toContain("scroll-padding-inline: 12px");
     expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
 
-    await user.click(screen.getByRole("button", { name: "Documents" }));
+    // Documents has no menu entry any more; the route stays reachable by URL.
+    act(() => {
+      setRoutePath("/documents");
+      notifyRouteChange();
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("documents-primary-frame")).toBeInTheDocument();
@@ -2454,7 +2463,11 @@ describe("AppShell documents sidebar posture", () => {
     render(<AppShell />);
     await screen.findByTestId("guardian-chat-with-sidebar-mock");
     fireEvent.click(screen.getByTestId("guardian-emit-sidebar-snapshot"));
-    fireEvent.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+    // Documents has no menu entry any more; the route stays reachable by URL.
+    act(() => {
+      setRoutePath("/documents");
+      notifyRouteChange();
+    });
 
     await screen.findByTestId("documents-view-mock");
     expect(screen.getByTestId("documents-project-id")).toHaveTextContent("1");
