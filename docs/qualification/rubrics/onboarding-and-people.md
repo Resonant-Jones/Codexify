@@ -8,6 +8,22 @@
 
 `1`
 
+## Qualification metadata
+
+```yaml qualification-metadata
+qualification_id: onboarding-and-people
+version: 1
+title: Onboarding and People
+scope: Authenticated private-preview onboarding and same-node People messaging
+surface_paths:
+  - frontend/src/components/people/**
+  - frontend/src/features/people/**
+  - guardian/routes/people*
+  - guardian/routes/relationships*
+evidence:
+  - docs/architecture/proofs/2026-09-01-people-messaging-runtime-qualification-proof.md
+```
+
 ## Purpose
 
 Evaluate whether a real Codexify user can:
