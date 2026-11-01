@@ -19,6 +19,7 @@
 | **Runtime authentication** | **Explicit bootstrap sequence** (§2.4). Containment first, then the first scoped persistent token, then proof that unauthenticated `/v1` is rejected, then credentials. `OOMOL_CONNECT_RUNTIME_TOKEN` is never set as an environment variable. |
 | **Connection grants** | **Never empty.** An empty or omitted `allowedConnections` is *unrestricted access*, not deny-all (§5.1.1). Every token carries an explicit non-empty grant, and the unrestricted-grant token is revoked before any credential-bearing connection exists. |
 | **Read-only enforcement** | The Command Bus GET-only rule is a **classification**, not a safety guarantee (§3.4). Gate B requires a **reviewed, server-controlled read-only action allowlist** — upstream actions carry no read-only marker. |
+| **OAuth callback** | **Gate C design decision, deferred** (§2.8, §4.7(b)). Two open options: a restricted HTTPS reverse proxy in front of upstream's own `/oauth/callback`, or a Guardian-owned forwarding handler. **No ADR amendment opened yet.** |
 
 ---
 
@@ -547,6 +548,20 @@ ordered sequence:
 - **Evidence:** step 3's rejection check is a required Gate A observation
   (§5.3, row 5a), not an inference from configuration.
 
+#### A note on `requireRuntimeAuth`
+
+Upstream's auth middleware accepts a `requireRuntimeAuth` option that forces
+runtime authentication even when no tokens exist. It is **not** exposed as an
+`OOMOL_CONNECT_*` environment variable at v1.9.4 — the full upstream variable
+set contains no such flag. The only available levers are
+`OOMOL_CONNECT_RUNTIME_TOKEN` (which this plan forbids) and the presence of a
+stored persistent token. **The bootstrap sequence in the table above is
+therefore not a stylistic preference; it is the only available way to close
+the window without a long-lived unrestricted bootstrap token.** If a future
+upstream release adds an environment-configurable require flag, that is a
+remediation input under §1.4's Evaluate phase, and it may simplify this
+sequence.
+
 ### 2.5 Credential encryption and recoverable key management
 
 #### Secret injection: one mechanism, fail closed
@@ -598,6 +613,53 @@ Additional preflight properties:
 - The secret file must be mode `0600`, owned by the deploying user, and
   **outside the repository**. It is never committed, never written into the
   data volume, and never echoed.
+
+#### Verified: the deployment-level execution restrictions survived the switch to `env_file`
+
+Moving secrets out of `environment:` must not have silently dropped the
+deployment-level execution policy. This was verified by rendering the
+**exact Compose block from §2.2** with `docker compose config` against a
+**dummy** secret file, with no container started, and asserting the resolved
+environment:
+
+| Assertion | Result |
+| --- | --- |
+| `OOMOL_CONNECT_BLOCKED_PROXIES` is `"*"` | **PASS** |
+| `OOMOL_CONNECT_ALLOWED_PROXIES` is empty (no proxy allowlist) | **PASS** |
+| `OOMOL_CONNECT_ALLOWED_ACTIONS` is non-empty | **PASS** |
+| `OOMOL_CONNECT_ALLOWED_ACTIONS` is narrowly scoped (exactly the trial action id) | **PASS** |
+| `OOMOL_CONNECT_BLOCKED_ACTIONS` is empty | **PASS** |
+| `OOMOL_CONNECT_ENCRYPTION_KEY` present | **PASS** |
+| `OOMOL_CONNECT_ADMIN_TOKEN` present | **PASS** |
+| `OOMOL_CONNECT_RUNTIME_TOKEN` **absent** | **PASS** |
+| `OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK` is `"false"` | **PASS** |
+| Image is digest-pinned (`@sha256:`) | **PASS** |
+| **No published ports** in the resolved config | **PASS** |
+| `expose` is `3000` only | **PASS** |
+
+Two further fail-closed behaviors were confirmed in the same check:
+
+- A **missing** `env_file` causes Compose to **refuse to render or start**
+  (`env file ... not found`) — the container never starts with a missing
+  secret file.
+- An **empty** `OOMOL_CONNECT_ALLOWED_ACTIONS` **renders successfully** as an
+  empty string. This is the one gap the preflight exists to close, and it is
+  why the preflight checks that key's presence and non-emptiness rather than
+  relying on Compose.
+
+**Upstream semantics behind these values** (verified in
+`src/core/action-policy.ts` and `src/server/index.ts` at the pinned commit):
+
+- `parseActionPolicyList("")` returns `[]`, so an empty value means "no rule"
+  rather than a malformed rule. Empty values are therefore **safe** — but an
+  empty `allowedActions` list means the deployment layer imposes **no
+  action constraint**, which is exactly why it must be non-empty.
+- `evaluateProxy` evaluates **`blockedProxies` across every layer first**, and
+  a block match wins outright. `OOMOL_CONNECT_BLOCKED_PROXIES="*"` therefore
+  denies all provider proxy access regardless of `allowedProxies`.
+- `OOMOL_CONNECT_ALLOWED_CONNECTIONS` **does not exist** as a deployment
+  variable — upstream states connection grants are a token-level concept
+  only. Codexify must not invent a deployment-level connection allowlist.
 
 #### Key custody and rotation
 
@@ -682,21 +744,63 @@ conflated.
 
 - Requires a **public HTTPS origin**. Upstream derives `expectedRedirectUri`
   from `OOMOL_CONNECT_ORIGIN`; the provider OAuth app must be registered with
-  exactly that URI.
+  exactly that URI. Upstream also supports a per-provider `redirectUri` on the
+  saved OAuth client configuration, which must be an absolute URI without user
+  info or a fragment, and which upstream sends exactly as saved.
 - The `/oauth/callback` route must be reachable by the **provider's redirect**
   — that is, from the public internet, not from the private network. This
   **conflicts with §2.3's "no published administrative interface"** posture
   as currently specified, and is therefore **not resolved by this plan**.
-- The upstream callback design assumes the **app that owns the redirect
-  forwards the provider's callback query** to the runtime; a Codexify-owned
-  public callback endpoint would be a **new Guardian route**, which this
-  task is not authorized to create.
 - **This is an explicit stopping condition for Gate C.** Before any remote
   OAuth posture is designed, the following must be resolved and separately
   authorized: where the public callback terminates, how its state is signed
   and verified, how the callback result reaches the gateway, and how that
   surface is prevented from becoming a second credential-mutation authority
   outside the Connections control plane.
+
+#### Two candidate designs — neither accepted here
+
+A public OAuth callback is **necessary** for many remote OAuth flows. A
+**Guardian-owned** callback handler is **not** necessarily necessary: upstream
+already provides `/oauth/callback` and documents that *"the app that owns the
+redirect forwards the provider's callback query (`code` and `state`, or
+`error`) to it."* That leaves two plausible designs:
+
+| Approach | Architectural consequence |
+| --- | --- |
+| **A — Expose only OpenConnector's callback path** through a tightly restricted HTTPS reverse proxy | OpenConnector handles the provider callback end to end; Guardian retains responsibility for initiating the flow, binding the resulting credential to a user and connection, and authorizing subsequent use. **No new Guardian application-level handler.** The proxy is the only new surface, and it can be restricted to exactly one path and method. |
+| **B — Introduce a Guardian-owned callback handler** that securely forwards the result | More control over Codexify's ingress and over the correlation boundary, but adds another application-level handler, another state store, and a more complicated state-correlation responsibility inside Codexify. |
+
+**Both remain open.** Neither is accepted merely because it is convenient.
+Both require proof that a callback can only complete the authorization
+**initiated for the intended user and connection**, and neither may expose
+administrative routes.
+
+**What upstream already provides for that proof** (verified at the pinned
+commit):
+
+- The OAuth `state` is a **server-side, short-lived record** that binds
+  `service`, `connectionName`, `retirementGeneration`, the PKCE verifier,
+  the requested scopes, and the `redirect_uri` that the authorization request
+  carried.
+- Completion **consumes the state destructively** — `completeAuthorization`
+  calls `states.take(input.state)`, whose store contract is a destructive
+  single-use take. A replayed state is therefore rejected as
+  `invalid_oauth_state`, and `discardAuthorization` uses the same take to
+  ensure a refused authorization cannot later be completed by another
+  callback.
+- An expired state is rejected on the same path
+  (`isExpiredOAuthState` against `stateMaxAgeMs`).
+
+**This is the property the callback design must preserve.** A Guardian-owned
+forwarder (§4.7(b) option B) would have to reproduce it correctly across two
+systems — and a restricted proxy (§4.7(b) option A) lets upstream's
+single-use state store remain the single authority for correlation, with
+Guardian's binding work happening **after** the credential lands, through the
+normal connection-creation path.
+
+**This is a Gate C design decision, not a Gate A prerequisite.** No ADR
+amendment is opened for it now; §4.7(b) records it as an open question.
 
 Until that is resolved, the remote posture remains **unavailable**, and no
 claim of remote-provider support may be made.
@@ -1187,6 +1291,28 @@ and server-owned; a shared public callback endpoint is a **new Guardian
 route** and a **new authority surface**. This must be resolved by a future
 architecture review before any remote-provider claim.
 
+**Refinement after upstream review:** the callback endpoint itself need not be
+Guardian-owned. Upstream provides `/oauth/callback` and documents the
+forwarding contract ("the app that owns the redirect forwards the provider's
+callback query to it"), and its `state` store already provides the
+correlation property the design must preserve — a short-lived, service- and
+`connectionName`-bound record that is **consumed destructively and
+single-use** on completion, with expiry enforced. §2.8 sets out the two
+candidate designs — a **restricted reverse proxy** in front of upstream's own
+callback (option A) versus a **Guardian-owned forwarding handler** (option B)
+— and neither is accepted yet.
+
+**The open question is therefore narrower than "where does the callback
+live":** it is *which component owns the correlation authority*. Option A
+keeps upstream's single-use state store as the sole authority and confines
+the new surface to a proxy; option B requires Codexify to reproduce
+single-use, expiry-bound correlation across two systems. Both designs must
+prove that a callback can only complete the authorization initiated for the
+intended user and connection, and neither may expose administrative routes.
+
+**No ADR amendment is opened for this question now.** It remains a Gate C
+design decision, and it does not block Gate A.
+
 **(c) Catalog identity for gateway-backed providers — ADR-075 confirmation
 required.**
 
@@ -1239,9 +1365,40 @@ credential-bearing connection:
 
 | Phase | Token | `allowedConnections` | `allowedActions` | Valid only while |
 | --- | --- | --- | --- | --- |
-| **P0 — bootstrap** | `trial-bootstrap` | the exact `no_auth` connection id for the trial provider (or the provider's virtual `no_auth` connection id) | the exact trial action id(s) | the database holds **no credential-bearing connection** |
+| **P0 — bootstrap** | `trial-bootstrap` | the exact `no_auth` connection id for the trial provider (see the `no_auth` note below) | the exact trial action id(s) | the database holds **no credential-bearing connection** |
 | **P1 — credentialed** | `trial-credentialed` | the exact id of the newly created credential-bearing connection | the exact read-only action id(s) | one credentialed connection exists |
 | **P2 — isolation** | `trial-user-a`, `trial-user-b` | each user's **own** connection id, and **never** the other's | each user's own read-only action id(s) | two connections exist |
+
+**The `no_auth` grant exemption.** Upstream's `resolveExecutionTarget`
+(`src/execution-target.ts`) skips the connection-grant evaluation entirely
+for a `no_auth` connection:
+
+```ts
+const authorize = (summary: ConnectionSummary | undefined): void => {
+  if (input.operation !== "trigger" && summary?.authType === "no_auth") return;
+  const decision = input.policy?.evaluateConnection(summary?.id);
+  if (decision && !decision.allowed) throw new ExecutionPolicyError(decision);
+};
+```
+
+Upstream documents this as *"Virtual `no_auth` connections do not require a
+grant."* Two consequences follow, and both matter for how Gate A's evidence
+is interpreted:
+
+1. **A `no_auth` action cannot be used to demonstrate connection-grant
+   isolation.** If a `no_auth` action succeeds under *any* token, including
+   one whose grant list is non-empty and does not include that connection,
+   that is **expected upstream behavior, not a grant-control failure**. The
+   isolation rows in §5.3 (Group 2) must therefore be exercised against
+   **credential-bearing** connections, where the grant is actually evaluated.
+   Group 2 is sequenced after Group 3 for this reason.
+2. **The P0 token's `allowedConnections` value does not gate `no_auth`
+   actions.** The P0 token's real restriction is its `allowedActions` grant
+   plus the deployment-level `OOMOL_CONNECT_ALLOWED_ACTIONS`. The plan
+   therefore still lists a non-empty `allowedConnections` for P0 — it is
+   correct hygiene and it matters the moment any credentialed connection
+   exists — but the *enforcement* observed during the P0 phase comes from the
+   action allowlist, not the connection grant.
 
 **Hard rules:**
 
@@ -1253,6 +1410,13 @@ credential-bearing connection:
 - **`allowedConnections` is never left empty or omitted on any token that
   exists while a credential-bearing connection is present.** An empty list at
   that moment is a cross-tenant capability.
+- **Token updates must carry the full grant.** Upstream's token-update path
+  replaces the stored policy wholesale. A `PUT /api/runtime-tokens/:id` that
+  omits `allowedConnections` would therefore **drop an existing restriction**
+  and silently convert a scoped token into an unrestricted one. Any Codexify
+  token-lifecycle code that updates a token must send the complete grant set
+  every time, and the change must be verified by re-reading the token's
+  recorded policy.
 - **No shared default connection.** Every execution names an explicit
   connection or alias; `default` is never relied upon.
 - **The deployment-level allowlist is not a substitute for the token grant.**
@@ -1301,14 +1465,19 @@ live. They must not be reported as local-only executor tests.
 
 **Group 2 — tenant isolation (requires two synthetic accounts).** These are
 gateway-internal denials. No provider call is made in any of them, which is
-itself part of the evidence.
+itself part of the evidence. **These rows must use credential-bearing
+connections**, because upstream exempts `no_auth` connections from the
+connection-grant evaluation entirely (§5.1.1) — a `no_auth` action succeeding
+under a foreign token would be expected upstream behavior and proves nothing
+about grant isolation.
 
 | # | Test | Observable evidence |
 | --- | --- | --- |
-| 13 | **Two-user isolation** | Two synthetic users each hold a distinct bound connection and a distinct persistent runtime token. User A's token cannot execute against User B's connection: `403 connection_not_allowed`, raised **before** credential lookup. Evidence: the denial, plus the observation that no provider call was made. |
+| 13 | **Two-user isolation** | Two synthetic users each hold a distinct **credential-bearing** connection and a distinct persistent runtime token. User A's token cannot execute against User B's connection: `403 connection_not_allowed`, raised **before** credential lookup. Evidence: the denial, plus the observation that no provider call was made. |
 | 14 | **Wrong-account access** | A token scoped to User A that explicitly names User B's connection id is denied with `connection_not_allowed`. Evidence: the denial code and the absence of a provider call. |
 | 15 | **Wrong-connection access** | An unknown or ungranted connection id is denied; upstream's "an unknown selector never falls back to another connection" property is observed. Evidence: denial, not silent fallback to the default connection. |
 | 16 | **Shared default connection** | A request that **omits** the connection selector on a deployment that has a shared default connection is denied, proving the shared unscoped default is not reachable. Evidence: `connection_not_allowed`. |
+| 16a | **`no_auth` grant exemption observed** | A `no_auth` action executed under a token whose `allowedConnections` does not include that connection **succeeds** — confirming the documented exemption. Evidence: the success, recorded as **expected upstream behavior**. This row exists so the observation is not later misread as a grant-control failure. |
 
 **Group 3 — credentialed provider calls and persistence (real provider API,
 separately authorized).**
@@ -1411,7 +1580,7 @@ execution of the gate**, not a failure to be rationalized away.
 | --- | --- |
 | **Prerequisites** | Docker available; the pinned image digest verified; `OOMOL_CONNECT_ENCRYPTION_KEY`, `OOMOL_CONNECT_ADMIN_TOKEN`, and the action allowlist generated into a host secret store; the standalone Compose project from §2.2 authored; the §5.1 trial definition agreed. |
 | **Authorized implementation surface** | A **new, separate** Compose project file for the gateway. A host-local secret file outside the repository. A throwaway trial harness that calls the gateway directly over `codexify_internal`. **No file under `guardian/`, `frontend/`, `config/`, or the existing `docker-compose.yml` may be modified.** |
-| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The §2.4 **bootstrap sequence** is executed in order: containment first, then the first scoped persistent token, then **proof that an unauthenticated `/v1` request is now rejected** (§5.3 row 5a), and only then any provider credential. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest, with the §5.1.1 token lifecycle observed: the P0 unrestricted-grant token is **revoked before** the credential-bearing connection is created, and its revocation is **verified** by a rejected follow-up call. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the two-account isolation results, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
+| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The resolved Compose configuration is confirmed to still carry `OOMOL_CONNECT_BLOCKED_PROXIES="*"`, a **non-empty** `OOMOL_CONNECT_ALLOWED_ACTIONS`, no `OOMOL_CONNECT_RUNTIME_TOKEN`, and **no published ports** (§2.5 verification table). The §2.4 **bootstrap sequence** is executed in order: containment first, then the first scoped persistent token, then **proof that an unauthenticated `/v1` request is now rejected** (§5.3 row 5a), and only then any provider credential. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest, with the §5.1.1 token lifecycle observed: the P0 unrestricted-grant token is **revoked before** the credential-bearing connection is created, and its revocation is **verified** by a rejected follow-up call. Group 2 is exercised against **credential-bearing** connections, with row 16a recording the `no_auth` grant exemption as expected behavior. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the two-account isolation results, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
 | **Rollback procedure** | Stop and remove the standalone project; remove the `codexify_openconnector_data` volume if the trial is abandoned; revoke the trial tokens; destroy the trial provider credentials at the provider. **Nothing to roll back inside Codexify**, because nothing inside Codexify changed. |
 | **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; **the fail-closed preflight cannot be made to run before startup, or a required secret is missing/empty at startup**; **an unauthenticated `/v1` request is still accepted after the first persistent token is created** (§2.4 bootstrap step 3); **a token with an empty or omitted `allowedConnections` is observed while a credential-bearing connection exists**; **the P0 unrestricted-grant token survives into the credentialed or two-account phase**; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** |
 
@@ -1576,9 +1745,13 @@ Explicitly **not** done here, and not authorized by this task:
 | `src/server/index.ts` | The startup warnings: `runtime API authentication is disabled; create a runtime token in the web console, set OOMOL_CONNECT_RUNTIME_TOKEN, or configure JWT authentication`; the admin-token warning; the encryption-key warning. |
 | `src/core/action-policy.ts` | `evaluateConnection` returns `allowed: true` when `allowedConnections` is **empty** (§5.1.1); `evaluateAction` skips a policy layer whose `allowedActions` list is empty (the permissive-empty convention); `compileActionRule` — the `*`, `service.*`, and exact-id pattern semantics. |
 | `src/core/provider-definition.ts` | The action definition shape (`id`, `name`, `description`, `requiredScopes`, `providerPermissions`, `followUpActions`) — **no read-only marker**, which is the basis for the §3.4 allowlist requirement. |
+| `src/execution-target.ts` | `resolveExecutionTarget`'s `authorize` — the **`no_auth` connection-grant exemption** (`authType === "no_auth"` returns before `evaluateConnection`). The basis for the §5.1.1 note and the Group 2 sequencing rule. |
+| `src/oauth/oauth-flow-service.ts` | OAuth `state` as a short-lived record binding `service`, `connectionName`, `retirementGeneration`, PKCE verifier, scopes, and `redirect_uri`; `completeAuthorization` consumes it via the **destructive single-use** `states.take(...)`; `discardAuthorization` uses the same take; expiry enforced by `isExpiredOAuthState`. The basis for the §2.8 correlation property. |
+| `src/server/storage/runtime-token-service.ts` | Persistent-token records (`allowedActions`, `blockedActions`, `allowedProxies`, `allowedConnections`, `allowedTriggers`); `createToken` defaults to empty grants; `updateTokenPolicy` **replaces the stored policy wholesale** — the basis for the §5.1.1 token-update rule. Only token **hashes** are stored. |
 | `src/server/api/runtime-tokens.ts` (admin surface) | `POST /api/runtime-tokens` — the admin-authenticated endpoint used by the §2.4 bootstrap step 2; `GET/PUT/DELETE /api/runtime-tokens` for lifecycle and revocation. |
 | GitHub Release `v1.9.4` | Release metadata, published `2026-10-27`, and per-binary SHA-256 digests. |
 | Docker Compose documentation | Interpolation semantics: `${VAR}` is resolved from the shell / `--env-file` / project `.env`, **not** from a service's `env_file`; `docker compose config` renders resolved values. The basis for the §2.5 single-mechanism rule and preflight. |
+| The complete upstream `OOMOL_CONNECT_*` variable set | Confirms `OOMOL_CONNECT_ALLOWED_CONNECTIONS` **does not exist** (connection grants are token-level only), and that **no environment-configurable `requireRuntimeAuth` flag** exists at v1.9.4 — the basis for the §2.4 bootstrap sequence being the only available window-closing mechanism. |
 
 **Codexify — read for this plan:**
 
@@ -1627,7 +1800,12 @@ persistent runtime token whose `allowedConnections` grant is the enforcement
 mechanism — and because an **empty** grant means unrestricted access rather
 than deny-all, every Codexify-issued token carries an explicit non-empty
 grant, and the unrestricted-grant token is revoked before any
-credential-bearing connection exists. The runtime surface is authenticated by
+credential-bearing connection exists. Two upstream behaviors refine that
+boundary: virtual **`no_auth` connections bypass the connection-grant check
+entirely**, so isolation evidence must come from credential-bearing
+connections; and **token updates replace the stored policy wholesale**, so any
+update that omits the grant would silently widen it. The runtime surface is
+authenticated by
 an **explicit bootstrap sequence** rather than by a long-lived bootstrap
 token: containment first, then the first scoped persistent token, then proof
 that an unauthenticated request is rejected, and only then provider
@@ -1638,6 +1816,11 @@ does not extend to copying code newly published under more restrictive
 licensing. The first validation slice is a no-auth Hacker News action against
 the pinned build — an **unauthenticated but genuinely external** call, proven
 locally, with two synthetic accounts, before any real provider API is touched.
+The remote OAuth posture remains **deferred to Gate C**, where the open
+question is narrowed to *which component owns callback correlation* — a
+restricted reverse proxy in front of upstream's own single-use `state` store,
+or a Guardian-owned forwarder that would have to reproduce that property
+across two systems.
 Gate A asks one question — can this engine run
 reliably, invoke useful actions, and isolate credentials without introducing
 a competing authority system? — and its answer may legitimately be **no**, in
