@@ -6,7 +6,10 @@ on:
     paths:
       - 'docs/architecture/**'
       - 'docs/Campaign/**'
+      - 'docs/knowledge-graph/**'
       - 'docs/tasks/**'
+      - 'schemas/knowledge/**'
+      - 'scripts/knowledge_graph/**'
       - 'tests/architecture/**'
       - '.github/workflows/architecture-contracts.yml'
   pull_request:
@@ -14,7 +17,10 @@ on:
     paths:
       - 'docs/architecture/**'
       - 'docs/Campaign/**'
+      - 'docs/knowledge-graph/**'
       - 'docs/tasks/**'
+      - 'schemas/knowledge/**'
+      - 'scripts/knowledge_graph/**'
       - 'tests/architecture/**'
       - '.github/workflows/architecture-contracts.yml'
   workflow_dispatch:
