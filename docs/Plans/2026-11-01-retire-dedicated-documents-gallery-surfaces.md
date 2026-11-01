@@ -1,10 +1,15 @@
 # Retiring the Dedicated Documents and Gallery Surfaces — Plan
 
-> **Status:** Plan (not yet implemented). Pre-implementation baseline.
+> **Status:** Plan (approved in scope; not yet implemented). Pre-implementation baseline.
 > **Goal:** Remove the Documents and Gallery entries from the product menu bar while
 > keeping both surfaces' code intact, and determine — with evidence — whether the
 > dedicated `/documents` and `/gallery` surfaces become obsolete once the menu
 > links are gone.
+> **Scope decision (Resonant, 2026-11-01):** **full retirement** (Option B below) —
+> Phases 1-5, not links-only. Resonant's stated reason: the Dashboard is itself
+> slated to become a Feed (an activity feed), and the Dashboard currently feels
+> redundant because Library already embeds several of the same projections into a
+> unified interface. See §6.
 > **Grounding:** every claim below was read out of the working tree on 2026-11-01
 > (branch `feat/auto-20261101-9e7a08eb`, HEAD `42db74479`). Locations are cited
 > inline as `path:line`. **No source file has been modified by this document.**
@@ -246,8 +251,8 @@ Without this, Phase 3 has nowhere correct to point the Dashboard buttons.
 
 | Caller | Action |
 |---|---|
-| Dashboard "Recent Documents → See All" (`DashboardView.tsx:443`) | → `/library?filter=documents` |
-| Dashboard image card "See All" (`DashboardView.tsx:509`) | → `/library?filter=images` |
+| Dashboard "Recent Documents → See All" (`DashboardView.tsx:443`) | → `/library?filter=documents` (interim — see §6) |
+| Dashboard image card "See All" (`DashboardView.tsx:509`) | → `/library?filter=images` (interim — see §6) |
 | Phone app menu | already handled in Phase 1 |
 | `cfy:project-kb:open` listener (`AppShell.tsx:2720-2743`) | no dispatcher exists — either remove the listener + its test, or retarget it to `/library?filter=documents` and keep it. **Recommend: retarget**, because the event name is a published contract surface and a future dispatcher may exist. |
 | Deep links `/documents`, `/gallery` | leave working in Phase 3 (no redirect yet) so bookmarks never break; redirect to `/library?filter=documents` / `/library?filter=images` **after** Phase 2 is proven |
@@ -288,27 +293,85 @@ the request's phrasing currently blurs:
 
 ## 5. Options for how far this pass goes
 
+**Decision (Resonant, 2026-11-01): Option B — full retirement.** The Dashboard's
+own redundancy (§6) was the deciding factor: with the Dashboard slated to become
+a Feed, keeping three documents projections alive would preserve exactly the
+ambiguity this pass is meant to close. Option A and Option C are recorded below
+for audit, not for selection.
+
 **Option A — links only.** Phase 1. The dedicated pages become unlinked but stay
 reachable via deep link and the Dashboard "See All" buttons. Nothing is
 labelled legacy, because nothing is legacy yet. Smallest blast radius; leaves
-two projections alive.
+two projections alive. **Not selected.**
 
 **Option B — full retirement (recommended).** Phases 1-5. The dedicated pages
 stop being navigable, Library becomes the single projection, and the page
 shells are labelled legacy against a contract that already says they should be.
 Larger, but it finishes the job the contract started and leaves the codebase
-with one honest story instead of three.
+with one honest story instead of three. **Selected.**
 
 **Option C — Gallery first, Documents later.** Do Phase 1 for both, but retire
 only `/gallery` (which §2.2 shows is strictly weaker than Library) and leave
 `/documents` as a deliberate, unlinked, second documents surface. Preserves a
 documents-only view that Library's filter row does not currently reproduce in
-one click. Not recommended: it keeps the ambiguous "two documents surfaces"
-state open indefinitely.
+one click. Not selected — it keeps the ambiguous "two documents surfaces" state
+open indefinitely.
 
 ---
 
-## 6. Risks and honest limits
+## 6. The Dashboard is a third, weaker documents projection
+
+Resonant's scope decision cited the Dashboard's own redundancy. The evidence
+supports it more strongly than the Dashboard → Feed framing suggests.
+
+**The Dashboard's "Recent Documents" card reads a different endpoint than
+everything else.**
+
+| Surface | Endpoint | Families covered | Scope |
+|---|---|---|---|
+| Documents page | `GET /media/document-artifacts` | uploaded + generated | project/thread scope |
+| Library → Documents | `GET /media/document-artifacts` | uploaded + generated (`libraryResourceProjection.ts:239-242`) | project/thread scope |
+| **Dashboard → Recent Documents** | **`GET /media/documents`, `limit: 4`** | **uploaded only** | unscoped beyond the request |
+
+- Dashboard fetch — `components/dashboard/DashboardView.tsx:246`
+- `/media/documents` queries the `UploadedDocument` table only
+  (`guardian/routes/media.py:3007-3033`) — it cannot return generated documents.
+- `/media/document-artifacts` is the richer artifact view
+  (`guardian/routes/media.py:2848-2896`), the one Library and the Documents page
+  both use.
+- **`/media/documents` has exactly one production caller in the whole
+  frontend** — the Dashboard card. Every other consumer (Documents page,
+  Library, workspace shelf, workspace inspector, chat attachments) uses
+  `/media/document-artifacts`.
+
+So the codebase currently carries **three** documents projections of different
+strength, and the weakest one is on the surface that is about to be replaced:
+
+1. `/documents` page — full projection, but a redundant second surface.
+2. Library → Documents — the canonical projection.
+3. Dashboard → Recent Documents — an uploaded-only, four-item subset.
+
+The Gallery side has the same shape: the Dashboard's image card and the
+Gallery page are both browser-local, while Library's Images filter is
+server-authoritative.
+
+### What this means for the sequence
+
+- **The Feed overhaul is a separate, larger change and is out of scope here.**
+  It needs its own contract and plan. This document must not pre-empt it.
+- **This pass must not block it.** Concretely: retarget the Dashboard's two
+  "See All" buttons to filtered Library URLs (Phase 3) rather than deleting the
+  cards. Deleting them would be a Feed-overhaul decision made in the wrong
+  document; retargeting them removes the last caller of the retired surfaces
+  *now*, and the Feed overhaul can later replace those cards outright —
+  including deciding whether the Feed embeds Library projections directly.
+- **Retiring `/media/documents` is a Feed-overhaul decision**, not this pass's.
+  It becomes a single-caller dead endpoint once the Dashboard card is replaced.
+  Worth flagging to that plan rather than deleting the route here.
+
+---
+
+## 7. Risks and honest limits
 
 - **This plan is code-path evidence, not runtime proof.** Nothing here has been
   exercised in a live browser or against a running backend. Phases 1-3 change
