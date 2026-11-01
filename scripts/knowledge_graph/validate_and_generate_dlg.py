@@ -1885,6 +1885,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     repository_root = Path(args.repository_root).resolve()
 
     if args.command == "rehash":
+        # This file is executed as a script in some flows, and the
+        # repository root is not on sys.path in that case. Add it so the
+        # sibling module resolves the same way in every invocation.
+        repository_root_str = str(repository_root)
+        if repository_root_str not in sys.path:
+            sys.path.insert(0, repository_root_str)
+
         from scripts.knowledge_graph.rebind_dlg_nodes import (
             RebindError,
             describe_outcomes,
