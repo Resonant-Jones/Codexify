@@ -69,6 +69,7 @@ from guardian.context.retrieval_router_policy import (
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
+from guardian.metering.ledger import record_inference_attempt
 from guardian.core.db import (
     ChatToolCheckpointError,
     create_chat_completion_attempt,
@@ -1711,6 +1712,49 @@ def _tool_turn_completion_result(
     return result
 
 
+
+def _record_observed_provider_usage(
+    task: ChatCompletionTask,
+    *,
+    provider: str,
+    model: str,
+    attempt_id: str | None,
+    output: Any,
+) -> None:
+    """Best-effort, separately committed accounting after provider execution.
+
+    This is intentionally not an inference authorization or acceptance gate.
+    Failures are logged without prompt content and never change chat outcomes.
+    """
+    account_id = str(getattr(task, "user_id", "") or "").strip()
+    request_id = str(getattr(task, "request_id", "") or "").strip()
+    if not account_id or not attempt_id or not request_id:
+        logger.warning("[inference-metering] missing_attempt_identity")
+        return
+    try:
+        db = getattr(dependencies, "chatlog_db", None)
+        factory = getattr(db, "_sa_session", None)
+        if not callable(factory):
+            logger.warning("[inference-metering] database_session_unavailable")
+            return
+        with factory() as session:
+            record_inference_attempt(
+                session,
+                account_id=account_id,
+                thread_id=task.thread_id,
+                request_id=request_id,
+                provider_attempt_id=attempt_id,
+                provider=provider,
+                model=model,
+                output=output,
+            )
+    except Exception:
+        logger.warning(
+            "[inference-metering] recording_failed provider=%s model=%s",
+            provider, model, exc_info=True,
+        )
+
+
 def _execute_completion_attempt(
     *,
     task: ChatCompletionTask,
@@ -1734,13 +1778,18 @@ def _execute_completion_attempt(
     except Exception:
         observer = None
     with observe_provider_requests(observer):
-        return _dispatch_completion_attempt(
+        result = _dispatch_completion_attempt(
             task=task, messages_for_llm=messages_for_llm, provider=provider,
             model=model, bundle=bundle, accepted_deadline=accepted_deadline,
             token_callback=token_callback,
             chunk_callback=chunk_callback, cancel_check=cancel_check,
             tool_exposure=tool_exposure,
         )
+    _record_observed_provider_usage(
+        task, provider=provider, model=model,
+        attempt_id=result.attempt_id, output=result.output,
+    )
+    return result
 
 
 def _dispatch_completion_attempt(

@@ -9,6 +9,7 @@ No raw DDL creation in application code.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -32,6 +34,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.metering.tokens import InferenceCostSource, InferenceUsageSource
 from guardian.account_observability.tokens import (
     ATTRIBUTION_CONFIDENCES,
     ATTRIBUTION_METHODS,
@@ -153,6 +156,81 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'guest')", name="users_role_check"),
+    )
+
+
+
+class InferenceUsageEvent(Base):
+    """One immutable, content-free provider attempt accounted to an existing user."""
+
+    __tablename__ = "inference_usage_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    account_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_attempt_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128))
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    cached_input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    total_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    usage_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 9))
+    cost_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    price_snapshot: Mapped[dict[str, str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "provider_attempt_id", name="uq_inference_usage_account_attempt"),
+        CheckConstraint(
+            "usage_source IN ('provider_reported','partial','unavailable')",
+            name="inference_usage_source_check",
+        ),
+        CheckConstraint(
+            "cost_source IN ('rate_snapshot_estimate','unavailable')",
+            name="inference_cost_source_check",
+        ),
+        CheckConstraint(
+            "(estimated_cost_usd IS NULL AND cost_source = 'unavailable') OR "
+            "(estimated_cost_usd IS NOT NULL AND cost_source = 'rate_snapshot_estimate' "
+            "AND estimated_cost_usd >= 0)",
+            name="inference_cost_presence_check",
+        ),
+        CheckConstraint(
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="inference_input_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="inference_output_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "cached_input_tokens IS NULL OR cached_input_tokens >= 0",
+            name="inference_cached_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="inference_total_tokens_nonnegative",
+        ),
+        Index("ix_inference_usage_account_time", "account_id", "recorded_at"),
+        Index("ix_inference_usage_request", "request_id"),
     )
 
 
