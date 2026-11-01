@@ -21,7 +21,7 @@
       "active blockers, priorities, or the audited implementation tip change"
     ],
     "verified_at": "2026-09-11T20:55:06Z",
-    "verified_commit": "35ac2256a4a35da7c195b86c588ae0609871b0c8",
+    "verified_commit": "07947c84560034d200a2cfbd6179a0b223579751",
     "window_days": 7
   },
   "governing_adr_posture": "not_applicable",
