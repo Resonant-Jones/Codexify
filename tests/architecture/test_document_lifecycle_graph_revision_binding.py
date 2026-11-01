@@ -171,18 +171,73 @@ def test_validator_reports_a_tampered_hash(tmp_path: Path) -> None:
 # ── Rebind ────────────────────────────────────────────────────────────────
 
 
+def test_no_canonical_node_goes_stale_beyond_its_declared_state() -> None:
+    """A governed document changing must not silently leave the corpus stale.
+
+    Staleness is reported as a finding rather than an error, which is the
+    right shape for a report and the wrong shape for a gate: a canonical
+    document could change, the corpus would stop describing current code,
+    and every validation would still pass.
+
+    A node may legitimately be declared `stale` by a reviewer. What must
+    not happen is a node going stale *because its governed source changed*
+    while nothing says so. This asserts that the set of nodes whose source
+    moved since their verified commit is exactly the set that already
+    declares itself stale.
+    """
+    revision = _git("rev-parse", "HEAD")
+    result = dlg.validate_repository(REPO_ROOT, revision, BASE_GENERATED_AT)
+
+    declared_stale = {
+        node.get("document_id")
+        for node in result.nodes
+        if isinstance(node.get("freshness"), dict)
+        and node["freshness"].get("state") == "stale"
+    }
+    reported_stale = {
+        entry.get("document_id")
+        for entry in (result.stale_documents or [])
+        if entry.get("document_id")
+    }
+
+    # Every node reported stale must say why it is stale.
+    for entry in result.stale_documents or []:
+        assert entry.get("reasons"), f"{entry.get('document_id')} is stale without a reason"
+
+    # A node whose governed source moved must not be silently current.
+    for node in result.nodes:
+        document_id = node.get("document_id")
+        source_path = node.get("path")
+        verified_commit = node.get("freshness", {}).get("verified_commit")
+        if not isinstance(source_path, str) or not isinstance(verified_commit, str):
+            continue
+        committed = rebind._blob_bytes(REPO_ROOT, verified_commit, source_path)
+        current = rebind._blob_bytes(REPO_ROOT, revision, source_path)
+        if committed is None or current is None or committed == current:
+            continue
+        assert document_id in declared_stale, (
+            f"{document_id} governs a source that changed after "
+            f"{verified_commit[:9]} but does not declare itself stale"
+        )
+        assert document_id in reported_stale, (
+            f"{document_id} governs a changed source but is not reported stale"
+        )
+
+
 def test_rebind_is_a_no_op_when_the_node_is_already_bound(tmp_path: Path) -> None:
     """Rebinding an already-bound node must not change anything."""
     revision = _git("rev-parse", "HEAD")
     node_file = NODES_DIR / "codexify:doc:architecture:current-state.json"
+    node = json.loads(node_file.read_text(encoding="utf-8"))
+    bound_revision = node["freshness"]["verified_commit"]
     outcome = rebind.rebind_node(
         REPO_ROOT,
         node_file,
-        revision=revision,
-        commit=revision,
+        revision=bound_revision,
+        commit=bound_revision,
         dry_run=True,
     )
-    assert outcome.previous_verified_commit == revision
+    assert outcome.previous_verified_commit == bound_revision
     assert outcome.previous_hash == outcome.new_hash
     assert not outcome.changed
 
