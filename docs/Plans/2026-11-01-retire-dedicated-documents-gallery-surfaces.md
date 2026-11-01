@@ -18,6 +18,14 @@
 > therefore retires **navigation and page shells**, never archives, server-backed
 > capabilities, shared Library presentation components, or canonical
 > persistence/provenance relationships. See §7.
+> **Refinement (Resonant, 2026-11-01, after accepting the reconciliation):**
+> three technical details are carried into the later safety and cleanup work —
+> (a) `cfy.gallery` is **browser-scoped, not account-scoped** (§2.2.1a);
+> (b) the content classification is by **verified server counterpart**, with the
+> introducing event kept as an attribute (§2.2.1); (c) the browser-local safety
+> gate governs the `/gallery` route and local-only content, and **does not**
+> block the `GalleryView.tsx` cleanup (§2.2.2, §2.3, Phase 4). None of these
+> delays Phase 1.
 > **Grounding:** every claim below was read out of the working tree on 2026-11-01
 > on branch `feat/auto-20261101-9e7a08eb` (application source inspected at
 > `42db74479`; the only commits ahead are plan-only — `3ed073996`, `b64a3df02`).
@@ -77,8 +85,10 @@ claimed that *anything visible in Gallery is already visible in Library*. That
 claim is **withdrawn** — it holds for server-backed content only. The Gallery
 page can display browser-local content (including images whose upload failed
 and was never persisted) that a server projection provably cannot show. §2.2.1
-supersedes the claim with the four content classes, and §2.2.2 installs a hard
-safety gate before any `/gallery` redirect or gallery code removal.
+supersedes the claim with a classification by **verified server counterpart**,
+§2.2.1a records that the local store is **browser-scoped rather than
+account-scoped**, and §2.2.2 installs a hard safety gate before any `/gallery`
+redirect or removal of access to local-only content.
 
 ---
 
@@ -202,19 +212,32 @@ covers both uploaded and generated families
 
 Library's Images filter is strictly more complete **for records that exist on
 the server**. It is not a superset of everything the Gallery page can display.
-The Gallery state machine carries four distinct content classes, and only the
-first is server-backed:
 
-| Class | Source | Server-backed? | Visible in Library → Images? |
+**Classification axis: does the item have a verified server counterpart?** The
+introducing *event* is a secondary attribute, not a class in its own right —
+the same item can be both an in-session event and a server-backed record, or
+both an in-session event and browser-local-only. Classifying by event would
+double-count and mislabel. The decisive question for the safety gate is
+whether a server counterpart **can be verified**:
+
+| Axis | How it is determined | Server counterpart? | Visible in Library → Images? |
 |---|---|---|---|
-| **A. Server-backed uploaded / generated images** | `/media/images` records reached through the uploader's success path (`useUploader.ts:487-488`, `uploadedImage.src_url`) | Yes | Yes — same family, same records |
-| **B. Browser-local gallery references** | `cfy.gallery` entries whose `src` is a local `data:` URL or other non-server path | **No** | **No** |
-| **C. In-session upload state** | Items pushed by `cfy:gallery:add` (`:2691-2718`) and the uploader's `onImages` (`:2745+`); never read back from any server endpoint | **No** | **No** |
-| **D. Seeded demonstration assets** | `SEEDED_GALLERY_ITEMS` (`:645-669`), `mock: true`, `/peekaboo-demo/*` | No — synthetic | No — explicitly rejected as `synthetic_record` |
+| **Server-backed** | `src` resolves to a server-hosted asset **and** the item carries a verifiable server identity (`src_url` / id) — e.g. the uploader's success path (`useUploader.ts:487-488`) | Yes | Yes — same family, same records |
+| **Browser-local-only** | `src` is a local `data:` URL or other non-server path, **or** no server counterpart can be verified | **No** | **No** |
+| **Synthetic / seeded** | `SEEDED_GALLERY_ITEMS` (`:645-669`), `mock: true`, `/peekaboo-demo/*` | No — synthetic | No — explicitly rejected as `synthetic_record` |
 
-**Class B is the real data-loss risk.** `useUploader.ts:486-494` shows that when
-an image upload *fails*, the uploader does not discard the file — it falls back
-to a local `data:` URL and marks the item `mock: true`:
+**Event provenance is retained as an attribute, not as a class.** For
+reference, the items arrive through three mechanisms: the uploader's success
+and failure paths, the `cfy:gallery:add` window event (`:2691-2718`), and the
+persisted `cfy.gallery` cache. A *successful* upload is simultaneously an
+in-session event **and** server-backed. A *failed* upload is simultaneously an
+in-session event **and** browser-local-only. Only the server-counterpart axis
+determines whether content is at risk.
+
+**Browser-local-only content is the real data-loss risk.**
+`useUploader.ts:486-494` shows that when an image upload *fails*, the uploader
+does not discard the file — it falls back to a local `data:` URL and marks the
+item `mock: true`:
 
 ```ts
 // Use server response URL (persisted) or fall back to local data URL (preview-only)
@@ -227,6 +250,28 @@ imgs.push({ src: imageUrl, prompt: f.name, mock: !uploadedOk, ... });
 A user whose upload failed while the upload endpoint was unhealthy therefore has
 an image that exists **only** as a browser-local `data:` URL in `cfy.gallery`.
 Library, being a server projection, provably cannot show it.
+
+#### 2.2.1a `cfy.gallery` is browser-scoped, not account-scoped
+
+`localStorage` belongs to a **browser origin and profile**. It is not
+inherently bound to an authenticated Codexify account. Three consequences the
+safety gate must respect:
+
+1. **Server-side account inspection cannot establish that every browser has
+   been checked.** A gate phrased as "enumerate `cfy.gallery` per account" is
+   not answerable from the server. The enumeration is inherently a
+   browser-side check, and it can only ever cover the browser performing it.
+2. **The same browser profile may carry items from more than one authenticated
+   account.** Unless the application explicitly isolates local state by
+   account, locally retained images can outlive or cross an account switch.
+3. **Browser ownership and authenticated resource ownership are different
+   things.** Remediation must distinguish them: a locally retained image must
+   **never** be automatically migrated into whichever account happens to be
+   logged in at remediation time. Any transfer requires explicit, attributable
+   user action.
+
+The safety gate below is therefore written as a browser-side inspection with an
+explicit account-boundary rule, not as a server-side account query.
 
 **When this residue is visible.** `AppShell.tsx:2914-2917` decides what the
 Gallery page renders:
@@ -248,31 +293,60 @@ path trims on quota error, so the volume of browser-local-only image data is
 bounded by the storage quota. That bounds the blast radius — it does not make
 the loss acceptable, and it does not make the residue non-existent.
 
-#### 2.2.2 Safety gate (prerequisite to any `/gallery` redirect or gallery code removal)
+#### 2.2.2 Safety gate (prerequisite to retiring the `/gallery` route or removing local-only content)
 
-**No redirect of `/gallery`, and no removal of gallery code, may proceed until
-this gate is discharged.** The gate must establish, against real account data
-rather than by inspection alone:
+**Scope of the gate.** The gate governs exactly two things:
 
-1. **Does browser-local-only user content exist?** Enumerate `cfy.gallery`
-   entries per account and classify each as class A (server-backed, carries a
-   resolvable server `src_url`/id) or class B/C (no server counterpart).
+- redirecting the `/gallery` route, and
+- removing access to browser-local-only gallery content.
+
+**The gate does *not* govern deletion of `GalleryView.tsx`.** Per §2.3, that
+component is not the code that renders browser-local images today — the inline
+Gallery branch inside `AppShell` is. Deleting an otherwise-unused component is
+dead-code cleanup, and coupling it to a potentially complicated browser-data
+migration would create a dependency that serves neither concern. The gate and
+the `GalleryView.tsx` cleanup are therefore **independent work items**; see
+Phase 4, where the deletion conditions deliberately omit the gate.
+
+**No redirect of `/gallery`, and no removal of access to browser-local-only
+content, may proceed until this gate is discharged.** The gate is a
+**browser-side** inspection (see §2.2.1a), not a server-side account query, and
+it must establish against real data rather than by inspection alone:
+
+1. **Does browser-local-only user content exist?** Enumerate the entries in
+   `cfy.gallery` **in the browser being inspected** and classify each by the
+   server-counterpart axis in §2.2.1 — server-backed vs browser-local-only vs
+   synthetic. Because the store is browser-scoped (§2.2.1a), this is a
+   per-browser inspection; it cannot be satisfied by an account-level server
+   query, and a negative result covers only the browser that produced it.
 2. **Is it visible today, or merely retained?** Using the
    `realGallery.length > 0` rule above, determine whether affected items are
    currently displayed or only stored-but-hidden — because "stored but hidden"
    still means the user believes the content is reachable.
-3. **What remediation is required?** Options, to be decided by the user, not by
+3. **Which account does it belong to, if any?** Because the store is not
+   account-scoped, determine whether the affected entries are attributable to
+   the currently authenticated account at all. Entries that are not
+   attributable must be treated as belonging to the browser, not to the signed-in
+   account.
+4. **What remediation is required?** Options, to be decided by the user, not by
    this plan:
    - a one-time export/download of browser-local-only images before redirect;
    - a retained local-only compatibility route;
    - an explicit, consented disclosure of what will disappear;
    - re-upload by the user.
-4. **Recording.** The gate result — including a negative result — must be
-   recorded as a dated note before Phase 3's redirect lands.
+5. **Recording.** The gate result — including a negative result, and including
+   the browser scope it covered — must be recorded as a dated note before
+   Phase 3's redirect lands.
+
+**Account-boundary rule.** Remediation must distinguish browser ownership from
+authenticated resource ownership. A browser-local image must **never** be
+automatically migrated into, or claimed by, whichever account happens to be
+logged in. Any transfer requires explicit, attributable user action.
 
 **No silent data loss and no silent disappearance of user-created content is
-acceptable.** This gate is a hard prerequisite, not a risk to be accepted and
-moved past. **No migration is designed or implemented in this document.**
+acceptable.** This gate is a hard prerequisite for the two things it governs —
+not a risk to be accepted and moved past. **No migration is designed or
+implemented in this document.**
 
 ### 2.3 `GalleryView.tsx`: unreferenced in production, but not dependency-free
 
@@ -312,6 +386,12 @@ Three dependencies must be accounted for before it can be called free:
 false claim, and deleting it without the type relocation and test-folding above
 would break live Library components. See Phase 4, which is explicitly
 evidence-gated.
+
+**This deletion is independent of the §2.2.2 browser-local safety gate.**
+`GalleryView.tsx` is not the code that renders browser-local images today; the
+inline Gallery branch inside `AppShell` is (§2.2.1). The gate governs the
+`/gallery` route and access to local-only content — not the removal of an
+otherwise-unused component whose dependencies have been resolved.
 
 ---
 
@@ -376,6 +456,13 @@ may legitimately conclude "retain" for every candidate.
   Documents/Gallery destination).
 - Routes `/documents` and `/gallery` **stay live**. `DocumentsView`,
   `GalleryGrid`, `GalleryView` stay in place, untouched.
+
+**Route-retention constraint for Phase 1 (load-bearing).** Removing Gallery from
+the menu does **not** delete browser-local-only images — it only makes them
+harder to discover. So `/gallery` **must remain functional and reachable
+throughout Phase 1**, by direct URL, so that any user who needs their
+browser-local content can still reach it. The route-retention requirement is
+what makes Phase 1 safe to land before the §2.2.2 safety gate has run.
 
 **Test impact (Phase 1):**
 
@@ -463,12 +550,17 @@ enumerates production references, type dependencies, and test ownership.
   4. **Capability substitution confirmed** — the server-backed image projection
      it carries (`GalleryView.tsx:96-149`) is confirmed as supplied by
      `libraryResourceProjection.ts`, not lost with it.
-  5. **Safety gate discharged** — §2.2.2 is complete, including the negative
-     result if no browser-local-only content exists.
 
-  If any of the five cannot be established, the file is **retained** and, if
+  If any of the four cannot be established, the file is **retained** and, if
   it is retained with no production purpose, labelled as an unreferenced
   component — it is not deleted on an assumption.
+
+  **The §2.2.2 safety gate is deliberately NOT one of these conditions.**
+  `GalleryView.tsx` is not the component that renders browser-local images
+  today — the inline Gallery branch inside `AppShell` is (§2.2). Coupling
+  dead-code cleanup to a potentially complicated browser-data migration would
+  create a dependency that serves neither concern. This deletion and the
+  safety gate are **independent work items** and may proceed concurrently.
 
 **Not in scope for Phase 4:** any backend route, schema, migration, or API
 change. `GET /media/images`, `GET /media/document-artifacts`, and
@@ -735,12 +827,15 @@ Checked against `docs/architecture/adr/adr-index.md` and
   user-visible navigation; they should be verified in the running app before
   being called done. Documentation validation is not runtime proof.
 - **Browser-local Gallery content is not fully characterised.** §2.2.1 proves
-  that class B content *can* exist — a failed upload persists as a local
-  `data:` URL with no server counterpart — and that Library cannot show it. It
-  does **not** prove how much of it exists in any real account. The §2.2.2
-  safety gate is what establishes that, and it must run against real data
-  before the `/gallery` alias lands. This is the one open item in this plan
-  that can change what Phase 3 is allowed to do.
+  that browser-local-only content *can* exist — a failed upload persists as a
+  local `data:` URL with no server counterpart — and that Library cannot show
+  it. It does **not** prove how much of it exists, and it cannot: `cfy.gallery`
+  is **browser-scoped, not account-scoped** (§2.2.1a), so the question is only
+  answerable by a browser-side inspection, and a negative result covers only
+  the browser that produced it. The §2.2.2 safety gate is what establishes
+  this, and it must run before the `/gallery` alias lands. This is the one open
+  item in this plan that can change what Phase 3 is allowed to do — and it
+  deliberately does **not** gate the `GalleryView.tsx` cleanup (§2.3, Phase 4).
 - **The `cfy:project-kb:open` dispatcher may exist outside the repository**
   (an older build, a bookmarklet, a native shell, an integration). The repo
   contains no dispatcher; that is the whole of the evidence. This is why the
@@ -763,6 +858,7 @@ Checked against `docs/architecture/adr/adr-index.md` and
 |---|---|---|
 | Feed layout, card architecture, ordering/ranking, resource composition, personalization, aggregation contracts | Future Feed workstream | §6 — a different contract |
 | Replacement or retirement of `/media/documents` | Future Feed workstream | §6 — its only caller is a Dashboard card this plan does not remove |
-| Any data migration for browser-local gallery content | To be decided by the user after the §2.2.2 gate | §2.2.2 — the gate defines the problem; the remedy is a product decision |
+| Any data migration for browser-local gallery content | To be decided by the user after the §2.2.2 gate | §2.2.2 — the gate defines the problem; the remedy is a product decision, and it must respect the browser-vs-account ownership boundary (§2.2.1a) |
+| `GalleryView.tsx` type relocation and test folding | Phase 4 | §2.3, Phase 4 — independent of the safety gate; may proceed concurrently |
 | Contract update recording the executed convergence | Phase 5, after implementation | §7.2 — the contract is updated after the code lands, not before |
 | Runtime/browser proof of the navigation changes | Phase 5 proof note | §8 — code-path evidence is not runtime proof |
