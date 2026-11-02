@@ -1731,7 +1731,14 @@ export default function AppShell({
     lastGuardianPathRef.current = resolvePathForView("guardian", activeRouteThreadId);
   }, [activeRouteThreadId, view]);
   const navigateToView = useCallback(
-    (nextView: AppShellView) => {
+    (
+      nextView: AppShellView,
+      /**
+       * The Library filter to open, when navigating to Library. Omit it to
+       * keep the currently selected filter; the default filter is `all`.
+       */
+      nextLibraryFilter?: LibraryFilter
+    ) => {
       if (
         (nextView === "documents" || nextView === "library") &&
         view !== "documents" &&
@@ -1758,7 +1765,7 @@ export default function AppShell({
       const nextPath = resolvePathForView(
         nextView,
         activeRouteThreadId,
-        nextView === "library" ? libraryFilter : "all"
+        nextView === "library" ? nextLibraryFilter ?? libraryFilter : "all"
       );
       if (window.location.pathname + window.location.search !== nextPath) {
         window.history.pushState({}, "", nextPath);
@@ -4486,8 +4493,8 @@ export default function AppShell({
                           onImagePrompt={openChatWithPrompt}
                           onRequestNewProject={openCreateProjectModal}
                           onRequestNewThread={createThreadFromDashboard}
-                          onNavigateDocuments={() => navigateToView("documents")}
-                          onNavigateGallery={() => navigateToView("gallery")}
+                          onNavigateDocuments={() => navigateToView("library", "documents")}
+                          onNavigateGallery={() => navigateToView("library", "images")}
                           threadGridRows={dashboardThreadRows}
                         />
                       </div>
@@ -4499,8 +4506,8 @@ export default function AppShell({
                       onImagePrompt={openChatWithPrompt}
                       onRequestNewProject={openCreateProjectModal}
                       onRequestNewThread={createThreadFromDashboard}
-                      onNavigateDocuments={() => navigateToView("documents")}
-                      onNavigateGallery={() => navigateToView("gallery")}
+                      onNavigateDocuments={() => navigateToView("library", "documents")}
+                      onNavigateGallery={() => navigateToView("library", "images")}
                       threadGridRows={dashboardThreadRows}
                     />
                   )}

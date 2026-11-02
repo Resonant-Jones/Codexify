@@ -156,6 +156,12 @@ type DashboardViewProps = {
   onImagePrompt: (p: string) => void;
   onRequestNewProject: () => void;
   onRequestNewThread: () => void;
+  /**
+   * Open the collection this card is about. The dedicated `/documents` and
+   * `/gallery` routes are no longer navigation destinations, so these open the
+   * equivalent Library modes instead. The card and its data source are
+   * unchanged.
+   */
   onNavigateDocuments: () => void;
   onNavigateGallery: () => void;
   threadGridRows: number;

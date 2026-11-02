@@ -289,9 +289,13 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
   default: ({
     onRequestNewThread,
     onRequestNewProject,
+    onNavigateDocuments,
+    onNavigateGallery,
     gallery,
   }: {
     onRequestNewProject: () => void;
+    onNavigateDocuments: () => void;
+    onNavigateGallery: () => void;
     gallery?: Array<{ src: string; prompt: string }>;
   }) => (
     <div data-testid="dashboard-view-mock">
@@ -300,6 +304,22 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
       </button>
       <button type="button" onClick={onRequestNewProject}>
         New Project
+      </button>
+      {/* The real card labels both actions "See All"; the mock disambiguates
+          them by accessible name so a test can target one destination. */}
+      <button
+        type="button"
+        aria-label="See All Documents"
+        onClick={onNavigateDocuments}
+      >
+        See All
+      </button>
+      <button
+        type="button"
+        aria-label="See All Images"
+        onClick={onNavigateGallery}
+      >
+        See All
       </button>
       <div data-testid="dashboard-gallery-mock">
         {(gallery ?? []).map((item) => (
@@ -2940,5 +2960,174 @@ describe("AppShell Library filter route authority", () => {
     expect(scopesAfter.length).toBeGreaterThan(scopesBefore.length);
     // A filter change re-reads the same scope; it never re-scopes a request.
     expect(new Set(scopesAfter)).toEqual(new Set(scopesBefore));
+  });
+});
+
+describe("AppShell Dashboard resource navigation", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/projects") {
+        return { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] };
+      }
+      if (path === "/media/documents") {
+        return { data: { documents: [] } };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [] } };
+      }
+      if (path === "/media/images") {
+        return { data: { images: [] } };
+      }
+      return { data: {} };
+    });
+    setRoutePath("/dashboard");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("opens the Library documents mode from the Recent Documents action", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    await user.click(screen.getByRole("button", { name: "See All Documents" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(window.location.search).toBe("?filter=documents");
+    });
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "documents"
+    );
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("opens the Library images mode from the Gallery action", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    await user.click(screen.getByRole("button", { name: "See All Images" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(window.location.search).toBe("?filter=images");
+    });
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "images"
+    );
+    expect(screen.getByTestId("library-filter-images")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("returns to the Dashboard on browser back", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    await user.click(screen.getByRole("button", { name: "See All Documents" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+
+    await act(async () => {
+      window.history.back();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/dashboard");
+    });
+    expect(window.location.search).toBe("");
+    expect(await screen.findByTestId("dashboard-view-mock")).toBeInTheDocument();
+  });
+
+  it("leaves the Dashboard cards and the gallery input unchanged", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/persisted-image.png", prompt: "Persisted image" },
+      ])
+    );
+
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    // The Dashboard keeps its cards, its actions, and the gallery state the
+    // shell feeds it. Only the destination of "See All" changed.
+    expect(screen.getByText("Persisted image")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "See All Documents" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "See All Images" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "New Thread" })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a single project/thread scope across the Dashboard action", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    await user.click(screen.getByRole("button", { name: "See All Documents" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    await waitFor(() => {
+      expect(
+        mockApi.get.mock.calls.some(
+          ([path]) => path === "/media/document-artifacts"
+        )
+      ).toBe(true);
+    });
+
+    // Every scoped read uses the same scope query: the action navigates, it
+    // does not re-scope the request.
+    const scopeKeys = mockApi.get.mock.calls
+      .filter(([path]) => path === "/media/document-artifacts")
+      .map(([, config]) =>
+        JSON.stringify((config as any)?.params ?? null)
+      );
+    expect(scopeKeys.length).toBeGreaterThan(0);
+    expect(new Set(scopeKeys).size).toBe(1);
+  });
+
+  it("keeps the dedicated Documents and Gallery routes live", async () => {
+    setRoutePath("/documents");
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/documents");
+
+    cleanup();
+    setRoutePath("/gallery");
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
   });
 });
