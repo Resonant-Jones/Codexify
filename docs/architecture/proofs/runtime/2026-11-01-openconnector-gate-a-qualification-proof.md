@@ -362,6 +362,29 @@ exactly the trade the review anticipated.
 
 **No leakage.** The guard value did not appear in the container logs, the persisted run log, or
 any response body. It is also never placed in a request, an argument, a result, or a projection.
+A wrong bearer is **not** echoed back in the error body (`401`, generic message).
+
+**Accidental-use surfaces, measured.** "Cannot be used accidentally" was tested rather than
+assumed:
+
+| Surface | Result |
+| --- | --- |
+| Presented as `x-oo-connector-alias` | **401** — not interpreted as a connection selector or a bearer |
+| Presented as `x-oo-connector-app-id` | **401** — same |
+| Wrong bearer sent to a runtime endpoint | **401**, body does **not** echo the presented value |
+| Admin surface (`/api/*`) | **401** — runtime scope only |
+| Comparison of the configured token | **Constant-time** (`constantTimeEqual` in upstream `auth.ts`), with a length pre-check |
+| **Docker daemon access** | **The guard is readable** via `docker inspect` and `docker exec … env` — it is an environment variable |
+| Host filesystem | Secret file is mode `0600`, outside the repository |
+
+The Docker-exposure row needs its context, because it is **not an incremental
+escalation**: `OOMOL_CONNECT_ENCRYPTION_KEY` is **also** in the container
+environment, so anyone with Docker daemon access can already read the encrypted
+credential database **and** the key needed to decrypt it. Docker access is
+already a full-credential path for this deployment, independent of the guard. The
+guard therefore does not widen the Docker-privileged threat model; the meaningful
+boundary remains between **Docker access** and **application-level access**, and
+within the latter the guard is not reachable.
 
 ### Operational requirements — the guard is only as good as its enforcement
 
@@ -513,6 +536,14 @@ Upstream asks that reports **not** include secrets, credentials, or customer dat
 in this receipt is a disposable placeholder. Upstream also commits to acknowledgement within 3
 business days, to coordinating a fix before disclosure, and to crediting the reporter in the
 advisory unless asked not to.
+
+**A ready-to-send report has been drafted** at
+`.gate-a-trial/UPSTREAM-SECURITY-REPORT-DRAFT.md` — outside the repository, in a
+git-excluded directory, so the exploit details are not committable by accident. It contains the
+root cause with source references, a minimal reproduction using placeholders only, the controls
+that bound the impact, an explicit statement of what was **not** established, and three suggested
+remediations — including that upstream's existing `requireRuntimeAuth` option already expresses
+the desired semantics and merely needs to be exposed to configuration. **It has not been sent.**
 
 **Until upstream has responded, the branch stays unpushed and this receipt stays local.** The
 Gate A commits are on a local branch only; nothing has been pushed to `origin`, and no release
