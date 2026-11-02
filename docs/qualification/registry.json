@@ -1,29 +1,49 @@
 {
-  "registry_version": 1,
   "generated_from_repository": true,
-  "release_authority": "docs/architecture/00-current-state.md",
   "qualifications": {
     "onboarding-and-people": {
-      "title": "Onboarding and People",
-      "scope": "Authenticated private-preview onboarding and same-node People messaging",
-      "status": "HOLD",
-      "freshness": "stale",
-      "rubric": "rubrics/onboarding-and-people.md",
-      "latest_run": null,
-      "tested_commit": null,
-      "last_qualified_at": null,
-      "evidence": [
-        "../architecture/proofs/2026-09-01-people-messaging-runtime-qualification-proof.md"
+      "blockers": [
+        "No qualification run receipt exists for this surface; the registry cannot project a qualification status without one."
       ],
+      "evidence": [
+        "docs/architecture/proofs/2026-09-01-people-messaging-runtime-qualification-proof.md"
+      ],
+      "freshness": "stale",
+      "last_qualified_at": null,
+      "latest_run": null,
       "metrics": {
         "human_testers": 0,
-        "independent_completions": 0
+        "independent_completions": 0,
+        "run_receipts": 0
       },
+      "rubric": "rubrics/onboarding-and-people.md",
+      "scope": "Authenticated private-preview onboarding and same-node People messaging",
+      "status": "HOLD",
+      "tested_commit": null,
+      "title": "Onboarding and People"
+    },
+    "supported-compose": {
       "blockers": [
-        "Hosted first-run onboarding remains unproven with real tester accounts.",
-        "Live username setup through the onboarding flow remains unproven.",
-        "A current-tip human A-to-B-to-A onboarding plus messaging loop has not yet been recorded."
-      ]
+        "The tested commit 5da79431fa059b7da80688380550cf29d4854b18 is not an ancestor of the current tip, so this run cannot be shown to describe the code the tip contains. A qualification run must test a revision that is part of the lineage it qualifies."
+      ],
+      "evidence": [
+        "docs/architecture/proofs/supported-compose/2026-09-22-current-tip-final-supported-compose-qualification.md"
+      ],
+      "freshness": "stale",
+      "last_qualified_at": "2026-09-22",
+      "latest_run": "runs/2026-09-22-supported-compose-current-tip.md",
+      "metrics": {
+        "human_testers": 0,
+        "independent_completions": 0,
+        "run_receipts": 1
+      },
+      "rubric": "rubrics/supported-compose.md",
+      "scope": "The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip",
+      "status": "HOLD",
+      "tested_commit": "5da79431fa059b7da80688380550cf29d4854b18",
+      "title": "Supported Compose Runtime"
     }
-  }
+  },
+  "registry_version": 1,
+  "release_authority": "docs/architecture/00-current-state.md"
 }

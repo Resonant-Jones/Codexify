@@ -143,7 +143,11 @@ Each `source_anchors` entry contains a repository-relative path or glob, one typ
 
 `temporal` records `created_at`, `effective_from`, and optional `effective_until`.
 
-`content_hash` is the SHA-256 of the governed source bytes. It protects identity/integrity, not truth.
+`content_hash` is the SHA-256 of the governed source bytes **as recorded at `freshness.verified_commit`**. It protects identity/integrity, not truth.
+
+The hash and the declared revision are one claim, not two. The bytes are read from the Git object database, so the recorded hash is the same in every checkout and does not depend on which worktree, branch, or dirty state the tooling ran from. A node whose `content_hash` disagrees with the bytes at its own `verified_commit` is malformed, and the validator rejects it.
+
+Rebinding a node to a newer revision writes `content_hash` and `freshness.verified_commit` together. Rebinding is mechanical: it records which bytes a node describes, and does not by itself assert that a human re-reviewed the document. `freshness.state` is changed only by human review or an approved proof workflow.
 
 Governed schema boundaries use `additionalProperties: false`; extensions require an explicit versioned object.
 
