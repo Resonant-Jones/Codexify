@@ -10,6 +10,7 @@ import pytest
 from guardian.core import chat_completion_service, dependencies
 from guardian.core.ai_router import LocalModelResolution
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.queue import redis_queue, task_events
 from guardian.queue.redis_queue import dequeue, dequeue_chat_embed
@@ -455,7 +456,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
     )
     monkeypatch.setattr(
         chat_worker,
-        "release_turn_lock",
+        "release_terminal_attempt_turn_lock",
         lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
@@ -463,6 +464,12 @@ async def test_rag_integration_memory_loop(monkeypatch):
     redis = redis_queue._InMemoryRedis()
     monkeypatch.setattr(redis_queue, "_CLIENT", redis)
     monkeypatch.setattr(redis_queue, "_QUEUE_CLIENT", redis)
+    # Accepted-scope Redis uses its own client pool. In production that pool
+    # is the same Redis the reader sees, so the hermetic store must cover it
+    # too; otherwise worker events land outside the stream this test reads.
+    monkeypatch.setattr(
+        redis_queue, "scoped_redis_client", lambda *args, **kwargs: redis
+    )
     monkeypatch.setattr(
         chat_worker,
         "resolve_local_execution_model",
@@ -501,6 +508,80 @@ async def test_rag_integration_memory_loop(monkeypatch):
     )
     monkeypatch.setattr(
         chat_completion_service, "mark_chat_completion_attempt_accepted", accept_attempt
+    )
+
+    # Durable-attempt contract: the worker executes only a confirmed attempt
+    # and links its completion only to durable truth. The stub chatlog has no
+    # attempt table, so the durable seam is modelled from the binding the
+    # acceptance path recorded.
+    def attempt_row(_db, backend_task_id):
+        binding = observed.get("attempt")
+        if not binding or binding.get("backend_task_id") != backend_task_id:
+            return None
+        snapshot = binding.get("deadline_snapshot")
+        return {
+            "request_id": binding.get("request_id"),
+            "backend_task_id": binding.get("backend_task_id"),
+            "thread_id": binding.get("thread_id"),
+            "turn_id": binding.get("turn_id"),
+            "completed_message_id": observed.get("assistant_message_id"),
+            "terminal_event_type": None,
+            "terminal_outcome": None,
+            "deadline_snapshot": (
+                snapshot.to_dict() if hasattr(snapshot, "to_dict") else snapshot
+            ),
+            "turn_lock_token": binding.get("turn_lock_token"),
+        }
+
+    def record_attempt_success(
+        _db,
+        *,
+        request_id,
+        backend_task_id,
+        thread_id,
+        turn_id,
+        assistant_message_id,
+    ):
+        observed["assistant_message_id"] = assistant_message_id
+        return True
+
+    def observe_attempt_terminal(
+        _db, *, request_id, backend_task_id, thread_id, turn_id
+    ):
+        return ChatAttemptReconciliation(
+            observed.get("assistant_message_id"),
+            observed.get("terminal_event_type"),
+            observed.get("terminal_outcome"),
+            None,
+        )
+
+    def record_attempt_terminal_event(
+        _db, *, request_id, backend_task_id, thread_id, turn_id, event_type
+    ):
+        observed["terminal_event_type"] = event_type
+        return True
+
+    monkeypatch.setattr(
+        chat_worker, "get_chat_completion_attempt_by_task_id", attempt_row
+    )
+    monkeypatch.setattr(
+        chat_worker, "record_chat_completion_attempt_success", record_attempt_success
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "observe_chat_completion_attempt_terminal",
+        observe_attempt_terminal,
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "record_chat_completion_attempt_terminal_event",
+        record_attempt_terminal_event,
+    )
+    # The stub chatlog has no tool checkpoint table, so the durable answer is
+    # "no frozen checkpoint". Without it the accepted-chat lifecycle rejects
+    # every completion for lacking a checkpoint it could never create.
+    monkeypatch.setattr(
+        chat_completion_service, "get_chat_tool_checkpoint", lambda *a, **k: None
     )
 
     chat_routes._thread_latest_task.clear()

@@ -1034,21 +1034,32 @@ def test_a_cross_account_source_cannot_be_promoted(chatlog) -> None:
 
 
 def test_the_store_activates_no_route_and_no_model_authority() -> None:
-    """Storage exists; the product does not yet use it."""
+    """Storage stays surface-free; exactly one authorized route may use it.
+
+    This guard originally asserted that *no* route module imported the store,
+    because the storage foundation existed before any product surface did.
+    The first account-authorized promotion operation now exists, so the
+    boundary is restated rather than dropped. The store module itself must
+    still expose no router, app, or dispatch surface; the model-facing tool
+    directories must still be unable to reach it; and exactly one route
+    module may reference it — the authorized promotion route, whose mutating
+    operation must stay outside the model's unattended command set.
+    """
     import guardian.core.saved_widget_store as store
 
     # The module defines no web surface and no dispatch surface.
     for attribute in ("router", "APIRouter", "app", "register_tool", "dispatch"):
         assert not hasattr(store, attribute), attribute
 
-    # No route module imports the store.
+    # Exactly one route module may reach the store, and it is the authorized
+    # promotion route. A second one would be a parallel surface.
     routes_dir = REPO_ROOT / "guardian" / "routes"
     offenders = [
         path.name
         for path in sorted(routes_dir.glob("*.py"))
         if "saved_widget_store" in path.read_text()
     ]
-    assert offenders == []
+    assert offenders == ["saved_widgets.py"], offenders
 
     # The store is not reachable from the model-facing tool surface.
     tool_dirs = [
@@ -1064,6 +1075,25 @@ def test_the_store_activates_no_route_and_no_model_authority() -> None:
             if "saved_widget_store" in path.read_text()
         ]
         assert offenders == []
+
+    # The one authorized route is not an unattended model call: the command
+    # manifest classifies promotion as a write that requires confirmation.
+    from fastapi import FastAPI
+
+    from guardian.command_bus.manifest import build_manifest
+    from guardian.routes.saved_widgets import router as saved_widgets_router
+
+    app = FastAPI()
+    app.include_router(saved_widgets_router)
+    manifest = build_manifest(app)
+    promotion = next(
+        command
+        for command in manifest.commands
+        if command.path_template == "/saved-widgets" and command.method == "POST"
+    )
+    assert promotion.effect == "write"
+    assert promotion.risk == "mutating"
+    assert promotion.approval_mode != "none"
 
 
 def test_a_promotion_records_its_origin_and_actor(chatlog) -> None:

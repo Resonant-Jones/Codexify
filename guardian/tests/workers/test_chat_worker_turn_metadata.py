@@ -34,7 +34,9 @@ def test_metadata_persist_failure_does_not_fail_task(monkeypatch, caplog):
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_: True)
+    monkeypatch.setattr(
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_args, **_kwargs: True
+    )
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
@@ -64,7 +66,9 @@ def test_missing_assistant_message_id_still_fails_task(monkeypatch):
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_: True)
+    monkeypatch.setattr(
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_args, **_kwargs: True
+    )
     monkeypatch.setattr(
         chat_worker,
         "run_chat_completion_task",
@@ -97,7 +101,7 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
-        "release_turn_lock",
+        "release_terminal_attempt_turn_lock",
         lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(

@@ -18,8 +18,6 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 
-CANONICAL_HEAD_REVISION = "2e865c4a9b10"
-
 
 def _build_database_url(base_url: str, database_name: str) -> str:
     parsed = urlparse(base_url)
@@ -73,7 +71,8 @@ def test_agent_extension_schema_chain_merges_and_tables_exist(
     engine = None
     try:
         script = ScriptDirectory.from_config(cfg)
-        assert set(script.get_heads()) == {CANONICAL_HEAD_REVISION}
+        heads = script.get_heads()
+        assert len(heads) == 1
 
         command.upgrade(cfg, "heads")
 
@@ -95,7 +94,7 @@ def test_agent_extension_schema_chain_merges_and_tables_exist(
             version_rows = connection.execute(
                 sa.text("SELECT version_num FROM alembic_version")
             ).scalars()
-            assert list(version_rows) == [CANONICAL_HEAD_REVISION]
+            assert list(version_rows) == [heads[0]]
     finally:
         if engine is not None:
             engine.dispose()

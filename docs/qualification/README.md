@@ -334,6 +334,98 @@ The qualification ID is the object key and is therefore the canonical identity c
 
 The registry must summarize evidence. It must never manufacture it.
 
+### The registry is generated, not hand-maintained
+
+`registry.json` is **projected** from the rubrics and run receipts in this
+directory. It is not edited by hand.
+
+```bash
+# regenerate the registry from repository evidence
+python scripts/qualification/generate_registry.py
+
+# fail if the committed registry no longer matches the projection
+python scripts/qualification/generate_registry.py --check
+
+# validate the registry against its schema and this contract
+python scripts/qualification/validate_registry.py
+```
+
+`generate_registry.py --check` is the CI gate. It exits non-zero when the
+committed registry has drifted from the evidence it claims to summarize.
+The `Qualification Contracts` workflow runs it on every change under
+`docs/qualification/`, `scripts/qualification/`, and `tests/qualification/`.
+
+Editing `registry.json` by hand is therefore not a supported workflow: the
+next run of the generator overwrites it, and the drift check fails in the
+meantime. Change the rubric or the run receipt instead, then regenerate.
+
+### Machine-readable metadata
+
+Each rubric and each run receipt carries a fenced YAML block that the
+generator reads:
+
+````markdown
+```yaml qualification-metadata
+qualification_id: supported-compose
+version: 1
+title: Supported Compose Runtime
+scope: The supported local Docker Compose runtime on one frozen evaluated tip
+surface_paths:
+  - guardian/routes/**
+  - docker-compose*.yml
+evidence:
+  - docs/architecture/proofs/supported-compose/some-proof.md
+```
+````
+
+A rubric declares its own identity and its **surface**: the repository paths
+whose changes make a qualification run unrepresentative of current code.
+A run receipt declares the **verdict**, the **commit** it tested, the
+**date**, and the evidence it cited.
+
+A missing or malformed metadata block is an error. It is never silently
+skipped, because a qualification surface that disappears from the registry
+is indistinguishable from one that was never qualified.
+
+### How freshness is computed
+
+Freshness is computed from repository history, not asserted by hand.
+
+A run is `current` when the tested commit is an ancestor of the tip and no
+path in its rubric's `surface_paths` changed between them. It is `stale`
+otherwise. A surface with no run receipt is never `current`.
+
+The comparison runs against `git diff --name-only <tested> <tip>`, so it
+answers a concrete question: *did meaningful changes to this surface land
+after the evidence was gathered?*
+
+Ancestry is tested with `git merge-base --is-ancestor`, which answers
+identically in every checkout. That distinction matters: a revision that
+was never merged to `main` may exist as a dangling object in one
+developer's clone and be absent from another. Comparing against it
+directly would make the verdict depend on which objects happened to be
+present locally, and the drift check would disagree between a developer and
+CI. A run whose tested commit is outside the tip's lineage is reported as
+not current, because it cannot be shown to describe the code the tip
+contains.
+
+### What the validator enforces
+
+`validate_registry.py` checks the registry against
+`schemas/qualification-registry.schema.json` and additionally enforces the
+invariants this document states but the schema cannot express:
+
+- every rubric and run receipt a registry entry cites exists;
+- the rubric declares the qualification ID it is filed under;
+- the run receipt declares the qualification ID and verdict the registry
+  projects for it;
+- every evidence path resolves to a file in the repository;
+- a `PASS` carries a tested commit, a qualification date, and evidence;
+- a surface with no run receipt is never projected as `PASS`;
+- the registry projects exactly the surfaces the rubrics declare — none
+  missing, none extra;
+- no status uses the ambiguous vocabulary this document forbids.
+
 ## Dashboard contract
 
 A future qualification dashboard may project:

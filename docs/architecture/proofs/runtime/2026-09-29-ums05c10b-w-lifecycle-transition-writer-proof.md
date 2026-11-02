@@ -4,7 +4,7 @@
 **Slice:** `UMS-05C10B-W` — direct lifecycle mutation authority
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-29
-**ADR impact:** Aligned with ADR-084 and ADR-089. No new ADR. Implements frozen semantics without reopening them.
+**ADR impact:** Aligned with ADR-084 and ADR-107. No new ADR. Implements frozen semantics without reopening them.
 **Class:** Canonical lifecycle mutation authority / optimistic concurrency / lifecycle-history append / API adapter
 
 ---
@@ -62,7 +62,7 @@ MemoryVaultMutationService.transition_lifecycle(
 
 ---
 
-## 3. State machine (ADR-089 enforced)
+## 3. State machine (ADR-107 enforced)
 
 | Current lifecycle | `retire` | `restore` |
 | --- | --- | --- |
@@ -149,7 +149,7 @@ Numbering is proven independent of both other families: with a content
 revision and a review revision already at number 1, the first lifecycle
 transition still receives number 1.
 
-No new columns were added. ADR-089 and C10B-C explicitly left the stale
+No new columns were added. ADR-107 and C10B-C explicitly left the stale
 `dormant_at` / `retired_at` prose ahead of physical storage; C10B-W did not
 create them. Transition time lives in `memory_lifecycle_revisions.created_at`.
 
@@ -254,7 +254,7 @@ direct activation:                     NOT IMPLEMENTED
 
 No decay code path, worker, or cron integration was added, and the direct
 service is not called from any background decay path. Hold still governs
-automatic decay per ADR-089, and no decay implementation exists to weaken.
+automatic decay per ADR-107, and no decay implementation exists to weaken.
 
 ---
 
@@ -368,7 +368,7 @@ pre-existing defect, and it was caught by the route suite before commit.
 
 ```text
 current lifecycle authority remains memory_records.lifecycle_state: YES
-ADR-089 state machine enforced:                                 YES
+ADR-107 state machine enforced:                                 YES
 generic direct activation added:                                NO
 automatic decay added:                                          NO
 restore uses canonical lifecycle history:                       YES

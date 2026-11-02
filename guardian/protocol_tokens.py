@@ -529,6 +529,28 @@ class CampaignExecutionAttemptStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ContinuationAuthorityProvenance(str, Enum):
+    """Provenance class of one Campaign Continuation Authority action.
+
+    ADR-105 requires actor identity and approval/revocation provenance to be
+    distinct durable facts. The actor string alone cannot tell a canonical
+    human administrator apart from a deployment principal that happens to
+    share the same bytes, so the authority record carries this discriminator
+    per action and consumers read it directly.
+
+    ``LEGACY_UNVERIFIED`` marks an action recorded before the discriminator
+    existed. Its human provenance is unverified, so it is never human
+    approved. ``OPERATOR_DEPLOYMENT`` marks an action performed by the
+    deployment operator lane, which is not a human approver.
+    ``ACCOUNT_ADMIN`` is the only class that records a canonical
+    account-admin human approval.
+    """
+
+    LEGACY_UNVERIFIED = "legacy_unverified"
+    OPERATOR_DEPLOYMENT = "operator_deployment"
+    ACCOUNT_ADMIN = "account_admin"
+
+
 class TraceSnapshotAbsenceReason(str, Enum):
     TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
     TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
@@ -766,6 +788,15 @@ CAMPAIGN_STATUSES: frozenset[str] = frozenset(
 CAMPAIGN_EXECUTION_ATTEMPT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in CampaignExecutionAttemptStatus}
 )
+CONTINUATION_AUTHORITY_PROVENANCES: frozenset[str] = frozenset(
+    {provenance.value for provenance in ContinuationAuthorityProvenance}
+)
+#: The only provenance classes that record a canonical human approval.
+#: Legacy, operator-deployment, missing, and unclassified provenance all
+#: fail closed and are therefore absent from this set (ADR-105).
+HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES: frozenset[str] = frozenset(
+    {ContinuationAuthorityProvenance.ACCOUNT_ADMIN.value}
+)
 TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in TraceSnapshotAbsenceReason}
 )
@@ -942,6 +973,7 @@ __all__ = [
     "CampaignGoalStatus",
     "CampaignStatus",
     "CampaignExecutionAttemptStatus",
+    "ContinuationAuthorityProvenance",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
     "RemoteRecallSourceKind",
@@ -1001,6 +1033,8 @@ __all__ = [
     "CAMPAIGN_GOAL_STATUSES",
     "CAMPAIGN_STATUSES",
     "CAMPAIGN_EXECUTION_ATTEMPT_STATUSES",
+    "CONTINUATION_AUTHORITY_PROVENANCES",
+    "HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES",
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",

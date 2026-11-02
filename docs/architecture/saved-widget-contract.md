@@ -2,13 +2,13 @@
 
 > Classification: architecture contract
 > Status: accepted 2026-10-25 by Resonant Jones
-> Implementation status: canonical Saved Widget identity and immutable revision persistence exist as an internal storage foundation, proven against disposable PostgreSQL. No saved-widget save, listing, invocation, revision-editing, deletion, or export path exists, and no product surface reaches the storage.
+> Implementation status: canonical Saved Widget identity and immutable revision persistence exist as an internal storage foundation, proven against disposable PostgreSQL. A Guardian-authorized promotion path and account-scoped readback are **proposed** on PR #962 (`feat/saved-widget-promotion-20261029`): an explicit user action promotes an eligible, server-proven accepted artifact into an account-owned Saved Widget with its first immutable revision, and the owning account can read that widget and its revisions back. That work is not merged and not deployed, so no product surface reaches the storage yet. No saved-widget listing, cross-thread invocation, revision-editing, deletion, or export path exists, and browser qualification remains outstanding.
 > Normative language: "must", "must not", "should", "proposed", "deferred", and "future" are intentional contract terms
 > Companion decision: [ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) — Accepted 2026-10-25
 
 Purpose: Define one coherent Codexify-native contract for promoting eligible generated UI into durable, account-owned, revisioned **Saved Widgets** that can be invoked from any thread and revised conversationally.
 
-This is a docs-only contract. It establishes architecture, not capability. Nothing described here is implemented, and nothing described here widens current release support. [`00-current-state.md`](./00-current-state.md) remains release truth.
+This is a docs-only contract. It establishes architecture, not capability. It implements nothing itself, and the capabilities it governs are not available to the product while the proposed implementation described below remains unmerged. Nothing described here widens current release support. [`00-current-state.md`](./00-current-state.md) remains release truth.
 
 ## Purpose
 
@@ -37,8 +37,10 @@ component, prompt change, or artifact wire-format change. The canonical storage 
 widget record, the immutable revision snapshots, and the account-scoped ownership — has since been implemented
 and proven as a separate, explicitly authorized task, and it is documented in
 [Data and Storage](./data-and-storage.md). That implementation is storage only: it creates no route, no
-promotion action, no listing, and no invocation, so none of the capabilities this contract governs are
-available to the product yet.
+promotion action, no listing, and no invocation. A separate, explicitly authorized task has since proposed the
+first two — Guardian-authorized explicit promotion and account-scoped readback — on PR #962
+(`feat/saved-widget-promotion-20261029`). It is not merged, so no capability this contract governs is available
+to the product yet.
 
 ## Vocabulary
 
@@ -728,8 +730,11 @@ This contract is recorded by
 which is **Accepted as of 2026-10-25** by Resonant Jones.
 
 Acceptance is a decision about **architecture only**. It does not implement or runtime-qualify anything described
-here: Saved Widget storage, listing, invocation, revision editing, deletion, and export/restore remain unimplemented
-and unproven, the Library Widgets filter remains unavailable, and the release gate remains HOLD.
+here: Saved Widget listing, cross-thread invocation, revision editing, deletion, and export/restore remain
+unimplemented and unproven, the Library Widgets filter remains unavailable, and the release gate remains HOLD.
+Saved Widget storage and revision persistence have since been implemented, proven as a separate authorized task,
+and merged into `main`. Guardian-authorized promotion with account-scoped readback is proposed on PR #962 and is
+not yet merged. Neither changes any requirement in this contract.
 
 No accepted ADR is superseded by this contract. ADR-003, ADR-069, ADR-077, ADR-081, ADR-082, and ADR-091 remain in
 force, and this contract is written to preserve them.

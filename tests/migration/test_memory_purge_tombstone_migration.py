@@ -255,10 +255,11 @@ def test_fresh_migration_creates_purge_tombstones_with_orm_parity(
     script = ScriptDirectory.from_config(config)
     heads = list(script.get_heads())
     assert len(heads) == 1
-    assert heads[0] == UMS_11_REVISION
-    assert PREVIOUS_REVISION in {
+    lineage = {
         revision.revision for revision in script.iterate_revisions(heads[0], "base")
     }
+    assert UMS_11_REVISION in lineage
+    assert PREVIOUS_REVISION in lineage
 
 
 # ---------------------------------------------------------------------------

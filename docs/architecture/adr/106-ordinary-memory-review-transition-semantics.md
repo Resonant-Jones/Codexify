@@ -1,4 +1,4 @@
-# ADR-088: Ordinary Memory Review Transition Semantics
+# ADR-106: Ordinary Memory Review Transition Semantics
 
 **Status:** Accepted — design frozen
 

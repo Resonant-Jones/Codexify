@@ -34,6 +34,7 @@ from guardian.protocol_tokens import (
     COMPLETION_TERMINAL_STATUSES,
     CONNECTION_CAPABILITIES,
     CONNECTION_CATEGORIES,
+    CONTINUATION_AUTHORITY_PROVENANCES,
     CONTEXT_REQUEST_STATUSES,
     DELEGATION_EVENT_TYPES,
     DELEGATION_EXECUTOR_NAMES,
@@ -63,6 +64,7 @@ from guardian.protocol_tokens import (
     GUARDIAN_DELEGATION_VISIBILITY_STATUSES,
     GUARDIAN_PROVIDER_FAILURE_KINDS,
     GUARDIAN_PROVIDER_TRANSPORT_CLASSIFICATIONS,
+    HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES,
     IMAGE_ROUTING_PATHS,
     LOOP_STOP_REASONS,
     MEMORY_PERSONA_LINK_KIND_VALUES,
@@ -93,6 +95,7 @@ from guardian.protocol_tokens import (
     CompletionTerminalStatus,
     ConnectionCapability,
     ConnectionCategory,
+    ContinuationAuthorityProvenance,
     ContextRequestStatus,
     DelegationEventType,
     DelegationExecutorName,
@@ -655,6 +658,36 @@ def test_campaign_runner_status_tokens() -> None:
         "failed",
         "cancelled",
     }
+
+
+def test_continuation_authority_provenance_tokens() -> None:
+    """Provenance is a closed vocabulary, and only one class is human.
+
+    ADR-105 requires the approval/revocation provenance discriminator to be
+    a separate durable fact from actor identity. The vocabulary is closed so
+    an unrecognised class can be rejected rather than inferred, and only the
+    canonical account-admin class counts as a human approval. Legacy and
+    operator-deployment provenance, and anything missing or unclassified,
+    fail closed.
+    """
+    assert ContinuationAuthorityProvenance.LEGACY_UNVERIFIED.value == (
+        "legacy_unverified"
+    )
+    assert ContinuationAuthorityProvenance.OPERATOR_DEPLOYMENT.value == (
+        "operator_deployment"
+    )
+    assert ContinuationAuthorityProvenance.ACCOUNT_ADMIN.value == "account_admin"
+    assert CONTINUATION_AUTHORITY_PROVENANCES == {
+        "legacy_unverified",
+        "operator_deployment",
+        "account_admin",
+    }
+
+    assert HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES == {"account_admin"}
+    assert "legacy_unverified" not in HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES
+    assert (
+        "operator_deployment" not in HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES
+    )
 
 
 def test_executor_protocol_tokens() -> None:

@@ -433,7 +433,9 @@ def test_worker_emits_bounded_failure_code_for_invalid_invocation(monkeypatch):
     )
     monkeypatch.setattr(chat_worker, "_safe_emit_live_event", lambda *a, **k: None)
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
+    monkeypatch.setattr(
+        chat_worker, "release_terminal_attempt_turn_lock", lambda *_args, **_kwargs: True
+    )
     monkeypatch.setattr(
         chat_worker,
         "validate_hosted_room_completion_context",

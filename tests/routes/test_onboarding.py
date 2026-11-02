@@ -111,7 +111,13 @@ def test_wrong_purpose_rejected_before_store_and_database(monkeypatch, purpose):
 
 @pytest.mark.parametrize(
     "name, messaging",
-    [("v1-local-core-web-mcp", "quarantined"), ("v1-friends-family-web", "enabled")],
+    [
+        # Direct messaging is an internal experimental capability on the local
+        # profile, deliberately outside the Beta Supported release promise
+        # (ADR-069); route availability never implies release qualification.
+        ("v1-local-core-web-mcp", "internal_only"),
+        ("v1-friends-family-web", "enabled"),
+    ],
 )
 def test_independent_onboarding_admission(name, messaging):
     from guardian.core.supported_profile import load_supported_profile
