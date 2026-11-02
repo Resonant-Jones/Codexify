@@ -225,7 +225,7 @@ def test_gate_passes_for_the_committed_projections() -> None:
         text=True,
     )
     payload = json.loads(completed.stdout)
-    assert payload["result"] == "pass", payload["problems"]
+    assert payload["result"] == "pass", "\n".join(payload["problems"])
     assert completed.returncode == 0
 
 
