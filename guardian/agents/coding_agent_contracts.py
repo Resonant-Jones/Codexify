@@ -116,9 +116,15 @@ class CodingAgentTaskEnvelope:
     repo_root: str | None
     context_summary: str | None
     permission_policy: CodingAgentPermissionPolicy
-    provider_id: str
-    model_id: str
-    credential_ref: str
+    # Provider, model, and credential are *proposals*, not grants of execution
+    # authority. An empty value means "Guardian resolves this from the
+    # account's own durable posture"; a non-empty value is a selection
+    # constraint that Guardian must be able to authorize exactly, or the
+    # request is refused. Guardian never substitutes a different provider,
+    # model, harness, or funding route for one the request did not ask for.
+    provider_id: str = ""
+    model_id: str = ""
+    credential_ref: str = ""
     harness_selection_mode: Literal["default", "explicit", "auto"] = "default"
     campaign_id: str | None = None
     work_order_id: str | None = None
@@ -130,6 +136,10 @@ class CodingAgentTaskEnvelope:
     commit_after_validation: bool = False
     commit_message: str | None = None
     require_human_review_before_merge: bool = True
+    # The approved delegation intent this request dispatches. When it is
+    # present the request is admitted through the Guardian delegation
+    # service, and the persisted run link owns the attempt identity.
+    delegation_intent_id: str | None = None
 
 
 @dataclass(frozen=True)
