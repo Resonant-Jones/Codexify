@@ -553,10 +553,10 @@ because the guard's custody is restricted to the trusted deployment boundary.
 
 ### Still required
 
-The **upstream report remains a legitimate vulnerability** and stays private and ready for
-disclosure. A viable deployment configuration that prevents it in our intended topology does not
-change what the defect is, and upstream's fix remains the durable remedy. The draft at
-`.gate-a-trial/UPSTREAM-SECURITY-REPORT-DRAFT.md` is **not sent**.
+The **upstream report remains a legitimate vulnerability**, and it has been **filed** — see
+[Responsible disclosure](#responsible-disclosure). A viable deployment configuration that prevents
+it in our intended topology does not change what the defect is, and upstream's fix remains the
+durable remedy. Publication of either artifact waits on upstream's fix and their coordination.
 
 ## Recommendation
 
