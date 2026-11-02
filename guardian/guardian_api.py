@@ -40,7 +40,6 @@ from fastapi import (
 )
 from fastapi import routing as fastapi_routing
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -61,6 +60,7 @@ from guardian.browser_host.http_adapter import (
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connections.google_drive import router as google_drive_connection_routes
 from guardian.connections.notion import router as notion_connection_routes
+from guardian.connections.openconnector import router as openconnector_connection_routes
 from guardian.connectors.google import router as google_connect_router
 from guardian.connectors.minimax import router as minimax_oauth_router
 
@@ -106,6 +106,10 @@ from guardian.core.public_exposure import (
     PublicExposureMiddleware,
 )
 from guardian.core.request_correlation import normalize_request_id
+from guardian.core.route_visibility import (
+    build_public_route_schema,
+    hide_paths,
+)
 from guardian.core.scout_account_transport import ScoutAccountTransportMiddleware
 from guardian.core.storage import ensure_storage_base_path
 from guardian.core.supported_profile import (
@@ -249,6 +253,21 @@ _CHATGPT_IMPORT_STARTUP_RETRY_CAP = _env_positive_int(
 _SUPPORTED_PROFILE_MANIFEST = get_active_supported_profile()
 
 
+def _hide_mounted_routes(route_count_before: int, label: str) -> None:
+    """Record the routes mounted by an internal-only router as hidden.
+
+    A hidden path is removed from the public OpenAPI document and is refused
+    by the public-exposure middleware for every caller, including the Command
+    Bus loopback.
+    """
+
+    included_routes = app.routes[route_count_before:]
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    if iter_contexts is not None:
+        included_routes = iter_contexts(included_routes)
+    hide_paths(app, [getattr(route, "path", None) for route in included_routes])
+
+
 def _include_router(
     *,
     label: str,
@@ -256,6 +275,7 @@ def _include_router(
     include_fn: Callable[[], None],
     default_enabled: bool = True,
     core_surface: bool = False,
+    internal_only: bool = False,
 ) -> None:
     profile_manifest = _SUPPORTED_PROFILE_MANIFEST
     profile_status = (
@@ -289,25 +309,20 @@ def _include_router(
             app.state.supported_profile_enabled_labels = enabled_labels
         enabled_labels.add(label)
         if profile_status == "internal_only":
-            hidden_paths = getattr(app.state, "supported_profile_hidden_paths", None)
-            if hidden_paths is None:
-                hidden_paths = set()
-                app.state.supported_profile_hidden_paths = hidden_paths
-            included_routes = app.routes[route_count_before:]
-            iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
-            if iter_contexts is not None:
-                included_routes = iter_contexts(included_routes)
-            for route in included_routes:
-                path = getattr(route, "path", None)
-                if isinstance(path, str) and path:
-                    hidden_paths.add(path)
-            app.openapi_schema = None
+            _hide_mounted_routes(route_count_before, label)
             logger.info(
                 "[routers] enabled %s as internal-only via supported profile %s",
                 label,
                 profile_manifest.name,
             )
             return
+    if internal_only:
+        # An explicitly internal-only router stays internal-only even when no
+        # supported profile is active. The posture is a property of the mount,
+        # not of the deployment's profile selection.
+        _hide_mounted_routes(route_count_before, label)
+        logger.info("[routers] enabled %s as internal-only", label)
+        return
     logger.info("[routers] enabled %s", label)
 
 
@@ -907,16 +922,7 @@ def _custom_openapi() -> dict[str, Any]:
     if app.openapi_schema:
         return app.openapi_schema
 
-    schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
-    )
-    hidden_paths = set(getattr(app.state, "supported_profile_hidden_paths", set()))
-    paths = schema.get("paths", {})
-    for path in hidden_paths:
-        paths.pop(path, None)
+    schema = build_public_route_schema(app)
     app.openapi_schema = schema
     return schema
 
@@ -1324,6 +1330,12 @@ _include_router(
         google_drive_connection_routes.setup_router,
         include_in_schema=_include_internal_only_schema("google_drive_setup"),
     ),
+)
+_include_router(
+    label="openconnector",
+    flag_name="CODEXIFY_ENABLE_OPENCONNECTOR_ROUTES",
+    include_fn=lambda: app.include_router(openconnector_connection_routes.router),
+    internal_only=True,
 )
 _include_router(
     label="media",

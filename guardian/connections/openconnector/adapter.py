@@ -37,15 +37,18 @@ unavailability distinct. A timeout preserves an **unknown** execution outcome;
 it is never reported as "did not happen".
 
 This module is internal. It registers no route, no Command Bus command, and no
-catalog entry.
+catalog entry: the crossing is reached through the package's internal-only
+route, and the route obtains its authority from
+:mod:`guardian.connections.openconnector.authority`.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Mapping
+from typing import Any, Awaitable, Callable, Mapping, Union
 
 from guardian.command_bus.contracts import MAX_PAYLOAD_BYTES
 from guardian.command_bus.permission_profiles import (
@@ -77,6 +80,14 @@ from guardian.connections.openconnector.service import (
     OpenConnectorService,
 )
 
+#: A permission profile provider reads Guardian's current authority. It may be
+#: synchronous or asynchronous; an asynchronous provider can re-read live
+#: Guardian state at each evaluation.
+PermissionProfileProvider = Union[
+    Callable[[], PermissionProfile | None],
+    Callable[[], Awaitable[PermissionProfile | None]],
+]
+
 #: The command class this crossing belongs to. The Command Bus classifies the
 #: connection execution as a connector call that also uses the network.
 COMMAND_CLASS_CONNECTOR = "connector"
@@ -104,6 +115,12 @@ class ExecutionAuthority:
     populated from model-generated arguments: the account identity, the
     provider, and the action are Guardian's to state, and the permission
     profile is read from Guardian state at the moment it is needed.
+
+    The permission profile provider may be a plain callable or an awaitable
+    one. An awaitable provider lets a caller re-read live Guardian state at
+    each evaluation, so the revalidation immediately before the external
+    crossing observes a revocation that happened after the binding was
+    resolved.
     """
 
     guardian_account_id: str
@@ -112,7 +129,7 @@ class ExecutionAuthority:
     actor_id: str
     subject_id: str
     task_id: str
-    permission_profile_provider: Callable[[], PermissionProfile | None]
+    permission_profile_provider: PermissionProfileProvider
     arguments: Mapping[str, Any] = field(default_factory=dict)
     requested_connection_uuid: str | None = None
 
@@ -168,7 +185,7 @@ class OpenConnectorAdapter:
         setup state, and never derives its content from the custodian
         catalog.
         """
-        decision = self._evaluate_authority(authority)
+        decision = await self._evaluate_authority(authority)
         if not decision.allowed:
             return []
         actions = approved_actions_for_provider(authority.provider, self._allowlist)
@@ -185,7 +202,7 @@ class OpenConnectorAdapter:
                 detail="action is not on the reviewed read-only allowlist",
             )
 
-        decision = self._evaluate_authority(authority)
+        decision = await self._evaluate_authority(authority)
         if not decision.allowed:
             return AdapterResult(
                 outcome=AdapterOutcome.DENIED,
@@ -230,7 +247,7 @@ class OpenConnectorAdapter:
         # Revalidation immediately before the external crossing. The profile is
         # read fresh, so a revocation between resolution and dispatch stops the
         # call, and every new invocation revalidates.
-        decision = self._evaluate_authority(authority)
+        decision = await self._evaluate_authority(authority)
         if not decision.allowed:
             return AdapterResult(
                 outcome=AdapterOutcome.DENIED,
@@ -304,11 +321,13 @@ class OpenConnectorAdapter:
             dispatched=True,
         )
 
-    def _evaluate_authority(self, authority: ExecutionAuthority):
+    async def _evaluate_authority(self, authority: ExecutionAuthority):
         account = str(authority.guardian_account_id or "").strip()
         if not account:
             return _deny_decision("missing_account", "an authenticated account is required")
         profile = authority.permission_profile_provider()
+        if inspect.isawaitable(profile):
+            profile = await profile
         request = PermissionProfileRequest(
             actor_id=authority.actor_id,
             subject_id=authority.subject_id,

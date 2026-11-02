@@ -53,6 +53,12 @@ route_posture:
     - notion_setup
     - google_drive_setup
     - memory_vault
+    # Delegated external credential custodian. The custodian execution route is
+    # internal-only in every deployment: it is discoverable by the Command Bus
+    # through an explicit per-route marker, and it is never part of the public
+    # OpenAPI document. Route availability never implies release qualification
+    # (ADR-069); OpenConnector remains outside Beta Supported.
+    - openconnector
     # Same-node People discovery + direct messaging. Mounted on the default
     # local profile so the implemented capability can be exercised during
     # product discovery. `internal_only` is deliberate: this is an internal

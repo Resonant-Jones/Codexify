@@ -69,7 +69,7 @@ These statements are true of the repository as read for this task.
 | Generic connector execution is quarantined in the supported profile | `v1-local-core-web-mcp.yaml` → `route_posture.quarantined` includes `connectors` |
 | Notion and Google Drive knowledge execution paths already exist | `guardian/connections/notion/`, `guardian/connections/google_drive/` |
 | The Connections catalog is a static, code-proven projection; per-user state is merged at request time | `guardian/connections/catalog.py`, `guardian/routes/connections.py` |
-| Command Bus commands are derived from the mounted OpenAPI surface | `guardian/command_bus/manifest.py:43-60` |
+| Command Bus commands are derived from the mounted routes, with a visibility policy | `guardian/core/route_visibility.py`, `guardian/command_bus/manifest.py:22-80` |
 | A command's risk/effect/idempotency/approval mode is derived from its HTTP method | `guardian/command_bus/manifest.py:134-137` |
 | Account identity is a server-derived dependency, never a request body field | `guardian/core/dependencies.py` (`get_account_user_id`, `require_account_session`) |
 | Provider credential material is encrypted at rest by a server-side primitive | `guardian/connectors/oauth_crypto.py` |
@@ -1951,29 +1951,75 @@ execution of the gate**, not a failure to be rationalized away.
 **Purpose.** Introduce the adapter and register gateway-backed read commands
 in the Command Bus. Still **no** user-facing setup surface.
 
-**Gate B status (2026-11-02) — partial.** The first bounded slice of this gate is
-**implemented**: an internal, provider-agnostic adapter core under
-`guardian/connections/openconnector/` — a typed Guardian-owned binding
+**Gate B status (2026-11-02) — partial.** This gate is delivered as bounded
+slices. Two are implemented, and the gate is **not** complete.
+
+**Slice 1 — the adapter core.** An internal, provider-agnostic adapter core
+under `guardian/connections/openconnector/` — a typed Guardian-owned binding
 interface, a reviewed server-controlled read-only allowlist, the pinned v1.9.4
-transport, and the bounded execution crossing — with focused tests.
-**Gate B is not complete.** The slice is deliberately internal: it registers **no**
-route, **no** Command Bus command, and **no** catalog entry, and it is not
-connected to a supported profile. Its binding resolution is a typed interface
-exercised with **synthetic, in-memory bindings**; durable Guardian-owned binding
-persistence remains a **Gate C** deliverable, and the adapter fails closed
-whenever no authoritative resolver is configured. The isolation evidence is
-**synthetic and fixture-based** — it proves adapter logic, not live upstream
-execution and not production account authority. The remaining Gate B
-obligations — internal-only route registration, Command Bus manifest
-registration, the recorded allowlist review, and guardian-adapter evidence
-against a running gateway — are untouched.
+transport, and the bounded execution crossing — with focused tests. That slice
+registers **no** route, **no** Command Bus command, and **no** catalog entry.
+
+**Slice 2 — the internal route and the Command Bus registration seam.** The
+registration contradiction the first slice flagged is resolved from **one**
+authority. `guardian/core/route_visibility.py` owns the canonical mounted-route
+authority, and two consumers project it with different visibility policies:
+
+* the **public** OpenAPI document — public routes only, with unchanged content;
+* the **Command Bus** manifest — public routes plus the internal-only routes
+  that are **explicitly** marked command-visible.
+
+Command visibility is declared once, on the route, with the `command_visible`
+marker. It is **never** inferred from "mounted": an internal-only route family
+that is mounted but not marked stays invisible to the Command Bus, so the
+agent-visible command surface cannot widen by accident, and there is no second
+command registry. The public document's route set is unchanged by this work.
+
+The new route is
+`GET /api/guardian/connections/openconnector/actions/{action_id}`, mounted under
+the new `openconnector` route label with an `internal_only` posture. It is a
+**read**, because the Command Bus classifies a command by its HTTP method: only
+a GET produces the `read` / `read_only` / `safe` / `none` command this gate
+requires, and a mutating method would be refused by the phase-one tool policy.
+The route exposes **one** operation and accepts **no** action arguments, so no
+model-supplied argument can carry account identity, connection identity, or
+credential material into the crossing.
+
+Authorization is Guardian's, and it is derived rather than supplied. The account
+session is verified by Guardian's existing dependency; the account and subject
+come from Guardian's resolved request scope; the provider comes from the
+reviewed allowlist entry for the action; and the permission profile is read from
+Guardian's current state. Where an **authorized, grant-bearing Guardian
+binding** for the provider is Guardian's grant for that account to execute
+through the custodian for that provider — exactly as a native provider
+credential is the account's own credential in the Notion and Google Drive
+integrations. The profile is re-read immediately before the external crossing,
+so a revocation between resolution and dispatch stops the call.
+
+**The hosted path is unqualified.** The hosted deployment runs the
+`public_allowlist` exposure mode, which refuses **every** internal-only path
+for **every** caller — including the Command Bus loopback. The command is
+registered and the local (`local_safe`) path is invocable; the hosted path
+cannot invoke it. That is recorded as a **qualification gap**, not solved: no
+signed bypass marker, no separate ingress, and no privileged internal caller
+were introduced, and the hosted `public_allowlist` restriction is unchanged.
+Hosted service-to-service invocation architecture is deferred to a separately
+authorized review.
+
+**What remains open.** The catalog entry is **not** added; the durable
+Guardian-owned binding store remains a **Gate C** deliverable; the reviewed
+allowlist review is not yet recorded; and there is still **no**
+guardian-adapter evidence against a running gateway. All evidence so far is
+**synthetic and fixture-based** — it proves Guardian's route, authorization, and
+registration behavior, not live upstream execution and not production account
+authority.
 
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
 | **Authorized implementation surface** | A new package `guardian/connections/openconnector/` (adapter, service, router, credentials). A **new** provider-specific operations router with **GET-only** read routes. A **reviewed, server-controlled read-only action allowlist** held in Codexify code (§3.4) — one reviewed entry per permitted action id, with the review recorded. Registration of those routes in `guardian/guardian_api.py` under a **new, provider-specific route label** added to `config/supported_profiles/v1-local-core-web-mcp.yaml` — `internal_only` first, `enabled` only after this gate's evidence. The corresponding provider entry in `guardian/connections/catalog.py`. Focused tests under `tests/connections/` and `tests/command_bus/`. **Binding resolution is a typed interface in this gate, not a store**: the adapter resolves a Guardian-owned binding through an injected resolver, and the Gate B isolation proof uses **synthetic, in-memory bindings** supplied by the test harness, because **durable Guardian-owned binding persistence is a Gate C deliverable** (§4.3). The adapter therefore fails closed whenever no authoritative resolver is configured, and no production binding registry or credential database is created here. **The Notion and Google Drive packages, their routes, their catalog entries, and the legacy `connectors` route family must not be modified.** The legacy `connectors` label stays quarantined. |
 | **Tests and observable evidence** | The adapter's discover and execute paths are proven against the Gate A gateway. Command Bus invocation evidence: the new routes appear in the manifest as `op::<operation_id>` with `effect=read`, `risk=read_only`, `idempotency=safe`, `approval_mode=none` — the mechanical consequence of the GET-only rule in §3.4. **Read-only allowlist evidence:** an action id **on** the allowlist executes against the gateway; an action id **off** the allowlist is refused by the adapter with a bounded `denied` outcome **and no gateway call is made**; an allowlist entry that the review determined is **not** genuinely read-only is a defect and blocks the gate. **This test must distinguish the Command Bus label from the actual behavior** — the label `read_only` is an assertion about classification, not proof that the upstream action is side-effect-free. Permission-denial evidence: a request denied by the Guardian permission profile, and one denied by the gateway's connection grant, produce **distinguishable** bounded outcomes. Isolation evidence: the two-account Group 2 results reproduced **through the Guardian adapter**, not only against the raw gateway — run against **synthetic Guardian bindings** with credential-bearing synthetic connections, because durable binding storage is Gate C's deliverable. That synthetic proof establishes **adapter** isolation only; it does **not** establish production account authority, and it is not a substitute for Gate C's durable-binding evidence. Observability evidence: the invocation appears in the Command Bus event stream with actor, subject, and task lineage, and the tool-turn read model reports it with no credential material. Redaction evidence: a scan of Command Bus run records and logs finds no token, secret, or admin token. Catalog evidence: `GET /api/connections` projects the new entry with correct `implementation_state` and per-user setup state, and the **existing** Notion and Drive projections are **byte-for-byte unchanged** for an unchanged user. |
-| **Rollback procedure** | Remove the new route label from the supported profile (the route is then unmounted and the Command Bus manifest drops the commands automatically, since the manifest derives from the mounted OpenAPI surface). Remove the catalog entry. Remove the `guardian/connections/openconnector/` package. The gateway project is stopped per Gate A rollback. No database migration is created in this gate, so there is **no schema rollback**. |
+| **Rollback procedure** | Remove the new route label from the supported profile (the route is then unmounted and the Command Bus manifest drops the commands automatically, since the manifest derives from the mounted routes). Remove the catalog entry. Remove the `guardian/connections/openconnector/` package. The gateway project is stopped per Gate A rollback. No database migration is created in this gate, so there is **no schema rollback**. |
 | **Stopping condition** | Stop and escalate if: the Command Bus registers the new routes as anything other than `read`/`read_only`/`safe`/`none` (which would mean the GET-only rule was violated); **the read-only allowlist is absent, is derived at runtime from the gateway catalog, is model- or request-supplied, or is found to contain an action that can mutate remote state**; any gateway credential or runtime token appears in a run record, log, event, or result; the existing Notion or Drive projections or behavior change in any way; a second Settings connector surface is introduced; the legacy `connectors` route family is enabled; or the adapter is found to be reachable by a path that bypasses the Guardian permission profile. |
 
 ### Gate C — User-scoped connection setup and existing Settings control-plane integration

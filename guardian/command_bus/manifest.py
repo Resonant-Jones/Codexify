@@ -1,4 +1,14 @@
-"""OpenAPI-backed raw command manifest generation."""
+"""Raw command manifest generation from the canonical mounted routes.
+
+The manifest is a projection of the application's mounted routes, exactly like
+the public OpenAPI document, with a different visibility policy. Public routes
+are visible. Internal-only routes are visible only when the route itself is
+marked command-visible, so mounting an internal route never silently widens
+the agent-visible command surface.
+
+There is no second command registry here: the command set is derived from the
+same mounted routes the public document is derived from.
+"""
 
 from __future__ import annotations
 
@@ -15,14 +25,40 @@ from guardian.command_bus.contracts import (
     CommandSpec,
     ManifestResponse,
 )
+from guardian.core.route_visibility import (
+    build_mounted_route_schema,
+    command_visible_paths,
+    internal_only_paths,
+)
 
 _HTTP_METHODS = {"get", "head", "post", "put", "patch", "delete", "options"}
 
 
+def _command_visible_paths(app: FastAPI, paths: dict[str, Any]) -> dict[str, Any]:
+    """Apply the Command Bus visibility policy to the mounted-route schema.
+
+    An internal-only path is included only when its route is explicitly
+    marked command-visible. Every other path keeps the visibility it has in
+    the public document.
+    """
+
+    hidden = internal_only_paths(app)
+    marked = command_visible_paths(app)
+    if not hidden:
+        return paths
+
+    visible: dict[str, Any] = {}
+    for path, path_item in paths.items():
+        if path in hidden and path not in marked:
+            continue
+        visible[path] = path_item
+    return visible
+
+
 def build_manifest(app: FastAPI) -> ManifestResponse:
-    schema = app.openapi()
+    schema = build_mounted_route_schema(app)
     components = schema.get("components", {})
-    paths = schema.get("paths", {})
+    paths = _command_visible_paths(app, schema.get("paths", {}) or {})
 
     operation_id_counts: dict[str, int] = {}
     for path_item in paths.values():

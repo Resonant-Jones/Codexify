@@ -17,12 +17,18 @@ Authority, and the decisions that make it real:
 * :mod:`guardian.connections.openconnector.adapter` owns the bounded
   execution crossing: authorization, explicit connection selection, and the
   bounded outcome vocabulary.
+* :mod:`guardian.connections.openconnector.authority` owns the Guardian-derived
+  execution authority for one invocation, including the live permission-profile
+  read that backs the adapter's pre-dispatch revalidation.
+* :mod:`guardian.connections.openconnector.router` owns the single internal-only
+  read operation that exposes the crossing inside Guardian.
 
-This package is internal. It registers no route, no Command Bus command, and
-no catalog entry, and it is not connected to a supported profile. The durable
+This package is internal. It registers **no** catalog entry, and it is not
+promoted to any supported surface. Its route is mounted under an internal-only
+posture, so its paths never appear in the public OpenAPI document. The durable
 binding schema, the binding lifecycle, and the credential lifecycle belong to
-Gate C; internal-only route and Command Bus registration belong to the next
-Gate B slice.
+Gate C; live custodian qualification and the catalog entry remain Gate B
+obligations.
 
 See the ADR-071 and ADR-094 amendments accepted 2026-11-02.
 """
@@ -34,6 +40,10 @@ from guardian.connections.openconnector.adapter import (
     AdapterResult,
     ExecutionAuthority,
     OpenConnectorAdapter,
+)
+from guardian.connections.openconnector.authority import (
+    GuardianAccountScope,
+    build_execution_authority,
 )
 from guardian.connections.openconnector.bindings import (
     AccountBinding,
@@ -93,12 +103,14 @@ __all__ = [
     "GatewayResponse",
     "GatewayTimeoutError",
     "GatewayUnavailableError",
+    "GuardianAccountScope",
     "HttpxGatewayClient",
     "NoBindingResolver",
     "OpenConnectorAdapter",
     "OpenConnectorService",
     "approved_actions_for_provider",
     "build_action_request",
+    "build_execution_authority",
     "get_approved_action",
     "is_approved_action",
 ]
