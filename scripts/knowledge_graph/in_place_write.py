@@ -25,10 +25,32 @@ except in the case of a crash or a full disk during the write itself.
 from __future__ import annotations
 
 import os
+import fcntl
+import hashlib
+from contextlib import contextmanager
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
+
+
+@contextmanager
+def exclusive_artifact_lock(path: Path):
+    """Serialize competing writers to the same artifact across processes.
+
+    Lock files live in the system temporary directory, so they do not
+    contaminate the exact-output artifact directories. Their names are
+    deterministic, and they remain stable while other processes wait.
+    """
+    lock_dir = Path(tempfile.gettempdir()) / "codexify-artifact-locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()
+    with open(lock_dir / f"{digest}.lock", "a+b") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 class AtomicWriteError(RuntimeError):
