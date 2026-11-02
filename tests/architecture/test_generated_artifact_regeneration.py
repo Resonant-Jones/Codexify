@@ -146,6 +146,49 @@ def test_arp_scope_check_still_rejects_unknown_outputs(tmp_path: Path) -> None:
         arps._assert_output_scope(output_dir, allow_missing=False)
 
 
+
+def test_generator_does_not_truncate_on_non_permission_rename_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import errno
+    from scripts.knowledge_graph import validate_and_generate_dlg as dlg
+
+    target = tmp_path / "projection.json"
+    target.write_bytes(b"preserve-original")
+    def fail_replace(*args: object) -> None:
+        raise OSError(errno.ENOSPC, "No space left")
+    monkeypatch.setattr(dlg.os, "replace", fail_replace)
+    with pytest.raises(OSError) as exc:
+        dlg.atomic_write_json(target, {"value": 1})
+    assert exc.value.errno == errno.ENOSPC
+    assert target.read_bytes() == b"preserve-original"
+
+
+def test_generator_falls_back_only_when_rename_denied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import errno
+    from scripts.knowledge_graph import validate_and_generate_dlg as dlg
+
+    target = tmp_path / "projection.json"
+    target.write_bytes(b"old")
+    inode = target.stat().st_ino
+    def deny_replace(*args: object) -> None:
+        raise PermissionError(errno.EPERM, "Rename denied")
+    monkeypatch.setattr(dlg.os, "replace", deny_replace)
+    dlg.atomic_write_json(target, {"value": 1})
+    assert json.loads(target.read_text(encoding="utf-8"))["value"] == 1
+    assert target.stat().st_ino == inode
+
+
+def test_arp_scope_rejects_unknown_hidden_packet(tmp_path: Path) -> None:
+    directory = tmp_path / "agent-reading-packets"
+    directory.mkdir()
+    for filename in arps.OUTPUT_FILENAMES:
+        (directory / filename).write_text("{}", encoding="utf-8")
+    (directory / ".extra.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(arps.CalibrationError):
+        arps._assert_output_scope(directory, allow_missing=False)
+    with pytest.raises(arps.CalibrationError):
+        arps.load_persisted_packets(directory)
+
+
 # ── Verification gate ─────────────────────────────────────────────────────
 
 
