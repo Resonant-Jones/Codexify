@@ -13,14 +13,7 @@ import { buildAuthenticatedFetchInit } from "@/lib/api";
 import { resolveMediaAssetSrc } from "@/lib/mediaUrl";
 import { X } from "lucide-react";
 import "@/components/gallery/gallery.css";
-
-export type GalleryItem = {
-  id?: string;
-  src: string;
-  prompt: string;
-  project?: string | number;
-  tag?: string;
-};
+import type { GalleryItem } from "@/types/gallery";
 
 type GallerySourceFilter = "all" | "uploaded" | "generated";
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { GalleryItem } from "@/components/gallery/GalleryView";
+import type { GalleryItem } from "@/types/gallery";
 import GalleryGrid from "@/components/gallery/GalleryGrid";
 import DocumentsView from "@/components/documents/DocumentsView";
 import DocumentTile from "@/components/documents/DocumentTile";

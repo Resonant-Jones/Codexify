@@ -643,6 +643,11 @@ enumerates production references, type dependencies, and test ownership.
   2. **Type dependency resolved** — the exported `GalleryItem` type it provides
      to `GalleryGrid.tsx:13` and `LibraryView.tsx:2` has been relocated so no
      live Library component loses a type.
+     **Satisfied 2026-11-02:** the renderable `GalleryItem` type now lives in
+     `frontend/src/types/gallery.ts`. `GalleryGrid` and `LibraryView` import it
+     from there, `GalleryView.tsx` no longer exports it, and
+     `frontend/src/test/gallery-item-type-invariant.test.ts` pins the home so
+     no consumer can drift back onto the component.
   3. **Test ownership preserved** — `components/gallery/__tests__/GalleryView.test.tsx`
      and `tests/gallery_auth.spec.tsx` assertions are folded into coverage that
      exercises the live gallery path, so coverage moves rather than silently

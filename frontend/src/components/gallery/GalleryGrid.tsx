@@ -10,7 +10,7 @@ import MediaGrid from "@/components/media/MediaGrid";
 import MediaTile from "@/components/media/MediaTile";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
-import type { GalleryItem } from "./GalleryView";
+import type { GalleryItem } from "@/types/gallery";
 
 type GalleryGridProps = {
   items: GalleryItem[];
