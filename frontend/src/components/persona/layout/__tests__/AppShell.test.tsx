@@ -3584,6 +3584,93 @@ describe("AppShell legacy Gallery route gate", () => {
     expect(window.location.search).toBe("?filter=images");
   });
 
+  it("retains the legacy Gallery for an unverified server-shaped entry", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/server-item.png", prompt: "Server item" },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery for an unverified external https entry", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "https://cdn.example.test/external-image.png", prompt: "External image" },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery for an unverified protocol-relative entry", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "//cdn.example.test/protocol-relative.png", prompt: "Protocol relative" },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery for a first-party https entry", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: `${window.location.origin}/media/images/first-party.png`,
+          prompt: "First party image",
+        },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("does not let mock:false override uncertain provenance", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        {
+          src: "/media/images/claims-to-be-server.png",
+          prompt: "Claims to be server backed",
+          mock: false,
+        },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
   it("retains the legacy Gallery when a local data: image is retained", async () => {
     localStorage.setItem(
       "cfy.gallery",
@@ -3789,8 +3876,10 @@ describe("AppShell legacy Gallery route gate", () => {
       notifyRouteChange();
     });
 
+    // The entry is server-*shaped* but unverified, so the Gallery is retained
+    // rather than hidden — and the stored bytes are untouched.
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/library");
+      expect(window.location.pathname).toBe("/gallery");
     });
     expect(localStorage.getItem("cfy.gallery")).toBe(before);
   });

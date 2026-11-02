@@ -831,22 +831,26 @@ function isTransientFailedGalleryItem(raw: any): boolean {
 /**
  * How a persisted Gallery entry relates to server-backed content.
  *
- * - `seeded`: a **known** demonstration asset. Not user content.
- * - `server`: the entry addresses a server-hosted resource, so the same record
- *   is reachable through Library's server-backed Images projection. A
- *   `mock: false` flag is never treated as proof of this — only the address
- *   is.
- * - `local`: the entry can exist only in this browser (a `data:` or `blob:`
- *   reference). No server projection can ever retrieve it.
- * - `unknown`: the entry cannot be classified. Treated as `local`.
+ * The persisted entry carries only `{ src, prompt, mock }`. The upload
+ * response's canonical record id, scope, and origin metadata are dropped by
+ * `normalizeGalleryItem` before an entry reaches storage, so **a persisted
+ * entry contains no authoritative server identity to check**.
+ *
+ * - `seeded`: a **known** demonstration asset, recognized by identity against
+ *   the seeded asset list. Not user content.
+ * - `server_shaped`: the entry merely *looks* like a server address. That is
+ *   not proof that the authorized Library listing contains the resource.
+ * - `local`: a `data:` or `blob:` reference. No server projection can ever
+ *   retrieve it.
+ * - `uncertain`: anything else, including a malformed entry.
  */
-type GalleryEntryKind = "seeded" | "server" | "local" | "unknown";
+type GalleryEntryKind = "seeded" | "server_shaped" | "local" | "uncertain";
 
 function classifyGalleryEntry(raw: unknown): GalleryEntryKind {
-  if (typeof raw !== "object" || raw === null) return "unknown";
+  if (typeof raw !== "object" || raw === null) return "uncertain";
   const record = raw as Record<string, unknown>;
   const candidate = record.src ?? record.src_url ?? record.srcUrl ?? record.url;
-  if (typeof candidate !== "string" || !candidate.trim()) return "unknown";
+  if (typeof candidate !== "string" || !candidate.trim()) return "uncertain";
   const trimmed = candidate.trim();
 
   // Known demonstration assets are recognized explicitly, by identity.
@@ -856,15 +860,13 @@ function classifyGalleryEntry(raw: unknown): GalleryEntryKind {
   // or not it carries a mock flag.
   if (/^(?:data|blob):/i.test(trimmed)) return "local";
 
-  // An arbitrary mock entry is not treated as synthetic. It is ambiguous.
-  if (record.mock === true) return "unknown";
-
-  // A server address is the verifiable counterpart. Anything else — a relative
-  // path, another scheme, a malformed value — is uncertain.
+  // A server address is only server-*shaped*. The entry carries no canonical
+  // server record id, so the address cannot establish that the authorized
+  // Library listing contains this resource.
   if (/^(?:https?:)?\/\//i.test(trimmed) || trimmed.startsWith("/")) {
-    return "server";
+    return "server_shaped";
   }
-  return "unknown";
+  return "uncertain";
 }
 
 /**
@@ -878,6 +880,12 @@ function classifyGalleryEntry(raw: unknown): GalleryEntryKind {
  * The state is only ever read. This decision never writes, migrates, uploads,
  * attributes, or removes anything, and it never infers ownership from the
  * signed-in account.
+ *
+ * **Fail closed.** Only entries whose identity is *known* — the recognized
+ * seeded demonstration assets — are safe. A server-shaped URL is not identity:
+ * a plausible address can address content that the authorized Library listing
+ * does not contain, and hiding it would be a silent loss of access. Conservative
+ * false negatives are acceptable; false positives that hide content are not.
  */
 function isGalleryCanonicalizationSafe(): boolean {
   if (typeof window === "undefined") return false;
@@ -898,10 +906,7 @@ function isGalleryCanonicalizationSafe(): boolean {
     return false;
   }
   if (!Array.isArray(parsed)) return false;
-  return parsed.every((entry) => {
-    const kind = classifyGalleryEntry(entry);
-    return kind === "seeded" || kind === "server";
-  });
+  return parsed.every((entry) => classifyGalleryEntry(entry) === "seeded");
 }
 
 function normalizeGalleryItem(raw: any): GalleryItem | null {

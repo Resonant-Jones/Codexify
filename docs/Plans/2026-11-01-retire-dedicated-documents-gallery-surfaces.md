@@ -367,20 +367,33 @@ The decision is made by `isGalleryCanonicalizationSafe()` in
   browser, profile, or account is free of residue, and it never infers
   ownership from the signed-in account.
 
-Each persisted entry is classified by whether it could represent content
-**without a server counterpart**:
+Each persisted entry is classified by whether its **server-backed identity is
+verified**, not by whether its address merely looks like one:
 
 | Class | Rule | Effect |
 |---|---|---|
+| **Verified server-backed identity** | *Not reachable from a persisted entry.* The upload response's canonical record id, scope, and origin metadata are dropped by `normalizeGalleryItem` before an entry reaches storage, so a persisted entry carries only `{ src, prompt, mock }` | — |
 | `seeded` | A **known** demonstration asset, recognized by identity against the seeded asset list | safe |
-| `server` | A server address (absolute `http(s)://`, protocol-relative, or root-relative) and not flagged `mock` | safe |
+| `server_shaped` | A server-*shaped* address (absolute `http(s)://`, protocol-relative, or root-relative) with no verified identity behind it | **retains Gallery** |
 | `local` | A `data:` or `blob:` reference — no server projection can ever retrieve it | **retains Gallery** |
-| `unknown` | Any other value, including an arbitrary `mock: true` entry on an unrecognized path | **retains Gallery** |
+| `uncertain` | Any other value, including a malformed entry | **retains Gallery** |
 
-**`mock: false` is never treated as proof that an item exists on the server** —
-only the address is. **Arbitrary `mock: true` entries are not treated as
-synthetic** — only the known demonstration assets are. Both rules fail toward
-retaining the Gallery.
+**Correction (2026-11-02).** An earlier revision of this section classified a
+server-*shaped* address as a verifiable server counterpart and allowed it to
+canonicalize. That was a false positive: a plausible address does not establish
+that the **authorized Library Images projection** contains the corresponding
+resource for the current account and scope. The gate now fails closed — only a
+**known seeded demonstration asset** is safe, so an unverified HTTP(S),
+protocol-relative, or root-relative reference retains the Gallery.
+
+**`mock: false` is never treated as proof that an item exists on the server.**
+**Arbitrary `mock: true` entries are not treated as synthetic** — only the known
+demonstration assets are. Both rules fail toward retaining the Gallery.
+
+**Conservative false negatives are acceptable; false positives that hide content
+are not.** No API lookup, identity registry, resource cache, or asynchronous
+route-resolution mechanism is introduced to close the gap — the bounded gate
+simply declines to hide anything it cannot prove.
 
 The same rule governs a persisted `cfy.lastView = "gallery"`: a safe browser
 restores Library/Images, a browser with residue or uncertain state restores the
@@ -404,6 +417,16 @@ the Back/Forward path, the persisted-view rule, and the `/documents`
 non-regression. It did **not** establish anything about server-backed image
 listing, scope, authorization, or other browsers. The gate note distinguishes
 the three proof levels explicitly.
+
+**Correction (2026-11-02).** The first gate revision treated a server-*shaped*
+address as a verified server counterpart. That was a false positive and has been
+withdrawn: the persisted entry carries only `{ src, prompt, mock }`, because
+`normalizeGalleryItem` drops the upload response's canonical `id`, scope, and
+origin metadata before storage. The gate now fails closed — an unverified
+HTTP(S), protocol-relative, or root-relative reference retains the Gallery, and
+only a missing key, a valid empty array, or entirely recognized seeded assets
+canonicalize. A second browser run confirmed the corrected behaviour, and the
+proof note records both the historical observation and the correction.
 
 ### 2.3 `GalleryView.tsx`: unreferenced in production, but not dependency-free
 

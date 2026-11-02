@@ -10,6 +10,18 @@ This receipt records a **jsdom unit proof** and a **partial browser-runtime
 proof**. It is not release qualification, and it is not a claim that any browser
 other than the one under inspection is free of browser-local residue.
 
+> **Correction — 2026-11-02 (later the same day).** The first version of this
+> gate classified an entry as safe when its `src` merely *looked* like a server
+> address (absolute `http(s)://`, protocol-relative, or root-relative) and it
+> was not flagged `mock`. **That classification was insufficiently justified and
+> has been withdrawn.** A syntactically valid server address does not establish
+> that the **authorized Library Images projection** contains the corresponding
+> resource for the current account and scope. The historical observations below
+> are preserved as recorded, but the server-addressed canonicalization they
+> describe is no longer permitted. See **Correction: fail closed on unverified
+> server references** at the end of this receipt for the corrected rule and the
+> new evidence.
+
 ## Why this receipt exists
 
 The Gallery route was the last dedicated application destination still live. It
@@ -26,6 +38,11 @@ content silently. The implemented guard keeps the legacy Gallery reachable
 exactly where that risk exists, per browser.
 
 ## What was implemented
+
+> **Superseded in part.** The classification table below is the **first**
+> version. Its `server` class — a server-shaped address treated as a verified
+> counterpart — was withdrawn on 2026-11-02. See the correction at the end of
+> this receipt.
 
 `isGalleryCanonicalizationSafe()` in
 `frontend/src/components/persona/layout/AppShell.tsx` decides, **for the browser
@@ -64,6 +81,10 @@ Gallery destination. The completed Documents persisted-view normalization is
 unchanged.
 
 ## Safety conditions tested
+
+> **Superseded in part.** The conditions below are the **first** version. The
+> server-addressed cases are no longer safe; see the correction at the end of
+> this receipt for the corrected table and the new evidence.
 
 Verified in `frontend/src/components/persona/layout/__tests__/AppShell.test.tsx`
 through the real routing mechanism (`resolveRoute` / `resolveInitialRoute` /
@@ -107,6 +128,11 @@ Also verified:
 - A `cfy.gallery` value that cannot be read at all.
 
 ## Which browser states canonicalize to Library
+
+> **Superseded in part.** As first recorded, a server-addressed entry also
+> canonicalized. Under the corrected rule only a missing key, a valid empty
+> array, and entries that are entirely recognized seeded demonstration assets
+> canonicalize. See the correction at the end of this receipt.
 
 - No `cfy.gallery` entry at all.
 - An empty `cfy.gallery` array.
@@ -226,3 +252,132 @@ functional, and the account-scoped sweep has not been performed.
   `frontend/src/hooks/useUploader.ts`
 - Server-backed projection that cannot retrieve it —
   `frontend/src/components/library/libraryResourceProjection.ts`
+
+---
+
+## Correction: fail closed on unverified server references (2026-11-02)
+
+### What was wrong
+
+The first gate classified a persisted entry as **server-backed** when its `src`
+was a server address — absolute `http(s)://`, protocol-relative, or
+root-relative — and it was not flagged `mock: true`. On that basis the entry
+was allowed to canonicalize, and `/gallery` was replaced by
+`/library?filter=images`.
+
+That classification was **insufficiently justified**. A syntactically valid
+server address does not establish that the current account's **authorized
+Library Images projection** contains the corresponding resource. The gate could
+therefore hide browser-local content that only looked server-shaped.
+
+### Why no server identity was available to check
+
+The persisted Gallery entry carries only `{ src, prompt, mock }`.
+
+`frontend/src/hooks/useUploader.ts` pushes a much richer object into the
+gallery on a successful upload — canonical `id`, `filename`, `src_url`,
+`project_id`, `thread_id`, `source_tag`, `kind`. **None of it survives
+storage**: `normalizeGalleryItem` in
+`frontend/src/components/persona/layout/AppShell.tsx` reduces every entry to
+`{ src, prompt, mock }` before it is persisted, and `GalleryItem` in
+`frontend/src/types/ui.ts` is declared with exactly those three fields.
+
+So a persisted entry contains **no authoritative server identity** to check.
+Per the governing rule — *if the existing persisted entry does not already
+carry sufficient authoritative identity evidence, classify it as uncertain and
+retain Gallery* — an unverified reference is uncertain by construction.
+
+### The corrected rule
+
+The classification now distinguishes four things:
+
+| Class | Rule | Effect |
+|---|---|---|
+| **Verified server-backed identity** | Not reachable from a persisted entry | — |
+| `seeded` | A **known** demonstration asset, recognized by identity against the seeded asset list | **safe** |
+| `server_shaped` | A server-*shaped* address with no verified identity behind it | **retains Gallery** |
+| `local` | A `data:` or `blob:` reference | **retains Gallery** |
+| `uncertain` | Any other value, including malformed entries | **retains Gallery** |
+
+Canonicalization is permitted for exactly three states: a **missing** Gallery
+storage key, a **valid empty** Gallery array, and a Gallery array whose entries
+are **entirely recognized seeded demonstration assets**.
+
+`mock: false` does not override uncertain provenance, and arbitrary
+`mock: true` entries are still not treated as seeds. No API lookup, identity
+registry, resource cache, or asynchronous route-resolution mechanism was
+introduced: the bounded gate simply declines to hide anything it cannot prove.
+**Conservative false negatives are acceptable; false positives that hide
+content are not.**
+
+### New unit evidence (jsdom, real routing mechanism)
+
+Added to `AppShell legacy Gallery route gate`:
+
+| Scenario | Result |
+|---|---|
+| Unverified server-shaped (root-relative) entry | retains Gallery |
+| Unverified external HTTPS entry | retains Gallery |
+| Unverified protocol-relative entry | retains Gallery |
+| Unverified first-party HTTPS entry | retains Gallery |
+| `mock: false` on a server-shaped entry | retains Gallery |
+| Missing Gallery key | canonicalizes |
+| Valid empty Gallery array | canonicalizes |
+| Recognized seeded assets only | canonicalizes |
+
+The previously recorded test that implied URL shape alone proves server-backed
+identity was **replaced**, not kept. The byte-for-byte storage test was also
+retargeted: it now asserts that a server-shaped entry keeps the Gallery
+retained **and** that the stored bytes are untouched.
+
+### New browser evidence (2026-11-02, disposable Chromium, synthetic data)
+
+A second headless Chromium run against the production build (static SPA, **no
+backend**), disposable context per scenario, synthetic Gallery entries only.
+The service worker cache from the first run was cleared first — otherwise the
+old build would have been served and the correction would have appeared not to
+apply.
+
+| Scenario | Result |
+|---|---|
+| Empty Gallery state | → `/library?filter=images`, Library rendered with the **Images** filter selected |
+| Known-seed-only state | → `/library?filter=images`, Library rendered with the **Images** filter selected |
+| External HTTPS image reference | → `/gallery` retained, Library view absent |
+| First-party HTTPS image reference | → `/gallery` retained, Library view absent |
+| Root-relative image reference | → `/gallery` retained, Library view absent |
+| Protocol-relative URL | → `/gallery` retained, Library view absent |
+| `mock: false` server-shaped entry | → `/gallery` retained, Library view absent |
+| Local `data:` URL | → `/gallery` retained, Library view absent |
+
+Also confirmed in the browser:
+
+- **The Gallery surface renders when retained.** `gallery-primary-frame` was
+  present and the Library view was absent.
+- **The app added no history entry** in any scenario.
+- **The stored bytes were unchanged** in every scenario; the local `data:` entry
+  was still present in storage afterwards.
+- **`/documents` still canonicalizes** to `/library?filter=documents` with the
+  Documents tab selected.
+
+### What the browser run still does not establish
+
+- **No backend was running.** It proves client-side routing, storage, and
+  history behaviour only. It proves nothing about server-backed image listing,
+  scope, authorization, or the existence of a canonical record.
+- **Image bytes did not paint in the retained case.** The gallery rendered the
+  surface, but the item displayed the "Image unavailable" state, because
+  `useRenderableMediaSrc` acquires media through the desktop media bridge,
+  which is absent in a plain browser. That is pre-existing gallery rendering
+  behaviour in a backend-less browser, unrelated to this gate. The gate
+  guarantees *access* — the route and the surface stay reachable — not that the
+  bytes paint in an environment with no media backend.
+- **The earlier observation is retained as history, not as permission.** The
+  first run's server-addressed canonicalizations are recorded above precisely
+  because they are what the correction withdraws.
+
+### The account-scoped sweep is still outstanding
+
+Nothing here changes the position recorded above: a safe decision in one
+browser says nothing about any other browser, profile, or account, and the
+server has no visibility into a browser's local storage. Full Gallery
+retirement remains incomplete.
