@@ -17,7 +17,7 @@
 | **Deployment boundary** | **Separate Compose project**, not a Codexify stack overlay (§2.1). Independent deployment, storage, and lifecycle. The private network is **containment, not authorization** (§2.3); Guardian-to-gateway authentication and connection scoping remain load-bearing. |
 | **Integration posture** | **Prove before integrating.** Gate A is disposable and answers one question (§6, Gate A). It has completed with a **conditional pass**. No Guardian adapter work until the gate that follows is authorized. |
 | **Runtime authentication** | **Deployment enforcement secret + explicit bootstrap sequence** (§2.4). The deployment-scoped runtime guard is **required**, never distributed, and never presented for execution; the bootstrap sequence then creates the first scoped persistent token, proves an unauthenticated `/v1` request is rejected, and only then admits credentials. The earlier prohibition on setting `OOMOL_CONNECT_RUNTIME_TOKEN` is **superseded** (§2.4, §4.7(a)). |
-| **Delegated custody authority** | **Proposed amendment to ADR-094 and ADR-071, pending human acceptance** (§4.7(a)). Guardian remains the sole account-authorization authority; the custodian holds delegated custody only. **Not operative** — no implementation may be taken against it until it is accepted. |
+| **Delegated custody authority** | **Accepted 2026-11-02** (§4.7(a)). Bounded amendments to ADR-094 and ADR-071 admit the gateway as a subordinate, external credential custodian and execution substrate. Guardian remains the sole account-authorization authority; the custodian holds delegated custody only. Acceptance is an architecture decision and authorizes no deployment, implementation, or release widening on its own. |
 | **Connection grants** | **Never empty.** An empty or omitted `allowedConnections` is *unrestricted access*, not deny-all (§5.1.1). Every token carries an explicit non-empty grant, and the unrestricted-grant token is revoked before any credential-bearing connection exists. |
 | **Authentication lifecycle** | **The token store is never empty** (§5.1.1). Upstream re-derives runtime auth from a **live** store query on every request, so in the store-dependent mechanism, revoking the last token **reopens** the unauthenticated window. With the deployment guard present the runtime stays fail-closed by configuration regardless, which is why the store invariant is retained as defense in depth rather than as the primary protection: a **sentinel token** keeps the store non-empty for the gateway's life, and every handoff **overlaps** (create successor → verify → revoke predecessor). |
 | **Trigger surface** | **Explicitly blocked** at the deployment layer (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`). Triggers are an **independent** execution policy from Actions and Proxies, so blocking proxies does not block them. |
@@ -76,12 +76,15 @@ These statements are true of the repository as read for this task.
 
 ### Not yet true — do not assume
 
-- OpenConnector is **not installed** anywhere in this repository or on any
-  Codexify host by this task.
+- OpenConnector is **not installed** anywhere in this repository, and **no gateway
+  is running** on any Codexify host — the disposable Gate A trial project, its
+  volume, and its network were destroyed after qualification.
 - Gateway-to-Guardian compatibility is **not proven**. No Codexify code path
   has yet spoken to an OpenConnector instance.
-- Multi-user connection isolation is **not proven**. No two-account test has
-  been run against a gateway.
+- Multi-user connection isolation is proven **at the gateway mechanism level**
+  only — Gate A observed cross-account denial between two synthetic accounts
+  through the runtime-token grant — but is **not proven through the Guardian
+  adapter path**, which does not exist yet.
 - OpenConnector is **not Beta Supported**. Per ADR-069 and
   `docs/architecture/00-current-state.md`, connectors are not default Beta
   support without current-main qualification.
@@ -1410,10 +1413,9 @@ them longer. The gateway's action catalog is not a standing instruction set.
 ### 4.7 Authority decisions requiring an ADR amendment
 
 Three points in this plan exceed current accepted ADR text. **Each must be
-explicitly resolved before implementation.** A proposed amendment is drafted for
-**(a)** below; it is **proposed only — pending human acceptance, and not
-operative**. **(b)** and **(c)** remain open, and this amendment does not
-address them.
+explicitly resolved before implementation.** **(a)** is now **resolved** — the
+amendment was accepted on 2026-11-02. **(b)** and **(c)** remain open, and that
+amendment does not address them.
 
 **(a) Delegated credential-vault authority — ADR amendment required.**
 
@@ -1442,12 +1444,10 @@ credential authority — which currently reads as a Guardian-exclusive
 commitment), and it interacts with ADR-092's principal lanes because a
 runtime token minted for one account must never serve another.
 
-**Status: a proposed amendment now exists, pending human acceptance.** The
-proposal is drafted as a *proposed-amendment section inside* ADR-094 and
-ADR-071 — not as a new ADR, and not as a change to either ADR's accepted
-status. Both carry an explicit **PROPOSED — pending human acceptance** banner
-and state that they have no operative effect until accepted. The decision they
-propose is:
+**Status: accepted 2026-11-02.** The amendment was accepted as an *amendment section
+inside* ADR-094 and ADR-071 — not as a new ADR, and not as a change to either ADR's
+original accepted status, number, or text. Both carry an explicit acceptance record.
+The decision is:
 
 - The custodian is admitted as a **subordinate, external credential custodian**
   and execution substrate. It holds provider credential material and serves
@@ -1485,12 +1485,14 @@ propose is:
   read-only actions, explicit Guardian permission checks, scoped connection
   selection, sanitized provider outcomes, and no general write access.
 
-**This proposal does not** authorize a deployment, an adapter, a migration, a
+**This amendment does not** authorize a deployment, an adapter, a migration, a
 route, a UI surface, an OAuth callback, or a release-posture change; it does
 not resolve the §4.7(b) callback question or the §4.7(c) catalog-identity
-question; and it does not make OpenConnector adopted. **Acceptance is explicit
-and human.** Until it is accepted, ADR-071 and ADR-094 stand unamended and the
-implementation gate stays closed.
+question; and it does not make OpenConnector adopted. **Acceptance was explicit
+and human, on 2026-11-02.** It discharges the delegated-custody architecture
+prerequisite; Gate B implementation remains a separate bounded task under the
+accepted amendments, the runtime proof those amendments require is still
+outstanding, and the Gate C and Gate D gates remain separately gated.
 
 **(b) The public OAuth callback surface — ADR or architecture review required.**
 
@@ -1933,7 +1935,7 @@ in the Command Bus. Still **no** user-facing setup surface.
 
 | Aspect | Definition |
 | --- | --- |
-| **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendment resolved and accepted** — delegated credential-vault authority must be settled before Codexify holds any gateway token. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
+| **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
 | **Authorized implementation surface** | A new package `guardian/connections/openconnector/` (adapter, service, router, credentials). A **new** provider-specific operations router with **GET-only** read routes. A **reviewed, server-controlled read-only action allowlist** held in Codexify code (§3.4) — one reviewed entry per permitted action id, with the review recorded. Registration of those routes in `guardian/guardian_api.py` under a **new, provider-specific route label** added to `config/supported_profiles/v1-local-core-web-mcp.yaml` — `internal_only` first, `enabled` only after this gate's evidence. The corresponding provider entry in `guardian/connections/catalog.py`. Focused tests under `tests/connections/` and `tests/command_bus/`. **The Notion and Google Drive packages, their routes, their catalog entries, and the legacy `connectors` route family must not be modified.** The legacy `connectors` label stays quarantined. |
 | **Tests and observable evidence** | The adapter's discover and execute paths are proven against the Gate A gateway. Command Bus invocation evidence: the new routes appear in the manifest as `op::<operation_id>` with `effect=read`, `risk=read_only`, `idempotency=safe`, `approval_mode=none` — the mechanical consequence of the GET-only rule in §3.4. **Read-only allowlist evidence:** an action id **on** the allowlist executes against the gateway; an action id **off** the allowlist is refused by the adapter with a bounded `denied` outcome **and no gateway call is made**; an allowlist entry that the review determined is **not** genuinely read-only is a defect and blocks the gate. **This test must distinguish the Command Bus label from the actual behavior** — the label `read_only` is an assertion about classification, not proof that the upstream action is side-effect-free. Permission-denial evidence: a request denied by the Guardian permission profile, and one denied by the gateway's connection grant, produce **distinguishable** bounded outcomes. Isolation evidence: the two-account Group 2 results reproduced **through the Guardian adapter**, not only against the raw gateway. Observability evidence: the invocation appears in the Command Bus event stream with actor, subject, and task lineage, and the tool-turn read model reports it with no credential material. Redaction evidence: a scan of Command Bus run records and logs finds no token, secret, or admin token. Catalog evidence: `GET /api/connections` projects the new entry with correct `implementation_state` and per-user setup state, and the **existing** Notion and Drive projections are **byte-for-byte unchanged** for an unchanged user. |
 | **Rollback procedure** | Remove the new route label from the supported profile (the route is then unmounted and the Command Bus manifest drops the commands automatically, since the manifest derives from the mounted OpenAPI surface). Remove the catalog entry. Remove the `guardian/connections/openconnector/` package. The gateway project is stopped per Gate A rollback. No database migration is created in this gate, so there is **no schema rollback**. |
@@ -1946,7 +1948,7 @@ binding through the **existing** Connections control plane and Settings bay.
 
 | Aspect | Definition |
 | --- | --- |
-| **Prerequisites** | Gate B passed with recorded evidence. **The §4.7(a) ADR amendment accepted** (the binding record schema and the delegated-custody model must be settled before a schema migration is authored). **The §4.7(b) remote OAuth callback question resolved** — or the gate proceeds **local-only, API-key/no-auth providers only**, with the remote posture explicitly out of scope. **The §4.7(c) ADR-075 catalog-identity confirmation obtained.** A reviewed schema migration for the binding record, plus a data-retention and account-deletion policy for it. |
+| **Prerequisites** | Gate B passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — the delegated-custody model is settled, and the binding record schema it implies must still be settled before a schema migration is authored. **The §4.7(b) remote OAuth callback question resolved** — or the gate proceeds **local-only, API-key/no-auth providers only**, with the remote posture explicitly out of scope. **The §4.7(c) ADR-075 catalog-identity confirmation obtained.** A reviewed schema migration for the binding record, plus a data-retention and account-deletion policy for it. |
 | **Authorized implementation surface** | A provider-specific setup router under the existing `/api/connect/<provider>/*` convention, mounted `internal_only` (matching `notion_setup` and `google_drive_setup`). A migration adding the binding record (§4.3). The provider entry's `runtime_binding.setup_route` in `guardian/connections/catalog.py`. The existing read-only Connections API and the existing Settings Connectors bay are **reused, not modified**. **No new Settings section, page, or AppShell view.** No change to the Notion or Drive setup seams. No public OAuth callback route unless §4.7(b) is resolved and separately authorized. |
 | **Tests and observable evidence** | Setup evidence: a user binds a provider connection through the setup route; the binding record is written user-scoped; the gateway connection is created under the user's identity; the Codexify-side runtime token is stored encrypted and never returned by any API. Projection evidence: `GET /api/connections` shows the new entry with `needs_setup` → `configured` → `connected` transitions tracking real upstream state, and `configured` is **never** shown without an explicit validation. Revocation evidence: disconnecting removes the binding, deletes the upstream token and connection, and the user can no longer execute against that connection (bounded `denied`/`needs_configuration`, never a silent fallback). Isolation evidence: the two-user matrix is re-run through the **full** setup-and-execute path. Credential-exposure evidence: a scan of API responses, browser-visible payloads, logs, and Command Bus records finds no token, secret, admin token, credential prefix, or suffix. Migration evidence: migration applies cleanly on a disposable PostgreSQL instance; the head stays single; rollback of the migration is exercised. Notion/Drive non-regression evidence: the existing Notion and Drive tests pass **unchanged**. |
 | **Rollback procedure** | Revert the migration (a down-migration must exist and be exercised). Remove the setup route and its route label. Revert the catalog entry. Delete the binding table's contents. The gateway project is stopped per Gate A rollback. The existing Notion and Drive setup seams are untouched, so **no rollback is required for them**. |
@@ -1976,28 +1978,27 @@ relationship says so:
 | --- | --- |
 | **ADR-024** (Context Command / active connector semantics) | Preserved. The gateway is a connector bridge. Use is turn-scoped; `connected != consulted`; outcomes use ADR-024's canonical vocabulary. No change to connector state semantics. |
 | **ADR-069** (Beta runtime support boundary) | Preserved. No release claim is widened. Connectors remain outside default Beta support without current-main qualification. |
-| **ADR-071** (Connections control-plane boundary) | Preserved. Connections remains a projection, never an execution owner. No new Settings section. No duplicate mutation routes. Credentials remain server-owned and user-scoped. **A proposed amendment is drafted (§4.7(a)) — proposed only, pending human acceptance, and not operative.** |
+| **ADR-071** (Connections control-plane boundary) | **Amended 2026-11-02 (§4.7(a)).** Preserved: Connections remains a projection, never an execution owner. No new Settings section. No duplicate mutation routes. Credentials remain server-owned and user-scoped. The amendment admits a delegated external custodian as a runtime binding behind ordinary provider entries — never a catalog entry, never a second connection-identity authority, and never a second control surface. |
 | **ADR-072** (bounded Settings and connections route promotion) | Preserved. The pattern of a separately-labeled route family with an explicit profile posture is followed. The legacy `connectors` label stays quarantined. |
 | **ADR-075** (Connections knowledge category and content capabilities) | Preserved. Exactly four categories; provider-specific setup seams; provider-specific adapters; agent-invocable operations through the Command Bus; read-only content capabilities; no new write capability is authorized. |
 | **ADR-077** (sandbox execution authority and provider boundary) | Preserved. The custodian's provider calls stay on the provider side of the boundary; no provider credential or provider-issued material reaches an agent-facing tool, shell command, or sandbox workload absent a separate explicit Guardian grant. |
 | **ADR-092** (credential purpose and mixed-principal authentication boundary) | Preserved. The four credential classes are kept on separate lanes and never substitute for one another (§4.7(a)). A runtime token minted for one account never serves another. |
-| **ADR-094** (account-scoped execution credential authority) | **Extended by a proposed amendment (§4.7(a)) — proposed only, pending human acceptance, and not operative.** Guardian remains the sole account-authorization authority; a delegated external custodian is admitted as a subordinate credential custodian with no independent Codexify account authority. |
+| **ADR-094** (account-scoped execution credential authority) | **Extended by an accepted amendment, 2026-11-02 (§4.7(a)).** Guardian remains the sole account-authorization authority; a delegated external custodian is admitted as a subordinate credential custodian with no independent Codexify account authority, under one canonical Guardian-owned binding, ordered revocation, stated in-flight semantics, and four fixed recovery dispositions. |
 
-**A proposed amendment now exists; it is not an accepted change.** The §4.7(a)
-delegated credential-vault question is addressed by a *proposed-amendment section
-inside* ADR-071 and ADR-094, each carrying an explicit **PROPOSED — pending human
-acceptance** banner and a statement that it has no operative effect until
-accepted. Neither ADR's accepted status, accepted text, or number changes, and
-no new ADR is added. The §4.7(b) public OAuth callback question and the §4.7(c)
-catalog-identity question for gateway-backed providers **remain open** and are
-not addressed by it.
+**ADR-071 and ADR-094 were amended on 2026-11-02.** The §4.7(a)
+delegated credential-vault question is addressed by an *amendment section inside*
+each ADR — not a new ADR, and no change to either ADR's original accepted status,
+accepted text, or number. The §4.7(b) public OAuth callback question and the §4.7(c)
+catalog-identity question for gateway-backed providers **remain open** and are not
+addressed by it.
 
-**Sequencing decision.** Gate A has completed with a **conditional pass**, so the
-§4.7(a) amendment is now drafted — but drafting is not acceptance. The amendment
-becomes governing architecture **only on explicit human acceptance**, and the
-implementation gate stays closed until it is accepted. The sequencing intent is
-unchanged: the amendment was settled only after Gate A demonstrated that the
-substrate is worth adopting, and it must be accepted **before** Gate B begins.
+**Sequencing decision.** Gate A completed with a **conditional pass**, and the §4.7(a)
+amendment was **accepted on 2026-11-02** — after Gate A demonstrated that the
+substrate is worth adopting, and before Gate B begins. The sequencing intent held.
+Acceptance discharges the architecture prerequisite only: Gate B implementation
+remains a separate bounded task under the accepted amendments, the runtime proof
+those amendments require is still outstanding, and the Gate C and Gate D gates remain
+separately gated.
 
 ---
 
@@ -2054,14 +2055,12 @@ Explicitly **not** done here, and not authorized by this task:
 8. No autonomous tool-execution expansion.
 9. No alteration of existing Notion or Google Drive behavior, routes,
    credentials, or catalog entries.
-10. No change to `docs/architecture/00-current-state.md`, no release-posture
-    change, and **no accepted ADR addition or amendment**. A *proposed*
-    amendment section is drafted inside ADR-071 and ADR-094 (§4.7(a)); it is
-    pending human acceptance, changes no accepted architecture, and adds no
-    ADR.
+10. No change to `docs/architecture/00-current-state.md` and no release-posture
+    change. ADR-071 and ADR-094 were **amended** on 2026-11-02 (§4.7(a)) — an
+    amendment section inside each, with no new ADR, no change to either ADR's
+    original accepted text, and no release widening.
 11. No upstream fork.
-12. No **accepted** decision on the §4.7 authority questions. §4.7(a) is
-    drafted as a proposed amendment pending human acceptance; §4.7(b) and
+12. §4.7(a) is **resolved** — accepted 2026-11-02 (§4.7(a)). §4.7(b) and
     §4.7(c) remain open and unresolved.
 13. No security-monitoring subsystem, bespoke scanner, or dedicated pipeline
     for OpenConnector. The §1.4 monitoring commitment is an operator
@@ -2187,10 +2186,13 @@ reliably, invoke useful actions, and isolate credentials without introducing
 a competing authority system? — and answered it with a **conditional pass**:
 the substrate runs, the credential isolation holds, and an upstream
 authentication defect was confirmed and reported privately upstream. That
-answer did not settle the authority question. A **proposed amendment** to
-ADR-071 and ADR-094 now records the delegated-custody relationship for human
-acceptance — **proposed, not accepted, and not operative**. Until it is
-accepted, the ADRs stand unamended and the implementation gate stays closed.
+answer did not settle the authority question on its own, so the authority question
+was taken to architecture review: the delegated-custody relationship is now
+**accepted** (2026-11-02) as a bounded amendment to ADR-071 and ADR-094, admitting
+the gateway as a subordinate external credential custodian while Guardian remains
+the sole account-authorization authority. Acceptance discharges the architecture
+prerequisite only — implementation is a separate bounded task, the runtime proof it
+requires is still outstanding, and nothing is deployed, promoted, or adopted.
 Nothing in this document installs, deploys, or promotes anything;
 `docs/architecture/00-current-state.md` remains the release truth, and
 OpenConnector remains outside Beta support.

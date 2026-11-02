@@ -4,9 +4,9 @@
 - Date: 2026-09-29
 - Accepted: 2026-09-29
 - Human approver: Resonant Jones
-- Proposed amendment: 2026-11-02 — *delegated external credential custodian*
-  (see [Proposed amendment](#proposed-amendment-delegated-external-credential-custodian-2026-11-02)).
-  **Proposed only — not accepted, not operative.**
+- Amended: 2026-11-02 — *delegated external credential custodian*
+  (see [Amendment](#amendment-delegated-external-credential-custodian-2026-11-02)).
+  **Accepted by Resonant Jones on 2026-11-02.**
 
 ## Context
 
@@ -76,17 +76,18 @@ This acceptance does not select a database schema, credential table, secret brok
 
 ---
 
-## Proposed amendment: delegated external credential custodian (2026-11-02)
+## Amendment: delegated external credential custodian (2026-11-02)
 
-> **Status: PROPOSED — pending human acceptance. No operative effect.**
+> **Status: Accepted — 2026-11-02, approved by Resonant Jones.**
 >
-> This amendment is a proposal. It does not amend the accepted decision until Resonant
-> Jones accepts it. Requirements 1–13 above remain the accepted decision, unchanged and
-> in force. This amendment **extends** them to one named case; it does not supersede,
-> weaken, reinterpret, or add an exception to any of them. It authorizes no
-> implementation, no deployment, no migration, and no release claim, and it does not
-> make OpenConnector adopted. The companion amendment to ADR-071 proposes the matching
-> connection-control-plane reconciliation.
+> This amendment was accepted on 2026-11-02 by Resonant Jones, following an architecture
+> review that favored acceptance. Requirements 1–13 above remain the accepted decision,
+> unchanged and in force. This amendment **extends** them to one named case; it does not
+> supersede, weaken, reinterpret, or add an exception to any of them. Acceptance is an
+> architecture decision only: it authorizes no implementation by itself, no deployment,
+> no migration, and no release claim, and it does not make OpenConnector adopted. The
+> companion amendment to ADR-071 carries the matching connection-control-plane
+> reconciliation.
 
 ### A. The case this amendment admits
 
@@ -105,7 +106,7 @@ construction. Its runtime authentication is configuration-dependent rather than
 fail-closed by itself, so fail-closed behavior is a property Codexify's deployment
 pipeline must supply.
 
-ADR-094 is not silent on this case, but it is ambiguous at exactly this point.
+ADR-094 was not silent on this case, but it was ambiguous at exactly this point.
 Requirement 2 places custody in "a server-controlled, owner-scoped credential facility
 appropriate to the credential or entitlement type," and the authority table already
 contains a "Guardian to credential custodian" row. What was never resolved is what
@@ -247,7 +248,7 @@ never a catalog entry of its own, and native provider integrations keep their ex
 precedence.
 
 **B11 — The first authorized implementation class.** The first slice authorized by this
-amendment, if it is accepted, is internal-only and bounded: reviewed read-only actions
+amendment is internal-only and bounded: reviewed read-only actions
 only, drawn from a server-controlled allowlist rather than from a runtime catalog or a
 request-supplied list; explicit Guardian permission checks on every invocation;
 explicitly scoped connection selection with no reliance on a default or shared
@@ -281,10 +282,25 @@ close. Guard rotation, cross-account isolation, and OAuth callback correlation r
 separately gated, as does public multi-user release qualification. A working deployment
 configuration answers none of the questions in this amendment.
 
-### D. Human acceptance required
+### D. Acceptance record
 
-**This amendment becomes accepted governing architecture only on explicit human
-acceptance.** Until then it is a proposal: the accepted requirements 1–13 stand alone,
-no custodian-backed implementation may be written against it, and the integration
-program remains held at the gate that precedes implementation. Proposal status is not
-approval, and this section must not be cited as an authority to build.
+**Accepted 2026-11-02 by Resonant Jones.** The basis was an architecture review that
+favored acceptance and recorded three distinctions the amendment had to keep visible:
+in-flight revocation is not cancellation, so denying new dispatch and retries does not
+prove an already-running provider request has stopped; Guardian and custodian state
+cannot be assumed transactional, so partial creation, revocation, or restoration leaves
+a binding unusable until reconciled; and a read-only classification is a claim
+requiring proof, so the reviewed action allowlist remains essential. Those three are
+implementation and qualification obligations rather than grounds to reject the
+architecture, and clauses B8, B9, and B11 state each of them.
+
+The review's own stated limitation was that it assessed the reported change rather
+than performing a line-by-line reading of the commit. The text accepted is the text
+reproduced verbatim in this ADR.
+
+Acceptance discharges the delegated-custody **architecture** prerequisite. It does not
+implement, deploy, qualify, or release anything: Gate B proceeds as a separate bounded
+implementation task under this amendment, the runtime proof in section C is still
+required, and the Gate C and Gate D gates remain separately gated. This section is
+**not** an authority to skip a proof gate — it is the architecture those proof
+obligations qualify against.

@@ -2,9 +2,9 @@
 
 **Status:** Accepted
 
-**Proposed amendment:** 2026-11-02 — *delegated external credential custodian*
-(see [Proposed amendment](#proposed-amendment-delegated-external-credential-custodian-2026-11-02)).
-**Proposed only — not accepted, not operative.**
+**Amendment:** 2026-11-02 — *delegated external credential custodian*
+(see [Amendment](#amendment-delegated-external-credential-custodian-2026-11-02)).
+**Accepted by Resonant Jones on 2026-11-02.**
 
 ## Context
 
@@ -118,17 +118,17 @@ exchanges, missing adapters, or any release widening.*
 
 ---
 
-## Proposed amendment: delegated external credential custodian (2026-11-02)
+## Amendment: delegated external credential custodian (2026-11-02)
 
-> **Status: PROPOSED — pending human acceptance. No operative effect.**
+> **Status: Accepted — 2026-11-02, approved by Resonant Jones.**
 >
-> This is a proposal, not an accepted change. Decisions 1–8, the Authority Boundary,
-> and the Consequences above remain the accepted decision, unchanged and in force.
-> This amendment **extends** them for one named case; it does not supersede, weaken,
-> reinterpret, or add an exception to any of them. It authorizes no implementation,
-> no catalog change, no new Settings surface, and no release widening. The
-> companion amendment to ADR-094 proposes the matching credential-authority
-> reconciliation.
+> This amendment was accepted on 2026-11-02 by Resonant Jones. Decisions 1–8, the
+> Authority Boundary, and the Consequences above remain the accepted decision,
+> unchanged and in force. This amendment **extends** them for one named case; it does
+> not supersede, weaken, reinterpret, or add an exception to any of them. Acceptance is
+> an architecture decision only: it authorizes no implementation by itself, no catalog
+> change, no new Settings surface, and no release widening. The companion amendment to
+> ADR-094 carries the matching credential-authority reconciliation.
 
 ### A. The case this amendment admits
 
@@ -209,11 +209,16 @@ boundary. `docs/architecture/00-current-state.md` remains the release truth sour
 and a custodian-backed provider entry is a catalog and projection concern only
 until a separately qualified runtime implementation exists.
 
-### C. Human acceptance required
+### C. Acceptance record
 
-**This amendment becomes accepted governing architecture only on explicit human
-acceptance.** Until then it is a proposal: Decisions 1–8 and the Authority Boundary
-stand alone, no catalog, schema, route, adapter, or UI work may be taken against it,
-and the integration program remains held at the gate that precedes implementation.
-Proposal status is not approval, and this section must not be cited as an authority
-to build.
+**Accepted 2026-11-02 by Resonant Jones**, on the same basis as the companion
+amendment to ADR-094, which carries the credential-authority reconciliation this one
+depends on. The three distinctions recorded there — in-flight revocation is not
+cancellation, Guardian and custodian state are not transactional, and a read-only
+classification requires proof — are stated in ADR-094's clauses B8, B9, and B11.
+
+Acceptance discharges the **architecture** prerequisite only. It does not implement,
+deploy, or release anything: no catalog, schema, route, adapter, or UI work is
+authorized by it, and the integration program continues under the gate structure in
+the integration plan, with Gate B as a separate bounded implementation task and the
+Gate C and Gate D gates separately gated.
