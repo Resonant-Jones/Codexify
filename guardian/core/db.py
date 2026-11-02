@@ -57,6 +57,136 @@ class ChatToolCheckpointError(ValueError):
     """The accepted request cannot safely use the proposed tool decision."""
 
 
+# ---------------------------------------------------------------------------
+# Reserved message-origin provenance custody
+# ---------------------------------------------------------------------------
+# ADR-016 makes message source provenance a *creation-bound* assertion: only the
+# trusted canonical backend may record that a message was natively created in
+# Codexify. Client input, user-authored content, model output, tool output, and
+# generic metadata merges are untrusted and can never establish, replace,
+# remove, or modify that member.
+#
+# The trust decision depends on backend creation authority, not on the
+# appearance of the JSON. A caller that submits JSON shaped like the accepted
+# assertion gains nothing, because the assertion is only ever written by the
+# trusted creation path and never read back as proof on its own.
+#
+# This module holds the one shared rule that every canonical ordinary-chat
+# write and enrichment path applies. Both Postgres adapters import it from here
+# (``guardian.core.pgdb`` and this module), so the rule cannot drift between
+# them.
+
+#: The reserved ``extra_meta`` member that records canonical source origin.
+RESERVED_MESSAGE_ORIGIN_KEY = "message_origin"
+
+#: Version of the reserved assertion shape written by trusted creation.
+RESERVED_MESSAGE_ORIGIN_VERSION = 1
+
+
+def strip_reserved_origin(metadata: Any) -> Dict[str, Any]:
+    """Return ``metadata`` without the reserved origin member.
+
+    Untrusted payloads may legitimately carry any ordinary metadata key, so
+    only the reserved member is removed and unrelated metadata keeps working
+    unchanged. Only the exact top-level member is reserved; nested objects are
+    ordinary payload content and are never read as an origin assertion.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key != RESERVED_MESSAGE_ORIGIN_KEY
+    }
+
+
+def contains_reserved_origin(metadata: Any) -> bool:
+    """Return whether ``metadata`` carries the reserved origin member."""
+    if not isinstance(metadata, dict):
+        return False
+    return RESERVED_MESSAGE_ORIGIN_KEY in metadata
+
+
+@dataclass(frozen=True)
+class NativeOriginAssertion:
+    """Backend-owned native-origin assertion for one canonical message.
+
+    The *type* is the trust decision, not the JSON. A client request body, a
+    model response, or a tool result is always plain data and can never become
+    an instance of this class, so it cannot establish a native-origin
+    assertion no matter how closely its shape matches. Only backend code that
+    deliberately constructs one can do that.
+    """
+
+    origin_system: str
+    asserted_at: str
+    version: int = RESERVED_MESSAGE_ORIGIN_VERSION
+
+    def as_metadata(self) -> Dict[str, Any]:
+        return {
+            RESERVED_MESSAGE_ORIGIN_KEY: {
+                "version": self.version,
+                "origin_system": self.origin_system,
+                "asserted_at": self.asserted_at,
+            }
+        }
+
+
+def apply_native_origin_assertion(
+    metadata: Any,
+    assertion: "NativeOriginAssertion | None",
+) -> Dict[str, Any]:
+    """Return metadata with the reserved member set only from trusted authority.
+
+    Any reserved member already present in ``metadata`` came from an untrusted
+    source and is discarded. When a trusted ``assertion`` is supplied it is the
+    only value that may occupy the reserved member.
+    """
+    protected = strip_reserved_origin(metadata)
+    if assertion is None:
+        return protected
+    protected.update(assertion.as_metadata())
+    return protected
+
+
+def merge_protected_message_metadata(
+    stored_extra_meta: Any,
+    incoming_extra_meta: Any,
+) -> Dict[str, Any]:
+    """Merge untrusted metadata over stored metadata without losing provenance.
+
+    This mirrors the shallow JSONB concatenation the canonical enrichment
+    paths already use and repairs its one dangerous property: a colliding
+    top-level key in the incoming payload replaces the stored value. The
+    reserved origin member is therefore taken only from stored metadata.
+    """
+    merged = dict(stored_extra_meta) if isinstance(stored_extra_meta, dict) else {}
+    for key, value in (incoming_extra_meta or {}).items():
+        if key == RESERVED_MESSAGE_ORIGIN_KEY:
+            continue
+        merged[key] = value
+    return merged
+
+
+#: Canonical enrichment statement that merges untrusted metadata while keeping
+#: any stored reserved origin assertion authoritative.
+#:
+#: ``COALESCE(extra_meta, '{}'::jsonb) || payload`` is the shallow
+#: concatenation the canonical update paths already use. Subtracting the
+#: reserved member from the *incoming* payload means an untrusted payload can
+#: neither create that member nor replace the stored one, and the stored one is
+#: never removed.
+MERGE_MESSAGE_METADATA_SQL = """
+    UPDATE chat_messages
+    SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || (
+        %s::jsonb - 'message_origin'
+    )
+    WHERE thread_id = %s
+      AND id = %s
+    RETURNING id
+"""
+
+
 def create_chat_message_with_metadata(
     chatlog_db: Any,
     thread_id: int,
@@ -64,12 +194,21 @@ def create_chat_message_with_metadata(
     content: str,
     *,
     extra_meta: dict[str, Any],
+    native_origin: "NativeOriginAssertion | None" = None,
 ) -> int:
-    """Persist a chat message and its bounded metadata in one DB transaction."""
+    """Persist a chat message and its bounded metadata in one DB transaction.
+
+    ``extra_meta`` is treated as untrusted: the reserved message-origin member
+    is stripped before the row is written, so client input, model output, and
+    tool output cannot establish a native-origin assertion through this path.
+    Only ``native_origin`` may set that member, and only trusted backend code
+    can construct one.
+    """
+    protected_extra_meta = apply_native_origin_assertion(extra_meta, native_origin)
     sa_session = getattr(chatlog_db, "_sa_session", None)
     if not callable(sa_session):
         return chatlog_db.create_message(
-            thread_id, role, content, extra_meta=extra_meta
+            thread_id, role, content, extra_meta=protected_extra_meta
         )
 
     with sa_session() as session:
@@ -84,7 +223,7 @@ def create_chat_message_with_metadata(
             content=content,
             kind="chat",
             event_at=now,
-            extra_meta=dict(extra_meta),
+            extra_meta=dict(protected_extra_meta),
         )
         session.add(message)
         thread.updated_at = now
@@ -102,7 +241,7 @@ def create_chat_message_with_metadata(
             session.rollback()
             return int(
                 chatlog_db.create_message(
-                    thread_id, role, content, extra_meta=dict(extra_meta)
+                    thread_id, role, content, extra_meta=dict(protected_extra_meta)
                 )
             )
         return int(message_id)
@@ -1228,8 +1367,14 @@ class _PostgresGuardianDB:
         user_id: str | None = None,
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
+        native_origin: "NativeOriginAssertion | None" = None,
     ) -> int:
-        """Create a new message in a thread."""
+        """Create a new message in a thread.
+
+        ``extra_meta`` is untrusted here: the reserved message-origin member is
+        stripped before the row is written. Only ``native_origin`` may set that
+        member, and only trusted backend code can construct one.
+        """
         validate_message_provenance(
             hosted_room_participant_id,
             sender_display_name_snapshot,
@@ -1252,7 +1397,7 @@ class _PostgresGuardianDB:
                 content=content,
                 kind=kind,
                 event_at=event_at or datetime.now(timezone.utc),
-                extra_meta=extra_meta or {},
+                extra_meta=apply_native_origin_assertion(extra_meta, native_origin),
                 hosted_room_participant_id=hosted_room_participant_id,
                 sender_display_name_snapshot=sender_display_name_snapshot,
             )

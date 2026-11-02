@@ -64,6 +64,7 @@ from guardian.core.config import (
 from guardian.core.db import (
     ChatAttemptReconciliation,
     GuardianDB,
+    MERGE_MESSAGE_METADATA_SQL,
     get_chat_completion_attempt_by_task_id,
     load_guardian_db_from_env,
     observe_chat_completion_attempt_terminal,
@@ -291,13 +292,7 @@ def _persist_turn_id_metadata(*, thread_id: int, message_id: int, turn_id: str) 
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            """
-            UPDATE chat_messages
-            SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
-            WHERE thread_id = %s
-              AND id = %s
-            RETURNING id
-            """,
+            MERGE_MESSAGE_METADATA_SQL,
             (json.dumps({"turn_id": turn_id}), thread_id, message_id),
         )
         row = cur.fetchone()

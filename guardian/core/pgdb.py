@@ -39,6 +39,11 @@ from guardian.db.models import (
 from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
+from guardian.core.db import (
+    MERGE_MESSAGE_METADATA_SQL,
+    apply_native_origin_assertion,
+    strip_reserved_origin,
+)
 from .chat_postgres_deadline import (
     AcceptedDeadlineQueuePool,
     accepted_postgres_queries_active,
@@ -1522,12 +1527,19 @@ class PgDB(ChatDB):
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
         extra_meta: dict[str, Any] | None = None,
+        native_origin: Any | None = None,
     ) -> int:
         """Insert a message row and return its id.
 
         `extra_meta` is written in the same statement as the message, so a caller
         never has to follow up with a separate best-effort update that a crash
         or failed write could leave unapplied.
+
+        `extra_meta` is untrusted here: the reserved message-origin member is
+        stripped before the insert, so client input, model output, tool output,
+        and imported payloads cannot establish a native-origin assertion
+        through this path. Only `native_origin` may set that member, and only
+        trusted backend code can construct one.
         """
         validate_message_provenance(
             hosted_room_participant_id,
@@ -1539,9 +1551,10 @@ class PgDB(ChatDB):
             str(user_id or (thread or {}).get("user_id") or _default_user_id()).strip()
             or _default_user_id()
         )
+        protected_extra_meta = apply_native_origin_assertion(extra_meta, native_origin)
         serialized_extra_meta = (
-            json.dumps(extra_meta)
-            if isinstance(extra_meta, dict) and extra_meta
+            json.dumps(protected_extra_meta)
+            if protected_extra_meta
             # chat_messages.extra_meta is NOT NULL with a `'{}'` server default;
             # naming the column explicitly bypasses that default, so restate it.
             else "{}"
@@ -1624,12 +1637,17 @@ class PgDB(ChatDB):
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
         extra_meta: dict[str, Any] | None = None,
+        native_origin: Any | None = None,
     ) -> tuple[int, bool]:
         """Persist a successful assistant and bind it to its attempt atomically.
 
         `extra_meta` is written with the message inside the same transaction as
         the attempt binding, so accepted chat turns never depend on a later
         best-effort update that an interruption could leave unapplied.
+
+        `extra_meta` is untrusted here: the reserved message-origin member is
+        stripped before the insert. Only `native_origin` may set that member,
+        and only trusted backend code can construct one.
         """
         with self.conversation_transaction():
             with self._connect() as conn:
@@ -1683,6 +1701,7 @@ class PgDB(ChatDB):
                 hosted_room_participant_id=hosted_room_participant_id,
                 sender_display_name_snapshot=sender_display_name_snapshot,
                 extra_meta=extra_meta,
+                native_origin=native_origin,
             )
             if attempt is None:
                 return message_id, False

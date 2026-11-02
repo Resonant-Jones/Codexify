@@ -210,13 +210,75 @@ authority. The [documentation-only message fixtures](fixtures/history-message-pr
 separate persisted evidence, trusted write custody, origin classification, and
 conditional model-visible recall eligibility.
 
-**Current truth:** finding #3 is reproduced and remains open. The reader at
-`guardian/core/account_history_recall.py::_candidate_message_rows` currently
-filters message owner/kind and later formats `source_platform="codexify"`, but
-does not independently establish each message's source. Canonical ChatGPT
-import metadata inside a native thread passed that filter, was labeled native,
-and produced no provenance exclusion. The valid ADR-084 grant did not prevent
-this. Earlier authorization tests below do not qualify this evidence boundary.
+**Current truth:** finding #3 is **partially** addressed. The reader at
+`guardian/core/account_history_recall.py::_candidate_message_rows` still
+filters message owner/kind and later formats `source_platform="codexify"`
+without independently establishing each message's source. Canonical ChatGPT
+import metadata inside a native thread still passes that filter. What is now
+implemented is the **write-side custody boundary**: no ordinary-chat creation or
+enrichment path can establish, replace, or remove a native-origin assertion.
+The reader-side per-message classification, exclusion, and coverage reporting
+remain open. Earlier authorization tests below do not qualify this evidence
+boundary.
+
+### 3.10 Message-origin metadata custody (2026-11-01)
+
+The reserved `extra_meta.message_origin` member is now protected by one shared
+rule in `guardian/core/db.py`, applied by every canonical ordinary-chat write
+and enrichment path.
+
+**The trust decision is the write authority, not the JSON.** A client request
+body, a model response, a tool result, and an imported payload are all plain
+data. None of them can become a trusted assertion no matter how closely its
+shape matches the accepted form. Only backend code that deliberately constructs
+the `NativeOriginAssertion` capability can set the member, and the capability
+is a distinct type that untrusted data cannot produce.
+
+| Path | Behavior |
+| --- | --- |
+| `PgDB.create_message` | The reserved member is stripped from caller `extra_meta` before the insert. Only `native_origin` may set it. |
+| `PgDB.create_assistant_message_for_completion_attempt` | Same rule; the assistant insert and its attempt binding stay one transaction. |
+| `guardian/core/db.py::create_chat_message_with_metadata` | Same rule on the ORM insert path. |
+| `guardian/core/db.py` ORM `create_message` | Same rule. |
+| Route `POST /{thread_id}/messages` and `POST /messages` | Client `metadata` cannot establish the member. |
+| Route and worker enrichment merges | The canonical statement subtracts the reserved member from the *incoming* payload, so an enrichment can neither create it, replace a stored one, nor remove a stored one. |
+| Importer metadata writes | Unchanged. The importer preserves its established `origin`, profile, timestamps, source IDs, and lineage, and never writes the reserved member. |
+| Restore | Unchanged. Arbitrary uploaded assertion JSON is still not proof; restore trust-custody remains a required follow-up. |
+
+The enrichment statement is the one canonical merge, shared by the route and
+the worker:
+
+```sql
+SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || (
+    %s::jsonb - 'message_origin'
+)
+```
+
+The shallow JSONB concatenation the canonical update paths already used would
+otherwise let a colliding top-level key replace the stored value. Subtracting
+the reserved member from the incoming payload removes that hazard while leaving
+every unrelated metadata key and its existing update semantics unchanged.
+
+**Explicitly not implemented here.** No native-origin assertion is produced by
+any ordinary-chat path yet; this slice establishes custody, not production.
+Universal native stamping, per-message reader filtering, and content-free
+coverage receipts remain required follow-ups for finding #3, as described in
+[section 3.9](#39-message-level-source-eligibility-prerequisite-2026-11-01).
+
+**Remaining implementation prerequisites:**
+
+- Stamp native origin at the trusted creation paths, using the
+  `NativeOriginAssertion` capability rather than a client-reachable parameter.
+- Evaluate each candidate message's origin independently at read time and
+  exclude imported, unknown, and conflicting messages before excerpts reach
+  the model.
+- Extend the coverage receipt with content-free per-message origin exclusion
+  counts, separate from thread exclusions.
+- Extend restore with trust-custody validation so an uploaded archive cannot
+  present itself as a trusted native export.
+- Guard the remaining direct-ORM write paths (`hosted_room_messages`,
+  `agents/store.py`, `core_loop_proof.py`) and the chat embedding worker's
+  full-column metadata replacement.
 
 **Required subsequent implementation, not current behavior:**
 
@@ -249,11 +311,6 @@ this. Earlier authorization tests below do not qualify this evidence boundary.
   as native. Arbitrary uploaded assertion JSON is not proof. No backfill or
   retrospective rewrite is authorized here.
 
-`extra_meta` can carry the protected assertion without new storage, but current
-native writers, direct ORM inserts, route/worker JSON merges, fallback adapters,
-and restore paths do not universally enforce its trust/immutability rules.
-Those guards and per-message filtering/receipts require a later runtime slice;
-merely rejecting known import markers would leave the unknown-origin gap open.
 Origin classification never grants recall permission; the request grant cannot
 override origin exclusion. Imported human inspection and ADR-016's separately
 bounded Chronicle authorizations remain unchanged. Ordinary-chat advertisement
@@ -684,43 +741,89 @@ expected interpretation, authorization, scope, confirmation, and
 evidence-read values come from the fixture rather than from a copy in the
 test.
 
+### Message-origin custody suite
+
+The custody boundary in [section 3.10](#310-message-origin-metadata-custody-2026-11-01)
+was verified against a **disposable PostgreSQL instance**, because the canonical
+enrichment path is a shallow JSONB concatenation whose overwrite behavior is a
+PostgreSQL semantic that SQLite does not reproduce.
+
+| Suite | Result |
+| --- | --- |
+| `tests/core/test_message_origin_custody.py` | 27 passed — the shared rule's contract; the canonical `PgDB.create_message` insert refusing client-supplied origin; identical-looking JSON accepted only from trusted authority; canonical imported metadata left intact; unrelated metadata untouched; failed insert writing no row; the canonical enrichment statement preserving a stored assertion, refusing replacement, refusing removal, and refusing creation; legacy rows staying unknown; imported lineage surviving enrichment |
+| `tests/routes/test_message_origin_custody.py` | 13 passed — the real `POST /api/chat/{thread_id}/messages` and `POST /api/chat/messages` routes refusing client-supplied origin; ordinary message creation unchanged; unrelated client metadata still persisted; the route's real enrichment helper preserving, refusing to replace, and refusing to remove an existing assertion; legacy and imported rows unchanged |
+
+Both files require `TEST_DATABASE_URL` and fail closed without it, matching the
+repository's established disposable-PostgreSQL convention. The PostgreSQL
+behavior was additionally confirmed directly against the running server:
+
+| Scenario | Stored `extra_meta` result |
+| --- | --- |
+| Stored assertion + payload with a different `message_origin` | Stored assertion unchanged; unrelated payload keys merged |
+| No stored assertion + payload with `message_origin` | No `message_origin` stored |
+| Stored assertion + payload with `message_origin: null` | Stored assertion unchanged |
+
+**Not verified here:**
+
+- No native-origin assertion is produced by any ordinary-chat path. This slice
+  establishes custody, not production, so the trusted `NativeOriginAssertion`
+  capability has no production caller yet.
+- The read-side boundary is unchanged. Per-message origin classification,
+  reader-side exclusion, and content-free per-message coverage receipts remain
+  open for finding #3.
+- The remaining direct-ORM writers (`hosted_room_messages`, `agents/store.py`,
+  `core_loop_proof.py`) and the chat embedding worker's full-column metadata
+  replacement are **not** covered by this slice. They cannot establish the
+  reserved member through a client-reachable payload today, but they are not
+  guarded against a future trusted writer.
+- Restore trust-custody is unchanged. An uploaded archive can still present
+  assertion-shaped JSON; that is not proof, and restore remains a required
+  follow-up.
+
 ### Full backend suite, against a baseline
 
-The full suite was run twice on the same machine: once at the base commit
-`6ead26697` in a separate worktree, and once with this change applied. The
-two runs are compared by the **exact set of failing and erroring test ids**,
+The full suite was run twice on the same machine, in the same worktree, with
+the same environment and the same exclusions: once with this change applied,
+and once with the four changed source files stashed so the tree was at the
+pre-change state. Both runs used `TEST_DATABASE_URL` pointing at a disposable
+PostgreSQL 16 instance, and both excluded `tests/mcp/test_stdio.py`, which
+fails at collection in this environment because the installed `mcp` SDK exposes
+neither `mcp.Client` nor `mcp.server.MCPServer`.
+
+The two runs are compared by the **exact set of failing and erroring test ids**,
 not only by count.
 
-| Run | Failed | Errors | Passed | Collected |
+| Run | Failed | Errors | Skipped | Collected |
 | --- | --- | --- | --- | --- |
-| Baseline (`6ead26697`, pre-change) | 18 | 579 | 8,648 | 9,744 |
-| With this change | 13 | 566 | 8,768 | 9,846 |
-
-The collected count rises by exactly 102 — the number of new tests this change
-adds — and every one of them passes.
-
-The failure sets were compared id by id:
+| Baseline (pre-change, this change stashed) | 17 | 3 | 108 | 9,846 |
+| With this change | 17 | 3 | 108 | 9,886 |
 
 - **0 failures and 0 errors exist with this change that do not also exist at
-  the baseline.** No regression is attributable to this change.
-- The set of failing and erroring ids with this change is a **strict subset**
-  of the baseline set: 18 baseline ids did not reproduce in the changed run.
-- The 13 error ids that did not reproduce are all in
-  `tests/server/test_rate_limiting.py` and `tests/routes/test_workspace.py`,
-  and the 5 failures that did not reproduce are in
-  `tests/architecture/test_guardian_evidence_packet_make_target.py`,
-  `tests/routes/test_imprint_routes.py`, `tests/server/test_core_route_wiring.py`,
-  and `tests/server/test_rate_limiting.py`. These are order- and
-  environment-dependent suites.
+  the baseline.** The failing and erroring id sets are byte-for-byte identical.
+  No regression is attributable to this change.
+- The collected count rises by exactly 40 — the 27 core and 13 route custody
+  tests this change adds — and every one of them passes.
+- Failed, errored, and skipped counts all match the baseline exactly.
+
+An earlier run of the same pair showed one extra skip. It was traced to
+`tests/migration/test_account_observability_compatibility_normalization.py::test_preflight_rejects_non_lossless_historical_rows`,
+which spawns its own `postgres:15` Docker container and skips when that spawn
+cannot complete. The environment had accumulated 48 leaked
+`codexify_account_observability_norm_*` containers from earlier runs, which
+exhausted Docker's container capacity. The test does not import any module this
+change touches, passes deterministically in isolation and in a combined run with
+`tests/core`, and the skip disappeared once the leaked containers were removed.
+That difference was an environment artifact, not a behavior change.
 
 The failures and errors that **do** occur in both runs are concentrated in
 suites that need infrastructure this environment does not provide:
 
 | Area | Example | Cause |
 | --- | --- | --- |
-| MCP server | `tests/mcp/test_no_unsafe_retrieval.py`, `tests/mcp/test_server_lifecycle.py` | The installed `mcp` SDK exposes neither `mcp.Client` nor `mcp.server.MCPServer`. This is the same environment mismatch that makes `tests/mcp/test_stdio.py` fail at collection, which is why that module is excluded from both runs. It reproduces identically at the baseline. |
-| Imported history, memory vault, chronicle, personal facts | `tests/routes/test_imported_history_inspection.py`, `tests/services/test_memory_vault_*`, `tests/routes/test_chronicle_*` | Require a disposable PostgreSQL instance. No `TEST_DATABASE_URL` is available here. |
-| Migrations, export/restore, continuity readback | `tests/migration/*`, `tests/services/test_account_export_restore_unified_memory_roundtrip.py`, `tests/continuity/*` | Require a disposable PostgreSQL instance. |
+| MCP server | `tests/mcp/test_no_unsafe_retrieval.py`, `tests/mcp/test_server_lifecycle.py` | The installed `mcp` SDK exposes neither `mcp.Client` nor `mcp.server.MCPServer`. |
+| Account observability migration | `tests/db/test_account_observability_migration.py`, `tests/identity/test_user_bootstrap_assignment.py` | Require a disposable PostgreSQL instance created by the test's own Docker spawn. |
+| Continuity readback | `tests/continuity/test_continuity_operator_commit_readback_route.py` | Requires a disposable PostgreSQL instance. |
+| Repository PostgreSQL capability | `tests/integration/test_repository_chat_capability_postgres.py`, `tests/integration/test_repository_import_postgres.py`, `tests/integration/test_repository_search_postgres.py` | Require a disposable PostgreSQL instance. |
 | Ops checkpoint and tester services | `tests/ops/test_candidate_runtime_checkpoint.py`, `tests/ops/test_codexify_tester_services.py` | Depend on local service state. |
 | Document RAG embedding status | `tests/test_document_rag_retrieval_gate.py` | Depends on a faiss worker index. |
 
@@ -747,6 +850,11 @@ suites that need infrastructure this environment does not provide:
 | `guardian/routes/chat.py` | `_history_recall_principal` and the authenticated read-only route |
 | `guardian/tools/chat_exposure.py` | Grant-gated advertisement and the fixed model projection |
 | `guardian/core/chat_completion_service.py` | Trusted scope binding, grant re-derivation, grant-bounded argument hydration, and bounded dispatch |
+| `guardian/core/db.py` | The shared reserved message-origin custody rule, the trusted `NativeOriginAssertion` capability, and the canonical enrichment statement |
+| `guardian/core/pgdb.py` | Canonical Postgres message insert, applying the custody rule |
+| `guardian/workers/chat_worker.py` | Worker enrichment merges, applying the canonical custody statement |
+| `tests/core/test_message_origin_custody.py` | The custody rule and the canonical Postgres write and merge behavior, against disposable PostgreSQL |
+| `tests/routes/test_message_origin_custody.py` | The ordinary-chat HTTP routes and the route enrichment helper, against disposable PostgreSQL |
 
 ## 16. Remaining review findings and runtime limitations
 
@@ -758,12 +866,13 @@ open, and none of them is repaired here:
 | --- | --- |
 | #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
 | #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
-| #3 — Message-level imported provenance filtering | **Open; reproduced.** ADR-016 now defines the positive native-origin evidence contract and unknown/conflicting disposition; origin stamping/guards and per-message filtering remain unimplemented. Thread checks and request grants do not close this defect. |
+| #3 — Message-level imported provenance filtering | **Open; partially addressed by this change.** The write-side custody boundary is now enforced: no ordinary-chat creation or enrichment path can establish, replace, or remove a native-origin assertion. The reader-side per-message origin classification, exclusion, and content-free per-message coverage receipts remain unimplemented, so the reproduced laundering still reaches the model. Thread checks and request grants do not close this defect. |
 | #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
 | #5 — 500-thread coverage truncation | **Open.** Not repaired. |
 
 Dependency-ordered follow-on work: #3 message-level imported provenance
-exclusion, #1 PostgreSQL session compatibility, #5 retrieval coverage and
+exclusion (native stamping, then per-message reader filtering and coverage
+receipts), #1 PostgreSQL session compatibility, #5 retrieval coverage and
 truncation, then #2 ordinary-chat advertisement and final activation.
 
 **Known documentation drift.** The `implementationStatus` string in
@@ -781,9 +890,12 @@ than corrected in place.
 - No live runtime qualification was performed. The tool turn is exercised
   through the production code path with the provider, Command Bus, and
   transport mocked at their seams.
-- The data-access boundary was exercised against SQLAlchemy over SQLite, not a
-  disposable PostgreSQL instance — no `TEST_DATABASE_URL` was available in this
-  environment. PostgreSQL-specific behavior is not proven here.
+- The data-access boundary for the **custody** work was exercised against a
+  disposable PostgreSQL instance, and the canonical enrichment statement was
+  additionally confirmed directly against the running server. The
+  authorization, retrieval, and recall boundaries above remain exercised
+  against SQLAlchemy over SQLite, not PostgreSQL; PostgreSQL-specific behavior
+  for those paths is not proven here.
 - The multi-user and remote worker lanes are **unverified and closed by
   design**, not qualified.
 - Recognition is deterministic and covers only the proven subset of explicit

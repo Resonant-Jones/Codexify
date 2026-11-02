@@ -58,7 +58,7 @@ from guardian.conversation_origin import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
-from guardian.core.db import list_chat_completion_attempts_for_thread
+from guardian.core.db import MERGE_MESSAGE_METADATA_SQL, list_chat_completion_attempts_for_thread
 from guardian.core.chat_postgres_deadline import postgres_operation_scope
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
@@ -1919,13 +1919,12 @@ def _persist_message_extra_meta(
     try:
         with connect() as conn:
             with conn.cursor() as cur:
+                # The reserved message-origin member is subtracted from the
+                # incoming payload: this enrichment path must not establish,
+                # replace, or remove that member, and it must not remove the
+                # stored one either.
                 cur.execute(
-                    """
-                    UPDATE chat_messages
-                    SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
-                    WHERE thread_id = %s
-                      AND id = %s
-                    """,
+                    MERGE_MESSAGE_METADATA_SQL,
                     (json.dumps(extra_meta), thread_id, message_id),
                 )
     except Exception:
