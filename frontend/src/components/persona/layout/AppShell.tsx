@@ -350,16 +350,34 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
  * resolves to the same destination as `/library?filter=documents` and is
  * canonicalized to it, so old bookmarks keep working while the retired
  * destination stops existing as a route of its own.
+ *
+ * `/gallery` is the same alias for Library's Images filter, but it is
+ * **conditional**: the Gallery can expose browser-local content that a
+ * server-backed projection cannot retrieve, so it is canonicalized only when
+ * this browser's own state establishes that nothing would be hidden.
  */
 const LEGACY_LIBRARY_ALIASES: readonly {
   prefix: string;
   filter: LibraryFilter;
-}[] = [{ prefix: "/documents", filter: "documents" }];
+  /** Whether this browser's local state permits the canonicalization. */
+  isSafe: () => boolean;
+}[] = [
+  // The Documents route has no browser-local residue: its content is
+  // server-backed by construction.
+  { prefix: "/documents", filter: "documents", isSafe: () => true },
+  {
+    prefix: "/gallery",
+    filter: "images",
+    isSafe: isGalleryCanonicalizationSafe,
+  },
+];
 
 function resolveLegacyLibraryFilter(pathname: string): LibraryFilter | null {
   for (const alias of LEGACY_LIBRARY_ALIASES) {
     if (pathname === alias.prefix || pathname.startsWith(`${alias.prefix}/`)) {
-      return alias.filter;
+      // An alias whose safety condition is not met is not an alias: the
+      // retired destination stays reachable so nothing is hidden.
+      return alias.isSafe() ? alias.filter : null;
     }
   }
   return null;
@@ -421,6 +439,14 @@ function resolveInitialRoute(): {
   if (isAppShellView(storedView)) {
     if (storedView === "documents") {
       return { view: "library", libraryFilter: "documents" };
+    }
+    if (storedView === "gallery") {
+      // The same per-browser preservation rule applies to a persisted Gallery
+      // destination: a browser that cannot establish the absence of
+      // browser-local residue keeps the Gallery destination.
+      return isGalleryCanonicalizationSafe()
+        ? { view: "library", libraryFilter: "images" }
+        : { view: "gallery", libraryFilter: "all" };
     }
     return { view: storedView, libraryFilter: "all" };
   }
@@ -800,6 +826,82 @@ function isTransientFailedGalleryItem(raw: any): boolean {
     typeof candidate === "string" &&
     candidate.trim().toLowerCase().startsWith("data:")
   );
+}
+
+/**
+ * How a persisted Gallery entry relates to server-backed content.
+ *
+ * - `seeded`: a **known** demonstration asset. Not user content.
+ * - `server`: the entry addresses a server-hosted resource, so the same record
+ *   is reachable through Library's server-backed Images projection. A
+ *   `mock: false` flag is never treated as proof of this — only the address
+ *   is.
+ * - `local`: the entry can exist only in this browser (a `data:` or `blob:`
+ *   reference). No server projection can ever retrieve it.
+ * - `unknown`: the entry cannot be classified. Treated as `local`.
+ */
+type GalleryEntryKind = "seeded" | "server" | "local" | "unknown";
+
+function classifyGalleryEntry(raw: unknown): GalleryEntryKind {
+  if (typeof raw !== "object" || raw === null) return "unknown";
+  const record = raw as Record<string, unknown>;
+  const candidate = record.src ?? record.src_url ?? record.srcUrl ?? record.url;
+  if (typeof candidate !== "string" || !candidate.trim()) return "unknown";
+  const trimmed = candidate.trim();
+
+  // Known demonstration assets are recognized explicitly, by identity.
+  if (resolveSeededGalleryItem(trimmed)) return "seeded";
+
+  // A local reference can never be retrieved by a server projection, whether
+  // or not it carries a mock flag.
+  if (/^(?:data|blob):/i.test(trimmed)) return "local";
+
+  // An arbitrary mock entry is not treated as synthetic. It is ambiguous.
+  if (record.mock === true) return "unknown";
+
+  // A server address is the verifiable counterpart. Anything else — a relative
+  // path, another scheme, a malformed value — is uncertain.
+  if (/^(?:https?:)?\/\//i.test(trimmed) || trimmed.startsWith("/")) {
+    return "server";
+  }
+  return "unknown";
+}
+
+/**
+ * Whether **this browser**'s Gallery state permits canonicalizing `/gallery`
+ * to Library's Images mode.
+ *
+ * The local Gallery cache is browser-origin scoped, not account scoped, so a
+ * safe answer here is a statement about this browser only. It never asserts
+ * that any other browser, profile, or account is free of residue.
+ *
+ * The state is only ever read. This decision never writes, migrates, uploads,
+ * attributes, or removes anything, and it never infers ownership from the
+ * signed-in account.
+ */
+function isGalleryCanonicalizationSafe(): boolean {
+  if (typeof window === "undefined") return false;
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem("cfy.gallery");
+  } catch {
+    // An unreadable store is an unknown state. Fail closed.
+    return false;
+  }
+  // No stored state at all: there is nothing browser-local to hide.
+  if (raw == null) return true;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Malformed state is unknown. Fail closed.
+    return false;
+  }
+  if (!Array.isArray(parsed)) return false;
+  return parsed.every((entry) => {
+    const kind = classifyGalleryEntry(entry);
+    return kind === "seeded" || kind === "server";
+  });
 }
 
 function normalizeGalleryItem(raw: any): GalleryItem | null {

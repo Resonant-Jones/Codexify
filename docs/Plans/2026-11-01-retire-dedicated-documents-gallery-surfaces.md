@@ -348,6 +348,53 @@ acceptable.** This gate is a hard prerequisite for the two things it governs —
 not a risk to be accepted and moved past. **No migration is designed or
 implemented in this document.**
 
+#### 2.2.3 Implemented strategy: a per-browser gate on the `/gallery` alias
+
+**Recorded 2026-11-01.** The gate above is now a **runtime, per-browser
+decision** rather than a one-off inspection. The `/gallery` alias to
+`/library?filter=images` is applied **only when the browser performing the
+navigation can establish that nothing browser-local would be hidden**. When it
+cannot, `/gallery` stays functional and is not redirected.
+
+The decision is made by `isGalleryCanonicalizationSafe()` in
+`frontend/src/components/persona/layout/AppShell.tsx`. It:
+
+- **reads** `cfy.gallery` and never writes, migrates, uploads, attributes, or
+  removes anything;
+- **fails closed** — an unreadable store, malformed JSON, a non-array payload,
+  or any unclassifiable entry keeps the legacy Gallery reachable;
+- is a statement about **this browser only**. It never asserts that any other
+  browser, profile, or account is free of residue, and it never infers
+  ownership from the signed-in account.
+
+Each persisted entry is classified by whether it could represent content
+**without a server counterpart**:
+
+| Class | Rule | Effect |
+|---|---|---|
+| `seeded` | A **known** demonstration asset, recognized by identity against the seeded asset list | safe |
+| `server` | A server address (absolute `http(s)://`, protocol-relative, or root-relative) and not flagged `mock` | safe |
+| `local` | A `data:` or `blob:` reference — no server projection can ever retrieve it | **retains Gallery** |
+| `unknown` | Any other value, including an arbitrary `mock: true` entry on an unrecognized path | **retains Gallery** |
+
+**`mock: false` is never treated as proof that an item exists on the server** —
+only the address is. **Arbitrary `mock: true` entries are not treated as
+synthetic** — only the known demonstration assets are. Both rules fail toward
+retaining the Gallery.
+
+The same rule governs a persisted `cfy.lastView = "gallery"`: a safe browser
+restores Library/Images, a browser with residue or uncertain state restores the
+Gallery destination. The completed Documents persisted-view normalization is
+unchanged.
+
+**What this strategy does not establish.** A safe decision in one browser says
+nothing about any other browser, profile, or account. The gate is therefore
+**not** the global absence-of-content proof the plan originally contemplated —
+it is a local guard that keeps the legacy Gallery reachable exactly where
+browser-local content might be hidden. The account-scoped sweep across browsers
+remains outstanding; see the dated gate note
+`docs/architecture/proofs/2026-11-01-gallery-browser-local-route-gate.md`.
+
 ### 2.3 `GalleryView.tsx`: unreferenced in production, but not dependency-free
 
 `frontend/src/components/gallery/GalleryView.tsx` (386 lines) is imported
@@ -525,7 +572,7 @@ convention Phase 3 must inherit for its compatibility redirects.
 | Phone app menu | already handled in Phase 1 |
 | `cfy:project-kb:open` listener (`AppShell.tsx:2720-2743`) | **Retarget** to `/library?filter=documents` and keep the listener. It is a published window-event contract surface; the absence of an in-repo dispatcher does not establish that no dispatcher exists. Removal requires evidence from beyond the repository boundary, not from this repository alone. |
 | Deep link `/documents` | Redirect to `/library?filter=documents` — a **migration-safe navigation alias**, per the governing contract's Stage 1 requirement for "migration-safe navigation aliases and explicit compatibility tests" (`library-projects-spaces-product-surface-contract.md:554-555`). The old URL must keep resolving to the equivalent Library mode. |
-| Deep link `/gallery` | Redirect to `/library?filter=images` — **blocked until the §2.2.2 safety gate is discharged**. The old URL must keep resolving to the equivalent Library mode, but only once browser-local-only content has been accounted for. |
+| Deep link `/gallery` | Redirect to `/library?filter=images` — **conditional on the per-browser gate** (§2.2.3). When the browser's own state establishes that no browser-local content would be hidden, the alias applies and the address is canonicalized in place with `replaceState`. When content or uncertain state is present, `/gallery` stays functional and is **not** redirected, so nothing is hidden. The account-scoped sweep across browsers remains outstanding. |
 | `cfy.lastView` | written on every view change (`AppShell.tsx:1509`), read back for any unrecognized pathname (`:1381-1384`). Once `/documents` and `/gallery` are aliased, a stale `cfy.lastView` must not resurrect the retired destinations: the write and read must be reconciled so a retired view name resolves to its Library alias. |
 
 **Compatibility is a preservation obligation, not an optional extra.** Existing

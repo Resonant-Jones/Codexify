@@ -557,6 +557,28 @@ function renderWordmark(themeMode: "light" | "dark") {
   return screen.findByRole("button", { name: "Codexify" });
 }
 
+/**
+ * Establish a browser that must **retain** legacy Gallery access.
+ *
+ * The marker is an ambiguous entry — a mock flag on a path that is not a known
+ * seeded demonstration asset — so the navigation gate fails closed and `/gallery`
+ * is not canonicalized. The gallery hydrator discards mock entries when real
+ * ones exist, so the marker does not change what the gallery renders.
+ */
+function retainLegacyGallery(entries: unknown[] = []) {
+  window.localStorage.setItem(
+    "cfy.gallery",
+    JSON.stringify([
+      ...entries,
+      {
+        src: "https://example.test/ambiguous-gallery-entry.png",
+        prompt: "Ambiguous gallery entry",
+        mock: true,
+      },
+    ])
+  );
+}
+
 function setRoutePath(pathname: string) {
   window.history.pushState({}, "", pathname);
 }
@@ -763,6 +785,7 @@ describe("AppShell logo wordmark color contract", () => {
 
   it("revalidates the default project and fences uploads when the account changes", async () => {
     setRoutePath("/gallery");
+    retainLegacyGallery();
     mockApi.get.mockImplementation(async (path: string) => {
       if (path !== "/api/projects") return { data: {} };
       return authTestState.auth.token === "account-b"
@@ -972,13 +995,14 @@ describe("AppShell Guardian mobile navigation seam", () => {
     ["/dashboard", "dashboard-primary-frame"],
     ["/documents", "library-primary-frame"],
     ["/library?filter=documents", "library-primary-frame"],
-    ["/gallery", "gallery-primary-frame"],
+    ["/gallery", "gallery-primary-frame", retainLegacyGallery],
     ["/settings", "settings-framecard"],
   ])(
     "uses the sidebar-first frame shell for narrow route %s",
-    async (pathname, primaryFrameTestId) => {
+    async (pathname, primaryFrameTestId, setup?: () => void) => {
       const user = userEvent.setup();
       setViewportWidth(390);
+      setup?.();
       setRoutePath(pathname);
       render(<AppShell />);
 
@@ -1593,12 +1617,9 @@ describe("AppShell shared gallery persistence truth", () => {
 
   it("sets the global gallery image as wallpaper and updates the scene immediately", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
-    localStorage.setItem(
-      "cfy.gallery",
-      JSON.stringify([
-        { src: "/media/images/global-wallpaper.png?sig=stable", prompt: "Global wallpaper" },
-      ])
-    );
+    retainLegacyGallery([
+      { src: "/media/images/global-wallpaper.png?sig=stable", prompt: "Global wallpaper" },
+    ]);
     setRoutePath("/gallery");
 
     render(<AppShell />);
@@ -1620,7 +1641,7 @@ describe("AppShell shared gallery persistence truth", () => {
   it("ignores failed gallery upload previews and keeps persisted uploads visible", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRoutePath("/gallery");
-    localStorage.setItem("cfy.gallery", JSON.stringify([]));
+    retainLegacyGallery([]);
 
     render(<AppShell />);
 
@@ -1746,6 +1767,7 @@ describe("AppShell gallery demo content", () => {
 
   it("keeps seeded content when a seeded gallery image is selected as wallpaper", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    retainLegacyGallery();
     setRoutePath("/gallery");
 
     render(<AppShell />);
@@ -1781,23 +1803,20 @@ describe("AppShell gallery demo content", () => {
   it("migrates cached localhost starter URLs to same-origin mock assets", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRoutePath("/gallery");
-    localStorage.setItem(
-      "cfy.gallery",
-      JSON.stringify([
-        {
-          src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png",
-          prompt: "Abstract signal study",
-        },
-        {
-          src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png",
-          prompt: "Interface moodboard",
-        },
-        {
-          src: "http://localhost:5173/peekaboo-demo/field-notes-map.png",
-          prompt: "Field notes map",
-        },
-      ])
-    );
+    retainLegacyGallery([
+      {
+        src: "http://localhost:5173/peekaboo-demo/abstract-signal-study.png",
+        prompt: "Abstract signal study",
+      },
+      {
+        src: "http://localhost:5173/peekaboo-demo/interface-moodboard.png",
+        prompt: "Interface moodboard",
+      },
+      {
+        src: "http://localhost:5173/peekaboo-demo/field-notes-map.png",
+        prompt: "Field notes map",
+      },
+    ]);
 
     render(<AppShell />);
 
@@ -1820,6 +1839,7 @@ describe("AppShell gallery demo content", () => {
 
   it("removes starter images as soon as the first user image is imported", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    retainLegacyGallery();
     setRoutePath("/gallery");
 
     render(<AppShell />);
@@ -2406,6 +2426,7 @@ describe("AppShell workspace drawer shell", () => {
   it("does not render the workspace drawer for unsupported views", () => {
     localStorage.setItem("cfy.lastView", "gallery");
     setRouteThread(null);
+    retainLegacyGallery();
     setRoutePath("/gallery");
 
     render(<AppShell />);
@@ -3102,6 +3123,7 @@ describe("AppShell Dashboard resource navigation", () => {
     expect(window.location.search).toBe("?filter=documents");
 
     cleanup();
+    retainLegacyGallery();
     setRoutePath("/gallery");
     render(<AppShell />);
 
@@ -3288,6 +3310,7 @@ describe("AppShell project knowledge base navigation", () => {
     expect(window.location.search).toBe("?filter=documents");
 
     cleanup();
+    retainLegacyGallery();
     setRoutePath("/gallery");
     render(<AppShell />);
 
@@ -3447,6 +3470,7 @@ describe("AppShell legacy Documents route alias", () => {
 
   it("keeps a persisted gallery destination compatible with the Gallery route", async () => {
     localStorage.setItem("cfy.lastView", "gallery");
+    retainLegacyGallery();
     setViewportWidth(390);
     setRoutePath("/unknown-entry");
 
@@ -3456,11 +3480,11 @@ describe("AppShell legacy Documents route alias", () => {
     expect(window.location.pathname).toBe("/unknown-entry");
   });
 
-  it("leaves the Gallery route's browser-local content untouched", async () => {
+  it("leaves browser-local Gallery content reachable and untouched", async () => {
     localStorage.setItem(
       "cfy.gallery",
       JSON.stringify([
-        { src: "/media/images/local-image.png", prompt: "Local gallery image" },
+        { src: "data:image/png;base64,ZmFrZQ==", prompt: "Local gallery image" },
       ])
     );
     setRoutePath("/gallery");
@@ -3471,6 +3495,7 @@ describe("AppShell legacy Documents route alias", () => {
       await screen.findByRole("img", { name: "Local gallery image" })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/gallery");
+    expect(window.location.search).toBe("");
   });
 
   it("leaves direct filtered Library navigation unchanged", async () => {
@@ -3484,5 +3509,302 @@ describe("AppShell legacy Documents route alias", () => {
     );
     expect(window.location.pathname).toBe("/library");
     expect(window.location.search).toBe("?filter=images");
+  });
+});
+
+describe("AppShell legacy Gallery route gate", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/projects") {
+        return { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [], count: 0 } };
+      }
+      if (path === "/media/images") {
+        return { data: { images: [], count: 0 } };
+      }
+      return { data: {} };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const renderGalleryRoute = async () => {
+    setRoutePath("/gallery");
+    render(<AppShell />);
+    return screen.findByTestId("app-shell-top-nav");
+  };
+
+  it("canonicalizes to Library's Images mode when there is no browser-local state", async () => {
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(window.location.search).toBe("?filter=images");
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "images"
+    );
+    expect(screen.getByTestId("library-filter-images")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("canonicalizes when the state holds only known demonstration assets", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/peekaboo-demo/abstract-signal-study.png", prompt: "Abstract signal study", mock: true },
+        { src: "/peekaboo-demo/interface-moodboard.png", prompt: "Interface moodboard", mock: true },
+        { src: "/peekaboo-demo/field-notes-map.png", prompt: "Field notes map", mock: true },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(window.location.search).toBe("?filter=images");
+  });
+
+  it("retains the legacy Gallery when a local data: image is retained", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "data:image/png;base64,ZmFrZQ==", prompt: "Local only", mock: true },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(window.location.search).toBe("");
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery when a local data: image is hidden by other entries", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/visible-item.png", prompt: "Visible item" },
+        {
+          src: "data:image/png;base64,ZmFrZQ==",
+          prompt: "Hidden local only",
+          mock: true,
+        },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    // The Gallery renders only the real item, but the local residue still
+    // exists in storage, so access is retained.
+    expect(
+      await screen.findByRole("img", { name: "Visible item" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Hidden local only" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery for an unknown local or remote reference", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "not-a-known-path/image.png", prompt: "Ambiguous reference" },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("retains the legacy Gallery for an arbitrary mock entry", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "https://example.test/demo-gallery.png", prompt: "Demo gallery item", mock: true },
+      ])
+    );
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("fails closed for a malformed Gallery payload", async () => {
+    localStorage.setItem("cfy.gallery", "{not-json");
+
+    await renderGalleryRoute();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when the Gallery entry cannot be read", async () => {
+    const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
+    vi.spyOn(window.localStorage, "getItem").mockImplementation((key: string) => {
+      if (key === "cfy.gallery") {
+        throw new DOMException("Access denied", "SecurityError");
+      }
+      return originalGetItem(key);
+    });
+
+    try {
+      await renderGalleryRoute();
+
+      await waitFor(() => {
+        expect(window.location.pathname).toBe("/gallery");
+      });
+      expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+    } finally {
+      vi.mocked(window.localStorage.getItem).mockRestore();
+    }
+  });
+
+  it("canonicalizes without adding a history entry", async () => {
+    setRoutePath("/gallery");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState).toHaveBeenCalledWith({}, "", "/library?filter=images");
+
+    pushState.mockRestore();
+    replaceState.mockRestore();
+  });
+
+  it("keeps Back working after a canonicalization", async () => {
+    setRoutePath("/chat");
+
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+
+    act(() => {
+      setRoutePath("/gallery");
+      notifyRouteChange();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(window.location.search).toBe("?filter=images");
+
+    await act(async () => {
+      window.history.back();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat");
+    });
+  });
+
+  it("resolves a persisted gallery destination to Library for a safe browser", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setRoutePath("/unknown-entry");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "images"
+    );
+    expect(screen.getByTestId("library-filter-images")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("retains a persisted gallery destination for a browser with residue", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "data:image/png;base64,ZmFrZQ==", prompt: "Local only" },
+      ])
+    );
+    setViewportWidth(390);
+    setRoutePath("/unknown-entry");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("gallery-primary-frame")).toBeInTheDocument();
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+
+  it("leaves the browser-local payload byte-for-byte unchanged by the navigation", async () => {
+    const stored = JSON.stringify([
+      { src: "/media/images/stable-item.png", prompt: "Stable item" },
+    ]);
+    localStorage.setItem("cfy.gallery", stored);
+    setRoutePath("/chat");
+
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    // Let the gallery hydrator settle before the navigation is measured.
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.gallery")).not.toBeNull();
+    });
+    const before = localStorage.getItem("cfy.gallery");
+
+    act(() => {
+      setRoutePath("/gallery");
+      notifyRouteChange();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(localStorage.getItem("cfy.gallery")).toBe(before);
+  });
+
+  it("does not regress the Documents compatibility alias", async () => {
+    setRoutePath("/documents");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "documents"
+    );
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
   });
 });
