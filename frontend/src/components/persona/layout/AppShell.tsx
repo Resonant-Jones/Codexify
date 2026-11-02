@@ -44,6 +44,11 @@ import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import DocumentsView from "@/components/documents/DocumentsView";
 import LibraryView from "@/components/library/LibraryView";
+import {
+  buildLibraryFilterSearch,
+  readLibraryFilterFromSearch,
+} from "@/components/library/libraryFilterRoute";
+import type { LibraryFilter } from "@/components/library/libraryResourceProjection";
 import SidebarRoot from "@/components/sidebar/SidebarRoot";
 import GuardianChatWithSidebar from "@/components/persona/layout/GuardianChatWithSidebar";
 import MobileAppSidebarDrawer from "@/components/persona/layout/MobileAppSidebarDrawer";
@@ -339,7 +344,11 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
   return null;
 }
 
-function resolvePathForView(view: AppShellView, threadId: number | null): string {
+function resolvePathForView(
+  view: AppShellView,
+  threadId: number | null,
+  libraryFilter: LibraryFilter = "all"
+): string {
   switch (view) {
     case "guardian":
       return threadId != null ? `/chat/${threadId}` : "/chat";
@@ -348,7 +357,7 @@ function resolvePathForView(view: AppShellView, threadId: number | null): string
     case "documents":
       return "/documents";
     case "library":
-      return "/library";
+      return `/library${buildLibraryFilterSearch(libraryFilter)}`;
     case "gallery":
       return "/gallery";
     case "settings":
@@ -1388,6 +1397,15 @@ export default function AppShell({
 
     return "dashboard";
   });
+  // The selected Library filter is owned by the URL, not by component state.
+  // This value is a *reflection* of `?filter=` and is only ever written from
+  // the route sync below, so the address bar and the rendered filter can never
+  // disagree.
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>(() =>
+    typeof window !== "undefined"
+      ? readLibraryFilterFromSearch(window.location.search)
+      : "all"
+  );
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (view !== "guardian" || window.location.pathname !== "/") return;
@@ -1515,6 +1533,9 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = (event?: Event) => {
+      // The Library filter is read from the URL on every route sync, so it can
+      // never drift from the address bar.
+      setLibraryFilter(readLibraryFilterFromSearch(window.location.search));
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1734,13 +1755,35 @@ export default function AppShell({
       // The Inspector is internal to Settings; it has no URL route of its own.
       if (nextView === "configurationInspector" || typeof window === "undefined") return;
 
-      const nextPath = resolvePathForView(nextView, activeRouteThreadId);
-      if (window.location.pathname !== nextPath) {
+      const nextPath = resolvePathForView(
+        nextView,
+        activeRouteThreadId,
+        nextView === "library" ? libraryFilter : "all"
+      );
+      if (window.location.pathname + window.location.search !== nextPath) {
         window.history.pushState({}, "", nextPath);
       }
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
-    [activeRouteThreadId, seedDocumentsScopeFromGuardian, view]
+    [activeRouteThreadId, libraryFilter, seedDocumentsScopeFromGuardian, view]
+  );
+  /**
+   * Change the selected Library filter by writing it to the URL.
+   *
+   * The URL is the single source of truth: this pushes a new history entry and
+   * lets the route sync write the filter state back. There is deliberately no
+   * second copy of the filter anywhere.
+   */
+  const changeLibraryFilter = useCallback(
+    (nextFilter: LibraryFilter) => {
+      if (typeof window === "undefined") return;
+      const nextPath = resolvePathForView("library", activeRouteThreadId, nextFilter);
+      if (window.location.pathname + window.location.search !== nextPath) {
+        window.history.pushState({}, "", nextPath);
+      }
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+    [activeRouteThreadId]
   );
   const returnToGuardian = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -4231,6 +4274,8 @@ export default function AppShell({
                         <LibraryView
                           scope={documentsScope}
                           extColors={extColors}
+                          filter={libraryFilter}
+                          onFilterChange={changeLibraryFilter}
                           onOpenInThread={openDocInThread}
                           onDeleteDocument={deleteDocument}
                           onImageSelect={openChatWithPrompt}

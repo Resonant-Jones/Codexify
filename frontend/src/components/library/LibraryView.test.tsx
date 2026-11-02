@@ -114,7 +114,14 @@ describe("LibraryView", () => {
   });
 
   it("renders the approved four filters as accessible tabs", async () => {
-    render(<LibraryView scope={scope} extColors={extColors} />);
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="all"
+        onFilterChange={vi.fn()}
+      />
+    );
     await waitFor(() => expect(screen.getByTestId("library-filter-all")).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByRole("tab", { name: "All" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Images" })).toBeInTheDocument();
@@ -122,18 +129,59 @@ describe("LibraryView", () => {
     expect(screen.getByRole("tab", { name: "Widgets" })).toBeInTheDocument();
   });
 
-  it("changes the projection filter and renders the matching presentation surface", async () => {
-    render(<LibraryView scope={scope} extColors={extColors} />);
-    await waitFor(() => expect(screen.getByTestId("gallery-grid-mock")).toHaveTextContent("1 images"));
-    fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
+  it("renders the surface for the filter it is given", async () => {
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="documents"
+        onFilterChange={vi.fn()}
+      />
+    );
     await waitFor(() => expect(buildProjection).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "documents" })));
     expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByTestId("library-filter-all")).toHaveAttribute(
+      "aria-selected",
+      "false"
+    );
+  });
+
+  it("reports a filter change to its owner instead of holding filter state", async () => {
+    const onFilterChange = vi.fn();
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="all"
+        onFilterChange={onFilterChange}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId("gallery-grid-mock")).toHaveTextContent("1 images"));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Documents" }));
+
+    expect(onFilterChange).toHaveBeenCalledWith("documents");
+    // The view does not move itself; the owner decides, and the URL decides
+    // for the owner.
+    expect(screen.getByTestId("library-filter-all")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
   });
 
   it("states that Widgets are unavailable without creating records", async () => {
-    render(<LibraryView scope={scope} extColors={extColors} />);
-    await waitFor(() => screen.getByRole("tab", { name: "Widgets" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Widgets" }));
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="widgets"
+        onFilterChange={vi.fn()}
+      />
+    );
     await waitFor(() => expect(screen.getByTestId("library-widgets-unavailable")).toBeInTheDocument());
     expect(screen.getByTestId("library-unavailable")).toHaveTextContent(/no authoritative widget/i);
     expect(buildProjection).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "widgets" }));

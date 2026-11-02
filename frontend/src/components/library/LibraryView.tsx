@@ -28,6 +28,14 @@ export const LIBRARY_FILTER_LABELS: Record<LibraryFilter, string> = {
 type LibraryViewProps = {
   scope: DocumentsScope;
   extColors: ExtColors;
+  /**
+   * The selected filter. This is a **reflection of the URL**, owned by the
+   * shell's route state — LibraryView never keeps an independent filter state
+   * that could disagree with the address bar.
+   */
+  filter: LibraryFilter;
+  /** Requests a filter change. The shell writes it to the URL. */
+  onFilterChange: (filter: LibraryFilter) => void;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
   onImageSelect?: (prompt: string) => void;
@@ -113,11 +121,12 @@ function ProjectionStatus({
 export default function LibraryView({
   scope,
   extColors,
+  filter,
+  onFilterChange,
   onOpenInThread,
   onDeleteDocument,
   onImageSelect,
 }: LibraryViewProps) {
-  const [filter, setFilter] = useState<LibraryFilter>("all");
   const [projection, setProjection] = useState<LibraryResourceProjection | null>(
     null
   );
@@ -338,7 +347,7 @@ export default function LibraryView({
                   color: "var(--text)",
                   opacity: candidate === "widgets" ? 0.8 : 1,
                 }}
-                onClick={() => setFilter(candidate)}
+                onClick={() => onFilterChange(candidate)}
               >
                 {LIBRARY_FILTER_LABELS[candidate]}
               </button>

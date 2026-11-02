@@ -2729,3 +2729,216 @@ describe("AppShell Room route", () => {
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
   });
 });
+
+describe("AppShell Library filter route authority", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/projects") {
+        return { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [] } };
+      }
+      if (path === "/media/images") {
+        return { data: { images: [] } };
+      }
+      return { data: {} };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const selectedFilter = () =>
+    screen.getByTestId("library-view").getAttribute("data-library-filter");
+
+  const resourceScopeKeys = () =>
+    mockApi.get.mock.calls
+      .filter(
+        ([path]) =>
+          path === "/media/document-artifacts" || path === "/media/images"
+      )
+      .map(([, config]) => {
+        const params = (config as any)?.params ?? {};
+        return JSON.stringify({
+          project_id: params.project_id ?? null,
+          thread_id: params.thread_id ?? null,
+        });
+      });
+
+  it("takes the filter from the URL on direct navigation", async () => {
+    setRoutePath("/library?filter=documents");
+
+    render(<AppShell />);
+
+    await screen.findByTestId("library-view");
+    expect(selectedFilter()).toBe("documents");
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(window.location.search).toBe("?filter=documents");
+  });
+
+  it("falls back to all for an absent filter", async () => {
+    setRoutePath("/library");
+
+    render(<AppShell />);
+
+    await screen.findByTestId("library-view");
+    expect(selectedFilter()).toBe("all");
+    expect(screen.getByTestId("library-filter-all")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("falls back to all for an invalid filter value", async () => {
+    setRoutePath("/library?filter=bogus");
+
+    render(<AppShell />);
+
+    await screen.findByTestId("library-view");
+    expect(selectedFilter()).toBe("all");
+    expect(screen.getByTestId("library-filter-all")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("writes a filter change to the URL and renders the matching filter", async () => {
+    const user = userEvent.setup();
+    setRoutePath("/library");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+
+    await user.click(screen.getByTestId("library-filter-images"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(window.location.search).toBe("?filter=images");
+    });
+    expect(selectedFilter()).toBe("images");
+    expect(screen.getByTestId("library-filter-images")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("returns to the canonical address when the default filter is chosen", async () => {
+    const user = userEvent.setup();
+    setRoutePath("/library?filter=images");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+
+    await user.click(screen.getByTestId("library-filter-all"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+      expect(window.location.search).toBe("");
+    });
+    expect(selectedFilter()).toBe("all");
+  });
+
+  it("keeps the active filter when the Library destination is chosen again", async () => {
+    const user = userEvent.setup();
+    setRoutePath("/library?filter=documents");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+    expect(selectedFilter()).toBe("documents");
+
+    await user.click(screen.getByRole("button", { name: "Library" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    // The Library destination is already active; it must not silently drop the
+    // selected filter.
+    expect(window.location.search).toBe("?filter=documents");
+    expect(selectedFilter()).toBe("documents");
+  });
+
+  it("applies a query-only transition without changing the path", async () => {
+    setRoutePath("/library?filter=images");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+    expect(selectedFilter()).toBe("images");
+
+    act(() => {
+      window.history.pushState({}, "", "/library?filter=documents");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => {
+      expect(selectedFilter()).toBe("documents");
+    });
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
+  });
+
+  it("restores the previous filter on browser back", async () => {
+    const user = userEvent.setup();
+    setRoutePath("/library");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+
+    await user.click(screen.getByTestId("library-filter-documents"));
+    await waitFor(() => {
+      expect(window.location.search).toBe("?filter=documents");
+    });
+
+    await act(async () => {
+      window.history.back();
+    });
+
+    await waitFor(() => {
+      expect(selectedFilter()).toBe("all");
+    });
+    expect(window.location.search).toBe("");
+  });
+
+  it("keeps the resource scope unchanged across a filter change", async () => {
+    const user = userEvent.setup();
+    setRoutePath("/library");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+    await waitFor(() => {
+      expect(
+        mockApi.get.mock.calls.some(
+          ([path]) => path === "/media/document-artifacts"
+        )
+      ).toBe(true);
+    });
+
+    const scopesBefore = resourceScopeKeys();
+    expect(scopesBefore.length).toBeGreaterThan(0);
+
+    await user.click(screen.getByTestId("library-filter-documents"));
+    await waitFor(() => {
+      expect(selectedFilter()).toBe("documents");
+    });
+
+    const scopesAfter = resourceScopeKeys();
+    expect(scopesAfter.length).toBeGreaterThan(scopesBefore.length);
+    // A filter change re-reads the same scope; it never re-scopes a request.
+    expect(new Set(scopesAfter)).toEqual(new Set(scopesBefore));
+  });
+});
