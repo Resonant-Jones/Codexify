@@ -2780,7 +2780,10 @@ export default function AppShell({
         setDocumentsScopeReady(true);
         documentsEntrySeededRef.current = true;
       }
-      navigateToView("documents");
+      // The event name and its payload are a published contract surface, so
+      // the listener stays. Its destination is Library's Documents mode: the
+      // dedicated /documents route is no longer a navigation destination.
+      navigateToView("library", "documents");
     };
 
     window.addEventListener(

@@ -1402,31 +1402,6 @@ describe("AppShell settings utility trigger", () => {
     }
   });
 
-  it("routes Project Knowledge Base requests to the Documents surface", async () => {
-    localStorage.setItem("cfy.lastView", "guardian");
-    setRouteThread(123);
-
-    render(<AppShell />);
-
-    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent("cfy:project-kb:open", {
-          detail: { projectId: 42, projectName: "Launch Project" },
-        })
-      );
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
-    });
-    expect(screen.getByTestId("documents-project-id")).toHaveTextContent(
-      "42"
-    );
-    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("no-thread");
-  });
-
   it("preserves the Guardian project selection when switching to Documents", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "guardian");
@@ -3115,6 +3090,191 @@ describe("AppShell Dashboard resource navigation", () => {
   });
 
   it("keeps the dedicated Documents and Gallery routes live", async () => {
+    setRoutePath("/documents");
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/documents");
+
+    cleanup();
+    setRoutePath("/gallery");
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/gallery");
+    });
+    expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppShell project knowledge base navigation", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/projects") {
+        return { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [] } };
+      }
+      if (path === "/media/images") {
+        return { data: { images: [] } };
+      }
+      return { data: {} };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const dispatchProjectKbOpen = (projectId?: number) => {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("cfy:project-kb:open", {
+          detail:
+            projectId == null
+              ? {}
+              : { projectId, projectName: "Launch Project" },
+        })
+      );
+    });
+  };
+
+  const documentScopeParams = () =>
+    mockApi.get.mock.calls
+      .filter(([path]) => path === "/media/document-artifacts")
+      .map(([, config]) => (config as any)?.params ?? null);
+
+  it("opens the Library documents mode when the event fires", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+
+    dispatchProjectKbOpen(42);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-view")).toHaveAttribute(
+        "data-library-filter",
+        "documents"
+      );
+    });
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("preserves the project scope carried by the event payload", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+    dispatchProjectKbOpen(42);
+
+    await waitFor(() => {
+      expect(
+        documentScopeParams().some(
+          (params) => Number(params?.project_id) === 42
+        )
+      ).toBe(true);
+    });
+    // The event's scope is project-scoped, so no thread is carried.
+    expect(
+      documentScopeParams().every((params) => params?.thread_id == null)
+    ).toBe(true);
+  });
+
+  it("works from another active view", async () => {
+    setRoutePath("/dashboard");
+
+    render(<AppShell />);
+    await screen.findByTestId("dashboard-view-mock");
+
+    dispatchProjectKbOpen(42);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-view")).toHaveAttribute(
+        "data-library-filter",
+        "documents"
+      );
+    });
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
+  });
+
+  it("selects the documents filter when Library is already active", async () => {
+    setRoutePath("/library?filter=images");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+    expect(
+      screen.getByTestId("library-view").getAttribute("data-library-filter")
+    ).toBe("images");
+
+    dispatchProjectKbOpen(42);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-view")).toHaveAttribute(
+        "data-library-filter",
+        "documents"
+      );
+    });
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
+  });
+
+  it("navigates once per event, without a duplicate listener registration", async () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    render(<AppShell />);
+    pushState.mockClear();
+
+    dispatchProjectKbOpen(42);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(pushState).toHaveBeenCalledWith(
+      {},
+      "",
+      "/library?filter=documents"
+    );
+
+    pushState.mockRestore();
+  });
+
+  it("stops listening once the shell unmounts", async () => {
+    localStorage.setItem("cfy.lastView", "guardian");
+    setRouteThread(123);
+
+    const { unmount } = render(<AppShell />);
+    unmount();
+
+    dispatchProjectKbOpen(42);
+
+    expect(window.location.pathname).toBe("/chat/123");
+  });
+
+  it("keeps the dedicated Documents and Gallery deep links functional", async () => {
     setRoutePath("/documents");
     render(<AppShell />);
 
