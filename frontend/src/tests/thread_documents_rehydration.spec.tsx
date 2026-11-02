@@ -146,6 +146,9 @@ describe("Thread document rehydration", () => {
               documents: [
                 {
                   id: "doc-101",
+                  // The endpoint reports the authoritative source family. The
+                  // Library projection refuses to guess it.
+                  artifact_type: "uploaded",
                   title: "Bootstrap Plan",
                   filename: "Bootstrap Plan.md",
                   thread_id: 101,
@@ -154,6 +157,7 @@ describe("Thread document rehydration", () => {
                 },
                 {
                   id: "doc-101-other",
+                  artifact_type: "uploaded",
                   title: "Other Thread Doc",
                   filename: "Other Thread Doc.md",
                   thread_id: 999,
@@ -161,6 +165,11 @@ describe("Thread document rehydration", () => {
                   format: "md",
                 },
               ],
+              // The endpoint reports `count` as the post-limit length of the
+              // same list. The Library projection requires it: an unreadable
+              // count is reported as an incomplete source, never as a
+              // complete one.
+              count: 2,
             },
           } as AxiosResponse);
         }
@@ -170,6 +179,7 @@ describe("Thread document rehydration", () => {
               documents: [
                 {
                   id: "doc-202",
+                  artifact_type: "uploaded",
                   title: "Switch Checklist",
                   filename: "Switch Checklist.md",
                   thread_id: 202,
@@ -177,11 +187,12 @@ describe("Thread document rehydration", () => {
                   format: "md",
                 },
               ],
+              count: 1,
             },
           } as AxiosResponse);
         }
         return Promise.resolve({
-          data: { documents: [] },
+          data: { documents: [], count: 0 },
         } as AxiosResponse);
       }
       return Promise.resolve({ data: { documents: [] } } as AxiosResponse);

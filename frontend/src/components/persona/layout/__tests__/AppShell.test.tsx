@@ -970,7 +970,8 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
   it.each([
     ["/dashboard", "dashboard-primary-frame"],
-    ["/documents", "documents-primary-frame"],
+    ["/documents", "library-primary-frame"],
+    ["/library?filter=documents", "library-primary-frame"],
     ["/gallery", "gallery-primary-frame"],
     ["/settings", "settings-framecard"],
   ])(
@@ -1154,7 +1155,9 @@ describe("AppShell prompt-first entry", () => {
     render(<AppShell />);
 
     expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/documents");
+    // The legacy address is canonicalized in place to Library's Documents mode.
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
 
     cleanup();
     setRoutePath("/chat/123");
@@ -2013,7 +2016,7 @@ describe("AppShell workspace drawer shell", () => {
 
     render(<AppShell />);
 
-    expect(screen.getByTestId("documents-shared-shell")).toHaveAttribute(
+    expect(screen.getByTestId("library-shared-shell")).toHaveAttribute(
       "data-documents-shared-shell",
       "sidebar-center"
     );
@@ -2147,7 +2150,7 @@ describe("AppShell workspace drawer shell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("documents-primary-frame")).toBeInTheDocument();
+      expect(screen.getByTestId("library-primary-frame")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
     expect(screen.getByTestId("phone-sidebar-toggle")).toBeInTheDocument();
@@ -2493,7 +2496,8 @@ describe("AppShell documents sidebar posture", () => {
     fireEvent.click(screen.getByTestId("documents-sidebar-select-thread-21"));
     expect(screen.getByTestId("documents-project-id")).toHaveTextContent("2");
     expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("21");
-    expect(window.location.pathname).toBe("/documents");
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
     await waitFor(() => {
       expect(mockApi.get).toHaveBeenCalledWith("/media/document-artifacts", {
         params: { limit: 100, thread_id: 21 },
@@ -2584,7 +2588,7 @@ describe("AppShell documents sidebar posture", () => {
     expect(screen.queryByTestId("documents-sidebar-toggle")).not.toBeInTheDocument();
     expect(screen.getByTestId("documents-center-panel")).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("documents-primary-frame")).getByTestId(
+      within(screen.getByTestId("library-primary-frame")).getByTestId(
         "phone-primary-frame-header"
       )
     ).toBeInTheDocument();
@@ -3089,12 +3093,13 @@ describe("AppShell Dashboard resource navigation", () => {
     expect(new Set(scopeKeys).size).toBe(1);
   });
 
-  it("keeps the dedicated Documents and Gallery routes live", async () => {
+  it("keeps the legacy Documents address and the Gallery route usable", async () => {
     setRoutePath("/documents");
     render(<AppShell />);
 
     expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/documents");
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
 
     cleanup();
     setRoutePath("/gallery");
@@ -3274,12 +3279,13 @@ describe("AppShell project knowledge base navigation", () => {
     expect(window.location.pathname).toBe("/chat/123");
   });
 
-  it("keeps the dedicated Documents and Gallery deep links functional", async () => {
+  it("keeps the legacy Documents address and the Gallery route usable", async () => {
     setRoutePath("/documents");
     render(<AppShell />);
 
     expect(await screen.findByTestId("documents-view-mock")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/documents");
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
 
     cleanup();
     setRoutePath("/gallery");
@@ -3289,5 +3295,194 @@ describe("AppShell project knowledge base navigation", () => {
       expect(window.location.pathname).toBe("/gallery");
     });
     expect(screen.queryByTestId("library-view")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppShell legacy Documents route alias", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    uploaderState.configs = [];
+    installMatchMedia(false);
+    setViewportWidth(1280);
+    setAuthenticatedAuthState();
+    routeCapabilityState.ready = true;
+    routeCapabilityState.state = "available";
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    mockApi.delete.mockClear();
+    mockApi.get.mockImplementation(async (path: string) => {
+      if (path === "/api/projects") {
+        return { data: [{ id: 2, name: "Launch Project", user_id: "test-user" }] };
+      }
+      if (path === "/media/document-artifacts") {
+        return { data: { documents: [] } };
+      }
+      if (path === "/media/images") {
+        return { data: { images: [] } };
+      }
+      return { data: {} };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("resolves the legacy address to Library's Documents mode", async () => {
+    setRoutePath("/documents");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "documents"
+    );
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
+  });
+
+  it("canonicalizes the address in place, without adding a history entry", async () => {
+    setRoutePath("/documents");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+
+    render(<AppShell />);
+
+    await screen.findByTestId("library-view");
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=documents");
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState).toHaveBeenCalledWith({}, "", "/library?filter=documents");
+
+    pushState.mockRestore();
+    replaceState.mockRestore();
+  });
+
+  it("keeps Back working after the legacy address is canonicalized", async () => {
+    setRoutePath("/chat");
+
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+
+    act(() => {
+      setRoutePath("/documents");
+      notifyRouteChange();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/library");
+    });
+    expect(window.location.search).toBe("?filter=documents");
+
+    await act(async () => {
+      window.history.back();
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/chat");
+    });
+    expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBeInTheDocument();
+  });
+
+  it("exposes the same scoped documents through the legacy address", async () => {
+    setRoutePath("/chat/11");
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === "/media/document-artifacts") {
+        return Promise.resolve({ data: { documents: [] } });
+      }
+      if (url === "/api/projects") return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+
+    render(<AppShell />);
+    await screen.findByTestId("guardian-chat-with-sidebar-mock");
+    fireEvent.click(screen.getByTestId("guardian-emit-sidebar-snapshot"));
+
+    act(() => {
+      setRoutePath("/documents");
+      notifyRouteChange();
+    });
+
+    await screen.findByTestId("documents-view-mock");
+    expect(screen.getByTestId("documents-thread-id")).toHaveTextContent("11");
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith("/media/document-artifacts", {
+        params: { limit: 100, thread_id: 11 },
+      });
+    });
+  });
+
+  it("restores Library's Documents mode from a persisted legacy destination", async () => {
+    localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/unknown-entry");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "documents"
+    );
+    expect(screen.getByTestId("library-filter-documents")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+
+  it("never persists the retired Documents destination", async () => {
+    setRoutePath("/documents");
+
+    render(<AppShell />);
+    await screen.findByTestId("library-view");
+
+    await waitFor(() => {
+      expect(localStorage.getItem("cfy.lastView")).toBe("library");
+    });
+    expect(localStorage.getItem("cfy.lastView")).not.toBe("documents");
+  });
+
+  it("keeps a persisted gallery destination compatible with the Gallery route", async () => {
+    localStorage.setItem("cfy.lastView", "gallery");
+    setViewportWidth(390);
+    setRoutePath("/unknown-entry");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("gallery-primary-frame")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/unknown-entry");
+  });
+
+  it("leaves the Gallery route's browser-local content untouched", async () => {
+    localStorage.setItem(
+      "cfy.gallery",
+      JSON.stringify([
+        { src: "/media/images/local-image.png", prompt: "Local gallery image" },
+      ])
+    );
+    setRoutePath("/gallery");
+
+    render(<AppShell />);
+
+    expect(
+      await screen.findByRole("img", { name: "Local gallery image" })
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/gallery");
+  });
+
+  it("leaves direct filtered Library navigation unchanged", async () => {
+    setRoutePath("/library?filter=images");
+
+    render(<AppShell />);
+
+    expect(await screen.findByTestId("library-view")).toHaveAttribute(
+      "data-library-filter",
+      "images"
+    );
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).toBe("?filter=images");
   });
 });

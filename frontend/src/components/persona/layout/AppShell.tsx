@@ -338,10 +338,110 @@ function resolveViewFromPathname(pathname: string): AppShellView | null {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/gallery")) return "gallery";
   if (pathname.startsWith("/library")) return "library";
-  if (pathname.startsWith("/documents")) return "documents";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   if (pathname.startsWith("/chat")) return "guardian";
   return null;
+}
+
+/**
+ * Legacy application destinations that now resolve to a Library mode.
+ *
+ * `/documents` is a **migration-safe alias** for Library's Documents filter: it
+ * resolves to the same destination as `/library?filter=documents` and is
+ * canonicalized to it, so old bookmarks keep working while the retired
+ * destination stops existing as a route of its own.
+ */
+const LEGACY_LIBRARY_ALIASES: readonly {
+  prefix: string;
+  filter: LibraryFilter;
+}[] = [{ prefix: "/documents", filter: "documents" }];
+
+function resolveLegacyLibraryFilter(pathname: string): LibraryFilter | null {
+  for (const alias of LEGACY_LIBRARY_ALIASES) {
+    if (pathname === alias.prefix || pathname.startsWith(`${alias.prefix}/`)) {
+      return alias.filter;
+    }
+  }
+  return null;
+}
+
+/**
+ * The route an address resolves to.
+ *
+ * One place decides both the active view and the Library filter, so the
+ * address bar and the rendered surface can never disagree.
+ */
+type ResolvedRoute = {
+  view: AppShellView | null;
+  libraryFilter: LibraryFilter;
+  /** True when the address is a legacy alias that must be canonicalized. */
+  isLegacyAlias: boolean;
+};
+
+function resolveRoute(pathname: string, search: string): ResolvedRoute {
+  const legacyFilter = resolveLegacyLibraryFilter(pathname);
+  if (legacyFilter != null) {
+    return {
+      view: "library",
+      libraryFilter: legacyFilter,
+      isLegacyAlias: true,
+    };
+  }
+  return {
+    view: resolveViewFromPathname(pathname),
+    libraryFilter: readLibraryFilterFromSearch(search),
+    isLegacyAlias: false,
+  };
+}
+
+/**
+ * The route an address resolves to on first render.
+ *
+ * The persisted `cfy.lastView` is consulted only when the address names no
+ * known route, exactly as before. A persisted legacy `documents` destination
+ * resolves to Library's Documents mode instead of the retired destination;
+ * every other persisted destination is unchanged.
+ */
+function resolveInitialRoute(): {
+  view: AppShellView;
+  libraryFilter: LibraryFilter;
+} {
+  if (typeof window === "undefined") {
+    return { view: "dashboard", libraryFilter: "all" };
+  }
+  const pathname = window.location.pathname;
+  if (pathname === "/") {
+    return { view: "guardian", libraryFilter: "all" };
+  }
+  const route = resolveRoute(pathname, window.location.search);
+  if (route.view != null) {
+    return { view: route.view, libraryFilter: route.libraryFilter };
+  }
+  const storedView = window.localStorage.getItem("cfy.lastView");
+  if (isAppShellView(storedView)) {
+    if (storedView === "documents") {
+      return { view: "library", libraryFilter: "documents" };
+    }
+    return { view: storedView, libraryFilter: "all" };
+  }
+  return { view: "dashboard", libraryFilter: "all" };
+}
+
+/**
+ * The documents mode inherits the active Guardian thread, as the retired
+ * `/documents` route always did. The legacy alias and the canonical Library
+ * address both resolve to it, so they behave identically.
+ */
+function isDocumentsScopedRoute(
+  view: AppShellView | null,
+  libraryFilter: LibraryFilter
+): boolean {
+  return view === "documents" || (view === "library" && libraryFilter === "documents");
+}
+
+/** The canonical address for a Library mode. */
+function canonicalLibraryPath(filter: LibraryFilter): string {
+  return `/library${buildLibraryFilterSearch(filter)}`;
 }
 
 function resolvePathForView(
@@ -355,7 +455,8 @@ function resolvePathForView(
     case "flowBuilder":
       return getFlowBuilderPath(resolvePersistedFlowBuilderMode());
     case "documents":
-      return "/documents";
+      // The documents mode lives at Library with its filter.
+      return canonicalLibraryPath("documents");
     case "library":
       return `/library${buildLibraryFilterSearch(libraryFilter)}`;
     case "gallery":
@@ -1380,31 +1481,13 @@ export default function AppShell({
      - `wallpaper`: Optional image for the background.
      - We persist the last view and wallpaper for a seamless return experience.
      ───────────────────────────────────────────────────────────────────────────── */
-  const [view, setView] = useState<AppShellView>(() => {
-    if (typeof window !== "undefined") {
-      if (window.location.pathname === "/") {
-        return "guardian";
-      }
-
-      const routeView = resolveViewFromPathname(window.location.pathname);
-      if (routeView) return routeView;
-
-      const storedView = window.localStorage.getItem("cfy.lastView");
-      if (isAppShellView(storedView)) {
-        return storedView;
-      }
-    }
-
-    return "dashboard";
-  });
+  const [view, setView] = useState<AppShellView>(() => resolveInitialRoute().view);
   // The selected Library filter is owned by the URL, not by component state.
   // This value is a *reflection* of `?filter=` and is only ever written from
   // the route sync below, so the address bar and the rendered filter can never
   // disagree.
-  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>(() =>
-    typeof window !== "undefined"
-      ? readLibraryFilterFromSearch(window.location.search)
-      : "all"
+  const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>(
+    () => resolveInitialRoute().libraryFilter
   );
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1533,9 +1616,24 @@ export default function AppShell({
     if (typeof window === "undefined") return;
 
     const syncRouteState = (event?: Event) => {
+      const route = resolveRoute(
+        window.location.pathname,
+        window.location.search
+      );
+      // A legacy alias is canonicalized **in place**: replacing the current
+      // history entry adds no entry of its own and keeps Back pointing at
+      // where the user came from.
+      if (route.isLegacyAlias) {
+        window.history.replaceState({}, "", canonicalLibraryPath(route.libraryFilter));
+      }
       // The Library filter is read from the URL on every route sync, so it can
-      // never drift from the address bar.
-      setLibraryFilter(readLibraryFilterFromSearch(window.location.search));
+      // never drift from the address bar. An address that names no route says
+      // nothing about the filter, so it leaves it alone — exactly as it
+      // leaves the active view alone, which is how a persisted destination is
+      // restored without the address overwriting it.
+      if (route.view != null) {
+        setLibraryFilter(route.libraryFilter);
+      }
       const roomRoute = parseHostedRoomRoute(window.location.pathname);
       if (roomRoute) {
         setActiveRoomId(roomRoute.roomId);
@@ -1544,11 +1642,11 @@ export default function AppShell({
       }
 
       setActiveRoomId(null);
-      const routeView = resolveViewFromPathname(window.location.pathname);
+      const routeView = route.view;
       const routeThreadId = readRouteThreadId();
       if (routeThreadId != null) {
         setActiveRouteThreadId(routeThreadId);
-      } else if (routeView !== "documents") {
+      } else if (!isDocumentsScopedRoute(route.view, route.libraryFilter)) {
         setActiveRouteThreadId(null);
       }
       if (routeView) {
@@ -1694,11 +1792,14 @@ export default function AppShell({
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const syncRouteThread = () => {
-      const routeView = resolveViewFromPathname(window.location.pathname);
+      const route = resolveRoute(
+        window.location.pathname,
+        window.location.search
+      );
       const routeThreadId = readRouteThreadId();
       if (routeThreadId != null) {
         setActiveRouteThreadId(routeThreadId);
-      } else if (routeView !== "documents") {
+      } else if (!isDocumentsScopedRoute(route.view, route.libraryFilter)) {
         setActiveRouteThreadId(null);
       }
     };
@@ -1739,8 +1840,17 @@ export default function AppShell({
        */
       nextLibraryFilter?: LibraryFilter
     ) => {
+      // `documents` is a legacy alias for Library's Documents mode. It is not a
+      // separate application destination, so it is resolved here rather than
+      // in every caller.
+      const targetView: AppShellView = nextView === "documents" ? "library" : nextView;
+      const targetFilter: LibraryFilter =
+        targetView !== "library"
+          ? "all"
+          : nextLibraryFilter ??
+            (nextView === "documents" ? "documents" : libraryFilter);
       if (
-        (nextView === "documents" || nextView === "library") &&
+        targetView === "library" &&
         view !== "documents" &&
         view !== "library" &&
         !documentsEntrySeededRef.current
@@ -1749,8 +1859,8 @@ export default function AppShell({
           documentsEntrySeededRef.current = true;
         }
       }
-      if (resolveMobileApplicationView(nextView) != null) {
-        if (nextView === "guardian") {
+      if (resolveMobileApplicationView(targetView) != null) {
+        if (targetView === "guardian") {
           setIsApplicationNavigationExpanded(false);
         } else if (view === "guardian") {
           setIsApplicationNavigationExpanded(true);
@@ -1758,14 +1868,14 @@ export default function AppShell({
       }
       setIsPhoneSidebarOpen(false);
       setActiveRoomId(null);
-      setView(nextView);
+      setView(targetView);
       // The Inspector is internal to Settings; it has no URL route of its own.
-      if (nextView === "configurationInspector" || typeof window === "undefined") return;
+      if (targetView === "configurationInspector" || typeof window === "undefined") return;
 
       const nextPath = resolvePathForView(
-        nextView,
+        targetView,
         activeRouteThreadId,
-        nextView === "library" ? nextLibraryFilter ?? libraryFilter : "all"
+        targetFilter
       );
       if (window.location.pathname + window.location.search !== nextPath) {
         window.history.pushState({}, "", nextPath);
@@ -2949,14 +3059,17 @@ export default function AppShell({
   }, [documentsSidebarOpen]);
 
   useEffect(() => {
-    if (view !== "documents") return;
+    // The documents mode keeps the retired /documents route's posture: on a
+    // constrained viewport in workspace focus, the shared sidebar collapses so
+    // it cannot duplicate the workspace pane.
+    if (!isDocumentsScopedRoute(view, libraryFilter)) return;
     if (isPhoneShell) return;
     if (workspaceLayoutMode !== "workspace_focus") return;
     const vw = window.innerWidth;
     if (vw < 1200 && documentsSidebarOpen) {
       setDocumentsSidebarOpen(false);
     }
-  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
+  }, [view, libraryFilter, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
 
   const toggleDocumentsSidebar = useCallback(() => {
     setDocumentsSidebarOpen((prev) => !prev);
