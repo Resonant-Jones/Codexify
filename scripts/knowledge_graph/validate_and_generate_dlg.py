@@ -35,7 +35,7 @@ import errno
 
 try:
     # Imported as a package module (tests, tooling).
-    from scripts.knowledge_graph.in_place_write import write_bytes_in_place
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place, exclusive_artifact_lock
 except ImportError:  # pragma: no cover - executed as a script
     # Executed directly: the repository root is not on sys.path yet.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -1632,25 +1632,26 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.parent / f".{path.name}.staged"
-    try:
-        with open(temporary_path, "wb") as handle:
-            handle.write(_pretty_json_bytes(payload))
-            handle.flush()
-            os.fsync(handle.fileno())
+    with exclusive_artifact_lock(path):
         try:
-            os.replace(temporary_path, path)
-        except OSError as exc:
-            # Only an explicit rename permission/unsupported-operation
-            # denial justifies trading atomicity for truncate-in-place.
-            # I/O failures and ENOSPC must leave the destination intact.
-            if exc.errno not in (errno.EPERM, errno.EACCES, errno.ENOTSUP, errno.EOPNOTSUPP):
+            with open(temporary_path, "wb") as handle:
+                handle.write(_pretty_json_bytes(payload))
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.replace(temporary_path, path)
+            except OSError as exc:
+                # Only an explicit rename permission/unsupported-operation
+                # denial justifies trading atomicity for truncate-in-place.
+                # I/O failures and ENOSPC must leave the destination intact.
+                if exc.errno not in (errno.EPERM, errno.EACCES, errno.ENOTSUP, errno.EOPNOTSUPP):
+                    raise
+                write_bytes_in_place(path, temporary_path.read_bytes())
+        except Exception:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            finally:
                 raise
-            write_bytes_in_place(path, temporary_path.read_bytes())
-    except Exception:
-        try:
-            temporary_path.unlink(missing_ok=True)
-        finally:
-            raise
 
 
 def write_generated_artifacts(
