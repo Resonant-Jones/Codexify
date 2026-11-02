@@ -32,6 +32,14 @@ from urllib.parse import unquote
 
 import jsonschema
 
+try:
+    # Imported as a package module (tests, tooling).
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place
+except ImportError:  # pragma: no cover - executed as a script
+    # Executed directly: the repository root is not on sys.path yet.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place
+
 
 SCRIPT_ID = "scripts/knowledge_graph/validate_and_generate_dlg.py"
 SCHEMA_VERSION = "1.0.0"
@@ -1609,18 +1617,32 @@ def build_generated_artifacts(result: ValidationResult) -> dict[str, dict[str, A
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write a readable JSON projection through same-directory atomic replacement."""
+    """Write a readable JSON projection through same-directory atomic replacement.
+
+    Where the host permits `rename(2)`, the temporary file is renamed over
+    the destination, which is the strongest guarantee available: the visible
+    file is never partially written.
+
+    Where the host denies rename or unlink, that path fails outright. The
+    write then falls back to a truncate-in-place copy, which needs neither
+    rename nor unlink. The payload is serialized in full before the
+    destination is opened either way, so a serialization failure cannot
+    truncate a committed artifact.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
-    temporary_path = Path(temporary_name)
+    temporary_path = path.parent / f".{path.name}.staged"
     try:
-        with os.fdopen(temporary_fd, "wb") as handle:
+        with open(temporary_path, "wb") as handle:
             handle.write(_pretty_json_bytes(payload))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
+        try:
+            os.replace(temporary_path, path)
+        except OSError:
+            # The host denies rename. Copy the staged bytes over the
+            # destination in place instead; this preserves the inode and
+            # its mode and requires neither rename nor unlink.
+            write_bytes_in_place(path, temporary_path.read_bytes())
     except Exception:
         try:
             temporary_path.unlink(missing_ok=True)
