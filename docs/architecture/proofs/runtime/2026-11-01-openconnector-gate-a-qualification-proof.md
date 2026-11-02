@@ -16,8 +16,8 @@ OpenConnector to any support class, and does not authorize any Guardian integrat
 
 ## Verdict
 
-**CONDITIONAL PASS** — with one **P1 substrate defect confirmed**, and two operational
-landmines that the plan did not anticipate.
+**CONDITIONAL PASS** — with one **P1 substrate defect confirmed as a complete exploit
+path**, and two operational landmines that the plan did not anticipate.
 
 The gateway does what the plan needs it to do, and the plan's central security properties
 hold **when the plan's own discipline is followed**: an explicit non-empty grant per token,
@@ -28,7 +28,23 @@ discipline layered on top of upstream behavior, and two of them are load-bearing
 getting them wrong is silent.
 
 **Nothing here authorizes Gate B.** Per the plan's own sequencing, Gate B additionally requires
-the §4.7(a) delegated credential-vault ADR amendment, which has **not** been opened.
+the §4.7(a) delegated credential-vault ADR amendment, which has **not** been opened. Before
+that amendment is even drafted, the **fail-closed boundary decision** below must be answered.
+
+## Gate A disposition
+
+| Dimension | Result |
+| --- | --- |
+| Gateway execution and discovery | **Pass** — 21,053 actions and 1,680 providers loaded; live provider calls executed |
+| Connection-grant isolation with scoped tokens | **Pass in the tested configurations** — cross-account attempts denied at the grant |
+| Encryption, persistence, and redaction | **Pass for the synthetic trial** — `enc:v1:` ciphertext, no plaintext in db/wal/shm, no credential material in logs or the audit trail |
+| Idempotency | **Strong gateway-level evidence** — dispatch-level, not response-level |
+| **Fail-closed runtime authentication** | **FAIL** — the token store becoming empty disables authentication, and the stored credential becomes anonymously spendable |
+| Production credential custody | **Not qualified** — no live provider credential was used |
+| Guardian integration readiness | **Blocked** pending the fail-closed boundary decision |
+
+The distinction matters: the connector engine demonstrated useful capability, but its native
+authentication lifecycle did **not** meet the security invariant Codexify needs.
 
 ## Environment
 
@@ -45,6 +61,7 @@ the §4.7(a) delegated credential-vault ADR amendment, which has **not** been op
 | Codexify credentials used | **None.** No Codexify account, database, or production secret was involved |
 | Real provider credentials used | **None.** Provider credentials were syntactically valid but fabricated (`FAKE_…`) |
 | Teardown | Container, volume, and network removed; verified absent |
+| Host scratch cleanup | **Outstanding — requires host permissions.** Trial artifacts were consolidated into `.gate-a-cleanup/` in the worktree and excluded from git via `.git/info/exclude`. See [Host scratch cleanup](#host-scratch-cleanup). |
 
 The plan's §2.2 Compose block was used **verbatim**, with one adaptation: the `env_file` path
 pointed at the trial directory instead of `/run/secrets/openconnector.env`. The plan's §2.5
@@ -80,7 +97,8 @@ fabricated credential reached the real provider API and was rejected by it —
 
 ## P1 — the substrate has no fail-closed authentication guarantee
 
-**Confirmed at source and reproduced at runtime.**
+**Confirmed at source and reproduced at runtime — and the exploit path is complete, not
+merely a precondition.**
 
 Upstream re-derives runtime authentication from a **live store query on every request**:
 
@@ -106,7 +124,57 @@ actions and 1,680 providers** with no credential. The admin surface was correctl
 remained stored**. Revoking the sentinel last, with credentials still present, reproduced the
 same state.
 
-**What this means for the plan.** The plan's standing invariant (§5.1.1) is correct and
+### The exploit path is complete — an anonymous caller can spend a stored credential
+
+The finding above establishes a *precondition*: credentials stored while authentication is
+disabled. That is not by itself proof of exploitability. A second, targeted run answered the
+remaining question directly.
+
+**Setup.** A fresh gateway (empty database → zero tokens → authentication disabled by
+construction), one credential-bearing connection stored (`aeroleads`, named `default`, key
+`FAKE_CREDENTIAL_PROBE_0123456789`), and `aeroleads.get_details_from_linkedin_url` present in
+the deployment allowlist.
+
+**The call.** `POST /v1/actions/aeroleads.get_details_from_linkedin_url` with **no bearer token
+at all**, body `{ "input": { "linkedin_url": "https://www.linkedin.com/in/example" } }`.
+
+**Result.**
+
+```text
+-> HTTP 400  errorCode=invalid_input
+-> User not Found, Please Pass Valid Api Key
+-> meta: {"executionId":"b02c5245-68e0-4fa8-9fba-9d7b0f1be2a9",
+          "actionId":"aeroleads.get_details_from_linkedin_url",
+          "auditPersisted":true}
+```
+
+That response is the **provider's own rejection**. It is conclusive: the gateway retrieved the
+stored credential, transmitted it to the live provider, and recorded the attempt in its audit
+trail as a normal execution. An anonymous caller spent a stored provider credential.
+
+**Controls, run in the same state:**
+
+| Call | Result |
+| --- | --- |
+| Deployment-allowed, credential-bearing action, **no bearer** | HTTP 400, **provider's rejection** — credential was retrieved and sent |
+| Action **not** in the deployment allowlist (`hackernews.get_ask_stories`), no bearer | HTTP 400 `action_not_allowed` |
+| Deployment-allowed `no_auth` action (`hackernews.get_top_stories`), no bearer | HTTP 200, live execution, `auditPersisted: true` |
+
+**Reading.** The deployment action allowlist is the **only** barrier between an anonymous
+caller and a stored provider credential. In this deployment the gateway had no published ports
+and was reachable only from the private network — so the exposure was contained by
+**containment, not by authorization**. If the gateway were reachable by an unauthorized party
+with the token store empty, every deployment-allowed credentialed action would execute against
+the stored credential on that party's behalf.
+
+This upgrades the finding from "dangerous precondition" to "**confirmed exploit path**" — but
+it also makes the containment requirement unambiguous: with this substrate, network isolation
+is not a hardening measure, it is the thing standing between the defect and a
+credential-spending incident.
+
+### What this means for the plan
+
+The plan's standing invariant (§5.1.1) is correct and
 necessary, and the sentinel token works: with it present, deleting every user token left the
 store non-empty and unauthenticated `/v1` rejected. But the property being defended is
 **"authentication is currently enforced,"** not "authentication is configured" — and it is
@@ -116,10 +184,11 @@ re-derived per request, so it can vanish **silently**. A Codexify implementation
 **Adoption concern, stated plainly.** The plan already frames the sentinel as a mitigation
 around upstream behavior rather than a native guarantee. This receipt confirms that framing is
 correct and that the mitigation is **load-bearing**: with the sentinel removed, the gateway
-holds two stored provider credentials behind an unauthenticated runtime API. Ordinary token
-deletion, a database restore, or any operation that empties the token store reproduces that
-state without warning. If Codexify's multi-user credential infrastructure depends on this, the
-dependency rests on a store count, not on a fail-closed guarantee.
+holds stored provider credentials behind an unauthenticated runtime API, and an anonymous
+caller can spend them. Ordinary token deletion, a database restore, or any operation that
+empties the token store reproduces that state without warning. If Codexify's multi-user
+credential infrastructure depends on this, the dependency rests on a store count, not on a
+fail-closed guarantee.
 
 ## Two operational landmines the plan did not anticipate
 
@@ -154,6 +223,42 @@ input type, it is **not** wired for HTTP body selection, and using it produces a
 `connection_not_allowed` denial that reads like a permissions problem rather than a malformed
 request. An adapter that copies upstream's internal field names would ship this bug.
 
+## Host scratch cleanup
+
+The gateway itself — container, encrypted volume, and network — was destroyed and verified
+absent. The trial's *scratch artifacts* could not be removed by the executing sandbox and
+remain on disk. This is reported rather than worked around, and is an explicit outstanding
+hygiene item.
+
+**What blocks it.** The sandbox permits file creation in `/private/tmp` and `$HOME` but denies
+`unlink` in both (EPERM), and denies a trash move with EXDEV on the `/Volumes/Dev_SSD`
+volume. Deletion inside the worktree works, but `mavis-trash` cannot move files from that
+volume to the trash either. No recoverable deletion path was available for the original
+locations. Permanent deletion was **not** used.
+
+**What was done instead.** All 23 trial artifacts — including copies of the disposable secret
+files — were consolidated into a single directory inside the worktree:
+
+```text
+.gate-a-cleanup/          # 23 files, excluded from git via .git/info/exclude
+```
+
+The exclusion is recorded in `.git/info/exclude`, which is **local git configuration, not a
+tracked file**, so the working tree stays clean and no scratch artifact can be staged
+accidentally. `git status` was verified empty after the move.
+
+**Why this is not urgent.** The gateway volume is destroyed. The admin token and encryption
+key in those files protect a database that no longer exists, and the hashed token store went
+with it. The values are **cryptographically inert**. They are a hygiene concern, not a live
+exposure — and nothing reached the repository.
+
+**To complete the cleanup with host permissions:**
+
+```bash
+cd /Volumes/Dev_SSD/Codexify-main/.worktrees/mcode-31b4bff7-5ff0-43f7-9879-7e88f1405a8e
+rm -rf .gate-a-cleanup /tmp/gate-a /tmp/oc-verify
+```
+
 ## Additional findings
 
 **Provider error text is passed through verbatim.** The `aeroleads` rejection reached the
@@ -181,6 +286,11 @@ including while the runtime surface was unauthenticated.
   that Gate B requires.
 - **No real provider credential was used.** The only live provider calls were the `no_auth`
   Hacker News action and one call that reached a real provider and was rejected by it.
+- **The exploit was demonstrated, not weaponized.** The anonymous caller was a harness running
+  **inside the gateway container** on the private network, against a **fabricated** credential,
+  with the gateway publishing **no host ports**. The finding establishes that the *path* is
+  complete; it does not establish that the gateway was reachable by an unauthorized party, and
+  it involved no real credential.
 - **No live OAuth flow.** The remote callback posture remains undecided (§4.7(b)).
 - **No multi-user qualification at Codexify scale.** Two synthetic accounts were used inside
   one gateway instance.
@@ -193,17 +303,59 @@ including while the runtime surface was unauthenticated.
 - **No conclusion about the version's fitness beyond v1.9.4**, and no basis for a release or
   support claim.
 
+## The adoption decision, ahead of the ADR
+
+The fail-closed question is **prior to** the ADR amendment, because the amendment's content
+depends on its answer. Writing §4.7(a) first would normalize the sentinel workaround as
+accepted doctrine before anyone has established that a better boundary exists.
+
+> **Can Codexify establish a fail-closed authentication boundary that is independent of
+> OpenConnector's token-store count, without taking on unreasonable operational complexity?**
+
+| | |
+| --- | --- |
+| **Desired invariant** | Runtime requests require authentication **regardless of token-store contents**. |
+| **Observed implementation** | Runtime requests require authentication only while certain mechanisms are configured — **including the presence of at least one stored token**. |
+| **Codexify mitigation** | Keep a permanently stored, deliberately powerless token so the implementation continues enforcing authentication. |
+| **Status** | Operationally workable in the tested scenario. **Not the same guarantee.** |
+
+A database restore, an administrative mistake, or a token-lifecycle defect could change the
+security posture **without changing a single line of application configuration** — and, as the
+exploit test shows, the consequence is not merely exposure but **credential spending**.
+
+**Candidate boundaries to evaluate.** None may be assumed cheap or sufficient without proof:
+
+- A **narrowly scoped external authentication boundary** in front of the gateway — a component
+  that enforces authentication independently of the gateway's own store, so that the gateway's
+  empty-store condition is no longer reachable by an unauthorized caller.
+- An **upstream fix** — a change to upstream's runtime-authentication logic that makes the
+  condition fail closed. Cost, maintainability, and upstream's own security-fix window (latest
+  release and `main` only) all bear on whether this is a real option.
+- **A permanent fork** — available, but it converts a commodity substrate into a
+  Codexify-maintained fork, which **undermines the original objective** of adopting a
+  maintained connector ecosystem. It should be the last resort, not a default.
+
+**Decision rule.** If a reliable, maintainable enforcement boundary is **not** available at
+acceptable complexity, then **reject OpenConnector for Codexify's multi-user credentialed
+integration** rather than write an ADR that normalizes the sentinel workaround. A rejection at
+this stage is a good outcome: it is cheaper than discovering this inside Codexify's
+multi-user credential infrastructure.
+
+**This decision opens no ADR and starts no Gate B work.** It is recorded here as the gating
+question, and it is the only thing that should move next.
+
 ## Recommendation
 
-**Proceed to a bounded Gate B preparation, not to Gate B itself.** Specifically:
+**Do not proceed to Gate B preparation until the adoption decision above is answered.**
 
-1. **Resolve §4.7(a) first.** The delegated credential-vault ADR amendment is the gate, and it
-   should now be written against the *measured* reality of the sentinel: the property is a
-   store count, not a fail-closed guarantee. The amendment should say so plainly.
-2. **Correct the plan's operational procedures** before any implementation work: `env_file`
-   changes require **recreate**, not restart; and the adapter must use the correct
-   connection-id form and the `input` body wrapper, and must **not** send a `connectionId`
-   body field.
+1. **Answer the fail-closed boundary question first.** Evaluate the candidate boundaries —
+   external authentication boundary, upstream fix, fork — against the measured reality, and
+   accept or reject the dependency on the answer. Only then does the §4.7(a) delegated
+   credential-vault ADR amendment have a settled subject.
+2. **Correct the plan's operational procedures** as Gate B preparation inputs, to be applied
+   when Gate B preparation is authorized: `env_file` changes require **recreate**, not restart;
+   the adapter must use the correct connection-id form and the `input` body wrapper, and must
+   **not** send a `connectionId` body field.
 3. **Classify provider errors defensively.** Upstream surfaces provider auth failures as
    `invalid_input` and passes provider text through; the adapter must map these to bounded
    Codexify outcomes itself.
@@ -212,10 +364,9 @@ including while the runtime surface was unauthenticated.
 5. **Re-run the revoked-token scenario against a real provider credential** when one is
    authorized, since the trial's credentialed path used an unverified key.
 
-**Rejection remains a legitimate outcome.** If the ADR amendment cannot establish a
-credential-custody model that does not depend on a store count — or if Codexify's multi-user
-requirements demand a fail-closed guarantee the substrate cannot provide — **the correct
-decision is to reject the dependency**, and this receipt is the evidence that would justify it.
+**Rejection remains a legitimate outcome.** If the boundary question cannot be answered
+affirmatively, the correct decision is to reject the dependency, and this receipt is the
+evidence that would justify it.
 
 The document is now the evidence rather than the plan. Further prose refinement is not
 warranted; the remaining uncertainty is in the substrate's behavior under a real provider
