@@ -150,11 +150,17 @@ credential vocabulary is classified explicitly, and no class substitutes for ano
 | Deployment enforcement secret (runtime guard) | Codexify service/deployment | Makes the custodian's runtime surface fail closed | **No** — never presented for execution |
 | Operator administrative token | Operator | Custodian-side administration: connection setup, token issuance, revocation | **No** — operator path only |
 | Scoped persistent runtime token | Guardian, per account | Account execution against named custodian connections | **Yes** — the only class used for it |
-| Provider credential | Account or provider | The provider's own credential, held by the custodian | **No** — it is what the custodian spends, not what authorizes it |
+| Provider credential | **Account, operator, or service/deployment** — whichever Codexify scope owns it | The provider's own credential, held by the custodian. The provider is the **issuer**, not a fourth Codexify ownership scope | **No** — it is what the custodian spends, not what authorizes it |
 
 A failure in one class never falls back to another, in either direction, consistent with
 ADR-092's lane rule. In particular, a scoped-token failure does not escalate to the
 operator or deployment class, and the operator class does not reach account execution.
+
+The ownership column names the **Codexify** owner of each credential, and it uses only the
+three scopes already accepted in requirement 1 and B3: account, operator, and
+service/deployment. A provider is the **issuer** of its own credential and the **destination**
+of a provider-side grant; it is not a fourth Codexify owner scope. Nothing in this clause
+changes the accepted ownership rule — it aligns the vocabulary of this table with it.
 
 **B5 — Ordinary execution requires an explicitly scoped persistent token.** Account
 execution uses a scoped persistent token whose grant names the custodian-side

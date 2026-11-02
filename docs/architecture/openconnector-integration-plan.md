@@ -511,11 +511,20 @@ network-reachable at all (§2.3).
 
 #### The unauthenticated-runtime bootstrap window — and how it is closed
 
-Leaving `OOMOL_CONNECT_RUNTIME_TOKEN` unset avoids a long-lived unrestricted
-bootstrap token, but it does **not** mean the runtime API is protected from
-the first moment. Upstream's auth middleware resolves runtime authentication
-as follows (verified in upstream `src/server/api/auth.ts` and
-`src/server/connect-app.ts` at the pinned commit):
+The deployment guard (`OOMOL_CONNECT_RUNTIME_TOKEN`) is a long-lived credential that
+carries no stored connection grant, so it is **never presented for execution** —
+it exists to make the runtime surface fail closed, not to authorize anything
+(§4.7(a)). Configuring it does close the permissive branch described below, **but
+only when Codexify actually supplies it and verifies that the running container
+carries it**: upstream's behavior on a missing runtime token *is* the permissive
+branch, and its startup warning is advisory. **The gateway does not provide
+fail-closed startup.** Fail-closed startup is a Codexify-side deployment-pipeline
+obligation — the §2.5 preflight, a post-start assertion that the guard is
+present in the running container, and a promotion gate (§4.7(a)).
+
+Upstream's auth middleware resolves runtime authentication as follows (verified
+in upstream `src/server/api/auth.ts` and `src/server/connect-app.ts` at the
+pinned commit):
 
 - `createLocalAuthMiddleware` installs a **pass-through** middleware — no
   authentication at all — when there is no admin token, no runtime token, no
@@ -1276,8 +1285,12 @@ custody splits deliberately:
   for Notion and MiniMax OAuth material. The provider credential's own
   protection remains upstream's AES-256-GCM under
   `OOMOL_CONNECT_ENCRYPTION_KEY`.
-- **This is a genuine second credential authority.** See §4.7 — it is the
-  principal item requiring an ADR amendment before implementation.
+- **This is delegated custody, not a second credential authority.** The gateway
+  holds provider credential material and executes provider actions; it grants
+  no Codexify account authority, and it cannot widen one. Guardian remains the
+  sole account-authorization authority, and exactly one Guardian-owned binding
+  authorizes every custodian-backed execution. See §4.7(a) — resolved by the
+  ADR-071 and ADR-094 amendments accepted 2026-11-02.
 
 ### 4.3 The explicit user-to-connection binding
 
@@ -1346,9 +1359,14 @@ policy layer with no allow rules contributes no constraint. Consequently:
 explicit that bootstrap runtime tokens and JWTs have **no stored connection
 grant** and "remain unrestricted." Using either for a multi-user Codexify
 path would silently grant every user access to every stored connection. The
-topology in §2.2 therefore leaves `OOMOL_CONNECT_RUNTIME_TOKEN` unset — and
-the §2.4 bootstrap sequence shows how the runtime surface is authenticated
-**without** it.
+topology in §2.2 therefore configures `OOMOL_CONNECT_RUNTIME_TOKEN` as the
+**deployment guard** — required, service-owned, never presented for execution,
+and used only to make the runtime surface fail closed by configuration (§2.4,
+§4.7(a)) — while the §2.4 bootstrap sequence shows how ordinary execution is
+authenticated with **scoped persistent tokens**. The guard and the bootstrap
+sequence answer different questions: the guard is what makes an empty token
+store safe, and the scoped persistent tokens are what ordinary execution
+actually presents.
 
 ### 4.4 Explicit prohibitions
 
@@ -1933,11 +1951,28 @@ execution of the gate**, not a failure to be rationalized away.
 **Purpose.** Introduce the adapter and register gateway-backed read commands
 in the Command Bus. Still **no** user-facing setup surface.
 
+**Gate B status (2026-11-02) — partial.** The first bounded slice of this gate is
+**implemented**: an internal, provider-agnostic adapter core under
+`guardian/connections/openconnector/` — a typed Guardian-owned binding
+interface, a reviewed server-controlled read-only allowlist, the pinned v1.9.4
+transport, and the bounded execution crossing — with focused tests.
+**Gate B is not complete.** The slice is deliberately internal: it registers **no**
+route, **no** Command Bus command, and **no** catalog entry, and it is not
+connected to a supported profile. Its binding resolution is a typed interface
+exercised with **synthetic, in-memory bindings**; durable Guardian-owned binding
+persistence remains a **Gate C** deliverable, and the adapter fails closed
+whenever no authoritative resolver is configured. The isolation evidence is
+**synthetic and fixture-based** — it proves adapter logic, not live upstream
+execution and not production account authority. The remaining Gate B
+obligations — internal-only route registration, Command Bus manifest
+registration, the recorded allowlist review, and guardian-adapter evidence
+against a running gateway — are untouched.
+
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
-| **Authorized implementation surface** | A new package `guardian/connections/openconnector/` (adapter, service, router, credentials). A **new** provider-specific operations router with **GET-only** read routes. A **reviewed, server-controlled read-only action allowlist** held in Codexify code (§3.4) — one reviewed entry per permitted action id, with the review recorded. Registration of those routes in `guardian/guardian_api.py` under a **new, provider-specific route label** added to `config/supported_profiles/v1-local-core-web-mcp.yaml` — `internal_only` first, `enabled` only after this gate's evidence. The corresponding provider entry in `guardian/connections/catalog.py`. Focused tests under `tests/connections/` and `tests/command_bus/`. **The Notion and Google Drive packages, their routes, their catalog entries, and the legacy `connectors` route family must not be modified.** The legacy `connectors` label stays quarantined. |
-| **Tests and observable evidence** | The adapter's discover and execute paths are proven against the Gate A gateway. Command Bus invocation evidence: the new routes appear in the manifest as `op::<operation_id>` with `effect=read`, `risk=read_only`, `idempotency=safe`, `approval_mode=none` — the mechanical consequence of the GET-only rule in §3.4. **Read-only allowlist evidence:** an action id **on** the allowlist executes against the gateway; an action id **off** the allowlist is refused by the adapter with a bounded `denied` outcome **and no gateway call is made**; an allowlist entry that the review determined is **not** genuinely read-only is a defect and blocks the gate. **This test must distinguish the Command Bus label from the actual behavior** — the label `read_only` is an assertion about classification, not proof that the upstream action is side-effect-free. Permission-denial evidence: a request denied by the Guardian permission profile, and one denied by the gateway's connection grant, produce **distinguishable** bounded outcomes. Isolation evidence: the two-account Group 2 results reproduced **through the Guardian adapter**, not only against the raw gateway. Observability evidence: the invocation appears in the Command Bus event stream with actor, subject, and task lineage, and the tool-turn read model reports it with no credential material. Redaction evidence: a scan of Command Bus run records and logs finds no token, secret, or admin token. Catalog evidence: `GET /api/connections` projects the new entry with correct `implementation_state` and per-user setup state, and the **existing** Notion and Drive projections are **byte-for-byte unchanged** for an unchanged user. |
+| **Authorized implementation surface** | A new package `guardian/connections/openconnector/` (adapter, service, router, credentials). A **new** provider-specific operations router with **GET-only** read routes. A **reviewed, server-controlled read-only action allowlist** held in Codexify code (§3.4) — one reviewed entry per permitted action id, with the review recorded. Registration of those routes in `guardian/guardian_api.py` under a **new, provider-specific route label** added to `config/supported_profiles/v1-local-core-web-mcp.yaml` — `internal_only` first, `enabled` only after this gate's evidence. The corresponding provider entry in `guardian/connections/catalog.py`. Focused tests under `tests/connections/` and `tests/command_bus/`. **Binding resolution is a typed interface in this gate, not a store**: the adapter resolves a Guardian-owned binding through an injected resolver, and the Gate B isolation proof uses **synthetic, in-memory bindings** supplied by the test harness, because **durable Guardian-owned binding persistence is a Gate C deliverable** (§4.3). The adapter therefore fails closed whenever no authoritative resolver is configured, and no production binding registry or credential database is created here. **The Notion and Google Drive packages, their routes, their catalog entries, and the legacy `connectors` route family must not be modified.** The legacy `connectors` label stays quarantined. |
+| **Tests and observable evidence** | The adapter's discover and execute paths are proven against the Gate A gateway. Command Bus invocation evidence: the new routes appear in the manifest as `op::<operation_id>` with `effect=read`, `risk=read_only`, `idempotency=safe`, `approval_mode=none` — the mechanical consequence of the GET-only rule in §3.4. **Read-only allowlist evidence:** an action id **on** the allowlist executes against the gateway; an action id **off** the allowlist is refused by the adapter with a bounded `denied` outcome **and no gateway call is made**; an allowlist entry that the review determined is **not** genuinely read-only is a defect and blocks the gate. **This test must distinguish the Command Bus label from the actual behavior** — the label `read_only` is an assertion about classification, not proof that the upstream action is side-effect-free. Permission-denial evidence: a request denied by the Guardian permission profile, and one denied by the gateway's connection grant, produce **distinguishable** bounded outcomes. Isolation evidence: the two-account Group 2 results reproduced **through the Guardian adapter**, not only against the raw gateway — run against **synthetic Guardian bindings** with credential-bearing synthetic connections, because durable binding storage is Gate C's deliverable. That synthetic proof establishes **adapter** isolation only; it does **not** establish production account authority, and it is not a substitute for Gate C's durable-binding evidence. Observability evidence: the invocation appears in the Command Bus event stream with actor, subject, and task lineage, and the tool-turn read model reports it with no credential material. Redaction evidence: a scan of Command Bus run records and logs finds no token, secret, or admin token. Catalog evidence: `GET /api/connections` projects the new entry with correct `implementation_state` and per-user setup state, and the **existing** Notion and Drive projections are **byte-for-byte unchanged** for an unchanged user. |
 | **Rollback procedure** | Remove the new route label from the supported profile (the route is then unmounted and the Command Bus manifest drops the commands automatically, since the manifest derives from the mounted OpenAPI surface). Remove the catalog entry. Remove the `guardian/connections/openconnector/` package. The gateway project is stopped per Gate A rollback. No database migration is created in this gate, so there is **no schema rollback**. |
 | **Stopping condition** | Stop and escalate if: the Command Bus registers the new routes as anything other than `read`/`read_only`/`safe`/`none` (which would mean the GET-only rule was violated); **the read-only allowlist is absent, is derived at runtime from the gateway catalog, is model- or request-supplied, or is found to contain an action that can mutate remote state**; any gateway credential or runtime token appears in a run record, log, event, or result; the existing Notion or Drive projections or behavior change in any way; a second Settings connector surface is introduced; the legacy `connectors` route family is enabled; or the adapter is found to be reachable by a path that bypasses the Guardian permission profile. |
 
@@ -1948,7 +1983,7 @@ binding through the **existing** Connections control plane and Settings bay.
 
 | Aspect | Definition |
 | --- | --- |
-| **Prerequisites** | Gate B passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — the delegated-custody model is settled, and the binding record schema it implies must still be settled before a schema migration is authored. **The §4.7(b) remote OAuth callback question resolved** — or the gate proceeds **local-only, API-key/no-auth providers only**, with the remote posture explicitly out of scope. **The §4.7(c) ADR-075 catalog-identity confirmation obtained.** A reviewed schema migration for the binding record, plus a data-retention and account-deletion policy for it. |
+| **Prerequisites** | Gate B passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — the delegated-custody model is settled, and the binding record schema it implies must still be settled before a schema migration is authored. **The durable Guardian-owned binding store is created in this gate** — Gate B's synthetic resolver stood in for it, so the Gate B isolation proof is re-run here against the durable store rather than being carried over as evidence. **The §4.7(b) remote OAuth callback question resolved** — or the gate proceeds **local-only, API-key/no-auth providers only**, with the remote posture explicitly out of scope. **The §4.7(c) ADR-075 catalog-identity confirmation obtained.** A reviewed schema migration for the binding record, plus a data-retention and account-deletion policy for it. |
 | **Authorized implementation surface** | A provider-specific setup router under the existing `/api/connect/<provider>/*` convention, mounted `internal_only` (matching `notion_setup` and `google_drive_setup`). A migration adding the binding record (§4.3). The provider entry's `runtime_binding.setup_route` in `guardian/connections/catalog.py`. The existing read-only Connections API and the existing Settings Connectors bay are **reused, not modified**. **No new Settings section, page, or AppShell view.** No change to the Notion or Drive setup seams. No public OAuth callback route unless §4.7(b) is resolved and separately authorized. |
 | **Tests and observable evidence** | Setup evidence: a user binds a provider connection through the setup route; the binding record is written user-scoped; the gateway connection is created under the user's identity; the Codexify-side runtime token is stored encrypted and never returned by any API. Projection evidence: `GET /api/connections` shows the new entry with `needs_setup` → `configured` → `connected` transitions tracking real upstream state, and `configured` is **never** shown without an explicit validation. Revocation evidence: disconnecting removes the binding, deletes the upstream token and connection, and the user can no longer execute against that connection (bounded `denied`/`needs_configuration`, never a silent fallback). Isolation evidence: the two-user matrix is re-run through the **full** setup-and-execute path. Credential-exposure evidence: a scan of API responses, browser-visible payloads, logs, and Command Bus records finds no token, secret, admin token, credential prefix, or suffix. Migration evidence: migration applies cleanly on a disposable PostgreSQL instance; the head stays single; rollback of the migration is exercised. Notion/Drive non-regression evidence: the existing Notion and Drive tests pass **unchanged**. |
 | **Rollback procedure** | Revert the migration (a down-migration must exist and be exercised). Remove the setup route and its route label. Revert the catalog entry. Delete the binding table's contents. The gateway project is stopped per Gate A rollback. The existing Notion and Drive setup seams are untouched, so **no rollback is required for them**. |
