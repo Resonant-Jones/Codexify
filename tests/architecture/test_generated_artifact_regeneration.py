@@ -165,12 +165,14 @@ def test_gate_reads_the_calibration_from_the_committed_artifacts() -> None:
     assert isinstance(graph.get("generated_at"), str)
 
 
-def test_gate_reports_drift_for_the_committed_projections() -> None:
-    """The committed projections are pinned to an older calibration.
+def test_gate_passes_for_the_committed_projections() -> None:
+    """The committed artifacts are current at their calibration revision.
 
-    They are known to have drifted; the gate must say so rather than
-    reporting a pass. If this test starts failing, the projections have
-    been regenerated and the calibration moved.
+    The projections are snapshots of the corpus as it was at the
+    calibration revision. Verifying them against the live corpus would
+    report drift for every one of them, because the corpus keeps moving.
+    The gate therefore checks them against the calibration corpus, and it
+    must pass for the committed state.
     """
     completed = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--repo-root", str(REPO_ROOT), "--json"],
@@ -180,10 +182,35 @@ def test_gate_reports_drift_for_the_committed_projections() -> None:
         text=True,
     )
     payload = json.loads(completed.stdout)
-    assert payload["result"] in {"pass", "fail"}
-    if payload["result"] == "fail":
-        assert payload["problem_count"] > 0
-        assert any("drifted" in problem for problem in payload["problems"])
+    assert payload["result"] == "pass", payload["problems"]
+    assert completed.returncode == 0
+
+
+def test_gate_detects_a_hand_edited_projection() -> None:
+    """A projection edited in place breaks the claim it carries.
+
+    The gate compares the committed bytes against the regeneration, so a
+    hand edit must be reported rather than silently tolerated.
+    """
+    graph = REPO_ROOT / "docs/knowledge-graph/generated/document-graph.json"
+    original = graph.read_bytes()
+    payload = json.loads(original.decode("utf-8"))
+    payload["hand_edited"] = True
+    graph.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-root", str(REPO_ROOT), "--json"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+        assert result["result"] == "fail"
+        assert completed.returncode == 1
+        assert any("document-graph.json" in problem for problem in result["problems"])
+    finally:
+        graph.write_bytes(original)
 
 
 def test_gate_fails_when_the_pinned_revision_is_missing(tmp_path: Path) -> None:
