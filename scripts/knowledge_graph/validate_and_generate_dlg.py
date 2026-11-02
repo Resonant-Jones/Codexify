@@ -31,6 +31,7 @@ from typing import Any, Iterable, Sequence
 from urllib.parse import unquote
 
 import jsonschema
+import errno
 
 try:
     # Imported as a package module (tests, tooling).
@@ -1638,10 +1639,12 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             os.fsync(handle.fileno())
         try:
             os.replace(temporary_path, path)
-        except OSError:
-            # The host denies rename. Copy the staged bytes over the
-            # destination in place instead; this preserves the inode and
-            # its mode and requires neither rename nor unlink.
+        except OSError as exc:
+            # Only an explicit rename permission/unsupported-operation
+            # denial justifies trading atomicity for truncate-in-place.
+            # I/O failures and ENOSPC must leave the destination intact.
+            if exc.errno not in (errno.EPERM, errno.EACCES, errno.ENOTSUP, errno.EOPNOTSUPP):
+                raise
             write_bytes_in_place(path, temporary_path.read_bytes())
     except Exception:
         try:
