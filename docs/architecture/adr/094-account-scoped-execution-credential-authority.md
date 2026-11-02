@@ -4,6 +4,9 @@
 - Date: 2026-09-29
 - Accepted: 2026-09-29
 - Human approver: Resonant Jones
+- Proposed amendment: 2026-11-02 — *delegated external credential custodian*
+  (see [Proposed amendment](#proposed-amendment-delegated-external-credential-custodian-2026-11-02)).
+  **Proposed only — not accepted, not operative.**
 
 ## Context
 
@@ -70,3 +73,218 @@ Proof must include positive account-owned authorization; authorized service-owne
 This acceptance does not select a database schema, credential table, secret broker, lease-token design, environment-variable or temporary auth-file injection, or a specific OAuth/API-key storage mechanism. It does not implement an API endpoint, Pi adapter change, queue/worker change, GUI, billing or metering, hosted execution, new harness, or release claim. It does not make all credential types share one model or change the accepted ADR-093 harness-selection semantics.
 
 **The existing Guardian → queue → coding-worker → Pi invocation-scoped execution-binding Task Spec may resume as a separate bounded implementation task, subject to accepted ADR-093 and ADR-094 and its existing stop conditions.** Acceptance is not runtime completion; the account-scoped credential path remains unimplemented and no shared Pi credential may be treated as its authority.
+
+---
+
+## Proposed amendment: delegated external credential custodian (2026-11-02)
+
+> **Status: PROPOSED — pending human acceptance. No operative effect.**
+>
+> This amendment is a proposal. It does not amend the accepted decision until Resonant
+> Jones accepts it. Requirements 1–13 above remain the accepted decision, unchanged and
+> in force. This amendment **extends** them to one named case; it does not supersede,
+> weaken, reinterpret, or add an exception to any of them. It authorizes no
+> implementation, no deployment, no migration, and no release claim, and it does not
+> make OpenConnector adopted. The companion amendment to ADR-071 proposes the matching
+> connection-control-plane reconciliation.
+
+### A. The case this amendment admits
+
+A **delegated external credential custodian** is a service that is not part of the
+Guardian process and is not governed by the Guardian datastore, but that holds provider
+credential material on behalf of a Codexify account and exposes a bounded execution
+surface to an authorized adapter. The instance under review is an isolated OpenConnector
+v1.9.4 gateway, deployed as a separate service with its own encrypted credential
+database, its own administrative plane, and its own bearer-token vocabulary.
+
+That instance is materially different from the custodian ADR-094 already anticipates.
+It has an administrative interface and a credential database outside Guardian's
+Postgres, and therefore outside Guardian's backup, export, and restore path. It has a
+deployment-scoped master bearer that bypasses per-account connection grants by
+construction. Its runtime authentication is configuration-dependent rather than
+fail-closed by itself, so fail-closed behavior is a property Codexify's deployment
+pipeline must supply.
+
+ADR-094 is not silent on this case, but it is ambiguous at exactly this point.
+Requirement 2 places custody in "a server-controlled, owner-scoped credential facility
+appropriate to the credential or entitlement type," and the authority table already
+contains a "Guardian to credential custodian" row. What was never resolved is what
+"server-controlled" and "custodian" mean when the custodian is a **separate service
+with its own administrative plane and its own credential database**. This amendment
+resolves that, without weakening anything above it.
+
+### B. Amendment clauses
+
+**B1 — One canonical Guardian-owned binding.** For every custodian-backed execution
+there is exactly one canonical authorization binding: the account-scoped record naming
+the invoking Codexify account, the custodian, the provider, the custodian-side
+connection identity, and the custodian-side credential reference. Guardian owns that
+record, stores it, and authorizes from it. The custodian's credential record, connection
+record, discovery result, or setup state is **delegated custody** — never an
+independently authoritative grant of Codexify account access. Possession of a
+custodian-side credential, connection identifier, or token is not evidence of Codexify
+account authority, and a custodian-side record that no Guardian binding references is
+not usable state.
+
+**B2 — Custody is not authority.** The custodian may hold provider credential material,
+enforce its own scoped grants, and refuse a request. It may not grant, widen, infer,
+reissue, or revoke Codexify account access. Every account-scoped invocation passes
+through Guardian authorization, whether or not the custodian's own policy would also
+permit it. A custodian that is unreachable, internally inconsistent, or mistaken fails
+the invocation **closed**; it never becomes the deciding authority.
+
+**B3 — Canonical ownership is preserved across scopes.** Account, operator, and
+Codexify service/deployment ownership scopes remain exactly as in requirement 1. A
+custodian's ownership scope does not change because a credential is stored in it, and a
+service/deployment-owned custodian credential used for an account invocation remains
+service-owned and still requires account-specific Guardian authorization. Connection
+discovery, provider setup, credential existence, and credential validation each confer
+**no** execution authority.
+
+**B4 — Credential classes are distinct and non-substitutable.** The custodian's
+credential vocabulary is classified explicitly, and no class substitutes for another:
+
+| Class | Owner | Purpose | May authorize account execution? |
+| --- | --- | --- | --- |
+| Deployment enforcement secret (runtime guard) | Codexify service/deployment | Makes the custodian's runtime surface fail closed | **No** — never presented for execution |
+| Operator administrative token | Operator | Custodian-side administration: connection setup, token issuance, revocation | **No** — operator path only |
+| Scoped persistent runtime token | Guardian, per account | Account execution against named custodian connections | **Yes** — the only class used for it |
+| Provider credential | Account or provider | The provider's own credential, held by the custodian | **No** — it is what the custodian spends, not what authorizes it |
+
+A failure in one class never falls back to another, in either direction, consistent with
+ADR-092's lane rule. In particular, a scoped-token failure does not escalate to the
+operator or deployment class, and the operator class does not reach account execution.
+
+**B5 — Ordinary execution requires an explicitly scoped persistent token.** Account
+execution uses a scoped persistent token whose grant names the custodian-side
+connections that account may use. Unscoped, master, bootstrap, or JWT-class custodian
+credentials are never used for account execution. Every issued scoped token carries an
+explicit, non-empty grant, because an empty grant means unrestricted rather than
+deny-all; and because token updates replace a stored policy wholesale, every update
+carries the complete grant rather than a delta.
+
+**B6 — The deployment enforcement secret is not an execution credential.** The
+deployment-scoped enforcement secret is accepted as a deployment-level mechanism that
+makes the custodian's runtime surface fail closed by configuration, subject to four
+conditions carried forward unchanged: it is **service-owned and operator-custodied**;
+it is **never used for execution** — never in adapter configuration, a model context, a
+queue, a command, or a user-visible API; the deployment is **fail-closed**, meaning a
+missing guard prevents startup or promotion and environment changes require container
+recreation and verification; and it is subject to **explicit privileged-secret
+accounting**, so a leak is a credential incident requiring rotation and recreation.
+Fail-closed startup is Codexify-side deployment-pipeline enforcement — a preflight, a
+post-start assertion that the guard is present in the running container, and a
+promotion gate — not a property the substrate provides.
+
+**Rotation procedure.** Rotating the deployment enforcement secret follows a
+fail-closed sequence, and every step is observable:
+
+1. **Access shutdown / drain.** Stop admitting new custodian-backed invocations.
+   In-flight invocations are not force-cancelled; their outcomes are recorded as
+   unknown (B8).
+2. **Configuration replacement.** Replace the secret in the host secret store.
+3. **Container recreation.** Recreate the container. A plain restart does **not**
+   re-read the environment file, so it does not apply the new value and must not
+   be used for this purpose.
+4. **Running-container verification.** Assert that the new value is actually
+   present in the running container's environment, and that the old value is no
+   longer accepted.
+5. **Anonymous-request rejection.** Assert that a request carrying no credential
+   and a request carrying the old value are both rejected.
+6. **Controlled reopening.** Re-enable dispatch only after steps 4 and 5 pass.
+
+**This procedure is not zero-downtime.** It introduces a window in which
+custodian-backed execution is unavailable, and invocations during that window
+fail closed. No continuity claim is made, and the ordering above is not evidence
+of one. Because the deployment secret is never used for execution, invalidating
+it does not invalidate scoped persistent tokens; what the drain protects is the
+window in which the running container's actual enforcement state is uncertain.
+
+**B7 — Execution-time authorization.** Guardian authorizes every invocation at dispatch
+and revalidates at execution time, consistent with requirement 8. The custodian's own
+grant check is a second, independent constraint; the intersection is what bounds
+execution, and neither alone is sufficient. Authority is revalidated against Guardian's
+current state, not against the custodian's view of it.
+
+**B8 — Revocation is a sequence with a defined order and stated in-flight semantics.**
+Guardian denial is **first and sufficient** to stop further dispatch: no queued attempt,
+retry, resumed session, or re-dispatch of that invocation proceeds. Custodian-side
+revocation — the scoped token and, where applicable, the connection grant — **follows**
+Guardian denial; it removes the capability for subsequent calls. A provider-side
+disconnect is a **distinct third step**, because a provider credential can be revoked
+at the provider while Guardian and the custodian still hold apparently valid
+references. These three steps are not interchangeable and none substitutes for another.
+
+In-flight execution is stated rather than assumed. Once Guardian has dispatched and the
+custodian has accepted the call, Guardian-side revocation **does not retroactively
+unwind** an invocation already in progress at the provider: the correct disposition is
+an **unknown outcome**, recorded as such — not as success and not as "did not happen".
+A timeout, a lost response, or a cancellation carries the same ambiguity, and a
+cancelled call may still have completed at the provider. Retry is a new attempt under
+the same authorization state, never a continuation of a revoked one. Where the outcome
+is uncertain, the invocation fails **closed** for any subsequent capability the
+custodian would otherwise expose.
+
+**B9 — Recovery.** Four dispositions are fixed, and none of them is left implicit.
+Restoring Guardian state **must not revive a revoked binding**: the restore procedure
+re-applies the revocation set to restored state before that state is used for
+authorization, and a restored binding whose revocation status is unknown remains
+unusable. A custodian-side binding that is unknown to Guardian, or inconsistent with
+Guardian's record, remains **unusable** pending reconciliation or explicit
+reauthorization; it is never treated as authorized by default. A custodian-side cleanup
+failure **cannot restore Guardian authority** — a failed token or connection deletion
+is reported as an outstanding obligation, and is never a reason to re-authorize. Account
+deletion has an **observable cleanup outcome**: the outcome records, per account, which
+Guardian-side records were removed and which custodian-side cleanups completed or
+remained outstanding, and a cleanup that did not complete is visible rather than
+silent.
+
+**B10 — Interfaces are preserved.** The Connections bay remains the control surface and
+the Command Bus remains the execution surface. This amendment authorizes no second
+Settings surface, no second connection-identity authority, and no model-facing gateway
+API. The custodian is the `runtime_binding.adapter` behind ordinary provider entries,
+never a catalog entry of its own, and native provider integrations keep their existing
+precedence.
+
+**B11 — The first authorized implementation class.** The first slice authorized by this
+amendment, if it is accepted, is internal-only and bounded: reviewed read-only actions
+only, drawn from a server-controlled allowlist rather than from a runtime catalog or a
+request-supplied list; explicit Guardian permission checks on every invocation;
+explicitly scoped connection selection with no reliance on a default or shared
+connection; sanitized provider outcomes that never carry raw provider text or
+credential material; and **no general write access**.
+
+**B12 — Explicit dispositions.** No authority condition is left to inference. Each
+of the following fails closed, with outcomes drawn from ADR-024's canonical
+vocabulary:
+
+| Authority condition | Disposition |
+| --- | --- |
+| Scoped token or grant missing | `denied` — no custodian call is made |
+| Binding or scoped token revoked | `denied`; no subsequent dispatch, retry, or re-dispatch of that invocation |
+| Restored state whose revocation status is unknown | unusable pending reconciliation or explicit reauthorization |
+| Request presenting another account's token or connection | `denied` before credential lookup, so no existence is leaked |
+| Custodian unreachable, internally inconsistent, or authority uncertain | `unavailable`; never a fallback to another account's credential |
+| Deployment secret presented on an account path | refused — it authorizes nothing |
+
+### C. Proof still required
+
+Acceptance of this amendment authorizes no runtime behavior. Before any custodian-backed
+execution is qualified, runtime proof must establish: that account-scoped authorization
+is enforced at execution time and not only at dispatch; that revocation prevents
+subsequent dispatch and retries, and that in-flight outcomes are recorded as unknown
+where that is the truth; that a custodian-side cleanup failure leaves Guardian's denial
+intact; that a restored Guardian state does not revive a revoked binding; that
+cross-account use of a custodian credential is refused; and that the deployment
+enforcement secret's rotation closes the anonymous-access window it is intended to
+close. Guard rotation, cross-account isolation, and OAuth callback correlation remain
+separately gated, as does public multi-user release qualification. A working deployment
+configuration answers none of the questions in this amendment.
+
+### D. Human acceptance required
+
+**This amendment becomes accepted governing architecture only on explicit human
+acceptance.** Until then it is a proposal: the accepted requirements 1–13 stand alone,
+no custodian-backed implementation may be written against it, and the integration
+program remains held at the gate that precedes implementation. Proposal status is not
+approval, and this section must not be cited as an authority to build.

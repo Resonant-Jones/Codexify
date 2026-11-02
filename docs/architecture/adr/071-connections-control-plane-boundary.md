@@ -2,6 +2,10 @@
 
 **Status:** Accepted
 
+**Proposed amendment:** 2026-11-02 — *delegated external credential custodian*
+(see [Proposed amendment](#proposed-amendment-delegated-external-credential-custodian-2026-11-02)).
+**Proposed only — not accepted, not operative.**
+
 ## Context
 
 The Settings bay already owns a `connectors` tab backed by several separate
@@ -111,3 +115,105 @@ authorization, and credential ownership distinct.
 *This ADR documents the control-plane boundary established with the
 Connections catalog. It does not implement provider-specific OAuth
 exchanges, missing adapters, or any release widening.*
+
+---
+
+## Proposed amendment: delegated external credential custodian (2026-11-02)
+
+> **Status: PROPOSED — pending human acceptance. No operative effect.**
+>
+> This is a proposal, not an accepted change. Decisions 1–8, the Authority Boundary,
+> and the Consequences above remain the accepted decision, unchanged and in force.
+> This amendment **extends** them for one named case; it does not supersede, weaken,
+> reinterpret, or add an exception to any of them. It authorizes no implementation,
+> no catalog change, no new Settings surface, and no release widening. The
+> companion amendment to ADR-094 proposes the matching credential-authority
+> reconciliation.
+
+### A. The case this amendment admits
+
+A **delegated external credential custodian** is a service that is not part of the
+Guardian process and is not governed by the Guardian datastore, but that holds
+provider credential material on behalf of a Codexify account and exposes a bounded
+execution surface to an authorized adapter. The instance under review is an isolated
+OpenConnector v1.9.4 gateway deployed as a separate service, with its own
+credential database, its own administrative plane, and its own connection identity
+vocabulary.
+
+ADR-071 already draws the lines that matter — aggregation without execution
+ownership, configuration without authorization, visibility without implementation,
+server-owned and user-scoped credentials — but it assumed every runtime subsystem
+lives inside the Codexify process. A custodian does not. It therefore needs an
+explicit answer on three points where ADR-071 is currently silent: what the catalog
+projects, who owns connection identity, and what "sole credential authority" means
+when credential material is held in a separate service's database.
+
+### B. Amendment clauses
+
+**B1 — The custodian is not a catalog entry.** A delegated custodian is a runtime
+binding behind ordinary provider entries, never an entry of its own. It therefore
+does not add a category, an implementation state, a setup state, an auth method, or
+a capability token to `guardian/protocol_tokens.py`, and it does not appear in
+`guardian/connections/catalog.py` as a provider. Decision 1 and Decision 7 stand: the
+catalog remains a projection over Codexify-owned provider identities, and the
+custodian's own action or connection catalog is never projected as though it were
+Codexify's.
+
+**B2 — One connection-identity authority.** Guardian owns connection identity. The
+custodian's connection identifiers, aliases, and provider-facing setup records are
+custodian-internal identifiers, resolved through a Guardian-owned binding, and are
+not a second connection-identity authority. Where a custodian exposes several
+provider products or modes, they are not separate Connections identities unless
+their authority or runtime domains are materially different — the same rule that
+already governs provider products in the catalog.
+
+**B3 — Custody is not catalog state and not authority.** The custodian's stored
+credential records, connection records, discovery results, and setup state are
+delegated custody, projected only as setup state, and they confer **no** execution
+authority. A custodian that reports a connection as configured, connected, or
+validated has not thereby established that any Codexify account may execute against
+it. Decision 3 and Decision 4 stand and are extended by this clause: the projection
+of a custodian-backed entry remains the merge of Guardian's own per-user setup state
+with the provider's implementation truth, and per-user state is merged at request
+time rather than stored in the catalog. A custodian record that no Guardian binding
+references is not a Connections fact at all.
+
+**B4 — "Sole credential authority" is clarified, not relaxed.** Guardian's
+server-side persistence remains the **sole authority for Codexify account-scoped
+authorization and for connection identity**. A delegated custodian may hold provider
+credential material — that is custody, and it is delegated — but it holds no Codexify
+account authority and grants none. Decision 6 stands: credentials remain
+server-owned and user-scoped, the read API never serializes tokens, keys, secrets,
+or raw error text, and a custodian's provider credentials remain inside the
+custodian's own encrypted store rather than being projected, proxied, or
+reconstructed in the control plane. The catalog is never handed a custodian
+credential, and the custodian is never handed a catalog-wide grant.
+
+**B5 — Aggregation without execution ownership is extended, not relaxed.** Decision 2
+holds for a custodian exactly as it holds for `guardian/channels/` or the provider
+registry: the custodian owns its own internal execution surface, Guardian owns
+authorization for it, and the two are not merged because they appear behind one
+entry. An agent-invocable custodian-backed operation remains a Command Bus command
+with Guardian's permission profile, route posture, and bounded outcomes — ADR-024's
+outcome vocabulary applies unchanged, and a catalog entry's visibility never
+implies that an operation may be invoked.
+
+**B6 — No second control surface.** This amendment authorizes no new Settings
+section, page, tab, or AppShell view; no second setup flow; no duplicate mutation
+route; and no model-facing custodian API. Decision 1 and Decision 8 stand. The
+existing read-only Connections API and the existing backing setup routes remain the
+only surfaces, and a custodian's administrative interface is not one of them.
+
+**B7 — Release posture is unchanged.** Nothing here widens the supported-release
+boundary. `docs/architecture/00-current-state.md` remains the release truth source,
+and a custodian-backed provider entry is a catalog and projection concern only
+until a separately qualified runtime implementation exists.
+
+### C. Human acceptance required
+
+**This amendment becomes accepted governing architecture only on explicit human
+acceptance.** Until then it is a proposal: Decisions 1–8 and the Authority Boundary
+stand alone, no catalog, schema, route, adapter, or UI work may be taken against it,
+and the integration program remains held at the gate that precedes implementation.
+Proposal status is not approval, and this section must not be cited as an authority
+to build.

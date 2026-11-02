@@ -15,10 +15,11 @@
 | **Licensing baseline** | OpenConnector `v1.9.4`, Apache-2.0. Adopted. |
 | **Upstream maintenance policy** | **Pin, but track upstream releases** (§1.4). v1.9.4 remains the licensed baseline; monitoring, evaluation, and remediation are an explicit operator responsibility. Tracking later releases does **not** authorize copying code newly published under more restrictive licensing. Deliberately lightweight — **no dedicated security-monitoring subsystem**. |
 | **Deployment boundary** | **Separate Compose project**, not a Codexify stack overlay (§2.1). Independent deployment, storage, and lifecycle. The private network is **containment, not authorization** (§2.3); Guardian-to-gateway authentication and connection scoping remain load-bearing. |
-| **Integration posture** | **Prove before integrating.** Gate A is disposable and answers one question (§6, Gate A). No Guardian adapter work and **no ADR amendment** until Gate A passes. No sunk-cost attachment if it does not. |
-| **Runtime authentication** | **Explicit bootstrap sequence** (§2.4). Containment first, then the first scoped persistent token, then proof that unauthenticated `/v1` is rejected, then credentials. `OOMOL_CONNECT_RUNTIME_TOKEN` is never set as an environment variable. |
+| **Integration posture** | **Prove before integrating.** Gate A is disposable and answers one question (§6, Gate A). It has completed with a **conditional pass**. No Guardian adapter work until the gate that follows is authorized. |
+| **Runtime authentication** | **Deployment enforcement secret + explicit bootstrap sequence** (§2.4). The deployment-scoped runtime guard is **required**, never distributed, and never presented for execution; the bootstrap sequence then creates the first scoped persistent token, proves an unauthenticated `/v1` request is rejected, and only then admits credentials. The earlier prohibition on setting `OOMOL_CONNECT_RUNTIME_TOKEN` is **superseded** (§2.4, §4.7(a)). |
+| **Delegated custody authority** | **Proposed amendment to ADR-094 and ADR-071, pending human acceptance** (§4.7(a)). Guardian remains the sole account-authorization authority; the custodian holds delegated custody only. **Not operative** — no implementation may be taken against it until it is accepted. |
 | **Connection grants** | **Never empty.** An empty or omitted `allowedConnections` is *unrestricted access*, not deny-all (§5.1.1). Every token carries an explicit non-empty grant, and the unrestricted-grant token is revoked before any credential-bearing connection exists. |
-| **Authentication lifecycle** | **The token store is never empty** (§5.1.1). Upstream re-derives runtime auth from a **live** store query on every request, so revoking the last token **reopens** the unauthenticated window. A **sentinel token** keeps the store non-empty for the gateway's life, and every handoff **overlaps** (create successor → verify → revoke predecessor). |
+| **Authentication lifecycle** | **The token store is never empty** (§5.1.1). Upstream re-derives runtime auth from a **live** store query on every request, so in the store-dependent mechanism, revoking the last token **reopens** the unauthenticated window. With the deployment guard present the runtime stays fail-closed by configuration regardless, which is why the store invariant is retained as defense in depth rather than as the primary protection: a **sentinel token** keeps the store non-empty for the gateway's life, and every handoff **overlaps** (create successor → verify → revoke predecessor). |
 | **Trigger surface** | **Explicitly blocked** at the deployment layer (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`). Triggers are an **independent** execution policy from Actions and Proxies, so blocking proxies does not block them. |
 | **Read-only enforcement** | The Command Bus GET-only rule is a **classification**, not a safety guarantee (§3.4). Gate B requires a **reviewed, server-controlled read-only action allowlist** — upstream actions carry no read-only marker. |
 | **OAuth callback** | **Gate C design decision, deferred** (§2.8, §4.7(b)). Two open options: a restricted HTTPS reverse proxy in front of upstream's own `/oauth/callback`, or a Guardian-owned forwarding handler. **No ADR amendment opened yet.** |
@@ -495,7 +496,7 @@ distinction is load-bearing for the Codexify boundary:
 | Class | Variable | Protects | Codexify position |
 | --- | --- | --- | --- |
 | **Administration** | `OOMOL_CONNECT_ADMIN_TOKEN` | `/api/*`, `/docs`, Web Console | Operator-only. Never sent to a model, never sent from a Guardian runtime path. Held in the host secret store. |
-| **Bootstrap runtime** | `OOMOL_CONNECT_RUNTIME_TOKEN` | `/v1/*`, `/mcp` | **Deliberately left unset.** A bootstrap token carries **no stored connection grant** and is therefore unrestricted with respect to connections — it is a cross-tenant capability. |
+| **Deployment guard** | `OOMOL_CONNECT_RUNTIME_TOKEN` | `/v1/*`, `/mcp` | **Required as a deployment enforcement secret** (§4.7(a)). Service-owned, operator-custodied, and **never presented for execution**. It carries no stored connection grant, so presenting it is unrestricted with respect to connections — which is exactly why no account path may present it. |
 | **Persistent runtime** | `oct_...` tokens (hashed at rest) | `/v1/*`, `/mcp` | The **only** runtime credential Codexify's runtime path may use. Each carries an explicit `allowedConnections` allowlist of stable opaque connection IDs. |
 | **JWT access** | `OOMOL_CONNECT_JWKS_URI` / `_JWT_ISSUER` / `_JWT_AUDIENCE` | `/v1/*`, `/mcp` | Not used in the first slice. Upstream states JWTs do not map claims to action or proxy policy and have no stored connection grant; a JWT-only deployment would be unrestricted by connection. Deferred behind the ADR question in §4.7. |
 
@@ -535,7 +536,33 @@ exactly where action execution lives.
 `hasStoredRuntimeTokens()` then becomes true and `hasValidToken` stops
 short-circuiting to `true`.
 
-**And it re-opens if the store becomes empty again.** The check is a **live
+**The deployment guard closes it by configuration instead, and more strongly.**
+`hasValidToken` resolves the scope's *configured* token first (`tokenForScope`);
+for runtime scope that is `OOMOL_CONNECT_RUNTIME_TOKEN`. When one **is**
+configured, the permissive branch is unreachable: the request must present that
+bearer or satisfy `hasValidRuntimeToken` — a stored persistent token or a JWT
+verifier. The token-store count therefore stops being part of the authentication
+decision, and the runtime is fail-closed **from the first request**, on a fresh
+database, with an empty store.
+
+**The guard is deployment infrastructure, not an execution credential** (§4.7(a)):
+service-owned, operator-custodied, never distributed, and never presented by an
+account path. It carries no stored connection grant, so presenting it would be
+unrestricted with respect to connections — which is precisely why no account path
+may present it. Its presence makes the runtime fail closed; it grants nothing.
+
+**The token-store invariant remains, as defense in depth.** It is no longer the
+primary protection: it is what keeps the runtime fail-closed **if the guard is
+ever absent**, and it keeps the protection from depending on a single
+configuration variable. The two mechanisms are independent, and the deployment
+posture requires both.
+
+**And it re-opens if the store becomes empty again** — *in the store-dependent
+mechanism.* With the deployment guard configured, the runtime does not fall back
+to the permissive branch; the store-count dependency is exactly what the guard
+removes. The mechanism still matters, because it is what keeps the runtime
+fail-closed if the guard is ever absent, and it is why the store invariant
+below is a standing requirement rather than a nicety. The check is a **live
 per-request query**, not a startup-time flag:
 
 ```ts
@@ -554,7 +581,7 @@ The safe bootstrap is an explicit, ordered sequence:
 
 | Step | Action | State after |
 | --- | --- | --- |
-| **1** | Establish network containment **first**: the container runs with **no published ports** on `codexify_internal` only, and the admin token and encryption key are already in place via `env_file`. | Runtime API unauthenticated, but reachable **only** from attached containers. |
+| **1** | Establish network containment **first**: the container runs with **no published ports** on `codexify_internal` only, and the admin token, encryption key, **and the deployment guard** are already in place via `env_file`. | The runtime API is **fail-closed by configuration** from the first request, and reachable only from attached containers. |
 | **2** | Using the **admin token** against `POST /api/runtime-tokens`, create the **sentinel token** (§5.1.1) — the token that keeps the store non-empty for the gateway's whole life. | `hasStoredRuntimeTokens()` is now true; the runtime API **requires** a bearer token. |
 | **3** | Create the **first working token** (P0), with its explicit non-empty grant. | Store = `{sentinel, P0}` — non-empty. |
 | **4** | **Verify** that an unauthenticated `/v1` request is now rejected (expect `401`/`403`), that the new tokens are accepted, and that the sentinel **cannot** authorize any operation. | The bootstrap window is **closed and proven closed**. |
@@ -569,13 +596,17 @@ The safe bootstrap is an explicit, ordered sequence:
   gateway runs with credentials present. It is what makes the store
   non-empty a *standing* property rather than a transient one.
 - The bootstrap token, if one is used at all, must be **created, used, and
-  deleted within step 2** — it must never outlive the initialization, and
-  `OOMOL_CONNECT_RUNTIME_TOKEN` must never be set as an environment variable
-  (§2.5 forbids it in the secret file).
+  deleted within step 2** — it must never outlive the initialization, and it
+  must never be the deployment guard. The guard is the one long-lived runtime
+  credential in the deployment, and it is never presented by any caller
+  (§2.5, §4.7(a)).
 - Because containment is what protects the window, the §2.3 rule stands
   absolutely here: **the window is survivable only because the runtime
   surface is not network-reachable.** Removing the no-published-ports posture
   would make this window an internet-exposed unauthenticated action API.
+  With the deployment guard in place (§4.7(a)) the window is closed by
+  configuration as well, so containment is now defense in depth rather than
+  the sole protection — **both** are required, and neither is optional.
 - **Evidence:** step 4's rejection check is a required Gate A observation
   (§5.3, row 0a), not an inference from configuration — and it must be
   **repeated after every subsequent token handoff**, because the protection
@@ -586,29 +617,31 @@ The safe bootstrap is an explicit, ordered sequence:
 Upstream's auth middleware accepts a `requireRuntimeAuth` option that forces
 runtime authentication even when no tokens exist. It is **not** exposed as an
 `OOMOL_CONNECT_*` environment variable at v1.9.4 — the full upstream variable
-set contains no such flag. The only available levers are
-`OOMOL_CONNECT_RUNTIME_TOKEN` (which this plan forbids) and the presence of a
-stored persistent token. **The bootstrap sequence in the table above is
-therefore not a stylistic preference; it is the only available way to close
-the window without a long-lived unrestricted bootstrap token.** If a future
-upstream release adds an environment-configurable require flag, that is a
-remediation input under §1.4's Evaluate phase, and it may simplify this
-sequence.
+set contains no such flag, and upstream's security fixes ship to the latest
+release and `main` only, so the flag is **not** a remediation path at the pinned
+version. The available levers are `OOMOL_CONNECT_RUNTIME_TOKEN` and the presence
+of a stored persistent token. The deployment guard (§4.7(a)) is now the accepted
+lever among them: it is required, it is never distributed, and it is never
+presented for execution. **The bootstrap sequence in the table above therefore
+remains required** — it establishes the scoped persistent tokens that ordinary
+execution actually uses, and the sentinel that keeps the store non-empty
+independent of the guard. If a future upstream release adds an
+environment-configurable require flag, that is a remediation input under §1.4's
+Evaluate phase, and it may simplify this sequence.
 
 ### 2.5 Credential encryption and recoverable key management
 
 #### Secret injection: one mechanism, fail closed
 
 The secret file supplied via `env_file` (`/run/secrets/openconnector.env`)
-**must** contain exactly these keys, and **must not** contain
-`OOMOL_CONNECT_RUNTIME_TOKEN`:
+**must** contain exactly these keys:
 
 | Key | Requirement |
 | --- | --- |
 | `OOMOL_CONNECT_ENCRYPTION_KEY` | Required. Without it upstream stores credentials in plaintext and only warns. |
 | `OOMOL_CONNECT_ADMIN_TOKEN` | Required. Protects `/api/*`, `/docs`, and the Web Console. |
 | `OOMOL_CONNECT_ALLOWED_ACTIONS` | Required. The deployment-level action allowlist. Non-empty. |
-| `OOMOL_CONNECT_RUNTIME_TOKEN` | **Must be absent.** A bootstrap runtime token is unrestricted with respect to connection grants. Per-user scoping requires persistent `oct_...` tokens (§4.3). |
+| `OOMOL_CONNECT_RUNTIME_TOKEN` | Required as the **deployment guard** (§4.7(a)): present, non-empty, at least 32 characters, and **not** equal to `OOMOL_CONNECT_ADMIN_TOKEN`. It is never distributed and never presented for execution. Per-user scoping for ordinary execution uses persistent `oct_...` tokens (§4.3), not this value. |
 
 **Fail-closed preflight.** Because `env_file` is the only injection
 mechanism, Compose cannot validate it — a missing or empty key fails
@@ -636,12 +669,19 @@ for key in OOMOL_CONNECT_ENCRYPTION_KEY OOMOL_CONNECT_ADMIN_TOKEN OOMOL_CONNECT_
   fi
 done
 
-# 2. OOMOL_CONNECT_RUNTIME_TOKEN must be ABSENT as a KEY, regardless of value.
-#    An empty 'OOMOL_CONNECT_RUNTIME_TOKEN=' is still a present key, and its
-#    presence is exactly what this rule forbids. (Upstream's optionalEnv()
-#    would treat an empty value as unset, but the rule is about the key.)
-if grep -qE '^OOMOL_CONNECT_RUNTIME_TOKEN=' "$SECRETS"; then
-  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN key present (unrestricted grant)" >&2
+# 2. The deployment guard (OOMOL_CONNECT_RUNTIME_TOKEN) must be PRESENT and
+#    well-formed: non-empty, at least 32 characters, and not equal to the admin
+#    token. It is an enforcement secret, never presented for execution (§4.7(a)).
+GUARD="$(grep -E '^OOMOL_CONNECT_RUNTIME_TOKEN=' "$SECRETS" | head -1 | cut -d= -f2- || true)"
+ADMIN="$(grep -E '^OOMOL_CONNECT_ADMIN_TOKEN=' "$SECRETS" | head -1 | cut -d= -f2- || true)"
+if [ -z "$GUARD" ]; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN missing or empty (runtime would fail open)" >&2
+  fail=1
+elif [ "${#GUARD}" -lt 32 ]; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN shorter than 32 characters" >&2
+  fail=1
+elif [ "$GUARD" = "$ADMIN" ]; then
+  echo "PREFLIGHT FAIL: OOMOL_CONNECT_RUNTIME_TOKEN equals the admin token (role separation violated)" >&2
   fail=1
 fi
 
@@ -668,7 +708,7 @@ echo "PREFLIGHT OK"
 | Check | Failure it prevents |
 | --- | --- |
 | Required keys present and non-empty | A missing or blank `OOMOL_CONNECT_ENCRYPTION_KEY` silently degrades to **plaintext credential storage**; a missing admin token leaves `/api/*` open. |
-| `OOMOL_CONNECT_RUNTIME_TOKEN` key **absent regardless of value** | A present key is the thing the plan forbids. Checking only for a *non-empty* value would let `OOMOL_CONNECT_RUNTIME_TOKEN=` through, which reads as "configured" to anyone auditing the file. (Upstream's `optionalEnv()` maps an empty value to unset, so this is a strictness-and-clarity rule, not an exploit path — but a strict rule that matches the documented policy is worth having.) |
+| Deployment guard **present, non-empty, ≥32 characters, and distinct from the admin token** | A missing or empty guard leaves upstream's permissive branch reachable, so the runtime surface is unauthenticated on a fresh database — and `docker compose restart` will not surface the problem, because the container can report healthy while the guard is absent from its environment. A guard equal to the admin token collapses two credential classes into one and destroys role separation. The 32-character floor is Codexify's own entropy requirement for a secret that is never rotated automatically; upstream imposes no length rule. |
 | Allowlist **exactly** equals the approved trial actions | A wildcard or a broader list silently widens the executable surface. This is the check the earlier preflight was missing: it accepted `github.*` as "non-empty" when the trial approves exactly one action. |
 | No wildcard in the allowlist | Defense in depth against the exact-match check above being weakened by a future edit (e.g. a list joined across lines). |
 
@@ -712,11 +752,21 @@ environment:
 | `OOMOL_CONNECT_BLOCKED_ACTIONS` is empty | **PASS** |
 | `OOMOL_CONNECT_ENCRYPTION_KEY` present | **PASS** |
 | `OOMOL_CONNECT_ADMIN_TOKEN` present | **PASS** |
-| `OOMOL_CONNECT_RUNTIME_TOKEN` **absent** | **PASS** |
+| `OOMOL_CONNECT_RUNTIME_TOKEN` **absent** | **PASS** — *this was the Gate A configuration, deliberately*; see the note below |
 | `OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK` is `"false"` | **PASS** |
 | Image is digest-pinned (`@sha256:`) | **PASS** |
 | **No published ports** in the resolved config | **PASS** |
 | `expose` is `3000` only | **PASS** |
+
+**This table records the configuration Gate A actually verified, not the
+deployment posture.** Gate A deliberately ran the gateway **without** the
+deployment guard, because establishing what the substrate does with the guard
+absent is what made the permissive branch observable and the defect reportable.
+The **deployment** posture is the opposite: the guard is now **required** (§2.4,
+§2.5, §4.7(a)), and a deployment that reaches the next gate without it fails
+the §2.5 preflight, fails the post-start assertion that the guard is present in
+the running container, and is refused by the promotion gate. The guard-absent
+row above is a **historical record of the trial**, not an approved configuration.
 
 Two further fail-closed behaviors were confirmed in the same check:
 
@@ -797,7 +847,7 @@ Two further fail-closed behaviors were confirmed in the same check:
 | Procedure | Procedure |
 | --- | --- |
 | **Backup** | Snapshot the `codexify_openconnector_data` volume while the service is stopped (a consistent copy of `connect.sqlite` plus any transit files), **and** separately confirm the encryption key is recoverable from the host secret store. A volume backup without the key is a backup of unrecoverable ciphertext. Treat the artifact as a credential-class secret. |
-| **Restart** | `docker compose -p codexify-openconnector restart openconnector`. Provider credentials, named connections, and OAuth state persist in the volume. Upstream's SQLite path auto-migrates on start. |
+| **Restart** | `docker compose -p codexify-openconnector restart openconnector`. Provider credentials, named connections, and OAuth state persist in the volume. Upstream's SQLite path auto-migrates on start. **`restart` does not re-read `env_file`**: it reuses the container's existing environment, so a changed secret file — including the deployment guard — is **not** applied, and the container can report healthy while still running the old value. Any change to the secret file therefore requires `up -d --force-recreate`, followed by verification that the running container actually carries the new value (§4.7(a)). |
 | **Upgrade** | (1) Take a backup. (2) Move the digest pin to the new upstream release tag. (3) For PostgreSQL only, run the image's explicit `migrate` subcommand with the **same** digest, before starting the server. (4) Recreate the container. (5) Re-run the Gate A qualification suite. Note upstream's runtime-security warning: **pulling a newer image does not update a running container.** |
 | **Rollback** | Stop the new container, restore the previous pinned digest, and restore the pre-upgrade volume snapshot if the schema changed. Because upstream applies SQLite migrations at startup, a rollback across a schema-changing release may require the volume snapshot — the rollback procedure must treat "restore the volume" as the default, not the exception. |
 
@@ -1253,6 +1303,17 @@ must also be granted on the token, and a request naming an ungranted
 connection fails with `403 connection_not_allowed` **before** credential
 lookup, so connection existence is not leaked.
 
+**Measured selector and envelope facts** (Gate A, at the pinned digest). These
+are the request shapes that actually work, and they correct assumptions that
+would otherwise produce a silently denied call:
+
+| Fact | Consequence for the adapter |
+| --- | --- |
+| The action request envelope is `{ "input": { ... }, "connectionName": "..." }` — action arguments go **under an `input` wrapper**, not at the top level. | A flat body is rejected as `invalid_input`. The adapter nests arguments under `input`. |
+| Selection works through the `x-oo-connector-app-id` header (the admin-API **UUID**), the `x-oo-connector-alias` header, or the body field `connectionName`. | These are the only selectors to use. The binding record must therefore carry the admin-API UUID, not only the alias. |
+| A `connectionId` field in the request body is **not wired for selection**. | It is silently denied as `connection_not_allowed`. The adapter must never send it, and must not read that denial as proof that the connection is ungranted. |
+| `allowedConnections` grants are expressed with the **admin-API UUID**, not `service:name`. | A grant written in `service:name` form grants nothing, which is indistinguishable at the call site from an ungranted connection. The binding and the grant must agree on the id form. |
+
 **Per-user token scoping.** Each Codexify user's runtime path uses a
 persistent runtime token whose `allowedConnections` contains **only** that
 user's bound connection ids, plus `allowedActions` restricted to the
@@ -1315,13 +1376,29 @@ Three distinct actions, all required, none sufficient alone:
    mechanism, deleting the token removes the capability even if the
    connection record survives.
 3. **Provider-side disconnect.** The user revokes the grant in the provider's
-   own authorization settings. Upstream's OAuth credential then fails with a
-   bounded `credential_expired` / `scope_missing` classification on next use.
+   own authorization settings. **Measured (Gate A):** a provider-side credential
+   failure does **not** arrive as a clean `credential_expired` or `scope_missing`
+   classification — it arrives as `invalid_input` carrying the provider's own
+   error text, verbatim. The adapter must therefore classify `invalid_input` as
+   a bounded credential-or-input failure and must sanitize the provider text
+   before it reaches a result, a log, or a user-visible surface. This step is
+   distinct precisely because it is only visible here: neither Guardian's
+   revocation nor the custodian's token deletion observes it.
 
 **Ordering:** Guardian revokes its binding first (fast fail-closed), then
 deletes the upstream token and connection, then the user handles the provider.
 **Restored references must not revive revoked authority** — consistent with
 ADR-094, restoring a backup must not resurrect a revoked binding.
+
+**In-flight execution is stated, not assumed.** Once Guardian has dispatched and
+the custodian has accepted the call, a Guardian-side revocation does **not**
+retroactively unwind work already in progress at the provider. The honest
+disposition for such a call is an **unknown outcome** — recorded as unknown, not
+as success and not as "did not happen". The same ambiguity applies to a timeout,
+a lost response, and a cancellation, and a cancelled call may still have
+completed at the provider. A retry is a **new attempt** under the current
+authorization state, never a continuation of a revoked one, and a custodian
+failure or uncertain authority fails **closed**.
 
 ### 4.6 Turn-scoped use
 
@@ -1333,8 +1410,10 @@ them longer. The gateway's action catalog is not a standing instruction set.
 ### 4.7 Authority decisions requiring an ADR amendment
 
 Three points in this plan exceed current accepted ADR text. **Each must be
-explicitly resolved before implementation.** No ADR change is authorized by
-this task.
+explicitly resolved before implementation.** A proposed amendment is drafted for
+**(a)** below; it is **proposed only — pending human acceptance, and not
+operative**. **(b)** and **(c)** remain open, and this amendment does not
+address them.
 
 **(a) Delegated credential-vault authority — ADR amendment required.**
 
@@ -1362,6 +1441,56 @@ ADR-094 (credential authority) and ADR-071 (server-side persistence as sole
 credential authority — which currently reads as a Guardian-exclusive
 commitment), and it interacts with ADR-092's principal lanes because a
 runtime token minted for one account must never serve another.
+
+**Status: a proposed amendment now exists, pending human acceptance.** The
+proposal is drafted as a *proposed-amendment section inside* ADR-094 and
+ADR-071 — not as a new ADR, and not as a change to either ADR's accepted
+status. Both carry an explicit **PROPOSED — pending human acceptance** banner
+and state that they have no operative effect until accepted. The decision they
+propose is:
+
+- The custodian is admitted as a **subordinate, external credential custodian**
+  and execution substrate. It holds provider credential material and serves
+  provider actions. It has **no independent Codexify account authorization
+  authority**.
+- **One canonical Guardian-owned binding** governs every custodian-backed
+  execution: the account-scoped record naming the account, the custodian, the
+  provider, the custodian-side connection identity, and the credential
+  reference. The custodian's own records are **delegated custody**, never a
+  grant of Codexify account access. Possession of a custodian credential is
+  never evidence of account authority.
+- **Canonical ownership is preserved across scopes.** Discovery, provider
+  setup, credential existence, and credential validation each confer **no**
+  execution authority.
+- **Ordinary execution uses explicitly scoped persistent tokens only.** The
+  deployment guard remains deployment infrastructure and never enters the
+  adapter, a model context, a queue, a command, or a user-visible API. The
+  four accepted conditions of the guard are preserved unchanged.
+- **Revocation is ordered and complete.** Guardian authorizes every invocation
+  and revalidates at execution time; Guardian denial prevents subsequent
+  dispatch and retries; custodian-side token and connection revocation follows
+  Guardian denial; provider disconnect is a distinct third step; in-flight
+  semantics are stated as an unknown outcome rather than assumed; and
+  custodian failures and uncertain authority fail closed.
+- **Recovery is specified.** A restored Guardian state must not revive a
+  revoked binding; a custodian binding that is unknown to Guardian or
+  inconsistent with Guardian's record stays unusable pending reconciliation or
+  explicit reauthorization; a custodian-side cleanup failure cannot restore
+  Guardian authority; and account deletion has an observable cleanup outcome.
+- **Guard rotation is fail-closed and specified** — access shutdown/drain,
+  configuration replacement, container recreation, running-container
+  verification, anonymous-request rejection, and controlled reopening. **No
+  zero-downtime rotation is claimed.**
+- **The first authorized implementation class is internal-only**: reviewed
+  read-only actions, explicit Guardian permission checks, scoped connection
+  selection, sanitized provider outcomes, and no general write access.
+
+**This proposal does not** authorize a deployment, an adapter, a migration, a
+route, a UI surface, an OAuth callback, or a release-posture change; it does
+not resolve the §4.7(b) callback question or the §4.7(c) catalog-identity
+question; and it does not make OpenConnector adopted. **Acceptance is explicit
+and human.** Until it is accepted, ADR-071 and ADR-094 stand unamended and the
+implementation gate stays closed.
 
 **(b) The public OAuth callback surface — ADR or architecture review required.**
 
@@ -1792,9 +1921,9 @@ execution of the gate**, not a failure to be rationalized away.
 | --- | --- |
 | **Prerequisites** | Docker available; the pinned image digest verified; `OOMOL_CONNECT_ENCRYPTION_KEY`, `OOMOL_CONNECT_ADMIN_TOKEN`, and the action allowlist generated into a host secret store; the standalone Compose project from §2.2 authored; the §5.1 trial definition agreed. |
 | **Authorized implementation surface** | A **new, separate** Compose project file for the gateway. A host-local secret file outside the repository. A throwaway trial harness that calls the gateway directly over `codexify_internal`. **No file under `guardian/`, `frontend/`, `config/`, or the existing `docker-compose.yml` may be modified.** |
-| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The resolved Compose configuration is confirmed to still carry `OOMOL_CONNECT_BLOCKED_PROXIES="*"`, `OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`, a **non-empty** `OOMOL_CONNECT_ALLOWED_ACTIONS` **exactly equal to the approved trial actions**, no `OOMOL_CONNECT_RUNTIME_TOKEN`, and **no published ports** (§2.5 verification table). The §2.4 **bootstrap sequence** is executed in order: containment first, then the **sentinel token**, then the first working token, then **proof that an unauthenticated `/v1` request is now rejected** — and only then any provider credential. **§5.3 Group 0 runs first**, before any credential exists, and is **re-run after every token handoff, after restart, and after deleting the last user token** (rows 0a–0c, 0f–0h). The §5.1.1 **overlapping handoff** is executed and observed (row 5): the store is **never observed empty** at any step, and unauthenticated `/v1` is rejected throughout. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest. Group 2 is exercised against **credential-bearing** connections, with row 16a recording the `no_auth` grant exemption as expected behavior. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the trigger-denial result, the two-account isolation results, the token-list snapshots at each transition, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
+| **Tests and observable evidence** | The §2.5 **fail-closed preflight** runs and passes **before** `docker compose up`, reporting key names only. The resolved Compose configuration is confirmed to still carry `OOMOL_CONNECT_BLOCKED_PROXIES="*"`, `OOMOL_CONNECT_BLOCKED_TRIGGERS="*"`, a **non-empty** `OOMOL_CONNECT_ALLOWED_ACTIONS` **exactly equal to the approved trial actions**, and **no published ports** (§2.5 verification table). *Gate A deliberately ran the gateway **without** the deployment guard, so that the substrate's guard-absent behavior could be established and the defect reported; the §2.5 preflight has since been amended to **require** the guard (§2.4, §4.7(a)), so the recorded Gate A evidence corresponds to the guard-absent configuration and any deployment that proceeds must satisfy the amended preflight.* The §2.4 **bootstrap sequence** is executed in order: containment first, then the **sentinel token**, then the first working token, then **proof that an unauthenticated `/v1` request is now rejected** — and only then any provider credential. **§5.3 Group 0 runs first**, before any credential exists, and is **re-run after every token handoff, after restart, and after deleting the last user token** (rows 0a–0c, 0f–0h). The §5.1.1 **overlapping handoff** is executed and observed (row 5): the store is **never observed empty** at any step, and unauthenticated `/v1` is rejected throughout. §5.3 Groups 1, 1b, 2, 3, and 4 pass against the pinned digest. Group 2 is exercised against **credential-bearing** connections, with row 16a recording the `no_auth` grant exemption as expected behavior. Evidence: gateway runtime receipts, the health-check transcript, the version-baseline output, the encryption-at-rest scan, the log-redaction scan, the trigger-denial result, the two-account isolation results, the token-list snapshots at each transition, and — for §5.3 row 12 — **dispatch-level** idempotency instrumentation rather than response comparison. Isolation evidence must come from the **runtime-token grant and connection-binding mechanisms**, not from network placement (§2.3). |
 | **Rollback procedure** | Stop and remove the standalone project; remove the `codexify_openconnector_data` volume if the trial is abandoned; revoke the trial tokens; destroy the trial provider credentials at the provider. **Nothing to roll back inside Codexify**, because nothing inside Codexify changed. |
-| **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; **the fail-closed preflight cannot be made to run before startup, or a required secret is missing/empty at startup**; **an unauthenticated `/v1` request is still accepted after the first token is created** (§2.4 bootstrap step 4); **the token store is observed empty at any point** — including during a handoff, after a restart, or after deleting the last user token — **or unauthenticated `/v1` is accepted at any such point**; **the sentinel token is absent, or is able to authorize any operation**; **a token with an empty or omitted `allowedConnections` is observed while a credential-bearing connection exists**; **the P0 unrestricted-grant token survives into the credentialed or two-account phase**; **a Trigger execution is not refused** (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"` ineffective); **the resolved allowlist is not exactly the approved trial actions, or contains a wildcard**; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** In particular, if the gateway cannot maintain authenticated execution through ordinary token lifecycle operations **without** relying on an unrestricted runtime credential, that is **meaningful negative Gate A evidence and a legitimate reason to reject the dependency.** |
+| **Stopping condition** | Stop and escalate if: the pinned digest cannot be pulled or verified; the runtime fails upstream's CVE-2026-111497 baseline; the encryption key cannot be held outside the data volume; **the fail-closed preflight cannot be made to run before startup, or a required secret is missing/empty at startup**; **an unauthenticated `/v1` request is still accepted after the first token is created** (§2.4 bootstrap step 4); **the token store is observed empty at any point** — including during a handoff, after a restart, or after deleting the last user token — **or unauthenticated `/v1` is accepted at any such point**; **the sentinel token is absent, or is able to authorize any operation**; **a token with an empty or omitted `allowedConnections` is observed while a credential-bearing connection exists**; **the P0 unrestricted-grant token survives into the credentialed or two-account phase**; **a Trigger execution is not refused** (`OOMOL_CONNECT_BLOCKED_TRIGGERS="*"` ineffective); **the resolved allowlist is not exactly the approved trial actions, or contains a wildcard**; two synthetic accounts cannot be isolated; a provider proxy is reachable despite `OOMOL_CONNECT_BLOCKED_PROXIES="*"`; any credential material appears in a log; or upstream's action-grant semantics cannot be made to restrict per-account connections. **Any of these means the substrate does not meet the isolation bar, and Gate B does not begin.** In particular, if the gateway cannot maintain authenticated execution through ordinary token lifecycle operations **without** relying on an unrestricted runtime credential **for execution**, that is **meaningful negative Gate A evidence and a legitimate reason to reject the dependency.** The deployment enforcement guard (§4.7(a)) is not reliance for execution: it authorizes nothing, is never presented by an account path, and exists only to make the runtime fail closed by configuration. Ordinary execution still has to run on scoped persistent tokens alone. |
 
 
 ### Gate B — Guardian read-only adapter and Command Bus integration
@@ -1840,30 +1969,35 @@ then — **only** — consider a supported-profile or release posture change.
 
 ## 7. ADR Impact
 
-This document is **aligned with** and does not amend:
+This document is **aligned with** the following, and amends only where the
+relationship says so:
 
 | ADR | Relationship |
 | --- | --- |
 | **ADR-024** (Context Command / active connector semantics) | Preserved. The gateway is a connector bridge. Use is turn-scoped; `connected != consulted`; outcomes use ADR-024's canonical vocabulary. No change to connector state semantics. |
 | **ADR-069** (Beta runtime support boundary) | Preserved. No release claim is widened. Connectors remain outside default Beta support without current-main qualification. |
-| **ADR-071** (Connections control-plane boundary) | Preserved. Connections remains a projection, never an execution owner. No new Settings section. No duplicate mutation routes. Credentials remain server-owned and user-scoped. |
+| **ADR-071** (Connections control-plane boundary) | Preserved. Connections remains a projection, never an execution owner. No new Settings section. No duplicate mutation routes. Credentials remain server-owned and user-scoped. **A proposed amendment is drafted (§4.7(a)) — proposed only, pending human acceptance, and not operative.** |
 | **ADR-072** (bounded Settings and connections route promotion) | Preserved. The pattern of a separately-labeled route family with an explicit profile posture is followed. The legacy `connectors` label stays quarantined. |
 | **ADR-075** (Connections knowledge category and content capabilities) | Preserved. Exactly four categories; provider-specific setup seams; provider-specific adapters; agent-invocable operations through the Command Bus; read-only content capabilities; no new write capability is authorized. |
+| **ADR-077** (sandbox execution authority and provider boundary) | Preserved. The custodian's provider calls stay on the provider side of the boundary; no provider credential or provider-issued material reaches an agent-facing tool, shell command, or sandbox workload absent a separate explicit Guardian grant. |
+| **ADR-092** (credential purpose and mixed-principal authentication boundary) | Preserved. The four credential classes are kept on separate lanes and never substitute for one another (§4.7(a)). A runtime token minted for one account never serves another. |
+| **ADR-094** (account-scoped execution credential authority) | **Extended by a proposed amendment (§4.7(a)) — proposed only, pending human acceptance, and not operative.** Guardian remains the sole account-authorization authority; a delegated external custodian is admitted as a subordinate credential custodian with no independent Codexify account authority. |
 
-**No ADR change is authorized by this task.** The three questions in §4.7 —
-delegated credential-vault authority, the public OAuth callback surface, and
-catalog identity for gateway-backed providers — are **future** decisions. A
-future implementation must explicitly resolve them and determine whether an
-ADR addition or amendment is required.
+**A proposed amendment now exists; it is not an accepted change.** The §4.7(a)
+delegated credential-vault question is addressed by a *proposed-amendment section
+inside* ADR-071 and ADR-094, each carrying an explicit **PROPOSED — pending human
+acceptance** banner and a statement that it has no operative effect until
+accepted. Neither ADR's accepted status, accepted text, or number changes, and
+no new ADR is added. The §4.7(b) public OAuth callback question and the §4.7(c)
+catalog-identity question for gateway-backed providers **remain open** and are
+not addressed by it.
 
-**Sequencing decision.** None of these three is opened during Gate A. The
-§4.7(a) delegated credential-vault amendment is settled **only after** Gate A
-demonstrates that the substrate is worth adopting, and **before** Gate B
-begins. Amending an ADR on the strength of a plan for a dependency that has
-never been exercised would be premature: it would commit Codexify's
-architecture doctrine to a component that may yet fail its own qualification
-gate. Gate A's outcome may legitimately be "not worth adopting," in which case
-**no ADR is amended and no adapter is written**.
+**Sequencing decision.** Gate A has completed with a **conditional pass**, so the
+§4.7(a) amendment is now drafted — but drafting is not acceptance. The amendment
+becomes governing architecture **only on explicit human acceptance**, and the
+implementation gate stays closed until it is accepted. The sequencing intent is
+unchanged: the amendment was settled only after Gate A demonstrated that the
+substrate is worth adopting, and it must be accepted **before** Gate B begins.
 
 ---
 
@@ -1921,16 +2055,24 @@ Explicitly **not** done here, and not authorized by this task:
 9. No alteration of existing Notion or Google Drive behavior, routes,
    credentials, or catalog entries.
 10. No change to `docs/architecture/00-current-state.md`, no release-posture
-    change, and no ADR addition or amendment.
+    change, and **no accepted ADR addition or amendment**. A *proposed*
+    amendment section is drafted inside ADR-071 and ADR-094 (§4.7(a)); it is
+    pending human acceptance, changes no accepted architecture, and adds no
+    ADR.
 11. No upstream fork.
-12. No decision on the §4.7 authority questions.
+12. No **accepted** decision on the §4.7 authority questions. §4.7(a) is
+    drafted as a proposed amendment pending human acceptance; §4.7(b) and
+    §4.7(c) remain open and unresolved.
 13. No security-monitoring subsystem, bespoke scanner, or dedicated pipeline
     for OpenConnector. The §1.4 monitoring commitment is an operator
     responsibility performed by reading upstream's release and advisory
     channels.
-14. No `OOMOL_CONNECT_RUNTIME_TOKEN` in any environment file or shell
-    profile. Runtime authentication is established by the §2.4 bootstrap
-    sequence using scoped persistent tokens only.
+14. **Superseded — the deployment guard is now required.** The runtime guard
+    (`OOMOL_CONNECT_RUNTIME_TOKEN`) **must** be present in the gateway's
+    `env_file` (§2.4, §2.5). It is service-owned, operator-custodied, never
+    distributed, and never presented for execution; ordinary execution still
+    uses scoped persistent tokens only (§4.3). The earlier prohibition on
+    setting it is withdrawn.
 15. No `docker compose config` invocation whose output is captured into logs
     or shell history, since it renders expanded secret values (§2.5).
 
@@ -2019,15 +2161,16 @@ boundary: virtual **`no_auth` connections bypass the connection-grant check
 entirely**, so isolation evidence must come from credential-bearing
 connections; and **token updates replace the stored policy wholesale**, so any
 update that omits the grant would silently widen it. The runtime surface is
-authenticated by
-an **explicit bootstrap sequence** rather than by a long-lived bootstrap
-token: containment first, then the first scoped persistent token, then proof
-that an unauthenticated request is rejected, and only then provider
-credentials. Critically, that protection is re-derived from a **live** store
-query on every request, so **revoking the last token reopens the window**:
-the store must therefore **never be empty**, a **sentinel token** keeps it
-non-empty for the gateway's life, and every handoff **overlaps** rather than
-gaps. The upstream dependency is **pinned but tracked**: v1.9.4 remains
+authenticated by a **deployment-scoped enforcement secret** plus an
+**explicit bootstrap sequence**: the guard is configured as deployment
+infrastructure, never distributed and never presented for execution, so the
+runtime fails closed by configuration from the first request; the bootstrap
+sequence then creates the first scoped persistent token, proves that an
+unauthenticated request is rejected, and only then admits credentials. The
+token-store invariant is retained as **defense in depth** — that protection is
+re-derived from a **live** store query on every request, so the store must
+**never be empty**, a **sentinel token** keeps it non-empty for the gateway's
+life, and every handoff **overlaps** rather than gaps. The upstream dependency is **pinned but tracked**: v1.9.4 remains
 the licensed baseline, while monitoring, evaluation, and remediation of
 upstream releases and advisories is an explicit operator responsibility that
 does not extend to copying code newly published under more restrictive
@@ -2039,10 +2182,15 @@ question is narrowed to *which component owns callback correlation* — a
 restricted reverse proxy in front of upstream's own single-use `state` store,
 or a Guardian-owned forwarder that would have to reproduce that property
 across two systems.
-Gate A asks one question — can this engine run
+Gate A asked one question — can this engine run
 reliably, invoke useful actions, and isolate credentials without introducing
-a competing authority system? — and its answer may legitimately be **no**, in
-which case nothing is adopted, no ADR is amended, and no adapter is written.
+a competing authority system? — and answered it with a **conditional pass**:
+the substrate runs, the credential isolation holds, and an upstream
+authentication defect was confirmed and reported privately upstream. That
+answer did not settle the authority question. A **proposed amendment** to
+ADR-071 and ADR-094 now records the delegated-custody relationship for human
+acceptance — **proposed, not accepted, and not operative**. Until it is
+accepted, the ADRs stand unamended and the implementation gate stays closed.
 Nothing in this document installs, deploys, or promotes anything;
 `docs/architecture/00-current-state.md` remains the release truth, and
 OpenConnector remains outside Beta support.
