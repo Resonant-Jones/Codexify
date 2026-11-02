@@ -457,9 +457,11 @@ class TestChatMessagesPost:
         assert data["message"]["role"] == "user"
         assert data["message"]["content"] == "Hello, world!"
         assert data["thread"]["project_id"] == 1
-        mock_db.create_message.assert_called_once_with(
-            1, "user", "Hello, world!"
-        )
+        mock_db.create_native_user_message.assert_called_once()
+        create_call = mock_db.create_native_user_message.call_args
+        assert create_call.kwargs["thread_id"] == 1
+        assert create_call.kwargs["role"] == "user"
+        assert create_call.kwargs["content"] == "Hello, world!"
 
     def test_post_message_ignores_project_id(self, test_client, mock_db):
         """POST /chat/{thread_id}/messages must not mutate project_id from payload."""
@@ -540,9 +542,11 @@ class TestChatMessagesPost:
         assert data["message"]["thread_id"] == 1
         assert data["thread"]["id"] == 1
         mock_db.create_chat_thread.assert_called_once()
-        mock_db.create_message.assert_called_once_with(
-            1, "user", "First message"
-        )
+        mock_db.create_native_user_message.assert_called_once()
+        create_call = mock_db.create_native_user_message.call_args
+        assert create_call.kwargs["thread_id"] == 1
+        assert create_call.kwargs["role"] == "user"
+        assert create_call.kwargs["content"] == "First message"
 
     def test_create_on_send_uses_existing_thread(self, test_client, mock_db):
         """POST /chat/messages appends when thread_id is provided."""
@@ -562,9 +566,11 @@ class TestChatMessagesPost:
         assert data["thread_id"] == 12
         assert data["thread"]["id"] == 1
         mock_db.create_chat_thread.assert_not_called()
-        mock_db.create_message.assert_called_once_with(
-            12, "user", "Hello existing thread"
-        )
+        mock_db.create_native_user_message.assert_called_once()
+        create_call = mock_db.create_native_user_message.call_args
+        assert create_call.kwargs["thread_id"] == 12
+        assert create_call.kwargs["role"] == "user"
+        assert create_call.kwargs["content"] == "Hello existing thread"
 
 
 class TestChatMessagesGet:

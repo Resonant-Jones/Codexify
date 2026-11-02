@@ -42,6 +42,7 @@ from .chat_db import ChatDB, validate_message_provenance
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
     apply_native_origin_assertion,
+    build_native_user_origin_assertion,
     strip_reserved_origin,
 )
 from .chat_postgres_deadline import (
@@ -1516,6 +1517,43 @@ class PgDB(ChatDB):
                 return row[0]
 
     # ---- messages helpers -------------------------------------------------
+    def create_native_user_message(
+        self,
+        thread_id: int,
+        role: str,
+        content: str,
+        created_at: str | None = None,
+        user_id: str | None = None,
+        *,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
+        extra_meta: dict[str, Any] | None = None,
+        asserted_at: datetime | None = None,
+    ) -> int:
+        """Create a canonical native user message and stamp its origin atomically.
+
+        This is the *trusted native creation* boundary. It is deliberately a
+        separate method from :meth:`create_message` so that the importer, which
+        calls the generic helper, can never receive native provenance by
+        accident. The reserved assertion is written in the same statement as
+        the message row, so a failed insert leaves no apparently proven orphan.
+
+        The timestamp is backend-generated and timezone-aware; the caller never
+        supplies the assertion's contents.
+        """
+        assertion = build_native_user_origin_assertion(asserted_at=asserted_at)
+        return self.create_message(
+            thread_id,
+            role,
+            content,
+            created_at=created_at,
+            user_id=user_id,
+            hosted_room_participant_id=hosted_room_participant_id,
+            sender_display_name_snapshot=sender_display_name_snapshot,
+            extra_meta=extra_meta,
+            native_origin=assertion,
+        )
+
     def create_message(
         self,
         thread_id: int,

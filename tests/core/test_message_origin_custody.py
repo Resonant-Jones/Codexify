@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -29,9 +31,12 @@ from psycopg.types.json import Jsonb
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
     RESERVED_MESSAGE_ORIGIN_KEY,
+    RESERVED_MESSAGE_ORIGIN_VERSION,
     NativeOriginAssertion,
     apply_native_origin_assertion,
+    build_native_user_origin_assertion,
     contains_reserved_origin,
+    find_conflicting_source_lineage,
     merge_protected_message_metadata,
     strip_reserved_origin,
 )
@@ -41,6 +46,32 @@ from tests.services.test_memory_vault_read_projection import _migrate_to_head
 ACCOUNT = "custody-account-a"
 ORIGIN_SYSTEM = "codexify"
 ASSERTED_AT = "2026-11-01T22:00:00+00:00"
+
+#: The canonical importer's message metadata shape. An imported record carries
+#: positive provider lineage and must never be given native provenance.
+IMPORTED_META = {
+    "origin": "chatgpt_import",
+    "canonical_filter_profile": "chatgpt_v1_canonical",
+    "imported_at": "2026-10-31T12:00:00+00:00",
+    "source_thread_id": "export-chat-1",
+    "source_message_id": "export-message-1",
+    "source_created_at": "2025-05-02T10:00:00+00:00",
+    "turn_index": 0,
+    "raw_role": "user",
+    "raw_message": {"id": "export-message-1", "author": {"role": "user"}},
+    "era": "legacy",
+}
+
+#: The ADR-016 provenance fixture file. It is documentation-only, so these
+#: tests read its expectations and then prove the *runtime* behaviour they
+#: describe rather than treating the fixture text as proof.
+PROVENANCE_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "architecture"
+    / "fixtures"
+    / "history-message-provenance.v1.json"
+)
 
 # A payload shaped exactly like the accepted assertion. It is untrusted
 # wherever it comes from, and must never be able to establish origin.
@@ -578,3 +609,321 @@ def test_jsonb_merge_preserves_stored_member_against_a_jsonb_payload(db):
     stored = _stored_extra_meta(db, message_id)
 
     assert stored[RESERVED_MESSAGE_ORIGIN_KEY]["asserted_at"] == ASSERTED_AT
+
+
+# ---------------------------------------------------------------------------
+# Trusted native creation at the adapter boundary
+# ---------------------------------------------------------------------------
+
+
+def _stored_assertion(db, message_id: int) -> dict:
+    stored = _stored_extra_meta(db, message_id)
+    return dict(stored.get(RESERVED_MESSAGE_ORIGIN_KEY) or {})
+
+
+def test_the_trusted_native_writer_stamps_the_reserved_member(db):
+    """The trusted creation seam writes positive native-origin evidence."""
+    message_id = db.create_native_user_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+    )
+
+    assertion = _stored_assertion(db, message_id)
+
+    assert assertion["version"] == RESERVED_MESSAGE_ORIGIN_VERSION
+    assert assertion["origin_system"] == ORIGIN_SYSTEM
+
+
+def test_the_trusted_native_writer_generates_its_own_zoned_timestamp(db):
+    """The assertion timestamp is backend-generated and timezone-aware."""
+    message_id = db.create_native_user_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+    )
+
+    asserted_at = _stored_assertion(db, message_id)["asserted_at"]
+    moment = datetime.fromisoformat(asserted_at)
+
+    assert moment.tzinfo is not None
+    assert moment.utcoffset() == timedelta(0)
+    assert asserted_at != ASSERTED_AT
+
+
+def test_the_trusted_native_writer_replaces_a_forged_client_claim(db):
+    """A client-shaped claim never controls the stored assertion."""
+    message_id = db.create_native_user_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+        extra_meta={**FORGED_ASSERTION, "note": "keep"},
+    )
+
+    stored = _stored_extra_meta(db, message_id)
+
+    assert stored[RESERVED_MESSAGE_ORIGIN_KEY]["asserted_at"] != ASSERTED_AT
+    assert stored[RESERVED_MESSAGE_ORIGIN_KEY]["version"] == (
+        RESERVED_MESSAGE_ORIGIN_VERSION
+    )
+    assert stored[RESERVED_MESSAGE_ORIGIN_KEY]["origin_system"] == ORIGIN_SYSTEM
+    assert stored["note"] == "keep"
+
+
+def test_the_generic_writer_is_not_a_native_creation_authority(db):
+    """The importer's helper must never stamp native provenance."""
+    message_id = db.create_message(
+        10,
+        "user",
+        "imported message",
+        user_id=ACCOUNT,
+        extra_meta=IMPORTED_META,
+    )
+
+    stored = _stored_extra_meta(db, message_id)
+
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in stored
+    assert stored == IMPORTED_META
+
+
+def test_the_importer_keeps_using_the_generic_helper():
+    """The canonical importer is not wired to the trusted native seam."""
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "backend"
+        / "rag"
+        / "chatgpt_migration.py"
+    ).read_text(encoding="utf-8")
+
+    assert "create_native_user_message" not in source
+    assert "chatlog_db.create_message(" in source
+
+
+def test_a_failed_native_insert_leaves_no_row_and_no_assertion(db):
+    """A failing insert cannot leave an apparently proven orphan behind."""
+    with pytest.raises(psycopg.Error):
+        db.create_native_user_message(
+            9999,
+            "user",
+            "hello",
+            user_id=ACCOUNT,
+        )
+
+    with psycopg.connect(db.url) as conn:
+        count = conn.execute(
+            "SELECT count(*) FROM chat_messages WHERE thread_id = 9999"
+        ).fetchone()[0]
+
+    assert count == 0
+
+
+def test_a_replayed_write_preserves_the_original_assertion(db):
+    """Re-running the write keeps the original assertion and identity."""
+    message_id = db.create_native_user_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+        extra_meta={"note": "keep"},
+    )
+    original = _stored_extra_meta(db, message_id)
+
+    _merge_extra_meta(db, message_id, dict(original))
+    _merge_extra_meta(db, message_id, FORGED_ASSERTION)
+
+    stored = _stored_extra_meta(db, message_id)
+
+    assert stored[RESERVED_MESSAGE_ORIGIN_KEY] == (
+        original[RESERVED_MESSAGE_ORIGIN_KEY]
+    )
+    assert stored["note"] == "keep"
+
+
+def test_two_native_creations_are_two_independent_assertions(db):
+    """Each native creation is its own record with its own identity."""
+    first = db.create_native_user_message(10, "user", "hello", user_id=ACCOUNT)
+    second = db.create_native_user_message(10, "user", "hello", user_id=ACCOUNT)
+
+    assert first != second
+    assert (
+        _stored_assertion(db, first)["asserted_at"]
+        != _stored_assertion(db, second)["asserted_at"]
+    )
+
+
+def test_the_builder_refuses_a_naive_timestamp():
+    """A naive timestamp is normalized rather than stored without a zone."""
+    assertion = build_native_user_origin_assertion(
+        asserted_at=datetime(2026, 11, 1, 22, 0, 0)
+    )
+
+    moment = datetime.fromisoformat(assertion.asserted_at)
+
+    assert moment.utcoffset() == timedelta(0)
+
+
+def test_conflicting_source_lineage_is_detected():
+    """The ordinary-chat guard can see importer-origin claims."""
+    assert find_conflicting_source_lineage(IMPORTED_META) == sorted(
+        IMPORTED_META.keys()
+    )
+    assert find_conflicting_source_lineage({"note": "keep"}) == []
+    assert find_conflicting_source_lineage(None) == []
+
+
+# ---------------------------------------------------------------------------
+# The ADR-016 provenance fixtures, proven against the runtime
+# ---------------------------------------------------------------------------
+
+
+def _provenance_fixture() -> dict:
+    return json.loads(PROVENANCE_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+
+def _fixture_by_id(fixture_id: str) -> dict:
+    for entry in _provenance_fixture()["fixtures"]:
+        if entry["id"] == fixture_id:
+            return entry
+    raise AssertionError(f"provenance fixture {fixture_id!r} is missing")
+
+
+@pytest.mark.parametrize("fixture_id", ["P01", "P06"])
+def test_the_native_fixtures_describe_what_the_trusted_writer_produces(
+    db, fixture_id
+):
+    """P01/P06's stored evidence is the shape the trusted writer produces."""
+    fixture = _fixture_by_id(fixture_id)
+    expected = fixture["persisted_evidence"]["message"]["extra_meta"]
+    expected_assertion = expected[RESERVED_MESSAGE_ORIGIN_KEY]
+
+    message_id = db.create_native_user_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+    )
+    stored = _stored_assertion(db, message_id)
+
+    assert set(stored) == set(expected_assertion)
+    assert stored["version"] == expected_assertion["version"]
+    assert stored["origin_system"] == expected_assertion["origin_system"]
+    assert fixture["expected_origin_classification"] == "native"
+
+
+@pytest.mark.parametrize("fixture_id", ["P05", "N01", "N05"])
+def test_the_imported_and_legacy_fixtures_are_preserved_verbatim(
+    db, fixture_id
+):
+    """Imported and legacy records keep their evidence and gain nothing."""
+    fixture = _fixture_by_id(fixture_id)
+    expected = fixture["persisted_evidence"]["message"]["extra_meta"]
+
+    message_id = db.create_message(
+        10,
+        "user",
+        "fixture row",
+        user_id=ACCOUNT,
+        extra_meta=expected,
+    )
+    stored = _stored_extra_meta(db, message_id)
+
+    assert stored == expected
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in stored
+
+
+def test_the_conflicting_fixture_keeps_its_lineage_and_loses_the_native_claim(db):
+    """N03: the import lineage survives; the forged native claim does not."""
+    fixture = _fixture_by_id("N03")
+    expected = fixture["persisted_evidence"]["message"]["extra_meta"]
+
+    message_id = db.create_message(
+        10,
+        "user",
+        "fixture row",
+        user_id=ACCOUNT,
+        extra_meta=expected,
+    )
+    stored = _stored_extra_meta(db, message_id)
+
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in stored
+    assert stored["origin"] == expected["origin"]
+    assert stored["canonical_filter_profile"] == expected[
+        "canonical_filter_profile"
+    ]
+    assert stored["source_message_id"] == expected["source_message_id"]
+
+
+def test_the_untrusted_claim_fixture_stays_unknown(db):
+    """N04: a native-looking claim without writer authority proves nothing."""
+    fixture = _fixture_by_id("N04")
+    expected = fixture["persisted_evidence"]["message"]["extra_meta"]
+
+    message_id = db.create_message(
+        10,
+        "user",
+        "fixture row",
+        user_id=ACCOUNT,
+        extra_meta=expected,
+    )
+    stored = _stored_extra_meta(db, message_id)
+
+    assert stored == {}
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in stored
+
+
+# ---------------------------------------------------------------------------
+# Restore compatibility
+# ---------------------------------------------------------------------------
+
+
+def test_restore_preserves_the_original_evidence_and_adds_no_native_origin(db):
+    """A restored record keeps its proof and is not re-stamped as native."""
+    imported_fixture = _fixture_by_id("N05")
+    native_fixture = _fixture_by_id("P01")
+    native_assertion = native_fixture["persisted_evidence"]["message"][
+        "extra_meta"
+    ][RESERVED_MESSAGE_ORIGIN_KEY]
+
+    db.restore_account_export_chat_messages(
+        [
+            {
+                "id": 901,
+                "thread_id": 10,
+                "user_id": ACCOUNT,
+                "role": "user",
+                "content": "restored imported row",
+                "event_at": "2026-10-31T12:00:00+00:00",
+                "kind": "chat",
+                "extra_meta": imported_fixture["persisted_evidence"]["message"][
+                    "extra_meta"
+                ],
+                "created_at": "2026-10-31T12:00:00+00:00",
+            },
+            {
+                "id": 902,
+                "thread_id": 10,
+                "user_id": ACCOUNT,
+                "role": "user",
+                "content": "restored native row",
+                "event_at": "2026-11-01T22:00:00+00:00",
+                "kind": "chat",
+                "extra_meta": native_fixture["persisted_evidence"]["message"][
+                    "extra_meta"
+                ],
+                "created_at": "2026-11-01T22:00:00+00:00",
+            },
+        ],
+        target_user_id=ACCOUNT,
+    )
+
+    restored_imported = _stored_extra_meta(db, 901)
+    restored_native = _stored_extra_meta(db, 902)
+
+    assert restored_imported == imported_fixture["persisted_evidence"]["message"][
+        "extra_meta"
+    ]
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in restored_imported
+    assert restored_native[RESERVED_MESSAGE_ORIGIN_KEY] == native_assertion
