@@ -6,6 +6,7 @@ contract without starting Docker, Whoosh'd, or any model runtime.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -340,3 +341,150 @@ class TestWhooshdStaysStandalone:
         config = _load_smoke_override()
         for service in config["services"]:
             assert "whooshd" not in service.lower()
+
+
+def _launcher_content() -> str:
+    return SMOKE_LAUNCHER_PATH.read_text()
+
+
+class TestLauncherHasNoGlobalContainerDeletion:
+    """The launcher must never remove containers it does not own.
+
+    A partial name filter such as ``--filter "name=codexify"`` selects
+    containers across every Compose project on the host, including the
+    live Private Preview.  The launcher therefore performs no global
+    cleanup at all and scopes every lifecycle operation to one
+    explicitly identified Compose project.
+    """
+
+    def test_launcher_never_removes_containers_directly(self):
+        content = _launcher_content()
+        assert "docker rm" not in content
+        assert "docker container rm" not in content
+        assert "xargs docker" not in content
+
+    def test_launcher_never_selects_containers_by_partial_name(self):
+        content = _launcher_content()
+        assert '--filter "name=' not in content
+        assert "--filter name=" not in content
+        assert "docker ps -aq" not in content
+        assert "docker ps -a " not in content
+
+    def test_launcher_scopes_lifecycle_to_an_explicit_project(self):
+        content = _launcher_content()
+        assert 'docker compose -p "$PROJECT"' in content
+        assert (
+            'docker compose -p "$PROJECT" $COMPOSE_FILES down --remove-orphans'
+            in content
+        )
+        assert "docker compose $COMPOSE_FILES down" not in content
+
+    def test_launcher_refuses_protected_projects(self):
+        content = _launcher_content()
+        assert "PROTECTED_PROJECT_PREFIX" in content
+        assert "codexify_private_preview" in content
+        assert "refusing to target protected Compose project" in content
+
+    def test_teardown_is_opt_in_not_automatic(self):
+        content = _launcher_content()
+        assert "DO_TEARDOWN=0" in content
+        assert "DO_TEARDOWN=1" in content
+        teardown_index = content.index("down --remove-orphans")
+        up_index = content.index('docker compose -p "$PROJECT" $COMPOSE_FILES up')
+        assert teardown_index < up_index
+        assert "Step 8: Tear down project" in content
+        assert "Step 9: Start Docker Compose" in content
+
+
+class TestLauncherEstablishesSourceIdentity:
+    def test_launcher_reads_the_checkout_revision(self):
+        content = _launcher_content()
+        assert 'git -C "$REPO_ROOT" rev-parse HEAD' in content
+        assert "SOURCE_SHA" in content
+
+    def test_launcher_requires_a_clean_tracked_tree(self):
+        content = _launcher_content()
+        assert "status --porcelain --untracked-files=no" in content
+        assert "tracked files are modified" in content
+        assert "--allow-dirty-source" in content
+
+    def test_launcher_determines_the_source_migration_head(self):
+        content = _launcher_content()
+        assert "alembic" in content
+        assert "heads" in content
+        assert "Source Alembic head" in content
+
+    def test_launcher_rejects_multiple_or_missing_heads(self):
+        content = _launcher_content()
+        assert "multiple Alembic heads" in content
+        assert "could not determine the source Alembic head" in content
+
+    def test_launcher_does_not_hard_code_a_migration_revision(self):
+        content = _launcher_content()
+        assert not re.search(r"\b[0-9a-f]{12}\b", content), (
+            "the launcher must not treat a migration revision as a permanent "
+            "hard-coded value"
+        )
+
+
+class TestLauncherIsSourceMatchedAtTheImageBoundary:
+    def test_launcher_builds_a_source_specific_image(self):
+        content = _launcher_content()
+        assert "codexify-backend-runtime:src-" in content
+        assert "docker build --target runtime -f backend/Dockerfile" in content
+
+    def test_launcher_inspects_the_images_own_migration_head(self):
+        content = _launcher_content()
+        assert "docker run --rm --entrypoint python" in content
+        assert "Image Alembic head" in content
+
+    def test_launcher_fails_closed_on_mismatch(self):
+        content = _launcher_content()
+        assert "MIGRATION IMAGE DOES NOT MATCH THE SOURCE REVISION" in content
+        assert "Refusing to migrate" in content
+        for field in (
+            "source revision:",
+            "source head:",
+            "image head:",
+            "image reference:",
+            "image digest:",
+        ):
+            assert field in content
+
+    def test_mismatch_check_precedes_any_container_start(self):
+        content = _launcher_content()
+        parity_index = content.index("MIGRATION IMAGE DOES NOT MATCH THE SOURCE REVISION")
+        up_index = content.index('docker compose -p "$PROJECT" $COMPOSE_FILES up')
+        assert parity_index < up_index
+
+    def test_launcher_selects_the_built_image_for_the_running_services(self):
+        content = _launcher_content()
+        assert 'export CODEXIFY_BACKEND_IMAGE="$IMAGE_REF"' in content
+        assert "does not use $IMAGE_REF" in content
+        for service in ("migrator", "backend", "worker-chat"):
+            assert service in content
+
+    def test_launcher_does_not_add_a_source_bind_mount_for_migrations(self):
+        content = _launcher_content()
+        assert ":/app/guardian" not in content
+        assert ":/app/backend" not in content
+
+    def test_launcher_does_not_mutate_schema_itself(self):
+        content = _launcher_content()
+        assert "stamp" not in content
+        assert "alembic upgrade" not in content
+        assert "alembic revision --autogenerate" not in content
+
+    def test_launcher_propagates_the_migrator_exit_status(self):
+        content = _launcher_content()
+        assert "{{.State.ExitCode}}" in content
+        assert "the migrator failed" in content
+
+
+class TestLauncherLeavesTheHostProviderAlone:
+    def test_launcher_does_not_restart_a_healthy_provider(self):
+        content = _launcher_content()
+        probe_index = content.index("Whoosh'd is already running")
+        ensure_index = content.index("whooshd_ensure.sh")
+        assert probe_index < ensure_index
+        assert "it is left untouched" in content
