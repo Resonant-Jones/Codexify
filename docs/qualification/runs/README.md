@@ -43,6 +43,42 @@ Examples:
 
 Use explicit provider and model identifiers when a provider-dependent path is exercised. Record `N/A` only when the qualification surface does not involve a provider or model.
 
+## Machine-readable metadata
+
+The header above is for human readers. The registry is generated from a
+fenced YAML block, so every receipt must also declare:
+
+````markdown
+```yaml qualification-metadata
+qualification_id: supported-compose
+rubric_version: 1
+verdict: HOLD
+commit: 5da79431fa059b7da80688380550cf29d4854b18
+date: 2026-09-22
+tester_alias: automated-architecture-proof
+tester_kind: automated
+assistance_level_peak: 0
+evidence:
+  - docs/architecture/proofs/supported-compose/some-proof.md
+```
+````
+
+`qualification_id` must match the rubric the receipt qualifies.
+`rubric_version` records which rubric version was applied, so a rubric
+revision does not silently inherit an older run's verdict.
+
+`tester_kind` is `human` or `automated`. Only human runs contribute to the
+`human_testers` and `independent_completions` metrics, because the
+qualification README treats independent human qualification as the
+strongest available signal. `assistance_level_peak` is the highest
+assistance level reached during the run, from the independence table.
+
+`evidence` lists the proof artifacts the run cited, as repository-relative
+paths. Every cited path must exist.
+
+The generator rejects a receipt with a missing or malformed metadata block
+rather than skipping it.
+
 ## Required body
 
 ### Qualification matrix
