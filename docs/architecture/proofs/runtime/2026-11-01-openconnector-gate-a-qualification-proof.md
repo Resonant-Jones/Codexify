@@ -61,7 +61,7 @@ authentication lifecycle did **not** meet the security invariant Codexify needs.
 | Codexify credentials used | **None.** No Codexify account, database, or production secret was involved |
 | Real provider credentials used | **None.** Provider credentials were syntactically valid but fabricated (`FAKE_…`) |
 | Teardown | Container, volume, and network removed; verified absent |
-| Host scratch cleanup | **Outstanding — requires host permissions.** Trial artifacts were consolidated into `.gate-a-cleanup/` in the worktree and excluded from git via `.git/info/exclude`. See [Host scratch cleanup](#host-scratch-cleanup). |
+| Host scratch cleanup | **Completed 2026-11-02.** All four scratch locations removed and verified absent. See [Host scratch cleanup](#host-scratch-cleanup). |
 
 The plan's §2.2 Compose block was used **verbatim**, with one adaptation: the `env_file` path
 pointed at the trial directory instead of `/run/secrets/openconnector.env`. The plan's §2.5
@@ -225,39 +225,38 @@ request. An adapter that copies upstream's internal field names would ship this 
 
 ## Host scratch cleanup
 
-The gateway itself — container, encrypted volume, and network — was destroyed and verified
-absent. The trial's *scratch artifacts* could not be removed by the executing sandbox and
-remain on disk. This is reported rather than worked around, and is an explicit outstanding
-hygiene item.
+**Completed 2026-11-02.** The gateway itself — container, encrypted volume, and network — was
+destroyed and verified absent. The trial's *scratch artifacts* were then removed from all four
+locations, and their absence was re-verified:
 
-**What blocks it.** The sandbox permits file creation in `/private/tmp` and `$HOME` but denies
-`unlink` in both (EPERM), and denies a trash move with EXDEV on the `/Volumes/Dev_SSD`
-volume. Deletion inside the worktree works, but `mavis-trash` cannot move files from that
-volume to the trash either. No recoverable deletion path was available for the original
-locations. Permanent deletion was **not** used.
+| Location | Content | Removed |
+| --- | --- | --- |
+| `/private/tmp/gate-a` | First trial scratch | Outside the sandbox (verified absent 2026-11-02) |
+| `/private/tmp/oc-verify` | Upstream source verification scratch | Outside the sandbox (verified absent 2026-11-02) |
+| `.gate-a-cleanup/` | 23 trial artifacts, including copies of the disposable secret files | Worktree, 2026-11-02 |
+| `.gate-a-trial/` | Advisory source text, advisory payload, guard harness, disposable secret files | Worktree, 2026-11-02 |
 
-**What was done instead.** All 23 trial artifacts — including copies of the disposable secret
-files — were consolidated into a single directory inside the worktree:
+`git status` is empty after the removal.
 
-```text
-.gate-a-cleanup/          # 23 files, excluded from git via .git/info/exclude
-```
+**What blocked the sandbox.** It permitted file creation in `/private/tmp` and `$HOME` but denied
+`unlink` in both (EPERM), and denied a trash move with EXDEV on the `/Volumes/Dev_SSD` volume.
+Deletion inside the worktree worked, but `mavis-trash` could not move files from that volume to
+the trash either, so **no recoverable deletion path existed** for any of the four locations.
+The worktree directories were therefore removed by permanent deletion on 2026-11-02; the two
+`/private/tmp` directories were removed outside the sandbox. This supersedes the earlier
+statement that permanent deletion had not been used.
 
-The exclusion is recorded in `.git/info/exclude`, which is **local git configuration, not a
-tracked file**, so the working tree stays clean and no scratch artifact can be staged
-accidentally. `git status` was verified empty after the move.
+**Why removal is safe.** The gateway volume was destroyed before any of this, so the admin token,
+encryption key, and hashed token store protected a database that no longer existed — the values
+were **cryptographically inert**. The artifacts were disposable trial scripts, Compose overrides,
+fabricated provider credentials, and the pre-submission report source; nothing reached the
+repository. The filed report itself is not lost with the local payload — GitHub's private
+advisory store is the system of record for the submission, and its metadata and substance are
+recorded in [Responsible disclosure](#responsible-disclosure).
 
-**Why this is not urgent.** The gateway volume is destroyed. The admin token and encryption
-key in those files protect a database that no longer exists, and the hashed token store went
-with it. The values are **cryptographically inert**. They are a hygiene concern, not a live
-exposure — and nothing reached the repository.
-
-**To complete the cleanup with host permissions:**
-
-```bash
-cd /Volumes/Dev_SSD/Codexify-main/.worktrees/mcode-31b4bff7-5ff0-43f7-9879-7e88f1405a8e
-rm -rf .gate-a-cleanup /tmp/gate-a /tmp/oc-verify
-```
+**The local exclusions remain.** `.gate-a-cleanup/` and `.gate-a-trial/` are still listed in
+`.git/info/exclude` — **local git configuration, not a tracked file**. The entries are left in
+place so that any future Gate B scratch reuse of the same names remains un-stageable by default.
 
 ## Additional findings
 
