@@ -593,31 +593,43 @@ credential and under Codexify's own lifecycle operations.
 
 ## Responsible disclosure
 
-**This receipt is not cleared for publication.** It documents a reproducible unauthorized
-credential-backed execution path in a currently-supported upstream release, and the details are
-specific enough to be actionable. Upstream's `SECURITY.md` asks that vulnerabilities be reported
-**privately** and kept private until a fix is released — it targets publication within 90 days,
-and faster for actively exploited issues.
+**Filed.** The report was submitted to upstream through GitHub's private
+vulnerability reporting channel on 2026-11-01.
 
-The report should go to upstream's **private** channel before any of this is published:
+| Property | Value |
+| --- | --- |
+| Advisory | **GHSA-2fvf-w948-qjxr** |
+| URL | `https://github.com/oomol-lab/open-connector/security/advisories/GHSA-2fvf-w948-qjxr` |
+| Channel | GitHub private vulnerability reporting (upstream's preferred channel) |
+| State | **Triage** — private draft, `published_at: null` |
+| Severity | **High** |
+| Package | npm `@oomol-lab/open-connector` |
+| Affected versions | `= 1.9.4` — no patched version yet |
+| CVE ID | None — maintainers request and assign the CVE |
+| Author / credit | Resonant-Jones (author); credit **Resonant-Jones** — Reporter, accepted |
+| Visibility | Maintainers of `oomol-lab/open-connector` plus invited collaborators. **Resonant-Jones is a collaborator but is NOT a publisher** — only `oomol-lab owners` and `hyrious` can publish. |
+| AI disclosure | Declared on the form (GitHub renders "This report was submitted with AI assistance") |
 
-1. **GitHub private vulnerability reporting (upstream's preferred channel)** — the repository's
-   **Security** tab → **Advisories** → **Report a vulnerability**.
-2. **Email** — `support@oomol.com`, if private reporting is unavailable.
+**Publication control is upstream's, which is the correct coordinated-disclosure posture.** The
+advisory cannot be made public by Codexify. Upstream's `SECURITY.md` commits to acknowledgement
+within 3 business days, to coordinating a fix before disclosure, to publication within 90 days
+(faster for actively exploited issues), and to crediting the reporter — which was requested and
+accepted.
 
-Upstream asks that reports **not** include secrets, credentials, or customer data; every value
-in this receipt is a disposable placeholder. Upstream also commits to acknowledgement within 3
-business days, to coordinating a fix before disclosure, and to crediting the reporter in the
-advisory unless asked not to.
+The report carries the root cause with source references, a minimal reproduction using **placeholders
+only**, the controls that bound impact, an explicit statement of what was **not** established, and
+three suggested remediations — including that upstream's existing `requireRuntimeAuth` option
+already expresses the desired semantics and merely needs to be exposed to configuration. No real
+credential, customer data, or production system was involved.
 
-**A ready-to-send report has been drafted** at
-`.gate-a-trial/UPSTREAM-SECURITY-REPORT-DRAFT.md` — outside the repository, in a
-git-excluded directory, so the exploit details are not committable by accident. It contains the
-root cause with source references, a minimal reproduction using placeholders only, the controls
-that bound the impact, an explicit statement of what was **not** established, and three suggested
-remediations — including that upstream's existing `requireRuntimeAuth` option already expresses
-the desired semantics and merely needs to be exposed to configuration. **It has not been sent.**
+**This receipt remains not cleared for publication.** It is a fuller internal record than the
+advisory, and it contains the same exploit details. Upstream has been notified and the advisory is
+private; publication of either artifact waits on upstream's fix and their coordination.
 
-**Until upstream has responded, the branch stays unpushed and this receipt stays local.** The
-Gate A commits are on a local branch only; nothing has been pushed to `origin`, and no release
-posture, current-state document, or support claim has been widened.
+**The branch stays unpushed and this receipt stays local.** The Gate A commits are on a local
+branch only; nothing has been pushed to `origin`, and no release posture, current-state document, or
+support claim has been widened.
+
+**A private collaboration channel is available.** GitHub offered a temporary private fork for
+patching. Whether to take it up is a separate decision for the delegated-custody review, not a
+Gate A action, and it has **not** been started.
