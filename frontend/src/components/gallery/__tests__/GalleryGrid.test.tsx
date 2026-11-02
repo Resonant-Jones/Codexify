@@ -27,7 +27,8 @@ describe("GalleryGrid", () => {
   it("renders one tile per gallery item", () => {
     const items: GalleryItem[] = [
       {
-        id: "img-1",
+        id: "uploaded_image:img-1",
+        deletionId: "img-1",
         src: "/media/images/one.png",
         prompt: "First image",
         project: 11,
@@ -45,7 +46,8 @@ describe("GalleryGrid", () => {
   it("labels each tile with its provenance", () => {
     const items: GalleryItem[] = [
       {
-        id: "img-1",
+        id: "uploaded_image:img-1",
+        deletionId: "img-1",
         src: "/media/images/one.png",
         prompt: "First image",
         tag: "uploaded",
@@ -62,7 +64,12 @@ describe("GalleryGrid", () => {
   it("reports the opened item to its owner", () => {
     const onOpen = vi.fn();
     const items: GalleryItem[] = [
-      { id: "img-1", src: "/media/images/one.png", prompt: "First image" },
+      {
+        id: "uploaded_image:img-1",
+        deletionId: "img-1",
+        src: "/media/images/one.png",
+        prompt: "First image",
+      },
     ];
 
     render(<GalleryGrid items={items} onOpen={onOpen} />);
@@ -72,12 +79,17 @@ describe("GalleryGrid", () => {
     expect(onOpen).toHaveBeenCalledWith(items[0]);
   });
 
-  it("reports the deleted item to its owner", async () => {
+  it("deletes the canonical source identifier, never the tile identity", async () => {
     const onDelete = vi.fn();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     deleteAssetMock.mockResolvedValue(undefined);
     const items: GalleryItem[] = [
-      { id: "img-1", src: "/media/images/one.png", prompt: "First image" },
+      {
+        id: "uploaded_image:img-1",
+        deletionId: "img-1",
+        src: "/media/images/one.png",
+        prompt: "First image",
+      },
     ];
 
     render(<GalleryGrid items={items} onOpen={vi.fn()} onDelete={onDelete} />);
@@ -89,5 +101,47 @@ describe("GalleryGrid", () => {
     });
     expect(confirmSpy).toHaveBeenCalled();
     expect(deleteAssetMock).toHaveBeenCalledWith({ kind: "image", id: "img-1" });
+    expect(deleteAssetMock).not.toHaveBeenCalledWith({
+      kind: "image",
+      id: "uploaded_image:img-1",
+    });
+  });
+
+  it("offers no Delete action without a deletion identifier", () => {
+    const items: GalleryItem[] = [
+      {
+        id: "generated_image:gen-1",
+        src: "/media/images/generated.png",
+        prompt: "Generated image",
+      },
+    ];
+
+    render(<GalleryGrid items={items} onOpen={vi.fn()} onDelete={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Generated image" }));
+
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
+    expect(deleteAssetMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the download action for a deletable item", async () => {
+    const items: GalleryItem[] = [
+      {
+        id: "uploaded_image:img-1",
+        deletionId: "img-1",
+        src: "/media/images/one.png",
+        prompt: "First image",
+      },
+    ];
+
+    render(<GalleryGrid items={items} onOpen={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "First image" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
+
+    await waitFor(() => {
+      expect(downloadAssetMock).toHaveBeenCalledWith({
+        url: "/media/images/one.png",
+        filename: "First image",
+      });
+    });
   });
 });

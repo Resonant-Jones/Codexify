@@ -24,8 +24,15 @@ vi.mock("@/components/documents/DocumentTile", () => ({
   default: () => <div data-testid="document-tile-mock">Document tile</div>,
 }));
 vi.mock("@/components/gallery/GalleryGrid", () => ({
-  default: ({ items }: { items: unknown[] }) => (
-    <div data-testid="gallery-grid-mock">{items.length} images</div>
+  default: ({ items }: { items: Array<{ id?: string; deletionId?: string }> }) => (
+    <>
+      <div data-testid="gallery-grid-mock">{items.length} images</div>
+      <div data-testid="gallery-grid-identities">
+        {items
+          .map((item) => `${item.id ?? "none"}|${item.deletionId ?? "none"}`)
+          .join(",")}
+      </div>
+    </>
   ),
 }));
 
@@ -53,6 +60,22 @@ const image = {
   srcUrl: "/media/images/one.png",
   mimeType: "image/png",
   filename: "one.png",
+  projectId: 7,
+  threadIds: [],
+  createdAt: null,
+  raw: {},
+};
+const generatedImage = {
+  presentationKey: "generated_image:gen-1",
+  sourceFamily: "generated_image" as const,
+  sourceId: "gen-1",
+  resourceType: "image" as const,
+  origin: "unknown" as const,
+  title: "generated.png",
+  sourceTag: null,
+  srcUrl: "/media/images/generated.png",
+  mimeType: "image/png",
+  filename: "generated.png",
   projectId: 7,
   threadIds: [],
   createdAt: null,
@@ -185,5 +208,65 @@ describe("LibraryView", () => {
     await waitFor(() => expect(screen.getByTestId("library-widgets-unavailable")).toBeInTheDocument());
     expect(screen.getByTestId("library-unavailable")).toHaveTextContent(/no authoritative widget/i);
     expect(buildProjection).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "widgets" }));
+  });
+
+  it("keeps the family-qualified presentation key as the tile identity", async () => {
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="images"
+        onFilterChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByTestId("gallery-grid-identities")).toHaveTextContent("uploaded_image:img-1"));
+  });
+
+  it("carries the canonical source id as the deletion target for uploaded images", async () => {
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="images"
+        onFilterChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gallery-grid-identities")).toHaveTextContent(
+        "uploaded_image:img-1|img-1"
+      )
+    );
+  });
+
+  it("carries no deletion target for generated images", async () => {
+    buildProjection.mockImplementation(
+      ({ filter }: { filter: LibraryResourceProjection["filter"] }) =>
+        Promise.resolve({
+          ...projection(filter),
+          resources:
+            filter === "documents" || filter === "widgets"
+              ? []
+              : filter === "images"
+                ? [generatedImage]
+                : [generatedImage],
+        })
+    );
+
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter="images"
+        onFilterChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gallery-grid-identities")).toHaveTextContent(
+        "generated_image:gen-1|none"
+      )
+    );
   });
 });

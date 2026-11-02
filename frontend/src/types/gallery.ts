@@ -15,7 +15,27 @@
  * vocabularies.
  */
 export type GalleryItem = {
+  /**
+   * Local identity for the tile. It identifies the item within the surface —
+   * for Library it is the source-family-qualified presentation key, so two
+   * records sharing a raw id across families never collide.
+   *
+   * This is **not** a storage identifier and must never be sent to a backend
+   * route.
+   */
   id?: string;
+  /**
+   * Canonical source identifier, used as the backend **deletion target**.
+   *
+   * Present only when the source family has a supported deletion contract. It
+   * is deliberately distinct from `id`: the presentation identity is
+   * source-family-qualified, while this is the raw source record id the
+   * backend route expects.
+   *
+   * Eligibility follows the source *family* alone — never provenance, URL
+   * shape, or the presentation identity.
+   */
+  deletionId?: string;
   src: string;
   prompt: string;
   project?: string | number;

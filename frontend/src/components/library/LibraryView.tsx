@@ -69,8 +69,15 @@ function toDocumentLike(resource: LibraryResource): DocumentLike {
 }
 
 function toGalleryItem(resource: LibraryResource): GalleryItem {
+  // The deletion target is the canonical source record id, never the
+  // presentation key. Only uploaded images have a backend deletion route, so
+  // the deletion identifier is carried for that family alone — eligibility
+  // follows the source family, not provenance or URL shape.
+  const deletionId =
+    resource.sourceFamily === "uploaded_image" ? resource.sourceId : undefined;
   return {
     id: resource.presentationKey,
+    deletionId,
     src: resource.srcUrl ?? "",
     prompt: resource.title,
     project: resource.projectId ?? undefined,

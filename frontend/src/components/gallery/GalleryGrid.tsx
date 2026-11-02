@@ -29,7 +29,10 @@ export default function GalleryGrid({ items, onOpen, onDelete }: GalleryGridProp
           <div key={`${item.id || item.src}-${i}`} className="relative">
             <MediaTile
               id={item.id ?? `gallery-${i}`}
-              assetId={item.id}
+              // The deletion target is the canonical source identifier, never
+              // the tile identity. It is absent when the source family has no
+              // supported deletion contract, which hides the Delete action.
+              assetId={item.deletionId}
               src={normalizeMediaUrl(item.src)}
               alt={item.prompt}
               sizeVariant="gallery-image"

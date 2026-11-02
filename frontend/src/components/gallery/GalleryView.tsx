@@ -115,6 +115,9 @@ const GalleryView: React.FC<Props> = ({ items: propItems = [], onSelect }) => {
                   requestedTag;
                 return {
                   id: img.id,
+                  // The grid's deletion target is the canonical source id.
+                  // Here the item identity already is that id.
+                  deletionId: img.id,
                   src: resolveMediaAssetSrc(img),
                   prompt: img.filename || "Untitled",
                   project: img.project_id,
