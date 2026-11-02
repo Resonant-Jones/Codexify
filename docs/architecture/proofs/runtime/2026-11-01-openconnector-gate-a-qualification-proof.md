@@ -479,40 +479,113 @@ integration** rather than write an ADR that normalizes the sentinel workaround. 
 this stage is a good outcome: it is cheaper than discovering this inside Codexify's
 multi-user credential infrastructure.
 
-**This decision opens no ADR and starts no Gate B work.** It is recorded here as the gating
-question, and it is the only thing that should move next. The guard candidate has now been
-tested and satisfies the invariant; **the remaining question is not technical but architectural —
-whether Codexify's credential model can accept an unrestricted master bearer existing at all.**
+**This decision opens no ADR and starts no Gate B work.** It was recorded here as the gating
+question. **It has since been answered — see [Decision of record](#decision-of-record).**
+
+## Decision of record
+
+**The undistributed runtime authentication guard is accepted as a permissible
+deployment-level security mechanism.**
+
+The narrow adoption question is therefore **resolved in favor of the simpler native
+configuration**. The guard satisfies the fail-closed invariant by configuration, with no
+stored-row dependency, no additional service, no fork, and no dependence on a future upstream
+release.
+
+**The basis.** Codexify's credential model can accommodate a privileged, service-owned bearer
+without violating its account-scoped authorization principles — provided the distinction between
+*a privileged credential existing inside trusted infrastructure* and *that credential being
+available to ordinary account execution* is preserved. ADR-094 explicitly recognizes account,
+operator, and Codexify service/deployment ownership scopes, and requires account-specific
+Guardian authorization before execution even when the underlying credential is service-owned.
+
+Two further supports:
+
+- The guard lives inside the **same Docker trust boundary** as the gateway's existing admin
+  token and encryption key. Anyone with unrestricted Docker daemon access can already compromise
+  the gateway's credentials, so the guard **does not establish a new higher trust tier**.
+- Upstream v1.9.4 **already has an operator-level master-capability class**: `auth.ts` allows
+  administrator authentication to elevate `POST /v1/actions/:actionId`, and administrators can
+  manage runtime tokens. The guard is a separate way to exercise broad runtime authority; it does
+  not introduce the concept for the first time.
+
+**This decision does not** approve the delegated credential vault, authorize Gate B, or amend an
+ADR. It resolves only the narrow adoption question, and it becomes an explicit input to the next
+architectural review of delegated credential custody and per-account authorization — which no
+longer has to treat the sentinel as the primary defense.
+
+### Conditions of acceptance
+
+1. **Service-owned, operator-custodied.** The guard belongs to the Codexify deployment — not to
+   an account, an agent, a worker, or a connection binding.
+2. **Never used for execution.** Guardian's adapter uses only account-scoped persistent tokens.
+   The guard never enters the adapter configuration, a model context, a queue, a command, or a
+   user-visible API.
+3. **Fail-closed deployment.** A missing guard prevents startup or promotion. Environment changes
+   require container recreation and verification. The gateway's deployment-level Action, Proxy,
+   and Trigger restrictions remain independently enforced.
+4. **Explicit privileged-secret accounting.** A leaked guard is treated as a credential
+   incident, requiring rotation and recreation. Its existence and operational risk are not
+   hidden behind the description of "an authentication switch."
+
+### One precision point on condition 3
+
+**The gateway does not enforce fail-closed startup on its own.** Upstream's behavior on a missing
+runtime token is precisely the permissive branch that is the defect, and the startup warning
+`runtime API authentication is disabled` is advisory. Fail-closed startup must therefore be
+**enforced by Codexify's deployment pipeline** — the preflight that rejects a missing, empty,
+too-short, or admin-identical guard, the mandatory **post-start assertion that the guard is
+present in the running container**, and the promotion gate that refuses to promote a gateway
+whose guard is unverified.
+
+This is achievable and was demonstrated, but it is **Codexify-side enforcement**, and it should
+not be read as a property the substrate provides. It also follows directly from the measured
+`env_file` behavior: adding the guard and running only `restart` leaves it absent, the runtime
+API open, and the container reporting healthy.
+
+### Scope of the accepted risk
+
+The negative tests support these boundaries. They do not make accidental exposure impossible, and
+no other infrastructure secret in Codexify is held to that standard either. The accepted risk is
+precisely this: **if someone obtains the guard alone, they may invoke deployment-allowed actions
+across users' stored connections without Guardian authorization.** That is acceptable only
+because the guard's custody is restricted to the trusted deployment boundary.
+
+### Still required
+
+The **upstream report remains a legitimate vulnerability** and stays private and ready for
+disclosure. A viable deployment configuration that prevents it in our intended topology does not
+change what the defect is, and upstream's fix remains the durable remedy. The draft at
+`.gate-a-trial/UPSTREAM-SECURITY-REPORT-DRAFT.md` is **not sent**.
 
 ## Recommendation
 
-**Do not proceed to Gate B preparation until the adoption decision above is answered.**
+**The fail-closed boundary question is answered — see
+[Decision of record](#decision-of-record).** The remaining Gate B preparation inputs stand as
+follows, and are applied **when Gate B preparation is authorized**:
 
-1. **Answer the fail-closed boundary question first.** The **undistributed runtime
-   authentication guard** has now been tested and satisfies the required invariant by
-   configuration alone — no stored-row dependency, no extra service, no fork, no dependence on a
-   future upstream release. The remaining question is architectural: **whether Codexify's
-   credential model can accept an unrestricted master bearer existing at all.** That is a
-   judgement about Codexify's threat model, and it is the input §4.7(a) needs. If the answer is
-   no, the external authentication boundary becomes the next candidate — and if that also fails,
-   the dependency is rejected.
-2. **Correct the plan's operational procedures** as Gate B preparation inputs, to be applied
-   when Gate B preparation is authorized: `env_file` changes require **recreate**, not restart;
-   the adapter must use the correct connection-id form and the `input` body wrapper, and must
-   **not** send a `connectionId` body field.
+1. **The guard is the accepted mechanism**, under its four conditions. The next architectural
+   review addresses **delegated credential custody and per-account authorization** with this
+   decision as an explicit input — the sentinel is no longer the primary defense. The plan's
+   §2.4/§2.5 prohibition on setting `OOMOL_CONNECT_RUNTIME_TOKEN` is **superseded** by this
+   decision and must be corrected as part of that preparation; the plan itself is not amended
+   here.
+2. **Correct the plan's operational procedures** as Gate B preparation inputs: `env_file` changes
+   require **recreate**, not restart; the adapter must use the correct connection-id form and the
+   `input` body wrapper, and must **not** send a `connectionId` body field.
 3. **Classify provider errors defensively.** Upstream surfaces provider auth failures as
    `invalid_input` and passes provider text through; the adapter must map these to bounded
    Codexify outcomes itself.
-4. **Specify the guard's custody if it is adopted.** Non-distribution, rotation ordering (the
-   untested part), preflight enforcement, and a **post-start assertion that the guard is present
-   in the running container** — the last is not optional, because `restart` silently ignores
-   `env_file` changes.
+4. **Specify the guard's custody.** Non-distribution, rotation ordering (the untested part),
+   preflight enforcement, and a **post-start assertion that the guard is present in the running
+   container** — the last is not optional, because `restart` silently ignores `env_file` changes.
 5. **Re-run the revoked-token scenario against a real provider credential** when one is
    authorized, since the trial's credentialed path used an unverified key.
 
-**Rejection remains a legitimate outcome.** If the boundary question cannot be answered
-affirmatively, the correct decision is to reject the dependency, and this receipt is the
-evidence that would justify it.
+**The dependency is not yet adopted.** The narrow fail-closed question is resolved, but
+**delegated credential custody and per-account authorization remain open**, and they are the
+subject of the next architectural review. Rejection remains a legitimate outcome at *that*
+review.
 
 The document is now the evidence rather than the plan. Further prose refinement is not
 warranted; the remaining uncertainty is in the substrate's behavior under a real provider
