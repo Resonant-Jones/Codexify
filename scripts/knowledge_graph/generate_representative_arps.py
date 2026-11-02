@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import jsonschema
+import errno
 
 try:
     # Imported as a package module (tests, tooling).
@@ -968,10 +969,12 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             os.fsync(handle.fileno())
         try:
             os.replace(temporary_path, path)
-        except OSError:
-            # The host denies rename. Copy the staged bytes over the
-            # destination in place instead; this preserves the inode and
-            # its mode and requires neither rename nor unlink.
+        except OSError as exc:
+            # Only an explicit rename permission/unsupported-operation
+            # denial justifies trading atomicity for truncate-in-place.
+            # I/O failures and ENOSPC must leave the destination intact.
+            if exc.errno not in (errno.EPERM, errno.EACCES, errno.ENOTSUP, errno.EOPNOTSUPP):
+                raise
             write_bytes_in_place(path, temporary_path.read_bytes())
     except Exception:
         try:
@@ -994,7 +997,7 @@ def _assert_output_scope(output_dir: Path, *, allow_missing: bool) -> None:
     entries = sorted(
         path.name
         for path in output_dir.iterdir()
-        if not path.name.startswith(".")
+        if path.name not in {f".{filename}.staged" for filename in OUTPUT_FILENAMES}
     )
     if set(entries) - set(OUTPUT_FILENAMES):
         _fail(f"unknown representative packet output exists: {entries}")
@@ -1020,7 +1023,7 @@ def load_persisted_packets(output_dir: Path | str) -> dict[str, dict[str, Any]]:
     entries = sorted(
         path.name
         for path in target.iterdir()
-        if path.is_file() and not path.name.startswith(".")
+        if path.is_file() and path.name not in {f".{filename}.staged" for filename in OUTPUT_FILENAMES}
     )
     if entries != sorted(OUTPUT_FILENAMES):
         _fail("persisted representative output must contain exactly four JSON files")
