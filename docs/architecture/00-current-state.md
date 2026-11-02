@@ -67,11 +67,13 @@ This file is authoritative for:
 - Do not read Saved Widget promotion and revision storage as widget lifecycle support. Library Widgets collection listing and filtering, invocation, conversational revision and editing, deletion, export and restore, Web Audio, and canvas qualification are all still open, and none of the slice has browser proof.
 - Do not read the single-head migration graph as a new qualification of the live Preview database; that database is still at `3a91d7c4e8b2`, and it is two schema-carrying revisions behind the repository head.
 - Share links remain bearer credentials; links without `expires_in_days` do not expire and no revocation endpoint exists.
+- Do not read a corrected `supported-compose` lineage as qualifying `onboarding-and-people`; that surface still has no run receipt, and the two verdicts are independent.
 - Branch-only, origin-only, uncommitted, and local-only work is not shipped `main` reality. The request-bound history-recall authorization, the Documents and Gallery surface retirement, and the OpenConnector v1.9.4 integration plan are feature-ref only; none of them is `main` behaviour, and the recall change is the largest unreviewed change in that set.
 
 ## Active blockers
 
 - No supported-Compose qualification exists inside the tip's lineage. The recorded run tested `5da79431fa`, which is not an ancestor of the tip, so the registry reports `tested_commit_not_in_tip_lineage` and stays `HOLD`.
+- `onboarding-and-people` has no qualification run receipt at all, so the registry reports `HOLD` for it on absent evidence rather than on a lineage or staleness cause. A supported-Compose run does not qualify this surface.
 - A fresh current-tip supported-Compose qualification is missing, including model rejection, browser/event/provenance coherence, restart recovery, and ordinary chat after restart.
 - The live Preview database has not been advanced past `3a91d7c4e8b2`; two persistence-only schema revisions on `main` are unapplied there.
 - Frontend frozen-lockfile installation on the supported path remains unrehearsed.
@@ -84,10 +86,10 @@ This file is authoritative for:
 
 ## This week’s priorities
 
-1. Run the supported-Compose qualification on a commit inside the tip's lineage and record it as a dated run receipt, so the registry stops reporting HOLD for a lineage reason.
-2. Freeze the evaluated local `main` SHA and run the complete supported-Compose proof bundle.
-3. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
-4. Advance the live Preview database to the repository head and re-pin the serving revision, then re-run the 20 read-state checks against that revision.
+1. Freeze the exact evaluated `main` SHA and run the complete supported-Compose qualification bundle against that one revision, publishing a single dated run receipt that covers it. The registry's lineage error is corrected by that receipt, not by a separate fix.
+2. Separately, advance the live Preview database through the approved migration and deployment sequence with a verified recovery path, re-pin the serving revision, and re-run the 20 read-state checks against that revision.
+3. Run a first qualification for `onboarding-and-people`, which still has no run receipt; a supported-Compose run does not qualify that second surface.
+4. Complete the frontend frozen-lockfile installation step of the approved deployment sequence; the image rebuild, migrator, and application restart steps have since been executed against the live Preview.
 5. Resolve the explicit-model and delegated-adapter contradictions and execute the blocked Chronicle HTTP cases.
 6. Reprove new-thread projection, browser/event coherence, restart recovery, ordinary chat, and scope isolation on one evaluated tip.
 7. Close the highest-risk Preview and lifecycle gaps: share-link revocation, import-to-recall, export and restore, cross-browser verification of the now-proven unread badge, and the Saved Widget lifecycle beyond promotion.
@@ -98,6 +100,7 @@ This file is authoritative for:
 - [x] Bounded chat, cancellation, durable readback, retrieval, authorization, and migration-chain evidence exists at evaluated mainline tips.
 - [x] Release-readiness claims are machine-checkable: the qualification registry is generated and drift-gated, and the knowledge-graph corpus is bound to a revision.
 - [ ] A fresh current-tip Compose run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery.
+- [ ] Each tracked qualification surface carries its own dated run receipt inside the tip's lineage; a receipt for one surface does not qualify another.
 - [ ] An unavailable explicit model fails before provider execution and cannot be silently substituted.
 - [ ] Queue/worker, deadline, graceful-stop, lock, migration deployment, browser, import-recall, and scope-isolation gates are green on one evaluated tip.
 - [ ] Delegated execution has a passing worker-to-adapter `reasoning_effort` contract and live proof.
