@@ -6,9 +6,9 @@ Scope: the `/gallery` → `/library?filter=images` compatibility alias and the
 persisted `cfy.lastView = "gallery"` destination, as implemented in the Library
 Surface Consolidation.
 
-This is a **code-path and jsdom unit proof**. It is not browser-runtime proof,
-not release qualification, and not a claim that any browser other than the one
-under inspection is free of browser-local residue.
+This receipt records a **jsdom unit proof** and a **partial browser-runtime
+proof**. It is not release qualification, and it is not a claim that any browser
+other than the one under inspection is free of browser-local residue.
 
 ## Why this receipt exists
 
@@ -115,17 +115,61 @@ Also verified:
 
 ## Was a real-browser check performed?
 
-**No.** All evidence above is jsdom unit proof through the real routing
-mechanism. No disposable browser profile was exercised, and no live browser was
-driven with synthetic Gallery data.
+**Yes — a partial one, on 2026-11-02.** A headless Chromium run against the
+production frontend build, served as a static SPA with a history fallback, with
+**no backend**. Each scenario used a **disposable browser context** (an
+isolated profile, never the user's browser) seeded with **synthetic** Gallery
+data only.
 
-What a real-browser pass would still have to establish, and what this receipt
-does **not** claim:
+What the browser run established:
 
-- That the gate's classification agrees with what a real browser actually
-  retains in `cfy.gallery` (storage partitioning, quota eviction, and
-  extension interference are browser behaviours jsdom does not reproduce).
-- That `replaceState` canonicalization behaves identically outside jsdom.
+| Scenario | Result |
+|---|---|
+| No `cfy.gallery` entry | → `/library?filter=images` |
+| Empty `cfy.gallery` | → `/library?filter=images` |
+| Known demonstration assets only | → `/library?filter=images` |
+| Server-addressed entry | → `/library?filter=images` |
+| `data:` URL with `mock: true` | → `/gallery` retained |
+| `data:` URL hidden by other entries | → `/gallery` retained |
+| Arbitrary `mock: true` entry on an unrecognized path | → `/gallery` retained |
+| Unknown local reference | → `/gallery` retained |
+| `blob:` reference | → `/gallery` retained |
+| Malformed payload | → `/gallery` retained |
+
+And, in the same browser:
+
+- **The browser-local payload was unchanged by the navigation in every
+  scenario** — the stored value was compared before and after each navigation
+  and was byte-for-byte identical every time.
+- **The app's canonicalization added no history entry.** `history.length` was
+  14 before the app's action and 14 after it.
+- **Back did not loop.** Back landed on the previous address
+  (`/chat`), never on the retired `/gallery`; Forward returned to
+  `/library?filter=images`.
+- **The persisted gallery destination obeys the same rule.** With a safe
+  browser, `cfy.lastView = "gallery"` restored Library with the Images filter
+  selected and the persisted value was rewritten to `library`. With a browser
+  holding a local `data:` URL, the Gallery destination was retained, the local
+  image **was still rendered** (`img[alt="Local only"]` present), the persisted
+  value stayed `gallery`, and the stored local entry was still present.
+- **The Documents alias does not regress.** A direct load of `/documents`
+  canonicalized to `/library?filter=documents` with the Documents tab selected.
+
+The desktop nav in that same browser read **Guardian | Dashboard | Library |
+Lens**, confirming the Phase 1 removal in a real runtime rather than only in
+jsdom.
+
+### What the browser run does *not* establish
+
+- **No backend was running.** The run proves client-side routing, storage
+  behaviour, and history behaviour only. It proves nothing about
+  server-backed image listing, scope, or authorization.
+- **The gallery content itself was synthetic.** No real user image was read,
+  exported, or inspected, and no private browser profile was touched.
+- **One browser engine, one profile shape, one moment in time.** Storage
+  partitioning, quota eviction, extension interference, and multi-profile
+  behaviour are not exercised by a single headless context.
+- **The account-scoped sweep is still not done.** See below.
 
 ## What remains unknown about other browsers
 

@@ -395,6 +395,16 @@ browser-local content might be hidden. The account-scoped sweep across browsers
 remains outstanding; see the dated gate note
 `docs/architecture/proofs/2026-11-01-gallery-browser-local-route-gate.md`.
 
+**Proof status (2026-11-02).** The gate is covered by jsdom unit tests through
+the real routing mechanism, and by a **partial browser-runtime proof** — a
+headless Chromium run against the production build with a disposable browser
+context and synthetic Gallery data, with no backend. The browser run confirmed
+the routing, the storage-unchanged property, the no-history-entry canonicalization,
+the Back/Forward path, the persisted-view rule, and the `/documents`
+non-regression. It did **not** establish anything about server-backed image
+listing, scope, authorization, or other browsers. The gate note distinguishes
+the three proof levels explicitly.
+
 ### 2.3 `GalleryView.tsx`: unreferenced in production, but not dependency-free
 
 `frontend/src/components/gallery/GalleryView.tsx` (386 lines) is imported
