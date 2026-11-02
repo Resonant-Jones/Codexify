@@ -25,6 +25,7 @@ Nothing here mutates the repository. It validates and reports.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import shutil
 import subprocess
@@ -180,16 +181,18 @@ def _run_generator_at_calibration(
                 stderr=added.stderr,
             )
         try:
-            # The checkout may report failures for paths this host cannot
-            # write (editor scratch directories, for example). Those paths
-            # are not DLG inputs, so a partial checkout is acceptable as
-            # long as the corpus and the generator landed.
-            subprocess.run(
+            # Full-checkout failures must not be mistaken for corpus drift.
+            # Skip smudging unrelated historical LFS objects but fail closed
+            # if Git cannot materialize the complete selected revision.
+            materialized = subprocess.run(
                 ["git", "-C", str(checkout), "checkout", "-f"],
                 capture_output=True,
                 check=False,
                 text=True,
+                env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
             )
+            if materialized.returncode != 0:
+                return materialized
             corpus = checkout / "docs/knowledge-graph/nodes"
             if not corpus.is_dir():
                 return subprocess.CompletedProcess(
@@ -210,6 +213,20 @@ def _run_generator_at_calibration(
                 target = checkout / "scripts/knowledge_graph" / source.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+            # Schema bytes participate in graph-revision derivation. Do
+            # not verify today's generator against yesterday's schema.
+            schema_rel = Path("schemas/knowledge/document-lifecycle-graph.schema.json")
+            current_schema = repo_root / schema_rel
+            if not current_schema.is_file():
+                return subprocess.CompletedProcess(
+                    args=["copy", str(current_schema)],
+                    returncode=1,
+                    stdout="",
+                    stderr=f"Missing current DLG schema: {current_schema}",
+                )
+            target_schema = checkout / schema_rel
+            target_schema.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(current_schema, target_schema)
             for filename in DLG_PROJECTION_FILENAMES:
                 source = repo_root / DLG_OUTPUT_DIR / filename
                 target = checkout / DLG_OUTPUT_DIR / filename
@@ -240,12 +257,6 @@ def _run_generator_at_calibration(
         finally:
             subprocess.run(
                 ["git", "-C", str(repo_root), "worktree", "remove", "--force", str(checkout)],
-                capture_output=True,
-                check=False,
-                text=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(repo_root), "worktree", "prune"],
                 capture_output=True,
                 check=False,
                 text=True,
