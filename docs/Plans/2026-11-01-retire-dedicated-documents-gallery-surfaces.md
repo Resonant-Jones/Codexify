@@ -496,6 +496,26 @@ Add `?filter=all|images|documents|widgets` support to `/library`, so
 
 Without this, Phase 3 has nowhere correct to point the Dashboard buttons.
 
+**Implemented convention (2026-11-01).** Phase 2 is implemented; this is the
+convention Phase 3 must inherit for its compatibility redirects.
+
+- The canonical address for the default filter is **`/library`**. `?filter=all`
+  is accepted and resolves to `all`, but the shell never emits it. Every
+  non-default filter is emitted as `?filter=<value>`.
+- **The URL is the only source of the filter.** `LibraryView` holds no filter
+  state at all — it receives `filter` as a prop and reports changes through
+  `onFilterChange`. The shell writes the change to the URL and its route sync
+  reads the filter back from `window.location.search` on every route change, so
+  the address bar and the rendered filter cannot disagree.
+- A filter change pushes a **new history entry**, so Back/Forward moves between
+  filters.
+- The mapping lives in `frontend/src/components/library/libraryFilterRoute.ts`
+  (`parseLibraryFilter`, `readLibraryFilterFromSearch`,
+  `buildLibraryFilterSearch`) — deliberately outside both the resource
+  projection (which owns the taxonomy) and the view (which owns presentation).
+- Scope, authorization, and the resource projections are unchanged: a filter
+  change re-reads the same scope and never re-scopes a request.
+
 ### Phase 3 — Close the remaining callers, with safe compatibility redirects
 
 | Caller | Action |
