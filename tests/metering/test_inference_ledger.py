@@ -12,7 +12,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from guardian.db.models import Base, ChatThread, InferenceUsageEvent, User
+from guardian.db.models import (
+    Base, ChatThread, InferenceUsageEvent, PersonaProfile,
+    PersonaProfileRevision, Project, User,
+)
 from guardian.metering.ledger import (
     account_inference_totals,
     estimate_cost,
@@ -48,7 +51,8 @@ def _sessions():
     try:
         Base.metadata.create_all(
             engine, tables=[
-                User.__table__, ChatThread.__table__,
+                User.__table__, Project.__table__, PersonaProfile.__table__,
+                PersonaProfileRevision.__table__, ChatThread.__table__,
                 InferenceUsageEvent.__table__,
             ],
         )
@@ -123,9 +127,10 @@ def test_idempotency_isolation_and_aggregation():
         with SessionLocal.begin() as session:
             first = record_inference_attempt(session, **kwargs)
             assert first.input_tokens == 100
+            first_id = first.id
         with SessionLocal.begin() as session:
             again = record_inference_attempt(session, **kwargs)
-            assert again.id == first.id
+            assert again.id == first_id
         with SessionLocal.begin() as session:
             with pytest.raises(ValueError, match="idempotency_conflict"):
                 record_inference_attempt(

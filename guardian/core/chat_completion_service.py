@@ -1785,10 +1785,13 @@ def _execute_completion_attempt(
             chunk_callback=chunk_callback, cancel_check=cancel_check,
             tool_exposure=tool_exposure,
         )
-    _record_observed_provider_usage(
-        task, provider=provider, model=model,
-        attempt_id=result.attempt_id, output=result.output,
-    )
+    try:
+        _record_observed_provider_usage(
+            task, provider=provider, model=model,
+            attempt_id=result.attempt_id, output=result.output,
+        )
+    except Exception:
+        logger.warning("[inference-metering] observation_failed", exc_info=True)
     return result
 
 
