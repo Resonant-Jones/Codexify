@@ -42,7 +42,6 @@ import FloatingConversation from "@/features/contacts/FloatingConversation";
 import { usePeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import DocumentsView from "@/components/documents/DocumentsView";
 import LibraryView from "@/components/library/LibraryView";
 import {
   buildLibraryFilterSearch,
@@ -88,8 +87,6 @@ import { checkAuthGate, getAuthState, useAuthState } from "@/lib/authState";
 import { ExtColors, GalleryItem, ThemeMode, Thread, Message } from "@/types/ui";
 import { DocumentLike } from "@/types/documents";
 import {
-  getDocumentScopeQuery,
-  getDocumentUploadScope,
   seedDocumentsScope,
   selectDocumentsProject,
   selectDocumentsThread,
@@ -97,7 +94,6 @@ import {
   type GuardianSidebarSnapshot,
 } from "@/components/documents/documentScopeProjection";
 import { SessionSpine } from "@/state/session/SessionSpine";
-import { listCodexEntries, CodexEntrySummary } from "@/api/codex";
 import ToastPortal from "@/components/ui/ToastPortal";
 import useUploader from "@/hooks/useUploader";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
@@ -721,22 +717,6 @@ function dedupeDocItems(items: DocItem[]): DocItem[] {
   return deduped;
 }
 
-function unwrapDocumentArray(value: any): any[] {
-  const unwrap = (candidate: any): any => {
-    if (!candidate || typeof candidate !== "object") return candidate;
-    return (
-      (candidate as any).documents ??
-      (candidate as any).items ??
-      (candidate as any).data ??
-      (candidate as any).results ??
-      candidate
-    );
-  };
-  const candidate1 = Array.isArray(value) ? value : unwrap(value);
-  const candidate2 = Array.isArray(candidate1) ? candidate1 : unwrap(candidate1);
-  return Array.isArray(candidate2) ? candidate2 : [];
-}
-
 function routeThreadIdFromPath(pathname: string): number | null {
   const match = pathname.match(/^\/chat\/(\d+)/);
   if (!match) return null;
@@ -1200,10 +1180,6 @@ export default function AppShell({
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
   const runtimeHealth = useRuntimeHealth();
-  const {
-    ready: codexCapabilityReady,
-    state: codexCapability,
-  } = useRuntimeRouteCapability(SUPPORTED_PROFILE_ROUTE_LABELS.CODEX);
   const { state: authRouteCapability } = useRuntimeRouteCapability(
     SUPPORTED_PROFILE_ROUTE_LABELS.AUTH
   );
@@ -1823,8 +1799,6 @@ export default function AppShell({
     if (cached) return cached;
     return typeof window === "undefined" ? defaultDocs : defaultDocs;
   });
-  const [documentsLoading, setDocumentsLoading] = useState(false);
-  const [documentsLoadError, setDocumentsLoadError] = useState<string | null>(null);
   const [activeRouteThreadId, setActiveRouteThreadId] = useState<number | null>(
     () => readRouteThreadId()
   );
@@ -1863,7 +1837,6 @@ export default function AppShell({
     selectDocumentsProject(null)
   );
   const documentsEntrySeededRef = useRef(false);
-  const [documentsScopeReady, setDocumentsScopeReady] = useState(false);
   const guardianProjectFallbackId = useMemo<number | null>(
     () =>
       !generalProjectIsValidatedForCurrentAuth || generalProjectIdSource === "storage"
@@ -1878,7 +1851,6 @@ export default function AppShell({
     setDocumentsScope(
       seedDocumentsScope(guardianSidebarSnapshot, guardianProjectFallbackId)
     );
-    setDocumentsScopeReady(true);
     return true;
   }, [guardianProjectFallbackId, guardianSidebarSnapshot]);
   const handleGuardianSidebarSnapshot = useCallback(
@@ -1924,7 +1896,6 @@ export default function AppShell({
   useEffect(() => {
     if (view !== "documents" && view !== "library") {
       documentsEntrySeededRef.current = false;
-      setDocumentsScopeReady(false);
       return;
     }
     if (documentsEntrySeededRef.current) return;
@@ -2045,7 +2016,6 @@ export default function AppShell({
   const handleDocumentsSidebarProjectChange = useCallback(
     (projectId: string | null) => {
       setDocumentsScope(selectDocumentsProject(projectId));
-      setDocumentsScopeReady(true);
       documentsEntrySeededRef.current = true;
     },
     []
@@ -2059,7 +2029,6 @@ export default function AppShell({
           currentScope.projectId
         )
       );
-      setDocumentsScopeReady(true);
       documentsEntrySeededRef.current = true;
     },
     [documentsSidebarThreads]
@@ -2180,108 +2149,6 @@ export default function AppShell({
       cancelled = true;
     };
   }, [auth, generalProjectId, generalProjectSessionScope, startupLocked]);
-  useEffect(() => {
-    let cancelled = false;
-    if (view !== "documents" || !documentsScopeReady) {
-      setDocumentsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (startupLocked) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!checkAuthGate(auth, "documents list load")) {
-      setDocumentsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-    (async () => {
-      setDocumentsLoading(true);
-      setDocumentsLoadError(null);
-      try {
-        const params = getDocumentScopeQuery(documentsScope);
-        const res = await api.get("/media/document-artifacts", { params });
-        const docs = unwrapDocumentArray(res?.data);
-        if (cancelled) return;
-        const normalized = dedupeDocItems(
-          docs.map((d: any, idx: number) => normalizeDoc(d, idx))
-        );
-        setDocuments(normalized);
-        setDocumentsSource("backend");
-        setDocumentsLoadError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setDocumentsLoadError(
-          err?.message || "Failed to load project documents."
-        );
-        console.warn("[documents] failed to load backend documents", err);
-      } finally {
-        if (!cancelled) setDocumentsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [auth, documentsScope, documentsScopeReady, startupLocked, view]);
-  const [codexEntries, setCodexEntries] = useState<CodexEntrySummary[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    if (startupLocked) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!codexCapabilityReady) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (codexCapability === "unavailable") {
-      setCodexEntries([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-    (async () => {
-      try {
-        const entries = await listCodexEntries();
-        if (!cancelled) setCodexEntries(entries);
-      } catch (err) {
-        console.warn("[codex] failed to load entries", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [codexCapability, codexCapabilityReady, startupLocked]);
-  const codexDocs = useMemo<DocItem[]>(() => {
-    if (!Array.isArray(codexEntries)) return [];
-    return codexEntries.map((e, idx) => ({
-      id: e?.id || `codex-${idx}`,
-      name: e?.title || "Untitled Codex Entry",
-      title: e?.title || "Untitled Codex Entry",
-      ext: ((e?.ext || "codex") as keyof ExtColors),
-      type: "codex_entry" as const,
-      createdAt: e?.created_at,
-      mock: false,
-    }));
-  }, [codexEntries]);
-  const scopedDocuments = useMemo<DocItem[]>(() => documents, [documents]);
-  const allDocuments = useMemo<DocItem[]>(
-    () =>
-      documentsScope.kind === "thread"
-        ? scopedDocuments
-        : dedupeDocItems([...codexDocs, ...scopedDocuments]),
-    [codexDocs, documentsScope.kind, scopedDocuments]
-  );
-  const documentsUploadScope = useMemo(
-    () => getDocumentUploadScope(documentsScope),
-    [documentsScope]
-  );
   const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
   // Utility: parse a number from unknown input, fall back & clamp to [0,1]
   function safeNumber(val: unknown, fallback: number): number {
@@ -2994,7 +2861,6 @@ export default function AppShell({
       const projectId = Number(detail?.projectId);
       if (Number.isFinite(projectId) && projectId > 0) {
         setDocumentsScope(selectDocumentsProject(projectId));
-        setDocumentsScopeReady(true);
         documentsEntrySeededRef.current = true;
       }
       // The event name and its payload are a published contract surface, so
@@ -4250,140 +4116,6 @@ export default function AppShell({
               roomId={activeRoomId}
               onLeave={() => navigateToView("guardian")}
             />
-          )}
-          {!startupLocked && activeRoomId == null && view === "documents" && (
-            <div
-              className="h-full w-full isolate"
-              data-active-view="documents"
-              data-active-view-contract="left-center-right"
-              data-thread-rail="present"
-              data-view-family="documents"
-              style={{
-                "--radius": "var(--card-radius)",
-                ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
-                "--gutter": "var(--shell-gap)",
-                "--min-h": shellViewportProfile.contentMinHeight,
-                borderRadius: "var(--card-radius)",
-              } as React.CSSProperties}
-            >
-              <div
-                className={workspaceShellLaneClassName}
-                {...workspaceSplitSurfaceProps}
-              >
-                <div
-                  data-testid="workspace-primary-pane"
-                  data-pane-basis={
-                    showWorkspaceDrawer && !isPhoneShell
-                      ? primaryPaneBasis
-                      : "100.00%"
-                  }
-                  data-pane-min-width={
-                    showWorkspaceDrawer && !isPhoneShell
-                      ? primaryPaneMinWidth
-                      : "0px"
-                  }
-                  className="min-h-0 min-w-0 relative"
-                  style={workspacePrimaryPaneStyle}
-                >
-                  <div
-                    className={
-                      isPhoneShell
-                        ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
-                        : documentsSidebarVisible
-                          ? "grid h-full w-full min-h-0 overflow-hidden"
-                          : "flex h-full w-full min-h-0 flex-col overflow-hidden"
-                    }
-                    data-testid="documents-shared-shell"
-                    data-documents-shared-shell="sidebar-center"
-                    style={
-                      isPhoneShell
-                        ? undefined
-                        : documentsSidebarVisible
-                          ? {
-                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-                              gap: "var(--gutter)",
-                            }
-                          : undefined
-                    }
-                  >
-                    {!isPhoneShell && documentsSidebarVisible && (
-                      <div
-                        className="relative flex h-full min-h-0 shrink-0 basis-[clamp(300px,24vw,360px)] overflow-hidden"
-                        data-testid="documents-shared-sidebar-pane"
-                        data-shared-sidebar="true"
-                      >
-                        <FrameCard
-                          fill
-                          refractiveFallback
-                          shimmerMode="subtle"
-                          liquidBezelWidth={3}
-                          className="flex h-full w-full min-h-0 flex-col box-border"
-                          style={{
-                            borderRadius: "var(--card-radius)",
-                            borderWidth: 1,
-                            borderStyle: "solid",
-                            borderColor: "var(--panel-border)",
-                          }}
-                        >
-                        <SidebarRoot
-                            threads={documentsSidebarThreadsForRender}
-                            activeId={
-                              documentsScope.kind === "thread"
-                                ? String(documentsScope.threadId)
-                                : null
-                            }
-                            onSelect={handleDocumentsSidebarThreadSelect}
-                            onNewChat={() => navigateToThread(null)}
-                            projectId={
-                              documentsScope.projectId == null
-                                ? null
-                                : String(documentsScope.projectId)
-                            }
-                            onProjectChange={handleDocumentsSidebarProjectChange}
-                            persistence={documentsSidebarPersistence}
-                          />
-                        </FrameCard>
-                      </div>
-                    )}
-                    {!isPhoneShell && !documentsSidebarVisible && (
-                      <button
-                        type="button"
-                        className="absolute left-0 top-0 z-10 flex h-full w-6 items-center justify-center border-0 bg-transparent opacity-0 transition-opacity duration-200 hover:opacity-100 focus:opacity-100"
-                        data-testid="documents-sidebar-edge-affordance"
-                        aria-label="Show sidebar"
-                        title="Show sidebar"
-                        onClick={toggleDocumentsSidebar}
-                        style={{ background: "color-mix(in oklab, var(--panel-bg) 60%, transparent)" }}
-                      >
-                        <span className="text-xs" style={{ color: "var(--muted)" }}>▶</span>
-                      </button>
-                    )}
-                    <FrameCard
-                      fill
-                      refractiveFallback
-                      shimmerMode="subtle"
-                      className="h-full w-full min-h-0 flex flex-col overflow-hidden"
-                      data-testid="documents-primary-frame"
-                    >
-                      {phonePrimaryFrameHeader}
-                      <div className="min-h-0 flex-1 overflow-hidden">
-                        <DocumentsView
-                          documents={allDocuments}
-                          extColors={extColors}
-                          onOpenInThread={openDocInThread}
-                          onDeleteDocument={deleteDocument}
-                          projectId={documentsUploadScope.projectId}
-                          threadId={documentsUploadScope.threadId}
-                          loading={documentsLoading}
-                          error={documentsLoadError}
-                        />
-                      </div>
-                    </FrameCard>
-                  </div>
-                </div>
-                {sharedWorkspaceDrawer}
-              </div>
-            </div>
           )}
           {!startupLocked && activeRoomId == null && view === "library" && (
             <div
