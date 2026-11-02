@@ -303,7 +303,115 @@ including while the runtime surface was unauthenticated.
 - **No conclusion about the version's fitness beyond v1.9.4**, and no basis for a release or
   support claim.
 
-## The adoption decision, ahead of the ADR
+## Candidate 1 — the undistributed runtime authentication guard (tested)
+
+**The native candidate, tested before building an external proxy or considering a fork.**
+
+`OOMOL_CONNECT_RUNTIME_TOKEN` has two properties that matter together. In upstream's
+`hasValidToken`, the permissive zero-token branch is reached only when **no** runtime token is
+configured. When one *is* configured, a request must either present that bearer or satisfy
+`hasValidRuntimeToken`, which resolves persistent `oct_...` tokens **and their scoped grants**.
+
+**Candidate:** configure a high-entropy runtime token **solely as an authentication-enforcement
+secret**. Never distribute it to Guardian, users, models, or runtime clients. Continue using
+individually scoped persistent tokens for actual execution.
+
+**First, a constraint that narrows the field.** Upstream's auth middleware accepts a
+`requireRuntimeAuth` option that would enforce authentication with no tokens at all — and it is
+**not reachable** at v1.9.4. The complete `OOMOL_CONNECT_*` environment surface read from
+`src/server/index.ts` is 31 variables; `requireRuntimeAuth` is not among them, it does not
+appear in the server entry at all, and `npm start` runs `node src/server/index.ts` directly with
+no flag to set it. It is an in-process option only. **`OOMOL_CONNECT_RUNTIME_TOKEN` is therefore
+the only native, configuration-only lever that makes the condition fail closed.**
+
+### The four required observations
+
+| Observation | Result |
+| --- | --- |
+| **Zero stored tokens** → anonymous denied | **PASS** — `GET /v1/actions` → HTTP **401**; anonymous `POST` of the credentialed action → HTTP **401** `unauthorized` |
+| **Scoped user token** → own grant allowed | **PASS** — user-a's token on user-a's connection reached the **provider layer** (provider rejected the fabricated key), not `connection_not_allowed` |
+| **Cross-user attempt** → foreign grant denied | **PASS** — user-a's token → user-b's connection → HTTP **403** `connection_not_allowed`; user-a's token → user-b's action → HTTP **400** `action_not_allowed` |
+| **Delete final user token** → anonymous still denied | **PASS** — store reduced to **0**, anonymous `GET /v1/actions` → HTTP **401**, anonymous credentialed action → HTTP **401** |
+
+The fourth observation is the one the sentinel could not provide natively. **The candidate
+achieves fail-closed behavior by configuration, with no stored-row dependency at all.**
+
+### The trade-off, measured rather than asserted
+
+The candidate's cost is real and was confirmed by a controlled pairing — **same action, same
+service, same valid input; only the connection differs**, against a third connection on the
+same provider (`aeroleads/user-c`):
+
+| Bearer | Target connection | Result |
+| --- | --- | --- |
+| user-a's **scoped** token | user-c | HTTP 403 `connection_not_allowed` |
+| the **guard** bearer | user-c | HTTP 400 — **provider-level rejection** |
+
+**The guard bypasses per-connection grants.** Its holder can reach any stored connection and any
+deployment-allowed action, with no per-user grant applied. The candidate therefore trades a
+dependency on a **database row count** for a dependency on a **privileged deployment secret** —
+exactly the trade the review anticipated.
+
+**Scope of the guard, measured:**
+
+| Surface | Result |
+| --- | --- |
+| Runtime action execution (`/v1/actions/*`) | Authorized (bypasses per-user grants) |
+| MCP (`POST /mcp`) | Authorized — HTTP 200 on `tools/list` |
+| Admin surface (`/api/*`) | **Not** authorized — HTTP 401. The guard is **runtime scope only**. |
+
+**No leakage.** The guard value did not appear in the container logs, the persisted run log, or
+any response body. It is also never placed in a request, an argument, a result, or a projection.
+
+### Operational requirements — the guard is only as good as its enforcement
+
+A fail-closed secret that can be silently dropped is not fail-closed. Three requirements were
+therefore tested:
+
+**Detection before deployment.** A guard-aware preflight was written and behavior-tested across
+six cases:
+
+| Case | Result |
+| --- | --- |
+| Guard present, distinct from the admin token, ≥32 chars | **PASSED** |
+| Guard key missing | REJECTED — missing or empty |
+| Guard key present but empty | REJECTED — missing or empty |
+| Guard shorter than 32 characters | REJECTED — too weak to be an enforcement secret |
+| Guard equal to the admin token | REJECTED — role separation violated |
+| Wildcard in the action allowlist | REJECTED — not exactly the approved actions |
+
+**`env_file` recreate behavior makes configuration verification mandatory.** The plan's earlier
+finding — that `docker compose restart` does **not** re-read `env_file` — was confirmed in the
+fail-unsafe direction with the guard specifically:
+
+| Sequence | Result |
+| --- | --- |
+| Guard added to the secret file, then **restart only** | Guard **still absent** in the running container; anonymous `/v1` → **HTTP 200, window open**; container reported **healthy** |
+| Guard added, then **recreate** | Guard present (73 chars); anonymous `/v1` → **HTTP 401, fail closed**; the upstream `runtime API authentication is disabled` startup warning was **absent** |
+
+So an operator who adds the guard and runs `restart` believes the gateway is fail-closed when it
+is not, and nothing reports the difference. **A post-start assertion that the guard is present in
+the *running container* is therefore a mandatory part of the deployment, not an optional
+verification.** The stale-config direction is fail-safe (a leftover guard keeps authentication
+closed); the add-without-recreate direction is fail-unsafe.
+
+### Assessment
+
+The candidate is a **genuine simplification** of the sentinel: it removes the sentinel's
+security responsibility entirely, replaces a database-row invariant with a deployment-secret
+invariant, needs no extra service and no fork, and does not depend on a future upstream release.
+
+It is **not** a free guarantee. It introduces a **privileged master bearer** whose leak bypasses
+every per-user connection grant. Whether that is acceptable is an architecture decision, not a
+technical one — and it is exactly the decision the §4.7(a) ADR amendment would have to record.
+Its operational burden is a preflight rule and a post-start assertion; its residual risk is
+concentrated in a single secret whose custody, rotation, and non-distribution must be specified.
+
+**What this receipt does not settle:** whether Codexify's multi-user credential model can accept
+an unrestricted master bearer existing at all, and whether the guard can be rotated without a
+window (a rotation invalidates the old bearer before the new one is live — the ordering
+implications are untested).
+
 
 The fail-closed question is **prior to** the ADR amendment, because the amendment's content
 depends on its answer. Writing §4.7(a) first would normalize the sentinel workaround as
@@ -325,12 +433,19 @@ exploit test shows, the consequence is not merely exposure but **credential spen
 
 **Candidate boundaries to evaluate.** None may be assumed cheap or sufficient without proof:
 
+- **An undistributed runtime authentication guard** — `OOMOL_CONNECT_RUNTIME_TOKEN` configured
+  as a high-entropy enforcement secret, never distributed, with scoped persistent tokens still
+  used for execution. **Tested above: it satisfies the required invariant by configuration**, with
+  no stored-row dependency, no extra service, and no fork. Its cost is a privileged master
+  bearer that bypasses per-user connection grants.
 - A **narrowly scoped external authentication boundary** in front of the gateway — a component
   that enforces authentication independently of the gateway's own store, so that the gateway's
-  empty-store condition is no longer reachable by an unauthorized caller.
+  empty-store condition is no longer reachable by an unauthorized caller. Not yet evaluated.
 - An **upstream fix** — a change to upstream's runtime-authentication logic that makes the
   condition fail closed. Cost, maintainability, and upstream's own security-fix window (latest
-  release and `main` only) all bear on whether this is a real option.
+  release and `main` only) all bear on whether this is a real option. Note that upstream's
+  `requireRuntimeAuth` option already expresses the desired semantics but is **not reachable
+  from configuration** at v1.9.4.
 - **A permanent fork** — available, but it converts a commodity substrate into a
   Codexify-maintained fork, which **undermines the original objective** of adopting a
   maintained connector ecosystem. It should be the last resort, not a default.
@@ -342,16 +457,22 @@ this stage is a good outcome: it is cheaper than discovering this inside Codexif
 multi-user credential infrastructure.
 
 **This decision opens no ADR and starts no Gate B work.** It is recorded here as the gating
-question, and it is the only thing that should move next.
+question, and it is the only thing that should move next. The guard candidate has now been
+tested and satisfies the invariant; **the remaining question is not technical but architectural —
+whether Codexify's credential model can accept an unrestricted master bearer existing at all.**
 
 ## Recommendation
 
 **Do not proceed to Gate B preparation until the adoption decision above is answered.**
 
-1. **Answer the fail-closed boundary question first.** Evaluate the candidate boundaries —
-   external authentication boundary, upstream fix, fork — against the measured reality, and
-   accept or reject the dependency on the answer. Only then does the §4.7(a) delegated
-   credential-vault ADR amendment have a settled subject.
+1. **Answer the fail-closed boundary question first.** The **undistributed runtime
+   authentication guard** has now been tested and satisfies the required invariant by
+   configuration alone — no stored-row dependency, no extra service, no fork, no dependence on a
+   future upstream release. The remaining question is architectural: **whether Codexify's
+   credential model can accept an unrestricted master bearer existing at all.** That is a
+   judgement about Codexify's threat model, and it is the input §4.7(a) needs. If the answer is
+   no, the external authentication boundary becomes the next candidate — and if that also fails,
+   the dependency is rejected.
 2. **Correct the plan's operational procedures** as Gate B preparation inputs, to be applied
    when Gate B preparation is authorized: `env_file` changes require **recreate**, not restart;
    the adapter must use the correct connection-id form and the `input` body wrapper, and must
@@ -359,8 +480,10 @@ question, and it is the only thing that should move next.
 3. **Classify provider errors defensively.** Upstream surfaces provider auth failures as
    `invalid_input` and passes provider text through; the adapter must map these to bounded
    Codexify outcomes itself.
-4. **Keep the sentinel**, and consider whether Codexify's own lifecycle code should *refuse*
-   the last-token deletion rather than rely on an operator remembering.
+4. **Specify the guard's custody if it is adopted.** Non-distribution, rotation ordering (the
+   untested part), preflight enforcement, and a **post-start assertion that the guard is present
+   in the running container** — the last is not optional, because `restart` silently ignores
+   `env_file` changes.
 5. **Re-run the revoked-token scenario against a real provider credential** when one is
    authorized, since the trial's credentialed path used an unverified key.
 
@@ -371,3 +494,26 @@ evidence that would justify it.
 The document is now the evidence rather than the plan. Further prose refinement is not
 warranted; the remaining uncertainty is in the substrate's behavior under a real provider
 credential and under Codexify's own lifecycle operations.
+
+## Responsible disclosure
+
+**This receipt is not cleared for publication.** It documents a reproducible unauthorized
+credential-backed execution path in a currently-supported upstream release, and the details are
+specific enough to be actionable. Upstream's `SECURITY.md` asks that vulnerabilities be reported
+**privately** and kept private until a fix is released — it targets publication within 90 days,
+and faster for actively exploited issues.
+
+The report should go to upstream's **private** channel before any of this is published:
+
+1. **GitHub private vulnerability reporting (upstream's preferred channel)** — the repository's
+   **Security** tab → **Advisories** → **Report a vulnerability**.
+2. **Email** — `support@oomol.com`, if private reporting is unavailable.
+
+Upstream asks that reports **not** include secrets, credentials, or customer data; every value
+in this receipt is a disposable placeholder. Upstream also commits to acknowledgement within 3
+business days, to coordinating a fix before disclosure, and to crediting the reporter in the
+advisory unless asked not to.
+
+**Until upstream has responded, the branch stays unpushed and this receipt stays local.** The
+Gate A commits are on a local branch only; nothing has been pushed to `origin`, and no release
+posture, current-state document, or support claim has been widened.
