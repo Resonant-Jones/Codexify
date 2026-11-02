@@ -498,6 +498,7 @@ def _retrieval_proof_state(
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
+from guardian.routes import metering_admin
 from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import configuration_inspector
@@ -1091,6 +1092,7 @@ def _include_browser_host_negotiation_router() -> None:
 
 def _include_admin_surface() -> None:
     app.include_router(admin.router)
+    app.include_router(metering_admin.router)
     app.include_router(configuration_inspector.router)
 
 

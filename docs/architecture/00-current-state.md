@@ -55,6 +55,7 @@ This file is authoritative for:
 
 ## Not yet true / do not assume
 
+- Capabilities without current-main qualification are not default Beta support.
 - Do not call the supported path release-ready or treat migration qualification as deployment.
 - Do not read a green CI run as runtime qualification. The registry, the corpus validator, and the contract suites are documentation-integrity gates; they prove a claim is checkable, not that the runtime behaves.
 - Do not read a `HOLD` registry entry as the whole release verdict, and do not read a `PASS` as lifting the gate: the supported-Compose rubric cannot receive PASS while the browser, restart-recovery, or provenance boundaries are unexercised, and a PASS does not by itself lift the release gate.
