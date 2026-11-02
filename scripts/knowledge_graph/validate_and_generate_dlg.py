@@ -39,7 +39,7 @@ try:
 except ImportError:  # pragma: no cover - executed as a script
     # Executed directly: the repository root is not on sys.path yet.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from scripts.knowledge_graph.in_place_write import write_bytes_in_place
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place, exclusive_artifact_lock
 
 
 SCRIPT_ID = "scripts/knowledge_graph/validate_and_generate_dlg.py"
