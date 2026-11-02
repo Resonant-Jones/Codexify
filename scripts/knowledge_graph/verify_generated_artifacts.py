@@ -202,11 +202,24 @@ def _run_generator_at_calibration(
                     ),
                 )
 
-            # Overlay the current generator and its siblings so the check
-            # exercises today's tooling against the calibration corpus.
+            # Overlay today's generator and the actual candidate artifacts
+            # onto the historical corpus. The generator's check-generated
+            # compares them byte-for-byte against a fresh regeneration.
             overlay = repo_root / "scripts/knowledge_graph"
             for source in sorted(overlay.glob("*.py")):
                 target = checkout / "scripts/knowledge_graph" / source.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+            for filename in DLG_PROJECTION_FILENAMES:
+                source = repo_root / DLG_OUTPUT_DIR / filename
+                target = checkout / DLG_OUTPUT_DIR / filename
+                if not source.is_file():
+                    return subprocess.CompletedProcess(
+                        args=["copy", str(source)],
+                        returncode=1,
+                        stdout="",
+                        stderr=f"Missing current projection: {source}",
+                    )
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
 
@@ -249,11 +262,11 @@ def verify_dlg_projections(repo_root: Path) -> list[str]:
 
     So the projection is verified two ways:
 
-    * the committed projection bytes must be unchanged since the pinned
-      revision, which catches a hand-edited artifact; and
-    * regenerating from the corpus *at the pinned revision* must reproduce
-      the committed bytes, which catches a generator change that was never
-      accompanied by a regeneration.
+    * regenerate from the corpus at the pinned revision, using today's
+      generator, and byte-compare all candidate projections (including
+      staged and unstaged edits); and
+    * fail for any mismatch, while allowing deliberately repinned and
+      regenerated projections.
 
     Re-pinning the calibration to a newer corpus is a separate, deliberate
     decision. It is not drift, and this gate does not make it one.
@@ -274,32 +287,14 @@ def verify_dlg_projections(repo_root: Path) -> list[str]:
 
     problems: list[str] = []
 
-    # The committed projection bytes must be unchanged since the tooling
-    # that produced them was introduced. A hand-edited projection breaks
-    # the claim it carries.
-    baseline = _generator_baseline(repo_root)
-    if baseline is not None:
-        drifted = _projection_files_changed_since(repo_root, baseline)
-        if drifted:
-            problems.append(
-                "DLG projection bytes changed after the projection tooling was "
-                f"introduced ({baseline[:9]}): {', '.join(drifted)}. A projection "
-                "must either be regenerated or be left alone; editing it in "
-                "place breaks the claim it carries."
-            )
-
-    # The projection must still be reproducible by today's generator, run
-    # over the corpus at its calibration revision.
-    #
-    # The checkout point is the commit that introduced the projection
-    # tooling, not the calibration revision itself: the projection is
-    # generated *from* the calibration corpus and then committed
-    # separately, so the calibration revision predates the artifact.
-    check_out_at = baseline or revision
+    # The current committed files may legitimately have been regenerated.
+    # Compare their bytes against the output of today's generator at the
+    # artifact's own pinned corpus revision instead of forbidding history
+    # changes since an arbitrary introduction commit.
     completed = _run_generator_at_calibration(
         repo_root,
         "scripts/knowledge_graph/validate_and_generate_dlg.py",
-        check_out_at,
+        revision,
         [
             "check-generated",
             "--repository-root",
@@ -323,95 +318,6 @@ def verify_dlg_projections(repo_root: Path) -> list[str]:
             f"'{generated_at}'"
         )
     return problems
-
-
-def _generator_baseline(repo_root: Path) -> str | None:
-    """Return the commit that introduced the DLG projection tooling.
-
-    A projection is generated from the corpus at some revision and is then
-    committed separately, so the artifact's own history does not begin at
-    the revision it names. The revision that *introduced the generator* is
-    the point where the projection first became reproducible, and it is
-    the baseline the artifact must still satisfy.
-
-    Returns None when the generator has no recorded introduction, which
-    means there is no baseline to check against.
-    """
-    completed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "log",
-            "--format=%H",
-            "--diff-filter=A",
-            "--",
-            "scripts/knowledge_graph/validate_and_generate_dlg.py",
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if completed.returncode != 0:
-        return None
-    commits = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-    return commits[-1] if commits else None
-
-
-def _projection_files_changed_since(repo_root: Path, baseline: str) -> list[str]:
-    """Return the DLG projection files whose bytes changed after `baseline`.
-
-    Only the six Phase 3A projections are considered. The Agent Reading
-    Packets live under the same directory but have their own generator and
-    their own calibration, and they are verified separately.
-    """
-    changed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "diff",
-            "--name-only",
-            f"{baseline}..HEAD",
-            "--",
-            *[
-                (DLG_OUTPUT_DIR / filename).as_posix()
-                for filename in DLG_PROJECTION_FILENAMES
-            ],
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if changed.returncode != 0:
-        return []
-    names = [line for line in changed.stdout.splitlines() if line.strip()]
-
-    # An uncommitted edit to a projection is just as much a broken claim as
-    # a committed one, so the working tree is compared as well.
-    unstaged = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "diff",
-            "--name-only",
-            "--",
-            *[
-                (DLG_OUTPUT_DIR / filename).as_posix()
-                for filename in DLG_PROJECTION_FILENAMES
-            ],
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if unstaged.returncode == 0:
-        for line in unstaged.stdout.splitlines():
-            name = line.strip()
-            if name and name not in names:
-                names.append(name)
-    return names
 
 
 def verify_arp_packets(repo_root: Path) -> list[str]:
