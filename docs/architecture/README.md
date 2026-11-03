@@ -1,10 +1,11 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: start with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 Source anchors:
 - docs/architecture/
 - docs/qualification/
 - scripts/qualification/
+- docs/architecture/proofs/runtime/
 - guardian/guardian_api.py
 - guardian/routes/
 - guardian/workers/
@@ -56,7 +57,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities; first and highest-priority entry.
-- [Qualification Registry](../qualification/README.md): generated, drift-gated index of qualification rubrics, run receipts, verdicts, and freshness under `docs/qualification/`. It reports `HOLD` for the surfaces it tracks, and it does not replace `00-current-state.md` or the detailed architecture proofs.
+- [Qualification Registry](../qualification/README.md): generated, drift-gated index of qualification rubrics, run receipts, verdicts, and freshness under `docs/qualification/`. It reports `HOLD` for the surfaces it tracks, and it does not replace `00-current-state.md` or the detailed architecture proofs. Its `supported-compose` projection still cites the September run at `5da79431fa`, which is not an ancestor of the current tip, so the registry has **not** absorbed the newer November receipt described below.
+- [Supported-Compose qualification at `41ff615293ec`](./proofs/runtime/2026-10-30-supported-compose-qualification-41ff6152.md): dated runtime receipt for the first supported-Compose qualification whose tested revision sits inside the current tip's lineage. Seven of eight gates passed and **Gate B (startup and migrations) FAILED on the stock supported path**: the migrator bind-mounts only `./backend` while `backend/migrations` is a symlink to `../guardian/db/migrations`, so a stock-launched stack applies the baked image's Alembic head instead of the source head. It records its own release posture as `HOLD`, attempts no remediation, and is a proof artifact rather than a registry run receipt.
 - [`admin-account-observability-contract.md`](./admin-account-observability-contract.md): Guardian-owned, content-free account presence, guest-lineage, privacy, and retention contract; the heartbeat/cleanup slice is implemented, while operator analytics and geography remain deferred.
 - [`ADR-088: Guardian Account Activation and Credential Bootstrap`](./adr/088-guardian-account-activation-and-credential-bootstrap.md): accepted Guardian-owned boundary for operator-authorized, recipient-bound, digest-only, expiring, revocable, single-use account activation. The implementation and private-preview admission are merged on `main`, but frontend, auth-regression, security, disposable-runtime, live-profile, and real-recipient proof remain deferred; it does not widen release support.
 - [`chrome-side-panel-client.md`](./chrome-side-panel-client.md): architecture and trust boundary for the private unpacked Chrome side-panel chat client; local API-key and Tailscale remote-session behavior is governed by [`ADR-051`](./adr/051-chrome-side-panel-dual-auth-client-contract.md), remains internal-only, and stays outside the supported beta release surface.
@@ -190,6 +192,8 @@ Before generating architecture diagrams, read the [`KB Validity Matrix`](./kb-va
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities; first and highest-priority entry.
+- [Qualification Registry](../qualification/README.md): generated, drift-gated index of qualification rubrics, run receipts, verdicts, and freshness under `docs/qualification/`. It reports `HOLD` for the surfaces it tracks and has not absorbed the newer November supported-Compose receipt.
+- [Supported-Compose qualification at `41ff615293ec`](./proofs/runtime/2026-10-30-supported-compose-qualification-41ff6152.md): dated runtime receipt for the first supported-Compose qualification inside the current tip's lineage; seven of eight gates passed and Gate B FAILED on the stock supported path.
 - [Codex Knowledge Compiler Contract](./codex-knowledge-compiler-contract.md): docs-only architecture contract for the reusable scoped knowledge-compilation pattern behind Codex Wiki / LLM Wiki / compiled project memory. It does not claim runtime implementation or release support and does not override `00-current-state.md`.
 - [Codexify Development Map v1](./codexify-development-map-v1.md): visual current-state orientation map for subsystem boundaries, dependency edges, data spine, UI/runtime separation, and development maturity posture. It is not a release promise and does not override `00-current-state.md`.
 - [Architecture Atlas](./architecture-atlas.md): peer-facing reading guide for the validated architecture corpus, runtime diagrams, and UI diagrams.
