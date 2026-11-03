@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 # --------------------------------------------------------------------------
@@ -175,6 +176,27 @@ class _FakeResponse:
 
 
 @pytest.fixture
+def music_client():
+    """A client for the music router on its own.
+
+    The shared ``test_client`` fixture builds the whole guardian app, and
+    that app mounts its routers at import time from whichever supported
+    profile is active. A route test riding on it therefore inherits
+    whatever profile the module before it left behind -- and since
+    ``music_projects`` is quarantined outside the music profile, the route
+    can be absent from an app that is supposed to have it. Mounting the
+    router here keeps these tests about the route itself, and makes them
+    independent of test order.
+    """
+    from guardian.routes.music_projects import router
+
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
 def captured_calls(monkeypatch):
     """Capture what the route sends to the service."""
     from guardian.routes import music_projects
@@ -189,10 +211,10 @@ def captured_calls(monkeypatch):
     return calls
 
 
-def test_compose_sends_the_canonical_envelope(captured_calls, test_client):
+def test_compose_sends_the_canonical_envelope(captured_calls, music_client):
     from guardian.routes import music_projects
 
-    response = test_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
 
     assert response.status_code == 200, response.text
     assert len(captured_calls) == 1
@@ -205,20 +227,20 @@ def test_compose_sends_the_canonical_envelope(captured_calls, test_client):
     assert envelope["input"]["brief"] == "a warm pad"
 
 
-def test_compose_is_asynchronous_by_default(captured_calls, test_client):
+def test_compose_is_asynchronous_by_default(captured_calls, music_client):
     """A compose takes about 107 seconds; blocking on it hangs the turn."""
     from guardian.routes import music_projects
 
-    test_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    music_client.post("/api/music/compose", json={"brief": "a warm pad"})
 
     envelope = captured_calls[0]["envelope"]
     assert envelope["input"]["mode"] == "async"
 
 
-def test_compose_can_be_forced_synchronous(captured_calls, test_client):
+def test_compose_can_be_forced_synchronous(captured_calls, music_client):
     from guardian.routes import music_projects
 
-    test_client.post(
+    music_client.post(
         "/api/music/compose", json={"brief": "a warm pad", "sync": True}
     )
 
@@ -227,7 +249,7 @@ def test_compose_can_be_forced_synchronous(captured_calls, test_client):
     assert captured_calls[0]["timeout"] and captured_calls[0]["timeout"] > 60
 
 
-def test_an_unreachable_service_is_a_503_not_a_500(monkeypatch, test_client):
+def test_an_unreachable_service_is_a_503_not_a_500(monkeypatch, music_client):
     """The service being down is an availability problem, not a bug."""
     import requests
 
@@ -238,13 +260,13 @@ def test_an_unreachable_service_is_a_503_not_a_500(monkeypatch, test_client):
 
     monkeypatch.setattr(music_projects.requests, "post", _boom)
 
-    response = test_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
 
     assert response.status_code == 503
     assert "unreachable" in response.json()["detail"].lower()
 
 
-def test_a_malformed_service_response_is_rejected(monkeypatch, test_client):
+def test_a_malformed_service_response_is_rejected(monkeypatch, music_client):
     """A response without a boolean 'ok' is a broken service."""
     from guardian.routes import music_projects
 
@@ -254,12 +276,12 @@ def test_a_malformed_service_response_is_rejected(monkeypatch, test_client):
         lambda *_a, **_k: _FakeResponse({"output": {"ok": True}}),
     )
 
-    response = test_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
 
     assert response.status_code == 502
 
 
-def test_a_service_error_is_surfaced(monkeypatch, test_client):
+def test_a_service_error_is_surfaced(monkeypatch, music_client):
     from guardian.routes import music_projects
 
     monkeypatch.setattr(
@@ -274,7 +296,7 @@ def test_a_service_error_is_surfaced(monkeypatch, test_client):
         ),
     )
 
-    response = test_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
 
     assert response.status_code == 502
     assert "no such patch" in response.json()["detail"]
@@ -369,3 +391,58 @@ def test_the_manifest_base_url_matches_the_route_default():
         Path("plugins/agentdaw/manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["base_url"] == music_projects.DEFAULT_AGENTDAW_URL
+
+
+# --------------------------------------------------------------------------
+# The profile is the gate
+# --------------------------------------------------------------------------
+
+
+def _mounted_paths(app) -> set[str]:
+    import fastapi.routing as fastapi_routing
+
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    routes = iter_contexts(app.routes) if iter_contexts else app.routes
+    return {
+        getattr(route, "path", None)
+        for route in routes
+        if isinstance(getattr(route, "path", None), str)
+    }
+
+
+def test_the_music_profile_mounts_the_route_and_the_default_does_not(
+    monkeypatch, tmp_path
+):
+    """Absent, not broken.
+
+    The default profile is byte-frozen, so the Producer lives in a profile
+    of its own. This asserts the gate actually gates: under the music
+    profile the route is mounted, and under the default profile it is not
+    mounted at all -- so the Artist sees no music surface rather than a
+    broken one.
+    """
+    import importlib
+    import os
+
+    import guardian.guardian_api as guardian_api
+
+    original = os.environ.get("CODEXIFY_SUPPORTED_PROFILE")
+
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-api-key")
+    monkeypatch.setenv("ENABLE_CONNECTOR_WORKER", "0")
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path / "media"))
+
+    try:
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-music-producer")
+        music_app = importlib.reload(guardian_api).app
+        assert "/api/music/compose" in _mounted_paths(music_app)
+
+        monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
+        default_app = importlib.reload(guardian_api).app
+        assert "/api/music/compose" not in _mounted_paths(default_app)
+    finally:
+        if original is None:
+            os.environ.pop("CODEXIFY_SUPPORTED_PROFILE", None)
+        else:
+            os.environ["CODEXIFY_SUPPORTED_PROFILE"] = original
+        importlib.reload(guardian_api)
