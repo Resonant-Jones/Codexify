@@ -21,8 +21,17 @@ Authorization is Guardian's, and it is derived, not supplied:
 * the account and subject come from Guardian's resolved request scope;
 * the provider comes from the reviewed allowlist entry for the action, never
   from the request;
-* the permission profile is read from Guardian's current state, and the
-  adapter re-reads it immediately before the external crossing.
+* **credential selection** — which account-owned credential may be used —
+  comes from the Guardian-owned binding, resolved for the authenticated
+  account;
+* **invocation permission** — whether this actor may invoke that credential —
+  comes from a separate Guardian usage grant naming this account, subject,
+  provider, and action.
+
+Neither substitutes for the other: a binding that exists without a usage grant
+authorizes nothing, and a usage grant without a binding selects nothing. Both
+default to denying. Both are re-read immediately before the external crossing,
+so a revocation of either, between resolution and dispatch, stops the call.
 
 The route accepts no action arguments. There is therefore no model-supplied
 argument that could carry account identity, connection identity, or credential
@@ -43,7 +52,9 @@ from guardian.connections.openconnector.adapter import (
     OpenConnectorAdapter,
 )
 from guardian.connections.openconnector.authority import (
+    CustodianUsageAuthorizer,
     GuardianAccountScope,
+    NoUsageAuthorizer,
     build_execution_authority,
 )
 from guardian.connections.openconnector.bindings import (
@@ -82,6 +93,7 @@ router = APIRouter(
 )
 
 _binding_resolver: BindingResolver = NoBindingResolver()
+_usage_authorizer: CustodianUsageAuthorizer = NoUsageAuthorizer()
 _allowlist: Mapping[str, ApprovedAction] | None = None
 _gateway_client: GatewayHttpClient | None = None
 _base_url_override: str | None = None
@@ -91,20 +103,27 @@ _adapter: OpenConnectorAdapter | None = None
 def configure_openconnector(
     *,
     binding_resolver: BindingResolver | None = None,
+    usage_authorizer: CustodianUsageAuthorizer | None = None,
     allowlist: Mapping[str, ApprovedAction] | None = None,
     gateway_client: GatewayHttpClient | None = None,
     base_url: str | None = None,
 ) -> None:
     """Configure the internal execution seam.
 
+    ``binding_resolver`` supplies *credential selection* — which account-owned
+    credential may be used. ``usage_authorizer`` supplies *invocation
+    permission* — whether this actor may invoke that credential. Both are
+    required; neither substitutes for the other, and both default to denying.
+
     Supplying an ``allowlist`` is a **test-harness** affordance for
     credential-bearing synthetic actions. It must never widen the production
     read-only allowlist, and no production caller sets it.
     """
 
-    global _binding_resolver, _allowlist, _gateway_client, _base_url_override
-    global _adapter
+    global _binding_resolver, _usage_authorizer, _allowlist, _gateway_client
+    global _base_url_override, _adapter
     _binding_resolver = binding_resolver or NoBindingResolver()
+    _usage_authorizer = usage_authorizer or NoUsageAuthorizer()
     _allowlist = allowlist
     _gateway_client = gateway_client
     _base_url_override = base_url
@@ -215,6 +234,7 @@ async def openconnector_execute_read_action(
         provider=action.provider,
         action_id=action.action_id,
         resolver=_binding_resolver,
+        authorizer=_usage_authorizer,
     )
     result = await adapter.execute_action(authority)
     status, body = _response_for(result)

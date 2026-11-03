@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 from guardian.command_bus import loopback_http_adapter
 from guardian.command_bus.manifest import build_manifest
 from guardian.connections.openconnector import router as openconnector_router
+from guardian.connections.openconnector.authority import CustodianUsageGrant
 from guardian.connections.openconnector.bindings import AccountBinding, BindingState
 from guardian.connections.openconnector.service import (
     CONNECTION_SELECTOR_HEADER,
@@ -128,11 +129,65 @@ def _binding(
     )
 
 
+class _GrantingAuthorizer:
+    """Test-only Guardian source of *invocation permission*.
+
+    The grant is deliberately expressed independently of the binding: it names
+    an account, a subject, a provider, and an action, and it is never derived
+    from the existence of a credential.
+    """
+
+    def __init__(self, *grants: CustodianUsageGrant) -> None:
+        self._grants = list(grants)
+        self.authorizations = 0
+
+    async def authorize(
+        self,
+        *,
+        account_id: str,
+        subject_id: str,
+        provider: str,
+        action_id: str,
+        task_id: str,
+    ) -> CustodianUsageGrant | None:
+        self.authorizations += 1
+        for grant in self._grants:
+            if grant.covers(
+                account_id=account_id,
+                subject_id=subject_id,
+                provider=provider,
+                action_id=action_id,
+                task_id=task_id,
+            ):
+                return grant
+        return None
+
+
+def _grant(
+    account_id: str = _ACCOUNT_A,
+    *,
+    subject_id: str | None = None,
+    provider: str = _PROVIDER,
+    action_id: str = _ACTION,
+    task_id: str | None = None,
+    granted: bool = True,
+) -> CustodianUsageGrant:
+    return CustodianUsageGrant(
+        guardian_account_id=account_id,
+        subject_id=subject_id if subject_id is not None else account_id,
+        provider=provider,
+        action_id=action_id,
+        task_id=task_id,
+        granted=granted,
+    )
+
+
 def _install(
     monkeypatch: pytest.MonkeyPatch,
     *,
     resolver: _SyntheticResolver,
     client: _RecordingClient,
+    authorizer: CustodianUsageAuthorizer | None = None,
     allowlist: dict[str, Any] | None = None,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
@@ -140,6 +195,9 @@ def _install(
     monkeypatch.setenv("LOCAL_DEV", "true")
     openconnector_router.configure_openconnector(
         binding_resolver=resolver,
+        usage_authorizer=(
+            authorizer if authorizer is not None else _GrantingAuthorizer(_grant())
+        ),
         gateway_client=client,
         base_url=_BASE_URL,
         allowlist=allowlist,
@@ -354,7 +412,12 @@ def test_cross_account_binding_is_not_usable(
         {_CONNECTION_A: _TOKEN_A, _CONNECTION_B: _TOKEN_B},
     )
     transport = _RecordingClient()
-    _install(monkeypatch, resolver=resolver, client=transport)
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(_grant(account_id=_ACCOUNT_B)),
+    )
     client = _client(_build_app())
 
     response = client.get(
@@ -514,6 +577,173 @@ def test_payload_is_bounded(
     assert body["code"] == "response_too_large"
     assert len(response.content) <= 262144
     assert "x" * 4096 not in response.text
+
+
+# ── Credential selection and invocation permission are separate ───────────
+
+
+def test_binding_without_a_usage_grant_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A binding's existence does not substitute for the permission check."""
+
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "missing_profile"
+    assert transport.dispatch_count == 0
+
+
+def test_usage_grant_without_a_binding_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Permission without a credential selects nothing."""
+
+    resolver = _SyntheticResolver((), {})
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(_grant()),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
+
+
+def test_no_authorizer_configured_denies_every_crossing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default is fail-closed, not "the binding implies permission"."""
+
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(monkeypatch, resolver=resolver, client=transport)
+    openconnector_router.configure_openconnector(
+        binding_resolver=resolver,
+        gateway_client=transport,
+        base_url=_BASE_URL,
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
+
+
+def test_usage_grant_for_another_action_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The grant narrows the crossing to the action it names."""
+
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(
+            _grant(action_id="some.other.read_action")
+        ),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
+
+
+def test_usage_grant_for_another_account_does_not_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(_grant(account_id=_ACCOUNT_B)),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
+
+
+def test_revoked_usage_grant_stops_the_crossing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The independent permission is revalidated immediately before dispatch."""
+
+    class _RevokingAuthorizer(_GrantingAuthorizer):
+        async def authorize(self, **kwargs: Any) -> CustodianUsageGrant | None:
+            self.authorizations += 1
+            # The adapter evaluates the profile once on entry and once
+            # immediately before dispatch; the grant is revoked in between.
+            if self.authorizations <= 1:
+                return _grant()
+            return _grant(granted=False)
+
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_RevokingAuthorizer(),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
 
 
 # ── Visibility and registration ───────────────────────────────────────────
