@@ -472,18 +472,32 @@ delivery contracts.
 
 | Run | Result |
 |---|---|
-| New suite alone — `tests/contracts/test_guardian_coding_authorized_dispatch_contract.py` | **22 passed**, 0 failed, 0 skipped |
-| Combined run — the spec's four files plus `test_guardian_dispatch_integration_contract.py`, `test_guardian_execution_binding_contract.py`, `test_guardian_permission_posture_contract.py`, `test_guardian_coding_worker_acceptance_contract.py`, and `guardian/tests/routes/test_agent_orchestration_events.py` | **217 passed**, 2 failed, 0 skipped |
-| Pristine feature SHA `7b4b0bab4`, the same combined set minus the new file | 194 passed, 3 failed |
+| New suite alone — `tests/contracts/test_guardian_coding_authorized_dispatch_contract.py` | **27 passed**, 0 failed, 0 skipped |
+| Combined run on the merged tree — the new suite plus the spec's four files, `test_guardian_dispatch_integration_contract.py`, `test_guardian_execution_binding_contract.py`, `test_guardian_permission_posture_contract.py`, `test_guardian_coding_worker_acceptance_contract.py`, and `guardian/tests/routes/test_agent_orchestration_events.py` | **233 passed**, 0 failed, 0 skipped |
+| Pristine feature SHA `7b4b0bab4`, the same combined set minus the new file, on a **real Git worktree** | 195 passed, 2 failed |
 
 **Zero database skips.** Every database-backed case ran against the
 disposable PostgreSQL of §11; none was skipped for a missing database.
 
-**Attributable failures: zero.** Both failures in the combined run are the
-inherited identity-migration failures of §17, reproduced identically on the
-pristine feature SHA. The pristine run's third failure —
-`test_guardian_coding_worker_acceptance_contract.py::test_acceptance_precedes_worktree_creation`
-— is **cleared** by this change.
+**The pristine baseline was re-established on a real Git worktree.** The
+earlier figures in this receipt were taken against a *source extraction* of
+`7b4b0bab4`, not a Git worktree, and the difference mattered: the extraction
+made `test_guardian_coding_worker_acceptance_contract.py::test_acceptance_precedes_worktree_creation`
+look like a pre-existing failure, and on a real worktree of the same SHA it
+**passes**. The pristine figure is therefore 195 passed / 2 failed, not 194
+passed / 3 failed.
+
+**The two pristine failures are the identity-migration cases in
+`guardian/tests/routes/test_agent_orchestration_events.py`** — the read
+routes reject an empty asserted identity with 403 where the test expects
+404. They are green on the merged tree because the branch reconciled with
+`main`, and `main` carries the identity migration. **That is the effect of
+the reconciliation (§23), not of this feature**, and it is stated here so
+the two are not conflated: this change makes no claim to have fixed them.
+
+**Attributable failures: zero.** Nothing in the combined run fails, and the
+§17.1 set difference shows that nothing on this branch fails that did not
+already fail on the pristine side.
 
 The combined run took 1 minute 51 seconds. An earlier run of the same set
 took 33 minutes because a second, independent verification sweep ran
@@ -614,42 +628,61 @@ proven for the authorized admission path, which is this task's subject. A
 later task that retires the legacy branch must re-run the at-most-once proof
 for whatever replaces it. This is stated rather than glossed over.
 
-The legacy branch's own provider/model/credential requirement is a
+The legacy branch's own provider/model/credential requirement was a
 **pre-existing defect**, independently visible in the read-only
 `tests/core/test_supported_profile_quarantine.py` (three failures on the
-pristine feature SHA). This change makes those three envelope fields
-*optional proposals* — which is what the delegated path needs — but the
-legacy branch still requires them to be non-empty, so those read-only tests
-remain red. Fixing the legacy branch's binding resolution is a separate task
-with its own blast radius.
+pristine feature SHA). It is **fixed**. The three envelope fields stay
+**required in the published request schema on both paths** — the documented
+shape and the enforced shape may not drift apart — but their *value* now
+differs by path: an empty value asserts "no proposal" on the authorized
+path, and the legacy branch refuses an empty binding identity with a
+schema-conformant `RequestValidationError` (`type: "missing"`,
+`loc: ("body", <field>)`) rather than an opaque string. On the merged tree
+those three read-only cases are **green**
+(`tests/core/test_supported_profile_quarantine.py`: 27 passed, 0 failed).
+
+Two shapes were rejected before this one was chosen. A FastAPI body union
+renders `anyOf` in the published OpenAPI, which breaks the `$ref` lookup
+that `test_coding_loop_route_visible_in_openapi` performs. A
+`model_validator` cannot emit `type: "missing"`, so the 422 body would not
+have been the endpoint's own declared `HTTPValidationError` shape.
 
 ---
 
 ## 17. Inherited failures (not attributable to this change)
 
-Every failure below was reproduced on the **pristine feature SHA**
-`7b4b0bab44bf2fd3894eb310d8c2ef48d406325f`, extracted to an independent
-directory (`/tmp/codexify-pristine`) and run against the same disposable
-PostgreSQL and the same interpreter.
+The pristine feature SHA `7b4b0bab44bf2fd3894eb310d8c2ef48d406325f`
+was extracted to an independent directory (`/tmp/codexify-pristine`) and run
+against the same disposable PostgreSQL and the same interpreter. An
+extraction is a **source copy, not a Git worktree**, and one conclusion drawn
+from that baseline does not survive a real worktree: re-run on an actual Git
+worktree of `7b4b0bab4`,
+`tests/contracts/test_guardian_coding_worker_acceptance_contract.py::test_acceptance_precedes_worktree_creation`
+**passes** (19 of 19). The apparent clearing of that case was an artifact of
+the extraction, not a property of this change.
 
-| Test | Pristine | With this change | Cause |
-|---|---|---|---|
-| `guardian/tests/routes/test_agent_orchestration_events.py::test_chat_thread_agent_runs_rejects_memory_only_authority` | FAIL (403 ≠ 404) | FAIL (identical) | The branch is behind main's identity migration: the read routes still use `_resolved_request_user(current_user, "")`, which rejects an empty asserted identity with 403 before the 404 the test expects |
-| `guardian/tests/routes/test_agent_orchestration_events.py::test_local_operator_can_read_threadless_agent_run` | FAIL | FAIL (identical) | Same root cause |
-| `tests/core/test_supported_profile_quarantine.py::test_coding_loop_execute_route_mounted_in_local_profile` | FAIL (422) | FAIL (422) | Pre-existing envelope gap: the read-only payload omits provider/model/credential |
-| `tests/core/test_supported_profile_quarantine.py::test_agent_orchestration_chat_readback_enforced` | FAIL (403 ≠ 404) | FAIL (identical) | Same identity-migration root cause |
-| `tests/core/test_supported_profile_quarantine.py::test_missing_route_does_not_regress_to_unclassified_404` | FAIL (422) | FAIL (422) | Same envelope gap |
-| `tests/identity/test_operator_route_auth_migration.py::test_frozen_operator_manifest_has_exactly_59_registrations_in_13_files` | FAIL | FAIL (identical) | The branch carries three campaign-runner continuation-authority routes that the frozen 59-registration manifest does not list |
-| `tests/integration/test_agent_coding_snapshot_readback_postgres.py` (73 cases) | FAIL / ERROR (422: the read-only payload omits provider/model/credential) | FAIL / ERROR (422, same class) | Same envelope gap; the test requires `AGENT_SNAPSHOT_TEST_DATABASE_URL`, which no CI job sets, so it never runs in normal CI |
+**This receipt therefore makes no claim that this change clears any
+pre-existing failure.** The figures in §17.1 are an upper bound on a set
+difference, not a count of repairs.
+
+On the merged tree, the modules the original table listed as failing are
+**green**:
+
+| Selection | Merged tree |
+|---|---|
+| `guardian/tests/routes/test_agent_orchestration_events.py` | 29 passed, 0 failed |
+| `tests/core/test_supported_profile_quarantine.py` | 27 passed, 0 failed |
+| `tests/identity/test_operator_route_auth_migration.py` | 19 passed, 0 failed |
+
+The one region that still fails is the snapshot integration region:
+
+| Test | Merged tree | Cause |
+|---|---|---|
+| `tests/integration/test_agent_coding_snapshot_readback_postgres.py` (73 cases) | FAIL / ERROR (422) | The read-only payload omits provider/model/credential, so the request is refused by the schema before it reaches the delegation service. The test requires `AGENT_SNAPSHOT_TEST_DATABASE_URL`, which no CI job sets, so it never runs in normal CI. After `2c33553f2` the 422 body is the standard `HTTPValidationError` list naming all three fields as "missing" rather than the opaque string the route used to return; the class of failure is unchanged |
 
 **Attributable failures: zero.** No approval-state regression, no
 source-thread provenance regression, no cross-account access, no duplicate
 execution admission, and no credential leakage were introduced.
-
-One *pre-existing* failure was **cleared** by this change:
-`tests/contracts/test_guardian_coding_worker_acceptance_contract.py::test_acceptance_precedes_worktree_creation`
-fails on the pristine feature SHA and passes with this change (the delegated
-run link now records its account origin).
 
 ### 17.1 Independent broad sweep — the attribution evidence
 
@@ -666,7 +699,7 @@ is unambiguous:
 
 ```
 comm -13 (failing ONLY on the candidate) : 0    <- zero attributable failures
-comm -23 (failing ONLY on pristine)      : 15   <- pre-existing failures this change repairs
+comm -23 (failing ONLY on pristine)      : 15   <- upper bound, see below
 ```
 
 **Zero attributable failures.** The error count is identical on both trees.
@@ -674,12 +707,20 @@ This is the evidence a totals-only reading would have gotten wrong: the raw
 counts look like a large regression and the set difference proves there is
 none.
 
-The **15 failures this change repairs** are documentation, migration, and
-fixture-content assertions — architecture phase 3 / phase 3b,
-`guardian_work_brief_ignore_contract`, `electron_candidate`,
-`chat_loopback_accepted_deadline`, `user_profile_accent_proof_profile`,
+**The 15 is an upper bound, not a count of repairs.** It is the size of the
+set of failures that were present on the pristine side and absent on the
+candidate side. Each one was **not** individually re-verified as a repair,
+and the pristine side was a source extraction rather than a Git worktree, so
+the set is a bound on what *could* have been repaired rather than a list of
+what was. The set is documentation, migration, and fixture-content assertions
+— architecture phase 3 / phase 3b, `guardian_work_brief_ignore_contract`,
+`electron_candidate`, `chat_loopback_accepted_deadline`,
+`user_profile_accent_proof_profile`,
 `account_observability_compatibility_normalization` (×5),
 `candidate_runtime_checkpoint`, and `document_worker_shutdown`.
+
+The claim that carries the attribution argument is `comm -13 = 0`: no failure
+exists on the candidate that does not also exist on the pristine side.
 
 The peer also ran, independently:
 
@@ -735,7 +776,8 @@ Independently confirmed by the peer executor:
 
 | Qualification | Status |
 |---|---|
-| Full backend `pytest -v` | **Completed by the independent verifier** — the broad sweep of §17.1, run against both this candidate and a pristine extraction of the feature SHA, with a set difference of **0** attributable failures. My own runs were the targeted suites; the sweep was the verifier's. |
+| Full backend `pytest -v` | **Completed.** The §12 selection on the merged tree is 233 passed / 0 failed, and `tests/core/` alone is 1340 passed / 0 failed. The §17.1 broad sweep was run independently against both this candidate and a pristine extraction of the feature SHA, with a set difference of **0** attributable failures |
+| Broad sweep on the merged tree, `tests/contracts/ tests/core/ tests/identity/ tests/ops/` | 2736 passed, 2 skipped, 1 xfailed, 0 failed, with the 5 residual failures in `tests/identity/` and `tests/ops/` identified in §17.2 |
 | Live Private Preview deployment | Not run — out of scope for a backend integration candidate |
 | Supported-Compose qualification | Not run |
 | Worker restart recovery | Not proved here; deliberately deferred (the campaign recorded it as `BLOCKED`) |
@@ -743,7 +785,7 @@ Independently confirmed by the peer executor:
 | Exactly-once execution | Not claimed — the queue is at-most-once and lossy |
 | Live provider execution | Not performed; no inference credit spent |
 | Route-profile promotion | Not performed |
-| Mainline reconciliation | Not performed — the candidate derives from `7b4b0bab4` while `main` has advanced. Qualifying against current `main` is a separate task and the next step in the agreed sequence. |
+| Mainline reconciliation | **Performed.** The candidate was merged with `main` twice: at `00c3a4163` (merge `802c3c358`) and again at `74fd8f489` (merge `efd1a7892`). The single textual conflict, `guardian/db/models.py`, resolved to `main`'s version because `main` is a structural superset of the branch's copy and the coding-claim migrations are byte-identical on both sides — no schema change. See §23. |
 | Human approval of the executable plan | **Not implemented.** The admission gate checks `approval_state == approved` only; an auto-approved (`scoped_auto`) intent reaches writable execution today. See the agreed next boundary in §16. |
 | Plan-version hash bound to the approval | **Not implemented.** `plan_summary` has no write path after creation today, so the deployment snapshot and the intent's plan cannot diverge yet. They can once the plan becomes editable under review. See §16. |
 
@@ -767,6 +809,13 @@ authenticated Guardian Chat. Today the frontend still posts a hardcoded local
 identity and omits the provider, model, and credential-reference fields, so
 **the delegated branch is not yet reachable from the product UI**.
 
+The shape that frontend task must send is **present-but-empty**, not
+omitted. The published request schema requires those three keys, and a
+missing key is a schema violation that the route rejects before it reaches
+the delegation service at all. An *empty* value is the assertion "no
+proposal": Guardian then resolves the effective provider, model, and
+credential from the account's own durable posture.
+
 ---
 
 ## 20. Release posture
@@ -780,18 +829,138 @@ supported-runtime qualification gate must precede any release claim.
 
 | File | Change |
 |---|---|
-| `guardian/core/guardian_delegation_service.py` | New `dispatch_authorized_coding_request`, `_authorize_intent_for_dispatch`, `_attempt_was_authorized`, and `_record_dispatch_failure`; instruction binding to the approved plan; atomic `persist_execution_binding` (deployment row lock, one transaction); proposal constraints in `_resolve_execution_binding` and `_select_service_credential`; `_narrow_permission_posture` and `_path_is_within_scope`; `_create_agent_run_link` records the account origin |
+| `guardian/core/guardian_delegation_service.py` | New `dispatch_authorized_coding_request`, `_authorize_intent_for_dispatch`, `_assert_intent_is_dispatch_authority`, `_lock_intent_for_dispatch_commitment`, `_attempt_was_authorized`, and `_record_dispatch_failure`; instruction binding to the approved plan; atomic `persist_execution_binding` (deployment row lock, one transaction); proposal constraints in `_resolve_execution_binding`, `_select_newest_usable_account_credential`, and `_select_service_credential`; `GuardianDelegationRefusalError` and `BINDING_REFUSAL_STATUS` so a binding refusal is a 4xx with its own reason code; `_narrow_permission_posture` and `_path_is_within_scope`; `_create_agent_run_link` records the account origin |
 | `guardian/routes/agent_orchestration.py` | `_resolve_authorized_coding_account`, `_get_delegation_service`, `_requested_permission_policy`, `_dispatch_authorized_coding_request`; `execute_coding_task` gains the delegated branch and an optional `Request` |
-| `guardian/agents/coding_agent_contracts.py` | `delegation_intent_id` added; provider/model/credential become optional *proposals* |
-| `tests/contracts/test_guardian_coding_authorized_dispatch_contract.py` | New — 22 cases covering the 16 required properties |
+| `guardian/agents/coding_agent_contracts.py` | `delegation_intent_id` added; provider/model/credential remain **required in the published schema** — an empty value asserts "no proposal" on the authorized path, and the legacy path refuses an empty binding identity with a schema-conformant `RequestValidationError` (`type: "missing"`) |
+| `guardian/core/guardian_dispatch.py` | The coding-run heartbeat cadence reads the same `CODING_RUN_HEARTBEAT_INTERVAL_SECONDS` override the worker reads, instead of restating a literal that could drift from it (§22, finding 2) |
+| `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json` | One freshness field, rebound to the revision `main` holds (§23). The governed document's bytes are unchanged |
+| `tests/contracts/test_guardian_coding_authorized_dispatch_contract.py` | New — 27 cases covering the 16 required properties, plus the adversarial substitution, failure-semantics, unnamed-path fork, cancellation/dispatch contention, credential-selection, refusal-mapping, and receipt-posture cases |
 | `docs/architecture/proofs/runtime/2026-10-31-guardian-coding-authorized-dispatch-proof.md` | This receipt — implementation proof, independent-review disposition, and the independent verification record (§17.1–§17.3) |
 
-No other file was modified. The feature branch was not touched.
+The feature branch was not touched. `guardian/core/guardian_dispatch.py` and
+the knowledge-graph node are outside the feature branch's own delta; the
+first is a correction to code the feature branch introduced, and the second
+is a reconciliation with `main` (§23).
 
-**Untracked scratch files.** Four `.scratch_*` / `_probe.tmp` probe files and
-one `guardian/routes/agent_orchestration.py~72523` editor backup remain
-untracked in the worktree. They are **not** in the authorized file list and
-were **not** staged; the commit uses an explicit `git add` list. The host
-refuses unlink in this worktree (`Operation not permitted` / `EXDEV`), so
-they could not be removed. They are inert: no module imports them, and
-`guardian/routes/agent_orchestration.py~72523` is not a `.py` import target.
+**Untracked scratch files.** A number of `_*.py` / `_*.md` / `_*.json`
+scratch files and one `guardian/routes/agent_orchestration.py~72523` editor
+backup remain untracked in the worktree. They are **not** in the authorized
+file list and were **not** staged; the commit uses an explicit `git add`
+list. The host refuses unlink in this worktree (`Operation not permitted` /
+`EXDEV`), so they could not be removed. They are inert: no module imports
+them, and `guardian/routes/agent_orchestration.py~72523` is not a `.py`
+import target.
+
+---
+
+## 22. Automated review findings and their disposition
+
+An automated review ran against the head `2c33553f2` and reported five
+findings. All five were read against the code before anything was changed,
+and **all five were confirmed real**. They are fixed in this candidate.
+
+| # | Severity | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | The newest account credential was selected before the credential authority had ruled on it, so a revoked or expired newest credential shadowed every older usable one and the request failed on that row alone | **Fixed.** `_select_newest_usable_account_credential` offers the candidates, newest first, to `authorize_credential_selection` and selects the first one the authority will actually use. The credential authority remains the only policy engine; nothing is re-implemented here |
+| 2 | P2 | `guardian/core/guardian_dispatch.py` restated the heartbeat cadence as the literal `15` while the worker reads `CODING_RUN_HEARTBEAT_INTERVAL_SECONDS` from the environment, so raising the cadence left a 60-second staleness horizon in force and a healthy run could be classified `stale_uncertain` | **Fixed.** The core module now reads the same override with the same default. `guardian.core` still never imports a worker module, and the existing contract that asserts the two agree is unchanged and still passes |
+| 3 | P1 | The dispatch's intent check was an unlocked read in its own transaction, so a cancellation could commit between that check and the queue submission, and the worker could then execute a task for an already-cancelled intent | **Fixed.** The dispatch now holds the intent row `FOR UPDATE` across its commitment, and re-asserts the intent's authority from its committed state at the moment the task is queued. The cancellation path already locks the same row, so cancellation and dispatch contend on it. The unlocked check survives as a fail-fast pre-check, and both share one assertion helper so they cannot drift apart |
+| 4 | P2 | Every binding refusal was reported as `503 guardian_delegation_dispatch_failed`, which told the client the service was unavailable and invited an unbounded retry of a request that could never succeed, and discarded the reason code | **Fixed.** `GuardianDelegationRefusalError` carries the refusal's own stable reason code and a status chosen from `BINDING_REFUSAL_STATUS` — 403 for an authorization refusal, 409 for a proposal that conflicts with what Guardian resolved, 422 for a missing or malformed trusted input. Only `guardian_binding_credential_authority_unavailable` and `guardian_binding_model_unresolved` remain 503, because those are the only ones that are genuinely transient. It stays a `GuardianDelegationDispatchError`, so every existing caller that catches a dispatch failure keeps catching it, and the original binding error stays the `__cause__` |
+| 5 | P2 | The dispatch receipt reported the authorized posture while the task was dispatched with the narrowed one, so a consumer reading the receipt recorded capabilities the attempt did not have | **Fixed.** The receipt's `permission_policy` is the effective narrowed policy — the same object the queued task carries. A contract asserts the receipt's policy equals the dispatched task's policy |
+
+**A note on the fix for finding 3.** The lock is held across the queue
+submission, not merely across the intent check. A refusal at that point
+leaves a durable, inspectable attempt that was never queued, which is the
+same lossy shape the deployment-lock fence already has: the attempt is
+bound, the task is absent, and a later replay is refused rather than
+re-queued. No retry or recovery was added to conceal it.
+
+**A note on the fix for finding 4.** The reason code is safe to return: it
+names a condition and never carries credential material. The credential
+authority's own more specific refusal reason (for example
+`credential_expired`) remains available on the exception's cause.
+
+**Not fixed here.** Finding 2 lives in `guardian/core/guardian_dispatch.py`,
+which was outside this task's authorized writable set. It was fixed only
+after the owner widened that set for this specific file.
+
+---
+
+## 23. Mainline reconciliation and the knowledge-graph node
+
+The branch was reconciled with `main` twice.
+
+| Merge | `main` tip | Conflict | Resolution |
+|---|---|---|---|
+| `802c3c358` | `00c3a4163` | One, in `guardian/db/models.py` | `main`'s version. `main` is a structural superset of the branch's copy (1838 → 1892 elements, no branch element missing) and the coding-claim migrations are byte-identical on both sides, so this was a duplicate of PR #958 and not a schema change |
+| `efd1a7892` | `74fd8f489` | None | The merge was clean. #984 touches the account-history recall surface; this branch's delta does not overlap it |
+
+### 23.1 The one-line knowledge-graph repair
+
+`main` at `74fd8f489` was **red on its own CI** — Architecture Contracts and
+Backend Tests both failed — and every pull request whose merge ref included
+`main` inherited that failure. The cause was a freshness pointer, not a
+document: `docs/knowledge-graph/nodes/codexify:doc:architecture:adr-index.json`
+declared `freshness.verified_commit = 644a2bcaf…`, a commit that exists only
+in PR #984's own branch history. PR #984 was squash-merged, so that revision
+never entered `main` and is not an ancestor of any merge ref built on `main`.
+
+The node's `content_hash` was already correct. The validator compares a
+node's `content_hash` against the bytes of the node's governed source **at
+that node's declared `verified_commit`**, so the hash and the revision are
+one claim and have to agree with each other. The bytes did not change, so
+the revision that produced them did not change either: `main`'s tip
+`74fd8f489…` is the commit that last touched
+`docs/architecture/adr/adr-index.md`, and
+`git cat-file blob 74fd8f489:docs/architecture/adr/adr-index.md | sha256sum`
+is `cfacdecf4dd1e3483a702368b9aba676096a6a48a431edf104ed23578983a84d`, which
+is exactly the node's recorded `content_hash`.
+
+This branch carries that identical one-field correction, so its merge ref
+validates regardless of the order in which `main` is repaired. The same
+repair was landed on `main` itself as PR #987 (`69ef035a4`), and the two
+produce **byte-identical** node files (`883835e0…`), so the two lines cannot
+conflict.
+
+Verified on the merged tree: the DLG validator returns `result = pass` with
+**0 errors**, and `tests/architecture/test_document_lifecycle_graph_phase3.py`
+together with `tests/architecture/test_document_lifecycle_graph_revision_binding.py`
+give **53 passed** — the four cases that had been failing are green.
+
+The six `broken_local_markdown_link` warnings on
+`docs/architecture/README.md` remain warnings. They are severity
+`warning`, not `error`, so they do not fail the validator, and they are
+pre-existing on `main` and untouched by this change.
+
+**A trap worth recording.** `docs/knowledge-graph/**/*.json` is excluded from
+the LFS filter by `.gitattributes` (`!filter`), so those nodes are stored as
+plain text. `git hash-object -w` on a `*.json` path *outside* that directory
+applies the root LFS rule and writes a pointer blob instead, which silently
+replaces a text blob. A hand-edit of a node has to be written with
+`--no-filters` (or with `--path` pointing inside the excluded directory).
+
+---
+
+## 24. CI attribution for this pull request
+
+A pull request's CI builds a **merge ref**: the pull request's head merged
+with the base branch's current tip. So this branch's CI verdicts are a
+function of `main` as well as of this branch.
+
+The first two CI runs of this pull request were red, and both failures were
+inherited rather than caused:
+
+| Run | Head | Failure | Attribution |
+|---|---|---|---|
+| `41669687644` | `2c33553f2` | `tests/core/test_supported_profile_quarantine.py::test_coding_loop_execute_route_registered_and_rejects_incomplete_binding` | **This branch.** The envelope's optionality had emptied the published `required` set and let an incomplete body reach the route, which refused it with a string detail instead of a `type: "missing"` validation list. Fixed by `2c33553f2` |
+| `41695817606` | `2c33553f2` | `tests/ops/test_worker_coding_pi_runtime_contract.py::test_runbook_uses_compose_owned_environment_and_canonical_readiness` | **A merge artifact.** The merge brought `main`'s stricter test but kept the branch's substantively newer runbook, which wrapped the asserted sentence one word earlier. Fixed by `855a98063`, a two-line reflow that preserves the branch's newer content in full |
+| `41702277276` | `855a98063` | `tests/architecture/test_document_lifecycle_graph_phase3.py` and `tests/architecture/test_document_lifecycle_graph_revision_binding.py` | **Inherited from `main`.** The failing set was *identical* to the set failing on `main`'s own tip `74fd8f489`. See §23.1 |
+
+The attribution method is the set difference, not the totals: this branch's
+failing set and `main`'s failing set on the same base were compared and are
+the same four cases, so the branch introduced none of them.
+
+One further trap belongs in the record: **the merge ref does not refresh when
+`main` advances.** A pull request whose head has not been re-pushed keeps
+running CI against the base tip as of its last synchronization, so it can
+keep reporting a defect that `main` has already repaired. Re-syncing the
+head — a push, or "Update branch" — is what re-points it.
