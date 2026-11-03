@@ -352,6 +352,9 @@ def test_a_finished_job_registers_its_files(monkeypatch, music_client):
         return [{"id": "asset-1"}]
 
     monkeypatch.setattr(music_projects, "register_artifacts", _register)
+    monkeypatch.setattr(
+        music_projects, "_music_target_is_real", lambda *_a, **_k: True
+    )
 
     monkeypatch.setattr(
         music_projects.requests,
@@ -376,6 +379,51 @@ def test_a_finished_job_registers_its_files(monkeypatch, music_client):
     assert registered["project_id"] == 17
     assert registered["thread_id"] == 42
     assert registered["artifacts"] == [{"path": "/out/mix.wav"}]
+
+
+def test_a_thread_that_is_not_there_does_not_cost_the_files(monkeypatch, music_client):
+    """Attribution that points at nothing is dropped, not failed.
+
+    The project is what the row needs. A thread that is not there cannot
+    be attributed to, and losing the files over it would be the wrong
+    trade.
+    """
+    from guardian.routes import music_projects
+
+    registered = {}
+
+    def _register(artifacts, *, project_id, thread_id=None, user_id=None):
+        registered["project_id"] = project_id
+        registered["thread_id"] = thread_id
+        return [{"id": "asset-1"}]
+
+    monkeypatch.setattr(music_projects, "register_artifacts", _register)
+    monkeypatch.setattr(
+        music_projects, "_music_target_is_real", lambda *_a, **_k: False
+    )
+
+    monkeypatch.setattr(
+        music_projects.requests,
+        "post",
+        lambda *_a, **_k: _FakeResponse(
+            {
+                "ok": True,
+                "output": {
+                    "job_id": "job-3",
+                    "status": "succeeded",
+                    "context": {"project_id": "17", "thread_id": "999"},
+                    "output": {"artifacts": [{"path": "/out/mix.wav"}]},
+                },
+                "error": None,
+            }
+        ),
+    )
+
+    response = music_client.get("/api/music/jobs/job-3")
+
+    assert response.status_code == 200
+    assert registered["project_id"] == 17
+    assert registered["thread_id"] is None
 
 
 def test_a_failed_registration_does_not_fail_the_job(monkeypatch, music_client):

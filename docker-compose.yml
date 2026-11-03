@@ -1027,7 +1027,7 @@ services:
     # Built from the Agent-DAW repository at a tagged release. Point
     # CODEXIFY_AGENTDAW_BUILD_CONTEXT at a local checkout for development.
     build:
-      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.1}"
+      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.2}"
       dockerfile: Dockerfile
     working_dir: /app
     environment:

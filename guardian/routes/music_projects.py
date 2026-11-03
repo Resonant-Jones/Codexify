@@ -457,6 +457,30 @@ def _register_finished_artifacts(
     )
 
 
+def _music_target_is_real(project_id: int, thread_id: Optional[int]) -> bool:
+    """Whether the thread that would own the files actually exists.
+
+    The project is the hard requirement -- an asset without one is not a
+    row. The thread is attribution, and attribution that points at
+    nothing should not cost the Artist their files. So a thread that is
+    not there is dropped rather than allowed to fail the registration.
+    """
+    if thread_id is None:
+        return True
+
+    from guardian.db.models import ChatThread
+
+    try:
+        db = _media_db()
+        with db.get_session() as session:
+            return session.get(ChatThread, thread_id) is not None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[music_projects] could not check thread %s: %s", thread_id, exc
+        )
+        return False
+
+
 def _register_artifacts_from(
     output: Dict[str, Any],
     context: Dict[str, Any],
@@ -497,6 +521,13 @@ def _register_artifacts_from(
         try:
             thread_id = int(raw_thread_id)
         except (TypeError, ValueError):
+            thread_id = None
+        if thread_id is not None and not _music_target_is_real(project_id, thread_id):
+            logger.warning(
+                "[music_projects] thread %s is not there; registering the "
+                "files against the project without it",
+                thread_id,
+            )
             thread_id = None
 
     user_id = getattr(scope, "user_id", None)
