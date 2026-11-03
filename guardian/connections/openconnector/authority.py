@@ -15,7 +15,10 @@ Two Guardian facts are required, and they answer two different questions.
 **The credential binding** answers *which* account-owned credential may be
 selected. It carries the custodian connection and the reference to the scoped
 runtime token, and it is resolved for the authenticated account, so an account
-can only ever select its own credential.
+can only ever select its own credential. For a no-auth action the same binding
+carries the custodian's *virtual* connection identity instead of a credential —
+there is no credential to select, but the binding is still the one canonical
+Guardian-owned record for the crossing, and it is still required.
 
 **The usage grant** answers *whether this actor may invoke that credential at
 all*: this account, this subject, this provider, this action, in the current
@@ -176,16 +179,22 @@ class NoUsageAuthorizer:
         return None
 
 
-def _binding_grants_credential_use(
+def _binding_is_eligible(
     binding,
     *,
     account_id: str,
     provider: str,
 ) -> bool:
-    """Whether the binding may be *selected* for this account and provider.
+    """Whether the binding may be *used* for this account and provider.
 
     This is credential eligibility only. It says nothing about whether the
     account is permitted to invoke it.
+
+    For a credential-bearing connection this asks whether the account holds
+    the credential. For a no-auth action it asks the same structural question
+    about the custodian's virtual connection identity: the binding must still
+    exist, be authorized, belong to the account, match the provider, and carry
+    a non-empty scoped grant covering the identity it names.
     """
 
     if binding is None:
@@ -198,10 +207,10 @@ def _binding_grants_credential_use(
         return False
     if not binding.has_scoped_grant():
         return False
-    connection_uuid = str(getattr(binding, "connection_uuid", "") or "").strip()
-    if not connection_uuid:
+    connection_id = str(getattr(binding, "connection_id", "") or "").strip()
+    if not connection_id:
         return False
-    return binding.grants_connection(connection_uuid)
+    return binding.grants_connection(connection_id)
 
 
 def build_permission_profile_provider(
@@ -223,7 +232,7 @@ def build_permission_profile_provider(
 
     async def current_permission_profile() -> PermissionProfile | None:
         binding = await resolver.resolve_binding(scope.account_id, provider)
-        if not _binding_grants_credential_use(
+        if not _binding_is_eligible(
             binding, account_id=scope.account_id, provider=provider
         ):
             return None
@@ -288,7 +297,7 @@ def build_execution_authority(
             authorizer=authorizer,
         ),
         arguments={},
-        requested_connection_uuid=None,
+        requested_connection_id=None,
     )
 
 

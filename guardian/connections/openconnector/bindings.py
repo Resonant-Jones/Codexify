@@ -44,8 +44,12 @@ class AccountBinding:
             Ownership is canonical in Guardian; the custodian never owns it.
         custodian_id: The external custodian instance holding the credential.
         provider: The provider identity this binding authorizes.
-        connection_uuid: The custodian-side connection UUID. This is the
-            selector Guardian sends to the custodian; it is never defaulted.
+        connection_id: The custodian-side connection identity. For a
+            credential-bearing connection this is the custodian's connection
+            UUID; for a no-auth provider it is the custodian's *virtual*
+            no-auth connection identity, which has no stored UUID. Either way
+            it is the identity the scoped grant covers, it is never defaulted,
+            and it is never empty.
         connection_alias: Optional human-facing alias, where the custodian
             exposes one. Never used for selection by this adapter.
         runtime_token_ref: Reference to the account-scoped persistent runtime
@@ -62,7 +66,7 @@ class AccountBinding:
     guardian_account_id: str
     custodian_id: str
     provider: str
-    connection_uuid: str
+    connection_id: str
     connection_alias: str | None = None
     runtime_token_ref: str | None = None
     allowed_connections: tuple[str, ...] = ()
@@ -89,9 +93,9 @@ class AccountBinding:
             if str(value).strip()
         )
 
-    def grants_connection(self, connection_uuid: str) -> bool:
-        """Whether the scoped grant covers ``connection_uuid``."""
-        candidate = str(connection_uuid or "").strip()
+    def grants_connection(self, connection_id: str) -> bool:
+        """Whether the scoped grant covers ``connection_id``."""
+        candidate = str(connection_id or "").strip()
         if not candidate:
             return False
         return candidate in self.granted_connections()

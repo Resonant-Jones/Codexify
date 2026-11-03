@@ -74,7 +74,7 @@ def test_action_request_targets_the_runtime_action_endpoint() -> None:
         base_url=_BASE_URL,
         action_id="hackernews.get_top_stories",
         arguments={"limit": 5},
-        connection_uuid=_CONNECTION_UUID,
+        connection_id=_CONNECTION_UUID,
         runtime_token=_SCOPED_TOKEN,
     )
 
@@ -89,7 +89,7 @@ def test_action_arguments_travel_under_the_input_envelope() -> None:
         base_url=_BASE_URL,
         action_id="hackernews.get_top_stories",
         arguments={"limit": 5},
-        connection_uuid=_CONNECTION_UUID,
+        connection_id=_CONNECTION_UUID,
         runtime_token=_SCOPED_TOKEN,
     )
 
@@ -104,7 +104,7 @@ def test_connection_is_selected_explicitly_by_the_measured_header() -> None:
         base_url=_BASE_URL,
         action_id="hackernews.get_top_stories",
         arguments={},
-        connection_uuid=_CONNECTION_UUID,
+        connection_id=_CONNECTION_UUID,
         runtime_token=_SCOPED_TOKEN,
     )
 
@@ -117,7 +117,7 @@ def test_body_never_carries_a_connection_identifier() -> None:
         base_url=_BASE_URL,
         action_id="hackernews.get_top_stories",
         arguments={},
-        connection_uuid=_CONNECTION_UUID,
+        connection_id=_CONNECTION_UUID,
         runtime_token=_SCOPED_TOKEN,
     )
 
@@ -135,7 +135,7 @@ def test_request_refuses_to_build_without_explicit_selection() -> None:
             base_url=_BASE_URL,
             action_id="hackernews.get_top_stories",
             arguments={},
-            connection_uuid="",
+            connection_id="",
             runtime_token=_SCOPED_TOKEN,
         )
 
@@ -151,7 +151,7 @@ def test_transport_never_reads_a_deployment_credential(monkeypatch) -> None:
         service.execute_action(
             action_id="hackernews.get_top_stories",
             arguments={},
-            connection_uuid=_CONNECTION_UUID,
+            connection_id=_CONNECTION_UUID,
             runtime_token=_SCOPED_TOKEN,
         )
     )
@@ -174,7 +174,7 @@ def test_success_returns_the_parsed_payload() -> None:
         service.execute_action(
             action_id="hackernews.get_top_stories",
             arguments={},
-            connection_uuid=_CONNECTION_UUID,
+            connection_id=_CONNECTION_UUID,
             runtime_token=_SCOPED_TOKEN,
         )
     )
@@ -209,7 +209,7 @@ def test_status_codes_map_to_bounded_failures(
             service.execute_action(
                 action_id="hackernews.get_top_stories",
                 arguments={},
-                connection_uuid=_CONNECTION_UUID,
+                connection_id=_CONNECTION_UUID,
                 runtime_token=_SCOPED_TOKEN,
             )
         )
@@ -229,7 +229,7 @@ def test_provider_error_text_never_escapes_the_transport() -> None:
             service.execute_action(
                 action_id="hackernews.get_top_stories",
                 arguments={},
-                connection_uuid=_CONNECTION_UUID,
+                connection_id=_CONNECTION_UUID,
                 runtime_token=_SCOPED_TOKEN,
             )
         )
@@ -252,7 +252,7 @@ def test_non_json_body_is_rejected_without_surfacing_text() -> None:
             service.execute_action(
                 action_id="hackernews.get_top_stories",
                 arguments={},
-                connection_uuid=_CONNECTION_UUID,
+                connection_id=_CONNECTION_UUID,
                 runtime_token=_SCOPED_TOKEN,
             )
         )
@@ -270,7 +270,7 @@ def test_oversized_response_is_refused() -> None:
             service.execute_action(
                 action_id="hackernews.get_top_stories",
                 arguments={},
-                connection_uuid=_CONNECTION_UUID,
+                connection_id=_CONNECTION_UUID,
                 runtime_token=_SCOPED_TOKEN,
             )
         )
@@ -296,7 +296,7 @@ def test_a_timeout_is_not_replayed() -> None:
             service.execute_action(
                 action_id="hackernews.get_top_stories",
                 arguments={},
-                connection_uuid=_CONNECTION_UUID,
+                connection_id=_CONNECTION_UUID,
                 runtime_token=_SCOPED_TOKEN,
             )
         )
@@ -316,7 +316,7 @@ def test_timeouts_are_bounded_and_passed_to_the_client() -> None:
         service.execute_action(
             action_id="hackernews.get_top_stories",
             arguments={},
-            connection_uuid=_CONNECTION_UUID,
+            connection_id=_CONNECTION_UUID,
             runtime_token=_SCOPED_TOKEN,
         )
     )
@@ -326,3 +326,41 @@ def test_timeouts_are_bounded_and_passed_to_the_client() -> None:
     assert request.read_timeout_seconds == 11.0
     assert request.connect_timeout_seconds > 0
     assert request.read_timeout_seconds > 0
+
+
+def test_no_auth_omission_sends_no_selector_but_keeps_the_scoped_bearer() -> None:
+    request = build_action_request(
+        base_url=_BASE_URL,
+        action_id="hackernews.get_top_stories",
+        arguments={},
+        connection_id=None,
+        runtime_token=_SCOPED_TOKEN,
+        omit_connection_selector=True,
+    )
+
+    assert CONNECTION_SELECTOR_HEADER not in request.headers
+    assert request.headers["authorization"] == f"Bearer {_SCOPED_TOKEN}"
+    assert json.loads(request.body.decode("utf-8")) == {"input": {}}
+
+
+def test_no_auth_omission_refuses_a_named_connection() -> None:
+    with pytest.raises(ValueError):
+        build_action_request(
+            base_url=_BASE_URL,
+            action_id="hackernews.get_top_stories",
+            arguments={},
+            connection_id=_CONNECTION_UUID,
+            runtime_token=_SCOPED_TOKEN,
+            omit_connection_selector=True,
+        )
+
+
+def test_explicit_selection_refuses_an_undeclared_omission() -> None:
+    with pytest.raises(ValueError):
+        build_action_request(
+            base_url=_BASE_URL,
+            action_id="hackernews.get_top_stories",
+            arguments={},
+            connection_id=None,
+            runtime_token=_SCOPED_TOKEN,
+        )

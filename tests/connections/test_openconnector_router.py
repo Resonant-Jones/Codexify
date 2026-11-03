@@ -34,6 +34,11 @@ from guardian.command_bus.manifest import build_manifest
 from guardian.connections.openconnector import router as openconnector_router
 from guardian.connections.openconnector.authority import CustodianUsageGrant
 from guardian.connections.openconnector.bindings import AccountBinding, BindingState
+from guardian.connections.openconnector.policy import (
+    APPROVED_ACTIONS,
+    ApprovedAction,
+    ConnectionSelection,
+)
 from guardian.connections.openconnector.service import (
     CONNECTION_SELECTOR_HEADER,
     GatewayRequest,
@@ -48,8 +53,25 @@ from guardian.routes import command_bus as command_bus_routes
 
 _ACCOUNT_A = "acct-alpha"
 _ACCOUNT_B = "acct-beta"
+
+#: The custodian's virtual connection identity for the no-auth provider. It is
+#: provider-scoped rather than account-scoped: it holds no credential, it has
+#: no stored UUID, and upstream refuses an explicit selector aimed at it. The
+#: production reviewed action is a no-auth action, so this is the identity its
+#: binding names.
+_VIRTUAL_CONNECTION = "hackernews:default"
+
+#: Credential-bearing synthetic connections. They exist only for the injected
+#: credential-bearing allowlist and never reach the production allowlist.
 _CONNECTION_A = "aaaaaaaa-0000-0000-0000-00000000000a"
 _CONNECTION_B = "bbbbbbbb-0000-0000-0000-00000000000b"
+
+#: Each account's binding carries its own scoped-token reference. Once two
+#: accounts name the same virtual connection, the token reference is what
+#: separates them.
+_TOKEN_REF_A = "token-ref::acct-alpha"
+_TOKEN_REF_B = "token-ref::acct-beta"
+
 _TOKEN_A = "oct_scoped_token_account_alpha"
 _TOKEN_B = "oct_scoped_token_account_beta"
 _CUSTODIAN = "custodian-openconnector-1"
@@ -58,6 +80,22 @@ _ACTION = "hackernews.get_top_stories"
 _API_KEY = "openconnector-test-key"
 _BASE_URL = "http://custodian.test"
 _ROUTE_PATH = "/api/guardian/connections/openconnector/actions/{action_id}"
+
+#: A credential-bearing synthetic action and the allowlist that injects it.
+#: The injected allowlist is a test-harness affordance; it never widens the
+#: production read-only allowlist.
+_CREDENTIAL_ACTION = "synthetic.read_records"
+_CREDENTIAL_PROVIDER = "synthetic"
+_CREDENTIAL_ALLOWLIST = {
+    **APPROVED_ACTIONS,
+    _CREDENTIAL_ACTION: ApprovedAction(
+        action_id=_CREDENTIAL_ACTION,
+        provider=_CREDENTIAL_PROVIDER,
+        description="Synthetic credential-bearing read action (test-only).",
+        connection_selection=ConnectionSelection.EXPLICIT,
+        credential_bearing=True,
+    ),
+}
 
 
 class _RecordingClient:
@@ -106,24 +144,28 @@ class _SyntheticResolver:
         return None
 
     async def resolve_runtime_token(self, binding: AccountBinding) -> str | None:
-        return self._tokens.get(binding.connection_uuid)
+        return self._tokens.get(str(binding.runtime_token_ref or ""))
 
 
 def _binding(
     account_id: str,
-    connection_uuid: str,
+    connection_id: str = _VIRTUAL_CONNECTION,
     *,
+    provider: str = _PROVIDER,
+    token_ref: str | None = None,
     state: BindingState = BindingState.AUTHORIZED,
     grants: tuple[str, ...] | None = None,
 ) -> AccountBinding:
     return AccountBinding(
         guardian_account_id=account_id,
         custodian_id=_CUSTODIAN,
-        provider=_PROVIDER,
-        connection_uuid=connection_uuid,
-        runtime_token_ref=f"token-ref::{connection_uuid}",
+        provider=provider,
+        connection_id=connection_id,
+        runtime_token_ref=(
+            token_ref if token_ref is not None else f"token-ref::{account_id}"
+        ),
         allowed_connections=(
-            grants if grants is not None else (connection_uuid,)
+            grants if grants is not None else (connection_id,)
         ),
         state=state,
     )
@@ -235,7 +277,7 @@ def test_route_requires_an_account_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -254,7 +296,7 @@ def test_authorized_account_dispatches_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -272,7 +314,9 @@ def test_authorized_account_dispatches_once(
     assert transport.dispatch_count == 1
     request = transport.requests[0]
     assert request.url == f"{_BASE_URL}/v1/actions/{_ACTION}"
-    assert request.headers[CONNECTION_SELECTOR_HEADER] == _CONNECTION_A
+    # The production reviewed action is a no-auth action, so its custodian-side
+    # connection is virtual and the crossing omits the selector.
+    assert CONNECTION_SELECTOR_HEADER not in request.headers
     assert json.loads(request.body.decode("utf-8")) == {"input": {}}
 
 
@@ -280,7 +324,7 @@ def test_response_carries_no_credential_material(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -299,7 +343,7 @@ def test_unapproved_action_is_denied_without_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -340,11 +384,11 @@ def test_revoked_binding_does_not_dispatch(
         (
             _binding(
                 _ACCOUNT_A,
-                _CONNECTION_A,
+                _VIRTUAL_CONNECTION,
                 state=BindingState.REVOKED,
             ),
         ),
-        {_CONNECTION_A: _TOKEN_A},
+        {_TOKEN_REF_A: _TOKEN_A},
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -363,7 +407,7 @@ def test_unknown_account_does_not_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -382,7 +426,7 @@ def test_missing_token_reference_does_not_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),),
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),),
         {},
     )
     transport = _RecordingClient()
@@ -406,10 +450,10 @@ def test_cross_account_binding_is_not_usable(
 
     resolver = _SyntheticResolver(
         (
-            _binding(_ACCOUNT_A, _CONNECTION_A),
-            _binding(_ACCOUNT_B, _CONNECTION_B),
+            _binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),
+            _binding(_ACCOUNT_B, _VIRTUAL_CONNECTION),
         ),
-        {_CONNECTION_A: _TOKEN_A, _CONNECTION_B: _TOKEN_B},
+        {_TOKEN_REF_A: _TOKEN_A, _TOKEN_REF_B: _TOKEN_B},
     )
     transport = _RecordingClient()
     _install(
@@ -428,7 +472,7 @@ def test_cross_account_binding_is_not_usable(
     assert response.status_code == 200
     assert transport.dispatch_count == 1
     request = transport.requests[0]
-    assert request.headers[CONNECTION_SELECTOR_HEADER] == _CONNECTION_B
+    assert CONNECTION_SELECTOR_HEADER not in request.headers
     assert _TOKEN_B in request.headers["authorization"]
 
 
@@ -436,8 +480,8 @@ def test_empty_grant_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A, grants=()),),
-        {_CONNECTION_A: _TOKEN_A},
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION, grants=()),),
+        {_TOKEN_REF_A: _TOKEN_A},
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -468,12 +512,12 @@ def test_execution_time_revalidation_stops_a_revoked_dispatch(
         ) -> AccountBinding | None:
             self.binding_resolutions += 1
             if self.binding_resolutions <= 2:
-                return _binding(_ACCOUNT_A, _CONNECTION_A)
+                return _binding(_ACCOUNT_A, _VIRTUAL_CONNECTION)
             return _binding(
-                _ACCOUNT_A, _CONNECTION_A, state=BindingState.REVOKED
+                _ACCOUNT_A, _VIRTUAL_CONNECTION, state=BindingState.REVOKED
             )
 
-    resolver = _RevokingResolver((), {_CONNECTION_A: _TOKEN_A})
+    resolver = _RevokingResolver((), {_TOKEN_REF_A: _TOKEN_A})
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
     client = _client(_build_app())
@@ -491,7 +535,7 @@ def test_custodian_not_configured_reports_needs_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -516,7 +560,7 @@ def test_custodian_denial_and_failure_stay_distinguishable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient(
         GatewayResponse(
@@ -555,7 +599,7 @@ def test_payload_is_bounded(
     """An oversized custodian response is refused, and never echoed back."""
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     oversized = json.dumps(
         {"stories": ["x" * 4096 for _ in range(200)]}
@@ -588,7 +632,7 @@ def test_binding_without_a_usage_grant_does_not_dispatch(
     """A binding's existence does not substitute for the permission check."""
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(
@@ -639,7 +683,7 @@ def test_no_authorizer_configured_denies_every_crossing(
     """The default is fail-closed, not "the binding implies permission"."""
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -665,7 +709,7 @@ def test_usage_grant_for_another_action_does_not_dispatch(
     """The grant narrows the crossing to the action it names."""
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(
@@ -691,7 +735,7 @@ def test_usage_grant_for_another_account_does_not_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(
@@ -726,7 +770,7 @@ def test_revoked_usage_grant_stops_the_crossing(
             return _grant(granted=False)
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(
@@ -787,7 +831,7 @@ def test_hosted_public_allowlist_posture_refuses_the_internal_route(
     """
 
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -851,7 +895,7 @@ def test_command_bus_invokes_the_internal_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolver = _SyntheticResolver(
-        (_binding(_ACCOUNT_A, _CONNECTION_A),), {_CONNECTION_A: _TOKEN_A}
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
     )
     transport = _RecordingClient()
     _install(monkeypatch, resolver=resolver, client=transport)
@@ -869,7 +913,7 @@ def test_command_bus_invokes_the_internal_route(
 
     assert result["status"] == "completed"
     assert transport.dispatch_count == 1
-    assert transport.requests[0].headers[CONNECTION_SELECTOR_HEADER] == _CONNECTION_A
+    assert CONNECTION_SELECTOR_HEADER not in transport.requests[0].headers
 
 
 def test_command_bus_invocation_fails_closed_without_a_binding(
@@ -894,3 +938,100 @@ def test_command_bus_invocation_fails_closed_without_a_binding(
     assert transport.dispatch_count == 0
     inline = result.get("inline_result", {})
     assert inline.get("body", {}).get("outcome") == "denied"
+
+
+# ── Credential-bearing selection is unchanged by the no-auth mode ──────────
+
+
+def _credential_binding(account_id: str = _ACCOUNT_A) -> AccountBinding:
+    """A binding for a credential-bearing synthetic provider."""
+
+    return _binding(
+        account_id,
+        _CONNECTION_A,
+        provider=_CREDENTIAL_PROVIDER,
+        token_ref=_TOKEN_REF_A,
+    )
+
+
+def test_credential_bearing_action_names_the_connection_through_the_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The credential-bearing path still sends the explicit selector."""
+
+    resolver = _SyntheticResolver(
+        (_credential_binding(_ACCOUNT_A),), {_TOKEN_REF_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(
+            _grant(provider=_CREDENTIAL_PROVIDER, action_id=_CREDENTIAL_ACTION)
+        ),
+        allowlist=_CREDENTIAL_ALLOWLIST,
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_CREDENTIAL_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 200
+    assert transport.dispatch_count == 1
+    request = transport.requests[0]
+    assert request.headers[CONNECTION_SELECTOR_HEADER] == _CONNECTION_A
+    assert request.headers["authorization"] == f"Bearer {_TOKEN_A}"
+
+
+def test_credential_bearing_action_is_never_downgraded_to_no_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing binding is a denial, not a reason to omit the selector."""
+
+    resolver = _SyntheticResolver((), {})
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(
+            _grant(provider=_CREDENTIAL_PROVIDER, action_id=_CREDENTIAL_ACTION)
+        ),
+        allowlist=_CREDENTIAL_ALLOWLIST,
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_CREDENTIAL_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 403
+    assert transport.dispatch_count == 0
+
+
+def test_no_auth_action_never_sends_a_connection_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The no-auth crossing omits the selector and names no connection."""
+
+    resolver = _SyntheticResolver(
+        (_binding(_ACCOUNT_A, _VIRTUAL_CONNECTION),), {_TOKEN_REF_A: _TOKEN_A}
+    )
+    transport = _RecordingClient()
+    _install(monkeypatch, resolver=resolver, client=transport)
+    client = _client(_build_app())
+
+    response = client.get(
+        f"/api/guardian/connections/openconnector/actions/{_ACTION}",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 200
+    request = transport.requests[0]
+    assert CONNECTION_SELECTOR_HEADER not in request.headers
+    assert request.headers["authorization"] == f"Bearer {_TOKEN_A}"
+    assert json.loads(request.body.decode("utf-8")) == {"input": {}}

@@ -14,17 +14,23 @@ Order of operations, and the reason for it:
 3. The Guardian-owned binding is resolved and checked: it must exist, be
    authorized, belong to the invoking account, match the provider, and carry a
    non-empty scoped grant naming the connection.
-4. The connection is selected **explicitly**, from Guardian state. A requested
-   connection may only narrow to what the binding already grants; it can never
-   widen, and an omitted request never falls back to a default or shared
-   connection.
+4. The custodian-side connection is selected **explicitly**, from Guardian
+   state. A requested connection may only narrow to what the binding already
+   grants; it can never widen, and an omitted request never falls back to a
+   default or shared connection.
+   The single exception is a reviewed **no-auth** action, whose
+   custodian-side connection is virtual and holds no credential: for those
+   actions the upstream selector is omitted, and nothing else about the
+   request changes. The exception belongs to the reviewed allowlist entry
+   alone — no request, argument, binding, or runtime flag can select it.
 5. The account-scoped persistent runtime token is resolved. It is used only
    inside the transport.
 6. Guardian authority is **revalidated immediately before dispatch**, so a
    revocation between resolution and dispatch stops the call. Every new
    invocation and every retry revalidates; no authorization decision is
    cached across invocations.
-7. The custodian is called with the explicit connection selector.
+7. The custodian is called with the explicit connection selector, or — for a
+   reviewed no-auth action only — without one.
 
 The deployment guard and the operator admin token are not execution
 credentials and are never reachable from this module: they are not read from
@@ -65,8 +71,9 @@ from guardian.connections.openconnector.bindings import (
 )
 from guardian.connections.openconnector.policy import (
     ApprovedAction,
+    ConnectionSelection,
     approved_actions_for_provider,
-    is_approved_action,
+    get_approved_action,
     resolve_allowlist,
 )
 from guardian.connections.openconnector.service import (
@@ -131,7 +138,7 @@ class ExecutionAuthority:
     task_id: str
     permission_profile_provider: PermissionProfileProvider
     arguments: Mapping[str, Any] = field(default_factory=dict)
-    requested_connection_uuid: str | None = None
+    requested_connection_id: str | None = None
 
     def command_id(self) -> str:
         return f"{COMMAND_ID_PREFIX}::{self.action_id}"
@@ -195,11 +202,24 @@ class OpenConnectorAdapter:
         self, authority: ExecutionAuthority
     ) -> AdapterResult:
         """Execute one reviewed action for one authorized account."""
-        if not is_approved_action(authority.action_id, self._allowlist):
+        action = get_approved_action(authority.action_id, self._allowlist)
+        if action is None:
             return AdapterResult(
                 outcome=AdapterOutcome.DENIED,
                 code="action_not_approved",
                 detail="action is not on the reviewed read-only allowlist",
+            )
+        if (
+            action.connection_selection is ConnectionSelection.NO_AUTH
+            and action.credential_bearing
+        ):
+            # A reviewed entry may not both declare the no-auth mode and spend a
+            # provider credential. Such an entry is contradictory, and a
+            # contradiction is refused rather than resolved.
+            return AdapterResult(
+                outcome=AdapterOutcome.DENIED,
+                code="action_contract_inconsistent",
+                detail="the reviewed action declares an inconsistent execution mode",
             )
 
         decision = await self._evaluate_authority(authority)
@@ -220,12 +240,26 @@ class OpenConnectorAdapter:
         if binding_refusal is not None:
             return binding_refusal
 
-        connection_uuid = _select_connection(binding, authority)
-        if connection_uuid is None:
-            return _denied(
-                "connection_not_granted",
-                "the requested connection is not granted to this account",
-            )
+        # The reviewed action alone decides how the custodian-side connection is
+        # named. A no-auth action has no selectable account-owned connection, so
+        # a request that names one is refused instead of being narrowed away.
+        if action.connection_selection is ConnectionSelection.NO_AUTH:
+            if str(authority.requested_connection_id or "").strip():
+                return _denied(
+                    "connection_not_selectable",
+                    "a no-auth action has no selectable account-owned connection",
+                )
+            connection_id: str | None = None
+            omit_connection_selector = True
+        else:
+            selected = _select_connection(binding, authority)
+            if selected is None:
+                return _denied(
+                    "connection_not_granted",
+                    "the requested connection is not granted to this account",
+                )
+            connection_id = selected
+            omit_connection_selector = False
 
         arguments = _checked_arguments(authority.arguments)
         if isinstance(arguments, AdapterResult):
@@ -259,8 +293,9 @@ class OpenConnectorAdapter:
             payload = await self._service.execute_action(
                 action_id=authority.action_id,
                 arguments=arguments,
-                connection_uuid=connection_uuid,
+                connection_id=connection_id,
                 runtime_token=token,
+                omit_connection_selector=omit_connection_selector,
             )
         except GatewayDeniedError as exc:
             return AdapterResult(
@@ -373,7 +408,7 @@ def _check_binding(
             "connection_grant_empty",
             "the binding carries no scoped connection grant",
         )
-    if not binding.grants_connection(binding.connection_uuid):
+    if not binding.grants_connection(binding.connection_id):
         return _denied(
             "connection_grant_inconsistent",
             "the binding's own connection is outside its scoped grant",
@@ -390,8 +425,8 @@ def _select_connection(
     grants. Omitting the request uses the binding's own connection; it never
     falls back to a custodian default or a shared connection.
     """
-    requested = str(authority.requested_connection_uuid or "").strip()
-    candidate = requested or str(binding.connection_uuid or "").strip()
+    requested = str(authority.requested_connection_id or "").strip()
+    candidate = requested or str(binding.connection_id or "").strip()
     if not candidate:
         return None
     if not binding.grants_connection(candidate):
@@ -423,7 +458,8 @@ def _action_metadata(action: ApprovedAction) -> dict[str, Any]:
         "action_id": action.action_id,
         "provider": action.provider,
         "description": action.description,
-        "requires_connection": action.requires_connection,
+        "connection_selection": action.connection_selection.value,
+        "credential_bearing": action.credential_bearing,
         "read_only": True,
     }
 

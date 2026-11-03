@@ -7,12 +7,34 @@ Wire contract, verified against the pinned v1.9.4 digest:
 
 * ``POST /v1/actions/{actionId}`` is the runtime action endpoint.
 * Action arguments travel under an ``input`` wrapper, not at the top level.
-* The connection is selected explicitly by the custodian connection UUID in
+* The connection is selected explicitly by the custodian connection identity in
   the ``x-oo-connector-app-id`` header. The request body's ``connectionId``
   field is **not** wired for selection and silently denies; the body must
-  never carry it. No request omits the selector and relies on a default.
+  never carry it.
 * The bearer is an account-scoped persistent runtime token whose grant names
   the custodian connections that account may use.
+
+One measured exception governs the selector. A **no-auth** provider's
+connection is virtual: it holds no credential, it has no stored UUID, and
+upstream refuses an explicit selector aimed at it with ``connection_not_allowed``.
+For a reviewed no-auth action the crossing therefore **omits** the selector,
+which is the only form that reaches the provider. Two properties keep this
+bounded, and the transport enforces both:
+
+* the omission is not a fallback to some other connection. Upstream resolves
+  the target from the action's own provider, so an omitted selector for a
+  no-auth action reaches that provider's virtual no-auth connection — never a
+  credential-bearing connection belonging to another provider, and never a
+  shared unscoped default;
+* the omission changes nothing else about the request. The bearer is still the
+  scoped account token, the deployment action allowlist still applies, the
+  token's ``allowedActions`` grant still applies, and the response bound is
+  unchanged.
+
+The transport does not decide when to omit. It refuses a request that omits
+the selector without saying so explicitly, and it refuses a request that both
+names a connection and claims to omit it. The decision belongs to the
+reviewed allowlist, and it reaches the transport as an explicit flag.
 
 This module never reads, accepts, or presents a deployment credential. The
 undistributed runtime guard and the operator admin token are deployment
@@ -182,26 +204,37 @@ def build_action_request(
     base_url: str,
     action_id: str,
     arguments: Mapping[str, Any],
-    connection_uuid: str,
+    connection_id: str | None,
     runtime_token: str,
+    omit_connection_selector: bool = False,
     connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
     read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS,
 ) -> GatewayRequest:
     """Build the custodian action request for the pinned wire contract.
 
-    The connection is always selected explicitly. The body carries the
-    ``input`` envelope and nothing else — in particular never a
-    ``connectionId`` or ``connectionName`` field.
+    The body carries the ``input`` envelope and nothing else — in particular
+    never a ``connectionId`` or ``connectionName`` field.
+
+    The connection selector is omitted **only** when ``omit_connection_selector``
+    is set, which the adapter does only for a reviewed no-auth action. The two
+    states are mutually exclusive and each is checked here, so a request can
+    never silently name a connection while claiming to omit it, nor omit one
+    without saying so.
     """
     action = str(action_id or "").strip()
     if not action:
         raise ValueError("action_id is required")
-    connection = str(connection_uuid or "").strip()
-    if not connection:
-        raise ValueError("connection_uuid is required for explicit selection")
+    connection = str(connection_id or "").strip()
     token = str(runtime_token or "").strip()
     if not token:
         raise ValueError("runtime_token is required")
+    if omit_connection_selector:
+        if connection:
+            raise ValueError(
+                "connection_id must be omitted when the connection selector is omitted"
+            )
+    elif not connection:
+        raise ValueError("connection_id is required for explicit selection")
 
     payload: dict[str, Any] = {"input": dict(arguments or {})}
     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -213,8 +246,9 @@ def build_action_request(
         "authorization": f"Bearer {token}",
         "content-type": "application/json",
         "accept": "application/json",
-        CONNECTION_SELECTOR_HEADER: connection,
     }
+    if connection:
+        headers[CONNECTION_SELECTOR_HEADER] = connection
     return GatewayRequest(
         method="POST",
         url=url,
@@ -228,9 +262,10 @@ def build_action_request(
 class OpenConnectorService:
     """HTTP transport for one custodian instance.
 
-    The service is deliberately narrow: it sends one reviewed action with an
-    explicit connection selector and an account-scoped bearer, and it returns
-    either a bounded payload or a bounded failure. It performs no retry.
+    The service is deliberately narrow: it sends one reviewed action with a
+    scoped bearer, names the custodian-side connection unless the reviewed
+    action is a no-auth action, and it returns either a bounded payload or a
+    bounded failure. It performs no retry.
     """
 
     def __init__(
@@ -257,8 +292,9 @@ class OpenConnectorService:
         *,
         action_id: str,
         arguments: Mapping[str, Any],
-        connection_uuid: str,
+        connection_id: str | None,
         runtime_token: str,
+        omit_connection_selector: bool = False,
     ) -> Any:
         """Execute one action and return the parsed custodian payload.
 
@@ -269,8 +305,9 @@ class OpenConnectorService:
             base_url=self._base_url,
             action_id=action_id,
             arguments=arguments,
-            connection_uuid=connection_uuid,
+            connection_id=connection_id,
             runtime_token=runtime_token,
+            omit_connection_selector=omit_connection_selector,
             connect_timeout_seconds=self._connect_timeout_seconds,
             read_timeout_seconds=self._read_timeout_seconds,
         )

@@ -33,6 +33,13 @@ authorizes nothing, and a usage grant without a binding selects nothing. Both
 default to denying. Both are re-read immediately before the external crossing,
 so a revocation of either, between resolution and dispatch, stops the call.
 
+How the custodian-side connection is named comes from the reviewed allowlist
+entry for the action, never from the request. For a credential-bearing action
+the connection is selected explicitly. For a reviewed **no-auth** action the
+custodian's connection is virtual and holds no credential, so the crossing
+omits the upstream selector — and only for those actions. The route itself
+never chooses a connection and never accepts one from the caller.
+
 The route accepts no action arguments. There is therefore no model-supplied
 argument that could carry account identity, connection identity, or credential
 material into the crossing.
