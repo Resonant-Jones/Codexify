@@ -72,7 +72,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Compose projects this launcher must never target.
+# Compose projects this launcher must never target.  The refusal is a
+# prefix match on the whole name, so no spelling of a protected project —
+# "codexify_private_preview", "codexify_private_preview_staging",
+# "codexify_private_previewfoo" — can slip through the guard.
 PROTECTED_PROJECT_PREFIX="codexify_private_preview"
 
 # ── Migrator outcome verification ──
@@ -367,7 +370,7 @@ else
 fi
 
 case "$PROJECT" in
-    "$PROTECTED_PROJECT_PREFIX"|"$PROTECTED_PROJECT_PREFIX"_*)
+    "$PROTECTED_PROJECT_PREFIX"*)
         fail_prereq "refusing to target protected Compose project '$PROJECT'"
         ;;
 esac

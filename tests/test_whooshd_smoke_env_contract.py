@@ -350,6 +350,44 @@ def _launcher_content() -> str:
     return SMOKE_LAUNCHER_PATH.read_text()
 
 
+def _protected_project_case_pattern() -> str:
+    """Extract the launcher's protected-project case pattern verbatim.
+
+    The guard is evaluated behaviourally rather than asserted as text, so a
+    pattern that stops matching a prefixed name is actually caught.  The
+    protected prefix is read from the launcher too, so the test tracks the
+    script rather than a copy of it.
+    """
+
+    content = _launcher_content()
+    pattern_match = re.search(r'case "\$PROJECT" in\s*\n\s*(.+?)\)\s*\n', content)
+    assert pattern_match, "could not locate the protected-project case pattern"
+    prefix_match = re.search(
+        r'PROTECTED_PROJECT_PREFIX="([^"]+)"', content
+    )
+    assert prefix_match, "could not locate PROTECTED_PROJECT_PREFIX"
+    return prefix_match.group(1), pattern_match.group(1).strip()
+
+
+def _project_is_blocked(guard: tuple[str, str], project: str) -> bool:
+    prefix, pattern = guard
+    script = (
+        f'PROTECTED_PROJECT_PREFIX="{prefix}"\n'
+        'case "$1" in\n'
+        f"  {pattern})\n"
+        "    echo BLOCKED ;;\n"
+        "  *)\n"
+        "    echo ALLOWED ;;\n"
+        "esac"
+    )
+    result = subprocess.run(
+        ["bash", "-c", script, "_", project],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() == "BLOCKED"
+
+
 class TestLauncherHasNoGlobalContainerDeletion:
     """The launcher must never remove containers it does not own.
 
@@ -387,6 +425,28 @@ class TestLauncherHasNoGlobalContainerDeletion:
         assert "PROTECTED_PROJECT_PREFIX" in content
         assert "codexify_private_preview" in content
         assert "refusing to target protected Compose project" in content
+
+    def test_protected_project_guard_covers_every_prefixed_name(self):
+        """No spelling of a protected project may slip through the guard."""
+
+        pattern = _protected_project_case_pattern()
+        blocked = [
+            "codexify_private_preview",
+            "codexify_private_preview_staging",
+            "codexify_private_previewfoo",
+            "codexify_private_preview_",
+            "codexify_private_preview2",
+        ]
+        allowed = [
+            "codexify",
+            "codexify_qual_migrator",
+            "codexify_private_previe",
+            "codexifyprivpreview",
+        ]
+        for name in blocked:
+            assert _project_is_blocked(pattern, name), f"{name} must be refused"
+        for name in allowed:
+            assert not _project_is_blocked(pattern, name), f"{name} must be allowed"
 
     def test_teardown_is_opt_in_not_automatic(self):
         content = _launcher_content()
