@@ -31,6 +31,15 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import jsonschema
+import errno
+
+try:
+    # Imported as a package module (tests, tooling).
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place, exclusive_artifact_lock
+except ImportError:  # pragma: no cover - executed as a script
+    # Executed directly: the repository root is not on sys.path yet.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from scripts.knowledge_graph.in_place_write import write_bytes_in_place, exclusive_artifact_lock
 
 
 SCRIPT_ID = "scripts/knowledge_graph/generate_representative_arps.py"
@@ -939,23 +948,41 @@ def _pretty_json_bytes(value: Any) -> bytes:
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write deterministic UTF-8 JSON through same-directory atomic replacement."""
+    """Write deterministic UTF-8 JSON through same-directory atomic replacement.
+
+    Where the host permits `rename(2)`, the staged file is renamed over the
+    destination, which is the strongest guarantee available: the visible
+    file is never partially written.
+
+    Where the host denies rename or unlink, that path fails outright. The
+    write then falls back to a truncate-in-place copy, which needs neither
+    rename nor unlink. The payload is serialized in full before the
+    destination is opened either way, so a serialization failure cannot
+    truncate a committed artifact.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(_pretty_json_bytes(payload))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
+    temporary_path = path.parent / f".{path.name}.staged"
+    with exclusive_artifact_lock(path):
+        try:
+            with open(temporary_path, "wb") as handle:
+                handle.write(_pretty_json_bytes(payload))
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.replace(temporary_path, path)
+            except OSError as exc:
+                # Only an explicit rename permission/unsupported-operation
+                # denial justifies trading atomicity for truncate-in-place.
+                # I/O failures and ENOSPC must leave the destination intact.
+                if exc.errno not in (errno.EPERM, errno.EACCES, errno.ENOTSUP, errno.EOPNOTSUPP):
+                    raise
+                write_bytes_in_place(path, temporary_path.read_bytes())
+        except Exception:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
 
 def _assert_output_scope(output_dir: Path, *, allow_missing: bool) -> None:
@@ -965,7 +992,14 @@ def _assert_output_scope(output_dir: Path, *, allow_missing: bool) -> None:
         _fail(f"representative packet output directory is missing: {output_dir}")
     if not output_dir.is_dir():
         _fail(f"representative packet output path is not a directory: {output_dir}")
-    entries = sorted(path.name for path in output_dir.iterdir())
+    # Dotfiles are staging artifacts from an interrupted write, not
+    # calibration outputs. Counting them as unknown outputs would make a
+    # single interrupted run break every subsequent calibration check.
+    entries = sorted(
+        path.name
+        for path in output_dir.iterdir()
+        if path.name not in {f".{filename}.staged" for filename in OUTPUT_FILENAMES}
+    )
     if set(entries) - set(OUTPUT_FILENAMES):
         _fail(f"unknown representative packet output exists: {entries}")
 
@@ -984,7 +1018,14 @@ def write_packets(
 def load_persisted_packets(output_dir: Path | str) -> dict[str, dict[str, Any]]:
     target = Path(output_dir)
     _assert_output_scope(target, allow_missing=False)
-    entries = sorted(path.name for path in target.iterdir() if path.is_file())
+    # Staging artifacts from an interrupted write are dotfiles, not
+    # calibration outputs. Counting them here would make a single
+    # interrupted run break every subsequent calibration check.
+    entries = sorted(
+        path.name
+        for path in target.iterdir()
+        if path.is_file() and path.name not in {f".{filename}.staged" for filename in OUTPUT_FILENAMES}
+    )
     if entries != sorted(OUTPUT_FILENAMES):
         _fail("persisted representative output must contain exactly four JSON files")
     return {
