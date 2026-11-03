@@ -5,10 +5,8 @@
 **Feature source SHA:** `7b4b0bab44bf2fd3894eb310d8c2ef48d406325f` (`feature/guardian-delegation-acceptance-axis`)
 **Evaluated published main (task spec):** `0cc626032b0d83f405e7f49529e6f135c9ea8a66`
 **Current published main (verified at execution time):** `f6a6c2b5d996c633886e8529b818a5f822b56272` (`origin/main`)
-**Integration candidate SHA:** the branch tip that carries this receipt. A
-commit cannot contain its own SHA, so it is reported in the closeout
-instead; the candidate tree is byte-identical to the branch tip apart from
-this receipt file.
+**Verified candidate SHA:** `e7d3ccde69ba6d7313e666340d12d99a1775f162` — the tree the independent verifier audited and swept (§17.1).
+**Integration candidate SHA:** the branch tip that carries this receipt's verification record. It is a **documentation-only** commit on top of `e7d3ccde6`: the implementation, the tests, and the four other files are byte-identical, and only this receipt differs. `e7d3ccde6` is retained in the branch history so the verification report continues to name a commit that exists.
 **Release posture:** **HOLD** (unchanged)
 
 ---
@@ -445,7 +443,10 @@ projection would break a read-only contract.
 | Data used | Synthetic fixtures only. **No** production data and **no** Private Preview data. |
 | Queue | In-memory Redis (`redis_queue._InMemoryRedis`) restored after each case |
 
-The disposable database is dropped even when a case fails.
+| The disposable database is dropped even when a case fails. |
+
+The disposable PostgreSQL container (`codexify-guardian-dispatch-pg`) was
+**stopped** by the independent verifier after its sweep completed.
 
 ---
 
@@ -650,13 +651,91 @@ One *pre-existing* failure was **cleared** by this change:
 fails on the pristine feature SHA and passes with this change (the delegated
 run link now records its account origin).
 
+### 17.1 Independent broad sweep — the attribution evidence
+
+A peer executor ran the **broad backend sweep** independently against this
+candidate and against a pristine extraction of `7b4b0bab4`, using the same
+selection on both trees and the same disposable PostgreSQL 16.15. The totals
+alone look alarming; the **set difference** is the number that matters, and it
+is unambiguous:
+
+| | failed | passed | skipped | xfailed | errors |
+|---|---|---|---|---|---|
+| Pristine `7b4b0bab4` | 137 | 7224 | 176 | 35 | 450 |
+| Candidate `e7d3ccde6` | 122 | 7239 | 176 | 35 | 450 |
+
+```
+comm -13 (failing ONLY on the candidate) : 0    <- zero attributable failures
+comm -23 (failing ONLY on pristine)      : 15   <- pre-existing failures this change repairs
+```
+
+**Zero attributable failures.** The error count is identical on both trees.
+This is the evidence a totals-only reading would have gotten wrong: the raw
+counts look like a large regression and the set difference proves there is
+none.
+
+The **15 failures this change repairs** are documentation, migration, and
+fixture-content assertions — architecture phase 3 / phase 3b,
+`guardian_work_brief_ignore_contract`, `electron_candidate`,
+`chat_loopback_accepted_deadline`, `user_profile_accent_proof_profile`,
+`account_observability_compatibility_normalization` (×5),
+`candidate_runtime_checkpoint`, and `document_worker_shutdown`.
+
+The peer also ran, independently:
+
+| Selection | Result |
+|---|---|
+| `tests/contracts/` (all) | 635 passed, 1 xfailed, 0 failed, 0 errors |
+| New suite alone | 22 passed, 0 failed, 0 skipped |
+| Focused set (spec's four files + dispatch integration + execution binding + permission posture) | 177 passed, 0 failed |
+| Identity modules | Only `test_operator_route_auth_migration` fails — byte-identical on pristine |
+| Integration region | 4 failed, 75 passed, 73 skipped — the 4 failures byte-identical on pristine |
+| Guardian-adjacent failures (`test_worker_coding_pi_runtime_contract`, `test_guardian_evidence_packet_make_target`) | Byte-identical on pristine — documentation and fixture-content assertions, not runtime |
+
+### 17.2 The identity error cluster is environmental, not a code defect
+
+`tests/identity/test_mixed_principal_boundary.py` produces **31 setup errors**
+with `sqlite3.OperationalError: unrecognized token: ":"`. This is **branch-behind-main schema drift**, not a defect in this change:
+
+- the module builds its schema on **in-memory SQLite**;
+- this branch's `guardian/db/models.py` emits **PostgreSQL-only check constraints**
+  (`ck_chat_attempt_orphan_outcome`, `ck_chat_completion_attempts_terminal_event`);
+- `guardian/db/models.py` is **not touched by this commit**;
+- the result is byte-identical on pristine (`53 passed, 31 errors` on both trees).
+
+`tests/identity/test_operator_route_auth_migration.py::test_frozen_operator_manifest_has_exactly_59_registrations_in_13_files`
+is the same category: the branch carries three campaign-runner
+continuation-authority routes that the frozen 59-registration manifest does
+not list.
+
+Both are recorded here as **environmental / inherited**, so that they are not
+read as attributable to the authorized-dispatch change. They are the visible
+edge of the same branch lag that §18's mainline reconciliation has to absorb.
+
+### 17.3 Branch custody
+
+Independently confirmed by the peer executor:
+
+- `e7d3ccde6` parent is exactly `7b4b0bab44bf2fd3894eb310d8c2ef48d406325f`;
+- exactly **five** files changed, all inside the authorized list;
+- nothing under `config/supported_profiles/`, `frontend/`,
+  `guardian/routes/guardian_delegations.py`, `guardian/agents/store.py`, or
+  `guardian/db/`;
+- no upstream configured and no remote branch contains it — **local only, not
+  pushed**;
+- the feature branch tip is still `7b4b0bab4`, untouched;
+- `main` untouched;
+- ADR-104 on `main` is status **Proposed / Not accepted**, and its own text
+  ("keeps account-origin provenance mandatory", "treats the run id as a locator
+  and never as authority") aligns with this implementation.
+
 ---
 
 ## 18. Unrun or blocked qualification
 
 | Qualification | Status |
 |---|---|
-| Full backend `pytest -v` | **Not completed.** The host volume `/Volumes/Dev_SSD` runs at ~98% capacity and the Docker disk image lives on it; a full run risks filling the volume, remounting the Docker VM read-only, and destroying the disposable PostgreSQL mid-run. Only targeted suites were run. **No full backend qualification is claimed.** |
+| Full backend `pytest -v` | **Completed by the independent verifier** — the broad sweep of §17.1, run against both this candidate and a pristine extraction of the feature SHA, with a set difference of **0** attributable failures. My own runs were the targeted suites; the sweep was the verifier's. |
 | Live Private Preview deployment | Not run — out of scope for a backend integration candidate |
 | Supported-Compose qualification | Not run |
 | Worker restart recovery | Not proved here; deliberately deferred (the campaign recorded it as `BLOCKED`) |
@@ -664,6 +743,9 @@ run link now records its account origin).
 | Exactly-once execution | Not claimed — the queue is at-most-once and lossy |
 | Live provider execution | Not performed; no inference credit spent |
 | Route-profile promotion | Not performed |
+| Mainline reconciliation | Not performed — the candidate derives from `7b4b0bab4` while `main` has advanced. Qualifying against current `main` is a separate task and the next step in the agreed sequence. |
+| Human approval of the executable plan | **Not implemented.** The admission gate checks `approval_state == approved` only; an auto-approved (`scoped_auto`) intent reaches writable execution today. See the agreed next boundary in §16. |
+| Plan-version hash bound to the approval | **Not implemented.** `plan_summary` has no write path after creation today, so the deployment snapshot and the intent's plan cannot diverge yet. They can once the plan becomes editable under review. See §16. |
 
 ---
 
@@ -702,7 +784,7 @@ supported-runtime qualification gate must precede any release claim.
 | `guardian/routes/agent_orchestration.py` | `_resolve_authorized_coding_account`, `_get_delegation_service`, `_requested_permission_policy`, `_dispatch_authorized_coding_request`; `execute_coding_task` gains the delegated branch and an optional `Request` |
 | `guardian/agents/coding_agent_contracts.py` | `delegation_intent_id` added; provider/model/credential become optional *proposals* |
 | `tests/contracts/test_guardian_coding_authorized_dispatch_contract.py` | New — 22 cases covering the 16 required properties |
-| `docs/architecture/proofs/runtime/2026-10-31-guardian-coding-authorized-dispatch-proof.md` | This receipt |
+| `docs/architecture/proofs/runtime/2026-10-31-guardian-coding-authorized-dispatch-proof.md` | This receipt — implementation proof, independent-review disposition, and the independent verification record (§17.1–§17.3) |
 
 No other file was modified. The feature branch was not touched.
 
