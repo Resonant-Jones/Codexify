@@ -2025,6 +2025,50 @@ far is **synthetic and fixture-based** — it proves Guardian's route,
 authorization, and registration behavior, not live upstream execution and not
 production account authority.
 
+#### Live-trial observation (2026-11-03) — the no-auth connection contract
+
+A bounded live trial ran the pinned gateway (`v1.9.4` @
+`sha256:9cbc8cbb…`) with the deployment guard configured, trial-only secrets,
+no provider credential, no Codexify account, and no database row. The trial
+published the gateway's port on **loopback only** — a deviation from the §2.3
+target posture, which publishes no host port at all, required because the
+Guardian harness runs on the host and Docker Desktop does not route to
+container addresses. The deviation is a trial affordance and does not change
+the deployment target.
+
+What the trial measured, at the gateway level:
+
+| Observation | Result |
+| --- | --- |
+| Unauthenticated `/v1` before bootstrap | **401** — the guard posture held; no zero-token window opened |
+| Unauthenticated `/v1` after token creation | **401** — the store never observed empty |
+| Sentinel token executing an action | `action_not_allowed` — the sentinel grants nothing |
+| `POST /v1/actions/hackernews.get_top_stories` with a scoped token | **200**, live Hacker News story ids — the live provider leg works |
+| Admin connection inventory | no-auth connections are **virtual**, enumerated as `service:default` ids (for example `hackernews:default`); they are not stored and have no UUID |
+
+**The finding that matters.** For a **no-auth** provider the only accepted
+execution form is **no connection selector at all**. Every explicit selector is
+refused with `connection_not_allowed` (403) — whether it names a UUID the grant
+carries, or the virtual id `hackernews:default`. A grant naming the virtual id
+does not authorize it either. The "explicit connection selection, never a
+default" rule therefore holds for **credential-bearing** crossings, where the
+stored connection has a UUID that the grant and the selector must both name,
+and it is **unsatisfiable** for a **no-auth** crossing, where there is no
+account-owned connection to select.
+
+Consequence for the code: the Slice 1 adapter sends
+`x-oo-connector-app-id: <binding.connection_uuid>` on every crossing, so it
+**cannot** execute the one currently allowlisted action against a live
+gateway. The live crossing is therefore blocked on a **connection-contract
+amendment**, not on transport, and the amendment touches the reviewed-allowlist
+decision that Gate B already lists as outstanding: an action may only execute
+without an account-owned connection if its review records that fact.
+
+**Not claimed.** No Guardian-to-gateway crossing completed. Nothing here
+establishes Guardian adapter isolation, live transport interoperability through
+the adapter, or production account authority. The trial's own evidence is
+gateway-level and is not a Gate B proof receipt.
+
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
