@@ -1,0 +1,150 @@
+# The music producer surface.
+#
+# Identical to the default local profile, except that it enables the
+# `music_projects` route label. The default profile is a release promise
+# and is byte-frozen, so a new capability gets its own profile rather
+# than a change to the default one.
+#
+# Select it with:
+#   CODEXIFY_SUPPORTED_PROFILE=v1-music-producer
+#
+# The Producer's engine runs as a separate service -- see the `agentdaw`
+# service in docker-compose.yml, behind the `music` compose profile:
+#   docker compose --profile music up -d agentdaw
+#
+# Every other supported profile leaves `music_projects` quarantined, so
+# the Producer is absent rather than broken wherever it was not asked
+# for. A test asserts that invariant.
+name: v1-music-producer
+version: 1
+surface: local-docker-compose-webui
+required_services:
+  - frontend
+  - backend
+  - db
+  - redis
+  - worker-chat
+  - worker-document-embed
+  - migrator
+optional_services:
+  - worker-warmup
+  - neo4j
+  - graph-init
+extension_posture:
+  public:
+    - mcp
+  internal:
+    - command_bus_http
+    - plugin_sdk
+route_posture:
+  enabled:
+    - onboarding
+    - health
+    - dashboard
+    - admin
+    - chat
+    - simple_chat
+    - api_chat
+    - threads
+    - projects
+    - api_projects
+    - documents
+    - media
+    - music_projects
+    - personal_facts
+    - saved_widgets
+    - migration
+    - embeddings
+    - obsidian
+    - agent_orchestration
+    - agent_orchestration_chat
+    - imprint
+    - system_prompt
+    - system_docs
+    - connections
+    - notion_knowledge
+    - google_drive_knowledge
+    - share
+  internal_only:
+    - coding_work_orders
+    - command_bus
+    - minimax_oauth
+    - notion_setup
+    - google_drive_setup
+    - memory_vault
+    # Same-node People discovery + direct messaging. Mounted on the default
+    # local profile so the implemented capability can be exercised during
+    # product discovery. `internal_only` is deliberate: this is an internal
+    # experimental capability, NOT part of the Beta Supported release promise
+    # (ADR-069). Route availability never implies release qualification.
+    - direct_messages
+  quarantined:
+    - llm_overrides
+    - neo
+    - iddb
+    - backfill
+    - memory
+    - agent
+    - research
+    - federation
+    - collaboration
+    - connectors
+    - google_connect
+    - voice
+    - flows
+    - tools
+    - api_tools
+    - exports
+    - codex
+    - devtools
+    - websocket
+    - cron
+    - ui_session
+provider_contract:
+  LLM_PROVIDER: local
+  ALLOW_CLOUD_PROVIDERS: false
+  CODEXIFY_LOCAL_ONLY_MODE: true
+  CODEXIFY_EGRESS_ALLOWLIST: ""
+  LOCAL_RUNTIME_PRESET: whooshd-mlx
+  LOCAL_BASE_URL: http://host.docker.internal:8000/v1
+  LOCAL_API_KEY: local
+  LOCAL_COMPAT_FIRST: true
+  LOCAL_PROVIDER_DISPLAY_NAME: "Whoosh'd"
+  LOCAL_PROVIDER_VENDOR: whooshd
+  # Model names are NOT enforced here — the system discovers available models
+  # at runtime. If no local models exist AND no cloud provider is configured,
+  # the /health/llm endpoint will report models_available: false.
+criticality:
+  tier0:
+    services:
+      - frontend
+      - backend
+      - db
+      - redis
+      - worker-chat
+      - worker-document-embed
+    routes:
+      - health
+      - chat
+      - api_chat
+      - threads
+      - media
+      - documents
+  tier1:
+    services:
+      - migrator
+      - worker-warmup
+    routes:
+      - embeddings
+  tier2:
+    services:
+      - command_bus_http
+      - tts
+      - cron
+      - federation
+    routes:
+      - command_bus
+      - tools
+      - api_tools
+      - websocket
+      - cron

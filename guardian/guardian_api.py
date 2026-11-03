@@ -504,6 +504,7 @@ from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import configuration_inspector
 from guardian.routes import connections as connections_routes
 from guardian.routes import continuity_operator
+from guardian.routes import music_projects
 from guardian.routes import cron as cron_routes
 from guardian.routes import (
     dashboard,
@@ -1056,6 +1057,24 @@ def _include_personal_facts_router() -> None:
     app.include_router(personal_facts_router, prefix="/api")
 
 
+def _include_music_projects_router() -> None:
+    """Mount the Music Project routes.
+
+    Codexify derives its model-callable tools from the app's OpenAPI
+    schema (``guardian/command_bus/manifest.py`` ->
+    ``guardian/tools/derive.py``), so a route that exists here is a tool
+    the model can call. That is why the Producer's operations live in
+    this process even though the engine that renders the audio does not:
+    the route owns the contract, and forwards to the Agent-DAW service
+    over the canonical service-plugin protocol.
+
+    The engine runs elsewhere on purpose. A compose takes about 107
+    seconds of wall clock, and the DSP is numpy work that can fail in
+    ways a shared backend should not have to absorb.
+    """
+    app.include_router(music_projects.router)
+
+
 def _include_browser_host_attachment_router() -> None:
     # Keep this development seam out of the supported profile and beta-core
     # route inventory.  The remaining three gates are evaluated before a
@@ -1337,6 +1356,12 @@ _include_router(
     label="media",
     flag_name="CODEXIFY_ENABLE_MEDIA_ROUTES",
     include_fn=lambda: app.include_router(media_router, prefix="/api/media"),
+    core_surface=True,
+)
+_include_router(
+    label="music_projects",
+    flag_name="CODEXIFY_ENABLE_MUSIC_ROUTES",
+    include_fn=_include_music_projects_router,
     core_surface=True,
 )
 _include_router(

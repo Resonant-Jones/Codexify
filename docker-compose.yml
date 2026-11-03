@@ -1011,6 +1011,49 @@ services:
       start_period: 15s
     restart: unless-stopped
     command: ["/app/backend/scripts/docker/run_tts.py"]
+  agentdaw:
+    # Optional music producer service: only start when explicitly requested
+    # via --profile music. The /api/music routes are always mounted -- they
+    # are what makes the Producer reachable by the model -- and they report
+    # a clear, actionable error while this service is down.
+    profiles:
+      - music
+    # Built from the Agent-DAW repository at a tagged release. Point
+    # CODEXIFY_AGENTDAW_BUILD_CONTEXT at a local checkout for development.
+    build:
+      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.0}"
+      dockerfile: Dockerfile
+    working_dir: /app
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: /app
+      # Where rendered stems and projects are written. This must match the
+      # bind mount below: the DAW runs on the host and has to be able to
+      # open the files the service produced.
+      AGENTDAW_OUT_ROOT: /app/agentdaw_output
+    volumes:
+      # Bind-mounted, not a named volume, so the host can open the rendered
+      # stems and the REAPER project directly.
+      - "${CODEXIFY_AGENTDAW_OUTPUT_DIR:-./agentdaw_output}:/app/agentdaw_output"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json
+          import urllib.request
+          with urllib.request.urlopen("http://localhost:8000/health", timeout=2) as response:
+              payload = json.load(response)
+          raise SystemExit(0 if payload.get("ready") else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
   frontend:
     # NOTE: We run the dev UI using an official Node image so we always have /bin/sh.
     # This avoids breakage if the local ./frontend Dockerfile was refactored into a distroless image.
