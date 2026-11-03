@@ -587,7 +587,12 @@ def test_generation_preserves_canonical_nodes_and_markdown_and_never_creates_arp
     assert not result.has_errors
     assert node_after == node_before
     assert (root / source["path"]).read_bytes() == markdown_before
-    assert sorted(path.name for path in output.iterdir()) == sorted(dlg.OUTPUT_FILENAMES)
+    # Staging artifacts from an interrupted write are dotfiles, not
+    # generated projections; they must not be counted as one.
+    published = sorted(
+        path.name for path in output.iterdir() if not path.name.startswith(".")
+    )
+    assert published == sorted(dlg.OUTPUT_FILENAMES)
     assert not any("arp" in path.name.lower() for path in output.iterdir())
 
 

@@ -83,3 +83,9 @@ jobs:
         run: |
           set -euxo pipefail
           python -m pytest -q --disable-warnings tests/architecture
+
+      - name: Verify generated projections and ARP packets are current
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python scripts/knowledge_graph/verify_generated_artifacts.py

@@ -79,7 +79,14 @@ def test_exactly_four_fixed_scenarios_and_output_paths_exist() -> None:
     assert len(arps.SCENARIOS) == 4
     assert len(arps.OUTPUT_FILENAMES) == 4
     assert tuple(item["filename"] for item in arps.SCENARIOS) == arps.OUTPUT_FILENAMES
-    assert sorted(path.name for path in OUTPUT_DIR.iterdir()) == sorted(arps.OUTPUT_FILENAMES)
+    # Staging artifacts from an interrupted write are dotfiles, not
+    # calibration outputs; they must not be counted as one.
+    published = sorted(
+        path.name
+        for path in OUTPUT_DIR.iterdir()
+        if not path.name.startswith(".")
+    )
+    assert published == sorted(arps.OUTPUT_FILENAMES)
 
 
 def test_four_packet_ids_are_unique_and_fixed(packets: dict[str, dict]) -> None:
