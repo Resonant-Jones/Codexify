@@ -346,7 +346,7 @@ uvicorn guardian.guardian_api:app --host 0.0.0.0 --port 8888
 ### 5. Start the UI
 
 ```bash
-pnpm --dir frontend/src install
+pnpm install
 pnpm --dir frontend/src dev
 ```
 
@@ -358,7 +358,7 @@ The desktop shell expects the same external Guardian backend used by WebUI.
 2. Install frontend deps:
 
 ```bash
-pnpm --dir frontend/src install
+pnpm install
 ```
 
 3. Run desktop dev:

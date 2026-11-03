@@ -5,7 +5,7 @@ interfaces inside ordinary Codexify chat, including the artifact channel,
 rendering authority, sandbox containment, host bridge, persistence association,
 and security invariants.
 
-Last updated: 2026-10-10
+Last updated: 2026-10-17
 
 Source anchors:
 
@@ -17,6 +17,7 @@ Source anchors:
 - `guardian/core/chat_attachments.py`
 - `guardian/workers/chat_worker.py`
 - upstream `CopilotKit/OpenIntelligentUI` @ `f6e4388b26a64b9a0714943b08a1ce622b924eec`
+- `@openuidev/react-lang` 1.0.1 (bounded, Codexify-native integration)
 
 ## Scope
 
@@ -25,6 +26,27 @@ Source anchors:
 - This contract does **not** change provider routing, Guardian authority,
   completion acceptance, turn-lock semantics, or the task lifecycle.
 - This contract creates no new backend subsystem, table, route, or identity.
+
+### Relationship to the Saved Widget contract
+
+The [Saved Widget Contract](./saved-widget-contract.md) and
+[ADR-102](./adr/102-saved-widget-identity-and-revision-boundary.md) propose a
+later, separate architecture for promoting eligible generated UI into durable,
+account-owned, revisioned resources that can be invoked from any thread.
+
+That proposal is **not** part of this contract, and nothing in it changes the
+artifact channel, the renderer, the sandbox, the bridge, the artifact envelope,
+or the wire format described here. The statement above — that this contract
+creates no new backend subsystem, table, route, or identity — remains true of
+*this* contract; the Saved Widget proposal is a distinct document with a
+distinct status, and it is **Proposed**, not accepted.
+
+A saved widget is rendered through the existing renderer and the existing
+sandbox frame, so the containment, bridge, and provider-hygiene rules in this
+document continue to govern it unchanged. A saved widget's *identity* is a
+resource identity and is not a message, request, or attempt identity, so
+ADR-003 continues to hold for both. See the Saved Widget contract for the
+classification, ownership, revision, invocation, and editing boundaries.
 
 ## Upstream reference and pinned revision
 
@@ -210,23 +232,186 @@ validated props. A sandbox artifact executes **model-authored untrusted code**
 under containment. Only registered components may be rendered as native;
 there is no arbitrary component resolution.
 
+### Bounded OpenUI native program
+
+`openui.program` is registered alongside `chart.bar` and `table.rows` as a
+first-party renderer that uses `@openuidev/react-lang` and Codexify's own
+component library. It does not replace the existing native/sandbox dispatch,
+Guardian, AG-UI, the message codec, or the sandbox iframe.
+The OpenUI module is loaded lazily when that registered component is selected,
+not included in the initial ordinary-chat bundle.
+
+An OpenUI program remains inside the **existing** version-1 `native` artifact.
+The artifact envelope, the `openui.program` component id, and the
+`cfy-ui` marker encoding are **unchanged**. Version discrimination happens
+entirely on the inner `libraryVersion` prop:
+
+```json
+{
+  "version": 1,
+  "kind": "native",
+  "component": "openui.program",
+  "props": {
+    "libraryVersion": 2,
+    "program": "root = CodexifyStack(\"vertical\", [CodexifyMetric(\"Tasks\", \"12\")])"
+  }
+}
+```
+
+`admitOpenUiProgram` is the single version-aware entry point. An unrecognized
+`libraryVersion` renders no artifact. Version 1 is routed to its original
+validator, verbatim; version 2 is routed to the structural admission walk.
+
+#### Library version 1 (unchanged)
+
+Only library version 1 is admitted. The version-1 first-party library contains
+one read-only component, `CodexifyMetric`, with string fields `title`, `value`,
+and optional `detail`.
+
+The **host-tree admission gate** validates before any OpenUI render:
+
+- Exact `libraryVersion` and `program` props, no other keys.
+- Program string no longer than 2,048 characters.
+- Exactly one `root = CodexifyMetric(...)` statement, containing two or
+  three JSON string literals, length-bounded to 100, 40, and 180 characters.
+- The admitted literal values are normalized and then checked by the OpenUI
+  parser; any parse error or unresolved reference rejects the whole program.
+
+Version 1 behaviour, its 2,048-character bound, and its rendered DOM are
+byte-for-byte unchanged by the introduction of version 2. Existing persisted
+version-1 artifacts restore exactly as before.
+
+#### Library version 2 — Codexify foundation pack
+
+Version 2 introduces a composable, read-only presentation foundation. Eight
+first-party components are registrable, grouped as the library's
+`componentGroups`:
+
+| Group | Component | Role |
+| --- | --- | --- |
+| Layout | `CodexifyStack` | Required root; vertical or horizontal, token gap, wrapping |
+| Layout | `CodexifyCard` | Presentation container; optional heading, bounded read-only children |
+| Content | `CodexifyText` | Body text with bounded size and emphasis |
+| Content | `CodexifyHeading` | Semantic levels 2-4 only |
+| Content | `CodexifyList` | Bounded text items, ordered or unordered, semantic list markup |
+| Data Presentation | `CodexifyBadge` | Status/category label from an approved tone vocabulary |
+| Data Presentation | `CodexifyMetric` | Label, value, optional detail |
+| Data Presentation | `CodexifyProgress` | Finite, explicitly ranged progress with accessible name, range, and status text |
+
+No ninth component is admitted. No form, input, button, or action component
+exists in this pack.
+
+**Composition contract.**
+
+```text
+root  = CodexifyStack
+Stack -> leaf | CodexifyCard
+Card  -> leaf                      (never Card, never Stack)
+leaf  -> no children
+depth <= 3                          (Stack, then Card, then a leaf)
+```
+
+Schemas are flat and fixed-depth, built from component `.ref` unions. No schema
+is recursive, and no renderer resolves a component name dynamically. Because the
+parser maps positional arguments onto declared keys **in order and without
+skipping optional keys**, every schema declares all required props before any
+optional prop; `CodexifyCard([...], "heading")` rather than the reverse. This is
+recorded as a regression test.
+
+**Version-2 bounds.**
+
+| Bound | Value |
+| --- | --- |
+| Program length | 4,096 characters |
+| Statements | 16 |
+| Rendered component nodes | 12 |
+| Nesting depth | 3 |
+| List entries | 12 |
+
+Strings, labels, and numeric values are individually length-bounded, and
+`CodexifyProgress` is range-bounded (`0 <= value <= max`, `max > 0`).
+
+**Admission is fail-closed and structural.** A version-2 program is parsed with
+the official OpenUI parser and then re-derived from the resolved tree. This is
+not redundant, because the parser is demonstrably permissive: measured against
+`@openuidev/react-lang` 1.0.1, it accepts a `CodexifyCard` nested inside a
+`CodexifyCard` with **zero** errors, silently drops an unknown component while
+still returning a renderable root, and stores `@Run(...)` action arguments and
+`$var` references as AST objects inside `props` with **no** error at all. A
+permissive parser is therefore never treated as the security boundary.
+
+Admission refuses, in addition to the version-1 denials:
+
+- Unknown components and unknown `libraryVersion` values.
+- Unknown props on any component, including styling and event-handler props.
+- Missing, duplicated, or non-`CodexifyStack` root.
+- Cyclic, duplicate, orphaned, or unresolved references.
+- Card-inside-Card and Stack-inside-Card composition violations.
+- Excessive length, node count, width, or nesting.
+- Invalid component arguments and out-of-range numeric values.
+- `Query`, `Mutation`, actions, and tool calls.
+- Reactive `$variables`, `stateDeclarations`, and a computed root expression.
+- Dynamic or computed component invocation.
+
+Any refusal renders **no** native artifact, and surrounding transcript prose is
+untouched.
+
+**Appearance.** Components install no theme provider and accept no styling prop.
+Color, surface, radius, spacing, and typography resolve from inherited Codexify
+shell tokens; no component hard-codes a color, shadow, radius, or spacing scale.
+Semantic HTML and accessible names are used throughout. Content stays inside the
+host conversation width and avoids fixed pixel widths.
+
+Four contract tokens — `--card-pad`, `--card-radius`, `--radius-micro`, and
+`--shell-gap` — have **no declaration anywhere in the current tree**. They are
+consumed with a `var(--token, <fallback>)` fallback following the existing
+generative-UI pattern, and the gap is exported as
+`OPENUI_UNDECLARED_TOKEN_DEPENDENCIES` rather than being silently absorbed. This
+pack creates no new runtime theme tokens; declaring them is a separate
+token-layer decision.
+
+**Still not granted.** The renderer receives no tool provider and no action
+callback. There is no host network, credential, filesystem, command-bus, or
+direct-send permission for an OpenUI program. Omitting an action callback is
+**not** authorization; admission is the boundary. Guardian remains authoritative
+for actions and permissions, and Postgres remains canonical for persistence.
+
+The existing `VITE_GENERATIVE_UI` gate still controls rendering (default
+off). The Guardian emission prompt is unchanged; support for models to generate
+the version-2 program format and native streaming behavior is **not proven** by
+this component registration. No new persistence or release qualification is
+implied.
+
+Proof record:
+`docs/architecture/proofs/runtime/2026-10-17-openui-foundation-pack-proof.md`.
+
 ## Sandbox containment
 
 Sandbox artifacts are untrusted. The containment boundary is the iframe
-`sandbox` attribute plus a document-level CSP.
+`sandbox` attribute plus a document-level CSP — and, since the navigation
+repair below, a **trusted outer wrapper** that keeps the network policy
+in force across navigation.
 
 ```html
-<iframe sandbox="allow-scripts" srcdoc="..." />
+<!-- app page -->
+<iframe sandbox="allow-scripts" srcdoc="<trusted wrapper document>" />
 ```
 
-- `allow-scripts` **only**. Notably absent: `allow-same-origin`, `allow-forms`,
-  `allow-popups`, `allow-top-navigation`, `allow-modals`, `allow-downloads`.
-- Without `allow-same-origin` the frame runs in an opaque origin. It therefore
-  has no same-origin access to host `storage`, cookies, `document`, or any host
-  API. This matches upstream's documented posture ("The sandbox has no
-  same-origin access to storage or host APIs").
-- The frame is built by Codexify, which injects a restrictive CSP **before**
-  any generated content:
+```html
+<!-- trusted wrapper document, built by Codexify -->
+<iframe id="cfy-ui-inner" sandbox="allow-scripts" srcdoc="<generated document>" />
+```
+
+- `allow-scripts` **only**, on **both** frames. Notably absent:
+  `allow-same-origin`, `allow-forms`, `allow-popups`, `allow-top-navigation`,
+  `allow-modals`, `allow-downloads`.
+- Without `allow-same-origin` each frame runs in an opaque origin. The wrapper
+  therefore has no same-origin access to host `storage`, cookies, `document`,
+  or any host API, and the generated document has no same-origin access to
+  the wrapper either. This matches upstream's documented posture ("The sandbox
+  has no same-origin access to storage or host APIs").
+- The generated document is built by Codexify, which injects a restrictive CSP
+  **before** any generated content:
 
   ```text
   default-src 'none';
@@ -238,6 +423,43 @@ Sandbox artifacts are untrusted. The containment boundary is the iframe
   base-uri 'none';
   frame-src 'none'
   ```
+
+### The trusted wrapper, and why the boundary needs it
+
+The generated document's CSP governs **that document**. A same-frame
+navigation replaces it with a document that declares no policy, and that
+replacement could then issue network requests. That escape was reproduced in a
+real browser; see
+[the navigation-containment proof](./proofs/runtime/2026-10-26-generative-ui-navigation-containment-proof.md).
+
+The repair is a **trusted outer wrapper document**, built by Codexify, that
+carries:
+
+```text
+default-src 'none';
+frame-src 'none';
+script-src 'unsafe-inline';
+style-src 'unsafe-inline';
+img-src data: blob:;
+connect-src 'none';
+form-action 'none';
+base-uri 'none'
+```
+
+`frame-src 'none'` is the load-bearing directive. It governs which URLs may
+be loaded into **child frames**. A child loaded from `about:srcdoc` is
+permitted, so the generated frame still loads; a child navigated to any real
+URL is blocked **before the request is made**. The network boundary therefore
+survives navigation, because the navigation never happens.
+
+The wrapper's `frame-src` is scoped to the wrapper document. It is
+deliberately **not** applied to the Codexify app document, so other legitimate
+workspace iframe surfaces are unaffected.
+
+The wrapper contains no generated source. It embeds the generated document in a
+nested sandboxed `srcdoc` frame and relays bridge messages. Generated content
+can never reach the wrapper's CSP or its relay logic, because it lives in a
+separate, opaque-origin document.
 
 ### Deliberate tightening versus upstream
 
@@ -259,14 +481,36 @@ not be weakened.
 The sandbox may not call host APIs directly. It may only send **validated**
 messages over `postMessage`, each of which Codexify authorizes explicitly.
 
-Every inbound message is accepted only when all of the following hold:
+The bridge now has **two hops**, and each hop validates independently.
 
-1. `event.source === iframe.contentWindow` (source binding).
-2. `event.origin === "null"` (the opaque origin of a sandboxed frame).
-3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`, where
-   the nonce is minted per mount and bound to that frame (session binding).
-4. `event.data.action` is in the allowed set.
-5. The action payload validates against its schema.
+1. **Generated frame → trusted wrapper.** The generated document's own bridge
+   script posts to its parent, which is the wrapper. The wrapper accepts the
+   message only when all of the following hold:
+   1. `event.source === innerFrame.contentWindow` (source binding).
+   2. `event.origin === "null"` (the opaque origin of the sandboxed frame).
+   3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`,
+      where the nonce is minted per mount (session binding).
+   4. `event.data.action` is in the allowed set.
+   5. The action payload validates against its schema and bounds.
+
+   The wrapper then relays **only** the two approved actions to the host. It
+   never forwards a message it did not validate, never forwards an unknown
+   action, and never forwards a message from any frame other than the exact
+   nested frame.
+
+2. **Trusted wrapper → Codexify host.** The host re-validates the relayed
+   message rather than trusting the wrapper:
+   1. `event.source === wrapperFrame.contentWindow` (source binding).
+   2. `event.origin === "null"` (the opaque origin of the sandboxed wrapper).
+   3. `event.data.channel === "cfy-ui"` and `event.data.session === <nonce>`.
+   4. `event.data.action` is in the allowed set.
+   5. The action payload validates against its schema and bounds.
+
+   A message posted **directly** by the nested generated frame has a different
+   `event.source` and is rejected here, even when it knows the session token.
+   The host therefore never treats generated code as an authority, and the
+   wrapper never becomes a second control plane: it is a relay with no
+   capability of its own.
 
 | Action | Payload | Effect |
 | --- | --- | --- |
@@ -358,8 +602,20 @@ Beta Supported. Implementation presence does not promote it.
   Upstream allows four public CDNs; Codexify ships no importmap.
 - No cross-artifact control synchronization; each artifact is an independent
   snapshot, matching upstream's documented behavior.
-- The native registry is intentionally small (`chart.bar`, `table.rows`);
-  unknown components degrade to text rather than resolving dynamically.
+- The native registry is intentionally small (`chart.bar`, `table.rows`,
+  `openui.program`). `openui.program` admits two library versions: version 1
+  (`CodexifyMetric` only) and the version-2 foundation pack (eight
+  read-only components). Unknown components degrade to text rather than
+  resolving dynamically.
+- The version-2 pack has **no interactive component**. There is no form, input,
+  button, or action component, so there is nothing in it a user can press. Any
+  future interactive pack requires a separately approved architecture-impact
+  change.
+- The OpenUI parser is permissive by design and is not a trust boundary. Only
+  the structural admission walk is. Several walk checks currently overlap Zod or
+  parser validation and are defense in depth; the check proved independently
+  necessary by mutation testing is composition position, plus the progress
+  cross-field range that no schema can express.
 - The gate is build-time only, not operator-configurable at runtime.
 - The artifact payload rides message content, so a large HTML/CSS/JS artifact
   enlarges the stored message row. It is stripped from provider inference, but

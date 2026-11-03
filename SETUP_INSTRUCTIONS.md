@@ -107,7 +107,7 @@ docker compose up -d
 python -m guardian.cli.memoryos_cli backend
 
 # Terminal 2: Start the frontend
-cd frontend && npm run dev
+pnpm --dir frontend/src dev
 ```
 
 ## Sending Your First Message

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from guardian.evidence_packets.reducer_contracts import ALLOWED_REDUCER_INPUT_CLASSES
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "docs/architecture/templates/guardian-evidence-reducer-input-bundle-template.v1.json"
@@ -104,5 +105,4 @@ def test_docs_link_static_bundle_surfaces() -> None:
         assert "guardian-evidence-reducer-input-bundle-template.v1.json" in text
         assert "guardian-evidence-reducer-input-bundle.local-tooling.v1.json" in text
     assert "static ReducerInputBundle template and fixture" in reducer_contract
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)

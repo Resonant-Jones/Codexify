@@ -1,12 +1,19 @@
 import importlib
+import json
 from contextlib import closing, contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from guardian.agents.events import AgentEventPublisher
+from guardian.agents.store import AgentStore
 from guardian.connections.catalog import get_catalog
+from guardian.core import dependencies
+from guardian.routes import agent_orchestration
 
 
 @contextmanager
@@ -36,6 +43,324 @@ def _build_supported_profile_client(monkeypatch):
 
         event_bus.reset()
         importlib.reload(guardian_api)
+
+
+CODING_EXECUTE_ROUTE = "/api/agents/coding/execute"
+
+# The authenticated single-user identity the supported local profile resolves
+# for this deployment. The request body must match it; the body never grants
+# account authority by itself.
+CODING_TEST_ACCOUNT = "local"
+CODING_TEST_THREAD_ID = "4242"
+CODING_TEST_SOURCE_MESSAGE_ID = "9091"
+CODING_TEST_PROJECT_ID = "4242"
+CODING_TEST_PROVIDER_ID = "test-provider"
+CODING_TEST_MODEL_ID = "test-model-a"
+CODING_TEST_CREDENTIAL_REF = "credential-account-local"
+
+# Stands in for secret-bearing credential custody data. The accepted
+# execution binding must project safe authority metadata only.
+CODING_CREDENTIAL_SECRET_SENTINEL = "SECRET-SENTINEL-must-not-cross-the-task-boundary"
+
+
+def _incomplete_coding_execute_body() -> dict:
+    """Return a coding-execution body that omits execution-binding identity.
+
+    `CodingAgentTaskEnvelope` requires an explicit provider, model, and
+    credential reference. This body omits exactly those three fields, so it
+    is structurally incomplete in the way the request contract requires.
+    """
+    return {
+        "coding_task_id": "proof-task-001",
+        "thread_id": "1",
+        "source_message_id": "1",
+        "attempt_id": "attempt-1",
+        "user_id": "local",
+        "project_id": None,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "echo proof",
+        "repo_root": "/tmp",
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+    }
+
+
+def _coding_execute_body(**overrides: Any) -> dict[str, Any]:
+    """Canonical, schema-valid Coding Loop request body.
+
+    Every identifier is a synthetic test label, not a credential and not a
+    durable identity. This body only proves the route's request contract;
+    authority is established separately.
+    """
+    body: dict[str, Any] = {
+        "coding_task_id": "proof-task-001",
+        "thread_id": CODING_TEST_THREAD_ID,
+        "source_message_id": CODING_TEST_SOURCE_MESSAGE_ID,
+        "attempt_id": "attempt-1",
+        "user_id": CODING_TEST_ACCOUNT,
+        "project_id": CODING_TEST_PROJECT_ID,
+        "adapter_kind": "pi_codex_runner",
+        "instructions": "echo proof",
+        "repo_root": "/tmp",
+        "context_summary": None,
+        "permission_policy": {
+            "allow_shell": False,
+            "allow_network": False,
+            "allow_write": False,
+            "allowed_paths": [],
+            "max_runtime_seconds": 30,
+        },
+        "provider_id": CODING_TEST_PROVIDER_ID,
+        "model_id": CODING_TEST_MODEL_ID,
+        "credential_ref": CODING_TEST_CREDENTIAL_REF,
+    }
+    body.update(overrides)
+    return body
+
+
+def _complete_coding_execute_body() -> dict:
+    """Return a coding-execution body carrying explicit execution identity.
+
+    The credential reference is deliberately not resolvable. A request that
+    names an explicit identity must still be denied unless Guardian
+    authorizes it, so this body proves authorization rather than asserting it.
+    """
+    return {
+        **_incomplete_coding_execute_body(),
+        "provider_id": "deepseek",
+        "model_id": "deepseek-chat",
+        "credential_ref": "ccr_unresolvable_reference",
+    }
+
+
+def _required_body_fields(openapi: dict, operation: dict) -> set[str]:
+    """Return the request-body fields the published contract declares required."""
+    schema = (
+        operation.get("requestBody", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+    )
+    reference = schema.get("$ref", "")
+    if reference:
+        schema = (
+            openapi.get("components", {})
+            .get("schemas", {})
+            .get(reference.rsplit("/", 1)[-1], {})
+        )
+    return set(schema.get("required", []))
+
+
+def _missing_validation_fields(response) -> set[str]:
+    """Return the body fields a validation rejection reported as missing."""
+    return {
+        error["loc"][-1]
+        for error in response.json()["detail"]
+        if error.get("type") == "missing"
+    }
+
+
+class _RecordingAgentStore:
+    """In-memory AgentStore that also records accepted writes."""
+
+    def __init__(self) -> None:
+        self.inner = AgentStore()
+        self.deployments: list[dict[str, Any]] = []
+        self.runs: list[dict[str, Any]] = []
+
+    @property
+    def db(self) -> Any:
+        return self.inner.db
+
+    def configure_db(self, db: Any | None) -> None:
+        self.inner.configure_db(db)
+
+    def create_deployment(self, **kwargs: Any) -> dict[str, Any]:
+        self.deployments.append(dict(kwargs))
+        return self.inner.create_deployment(**kwargs)
+
+    def create_run(self, **kwargs: Any) -> dict[str, Any]:
+        self.runs.append(dict(kwargs))
+        return self.inner.create_run(**kwargs)
+
+
+class _ReadbackStoreSpy:
+    """Records the account scope each Agent/Coding readback reader receives.
+
+    This is a route-to-store argument recorder, not durable ownership proof.
+    The account readers keep their own durable account-origin provenance and
+    canonical thread ownership requirements; the spy only shows which
+    account scope the route asked for.
+    """
+
+    def __init__(
+        self,
+        *,
+        coding_runs: list[dict[str, Any]] | None = None,
+        account_runs: list[dict[str, Any]] | None = None,
+        coding_snapshot: dict[str, Any] | None = None,
+        account_run: dict[str, Any] | None = None,
+        run: dict[str, Any] | None = None,
+    ) -> None:
+        self.coding_runs = coding_runs
+        self.account_runs = account_runs
+        self.coding_snapshot = coding_snapshot
+        self.account_run = account_run
+        self.run = run
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get_coding_run_snapshot(
+        self, run_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        self.calls.append(
+            ("get_coding_run_snapshot", {"run_id": run_id, "user_id": user_id})
+        )
+        return self.coding_snapshot
+
+    def list_coding_runs_for_thread(
+        self, thread_id: int, *, user_id: str | None = None
+    ) -> list[dict[str, Any]] | None:
+        self.calls.append(
+            ("list_coding_runs_for_thread", {"thread_id": thread_id, "user_id": user_id})
+        )
+        return self.coding_runs
+
+    def get_account_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
+        self.calls.append(("get_account_run", {"run_id": run_id, "user_id": user_id}))
+        return self.account_run
+
+    def list_account_runs_for_thread(
+        self, thread_id: int, *, user_id: str
+    ) -> list[dict[str, Any]] | None:
+        self.calls.append(
+            ("list_account_runs_for_thread", {"thread_id": thread_id, "user_id": user_id})
+        )
+        return self.account_runs
+
+    def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
+        self.calls.append(("get_run", {"run_id": run_id, "user_id": user_id}))
+        return self.run
+
+    def list_runs_for_thread(self, thread_id: int) -> list[dict[str, Any]]:
+        raise AssertionError(
+            "Account readback must not fall back to the unscoped thread list"
+        )
+
+
+class _CodingExecutionIsolation:
+    """Scoped synthetic downstream authority for one Coding Loop request.
+
+    These are controlled doubles. They do not establish that the production
+    PostgreSQL lineage lookup or the production credential-authorization
+    implementation accept this request. The independent authorization tests
+    retain responsibility for those claims.
+    """
+
+    def __init__(self) -> None:
+        self.store = _RecordingAgentStore()
+        self.queued: list[dict[str, Any]] = []
+        self.events: list[tuple[str, str, dict[str, Any]]] = []
+        self.lineage_calls: list[dict[str, Any]] = []
+        self.credential_calls: list[dict[str, Any]] = []
+
+
+@contextmanager
+def _isolate_coding_execution(monkeypatch):
+    """Replace Coding Loop downstream effects for one test only.
+
+    AgentStore persistence, the agent event publisher, and the coding
+    execution enqueue are all replaced or redirected, so no deployment, run,
+    event stream, or queue item reaches real storage, Redis, or a worker.
+    """
+    isolation = _CodingExecutionIsolation()
+
+    def fake_lineage(
+        *,
+        account_id: str,
+        thread_id: str,
+        source_message_id: str,
+        requested_project_id: str | None,
+    ) -> str | None:
+        isolation.lineage_calls.append(
+            {
+                "account_id": account_id,
+                "thread_id": thread_id,
+                "source_message_id": source_message_id,
+                "requested_project_id": requested_project_id,
+            }
+        )
+        return (
+            str(requested_project_id) if requested_project_id is not None else None
+        )
+
+    def fake_authorize_credential_selection(
+        _db: Any,
+        *,
+        credential_ref: str,
+        account_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> dict[str, Any]:
+        isolation.credential_calls.append(
+            {
+                "credential_ref": credential_ref,
+                "account_id": account_id,
+                "provider_id": provider_id,
+                "model_id": model_id,
+            }
+        )
+        return {
+            "credential_ref": credential_ref,
+            "owner_scope": "account",
+            "owner_id": account_id,
+            "provider_id": provider_id,
+            "credential_type": "api_key",
+            "funding_route": "user_byok",
+            "source_class": "account_api_key",
+            "usage_policy_ref": None,
+            # Secret-bearing custody data stands in for the real credential.
+            # The binding builder must project only safe authority metadata.
+            "api_key": CODING_CREDENTIAL_SECRET_SENTINEL,
+        }
+
+    def fake_publish(
+        task_id: str,
+        event_type: str,
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        isolation.events.append((task_id, event_type, dict(data or {})))
+        return "1-0"
+
+    def fake_enqueue_coding_execution(payload: dict[str, Any]) -> str:
+        isolation.queued.append(dict(payload))
+        return "task-coding-test"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            agent_orchestration, "_validate_coding_lineage", fake_lineage
+        )
+        patch.setattr(
+            agent_orchestration,
+            "authorize_credential_selection",
+            fake_authorize_credential_selection,
+        )
+        patch.setattr(agent_orchestration, "_store", isolation.store)
+        patch.setattr(
+            agent_orchestration, "_event_publisher", AgentEventPublisher()
+        )
+        patch.setattr("guardian.agents.events.task_events.publish", fake_publish)
+        patch.setattr(
+            "guardian.queue.redis_queue.enqueue_coding_execution",
+            fake_enqueue_coding_execution,
+        )
+        yield isolation
+    # The scoped patch context has restored every replaced module attribute.
 
 
 def test_supported_profile_quarantines_legacy_tools_and_hides_command_bus_schema(
@@ -139,37 +464,74 @@ def test_supported_profile_promotes_bounded_settings_and_connections_only(
         )
 
 
-def test_coding_loop_execute_route_mounted_in_local_profile(
+def test_coding_loop_execute_route_registered_and_rejects_incomplete_binding(
     monkeypatch,
 ) -> None:
-    """Prove POST /api/agents/coding/execute is reachable in the
-    supported local operator profile."""
+    """Prove POST /api/agents/coding/execute is registered in the supported
+    local profile, and that request validation is what rejects a request
+    which omits execution-binding identity.
+
+    A mounted route is not permission to execute. `CodingAgentTaskEnvelope`
+    requires an explicit provider, model, and credential reference, so an
+    incomplete body is rejected with HTTP 422 by request validation, before
+    account, lineage, or credential authority is consulted. The route must
+    not be confused with an unmounted route, which answers 404.
+    """
     with _build_supported_profile_client(monkeypatch) as client:
         headers = {"X-API-Key": "test-api-key"}
+
+        openapi = client.get("/openapi.json").json()
+        paths = openapi.get("paths", {})
+        assert "/api/agents/coding/execute" in paths
+        # POST is the supported method for execution intake.
+        assert "post" in paths["/api/agents/coding/execute"]
 
         response = client.post(
             "/api/agents/coding/execute",
             headers=headers,
-            json={
-                "coding_task_id": "proof-task-001",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo proof",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
+            json=_incomplete_coding_execute_body(),
         )
+
+        # The route is mounted and reached request validation.
+        assert (
+            response.status_code == 422
+        ), f"Expected 422, got {response.status_code}: {response.text}"
+        # It is not an unmounted route.
+        assert response.status_code != 404
+
+        # The rejection must name the missing execution-binding identity.
+        assert {"provider_id", "model_id", "credential_ref"} <= (
+            _missing_validation_fields(response)
+        )
+
+        # No coding task was accepted.
+        body = response.json()
+        assert body.get("ok") is not True
+        assert body.get("status") != "accepted"
+        assert "run_id" not in body
+
+
+def test_coding_loop_execute_route_mounted_in_local_profile(
+    monkeypatch,
+) -> None:
+    """Prove a schema-valid Coding Loop request reaches the bounded accepted
+    response in the supported local operator profile.
+
+    This is a controlled route-contract test. The lineage, credential
+    authority, persistence, event, and queue effects are all replaced by the
+    test's own isolation, so it proves the request contract and the accepted
+    binding shape. It is not proof of live provider execution or of
+    production credential custody.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(),
+            )
 
         # Route must accept the request (not 404).
         assert response.status_code == 200, (
@@ -178,52 +540,151 @@ def test_coding_loop_execute_route_mounted_in_local_profile(
         body = response.json()
         assert body.get("ok") is True
         assert body.get("status") == "accepted"
-        assert "run_id" in body
+        assert body.get("run_id")
+        assert body.get("deployment_id")
+
+        # Exactly one execution task was captured, and nothing reached Redis.
+        assert len(isolation.queued) == 1
+        payload = isolation.queued[0]
+        assert len(isolation.store.deployments) == 1
+        assert len(isolation.store.runs) == 1
+
+        binding = payload["execution_binding"]
+        assert binding["provider_id"] == CODING_TEST_PROVIDER_ID
+        assert binding["model_id"] == CODING_TEST_MODEL_ID
+        assert binding["credential_ref"] == CODING_TEST_CREDENTIAL_REF
+        assert binding["harness_id"] == "pi"
+        assert binding["credential_owner_id"] == CODING_TEST_ACCOUNT
+
+        # The authenticated account identity and the accepted source
+        # thread/message lineage are retained.
+        assert payload["user_id"] == CODING_TEST_ACCOUNT
+        assert payload["thread_id"] == int(CODING_TEST_THREAD_ID)
+        assert payload["source_thread_id"] == int(CODING_TEST_THREAD_ID)
+        assert payload["source_message_id"] == int(CODING_TEST_SOURCE_MESSAGE_ID)
+        assert payload["project_id"] == CODING_TEST_PROJECT_ID
+        assert payload["permission_policy"]["allow_shell"] is False
+        assert payload["permission_policy"]["allow_write"] is False
+
+        # The accepted binding carries safe authority metadata only. The
+        # credential type is a label; no secret-bearing field may cross the
+        # task boundary.
+        serialized = json.dumps(payload)
+        assert CODING_CREDENTIAL_SECRET_SENTINEL not in serialized
+        assert not (
+            {"api_key", "api_secret", "secret", "credential_secret", "token"}
+            & set(binding)
+        )
+
+        # The synthetic authority callbacks received the submitted identity
+        # and selection arguments.
+        assert isolation.lineage_calls == [
+            {
+                "account_id": CODING_TEST_ACCOUNT,
+                "thread_id": CODING_TEST_THREAD_ID,
+                "source_message_id": CODING_TEST_SOURCE_MESSAGE_ID,
+                "requested_project_id": CODING_TEST_PROJECT_ID,
+            }
+        ]
+        assert isolation.credential_calls == [
+            {
+                "credential_ref": CODING_TEST_CREDENTIAL_REF,
+                "account_id": CODING_TEST_ACCOUNT,
+                "provider_id": CODING_TEST_PROVIDER_ID,
+                "model_id": CODING_TEST_MODEL_ID,
+            }
+        ]
+
+        # The route emitted the created event on the replaced publisher.
+        created = [
+            data
+            for _task_id, event_type, data in isolation.events
+            if event_type == "created"
+        ]
+        assert len(created) == 1
+        assert created[0]["execution_binding_id"] == binding["binding_id"]
 
 
 def test_coding_loop_execute_rejects_unauthenticated(
     monkeypatch,
 ) -> None:
     """Prove Coding Loop execute route enforces authentication.
-    Requests without a valid API key must be rejected."""
+
+    A caller without a valid API key must be rejected, and must be rejected
+    before request validation or execution authorization can say anything
+    about its body. Request validation becoming stricter must not weaken
+    the authentication boundary.
+    """
     with _build_supported_profile_client(monkeypatch) as client:
-        # Send a deliberately wrong API key; the route must reject it.
-        response = client.post(
+        # A deliberately wrong API key with an incomplete body. The route must
+        # reject the caller on authentication, not answer 422 about the body:
+        # that would disclose the request contract to an unauthenticated
+        # caller and would mean authentication no longer precedes validation.
+        incomplete = client.post(
             "/api/agents/coding/execute",
             headers={"X-API-Key": "wrong-key"},
-            json={
-                "coding_task_id": "noauth-task",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo noauth",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
+            json=_incomplete_coding_execute_body(),
         )
-        assert response.status_code in {401, 403}
+        assert (
+            incomplete.status_code == 401
+        ), f"Expected 401, got {incomplete.status_code}: {incomplete.text}"
+        assert incomplete.status_code not in {200, 422}
+
+        # The same wrong key with a complete body, naming an explicit
+        # provider, model, and credential reference, must still be rejected.
+        # Naming an execution identity must not bypass authentication, and an
+        # unresolvable credential reference must not be treated as authority.
+        complete = client.post(
+            "/api/agents/coding/execute",
+            headers={"X-API-Key": "wrong-key"},
+            json=_complete_coding_execute_body(),
+        )
+        assert (
+            complete.status_code == 401
+        ), f"Expected 401, got {complete.status_code}: {complete.text}"
+        assert complete.status_code not in {200, 422}
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            # Send a deliberately wrong API key; the route must reject it.
+            # The body is schema-valid, so a rejection cannot be explained by
+            # request validation standing in for an authentication proof.
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers={"X-API-Key": "wrong-key"},
+                json=_coding_execute_body(coding_task_id="noauth-task"),
+            )
+
+            assert response.status_code in {401, 403}
+            # No authority was granted and nothing was accepted.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
 
 
 def test_coding_loop_route_visible_in_openapi(
     monkeypatch,
 ) -> None:
-    """Prove Coding Loop execute route is visible in OpenAPI."""
+    """Prove Coding Loop execute route is visible in OpenAPI.
+
+    The published contract must also declare the execution-binding identity
+    it requires, so the documented request shape and the enforced request
+    shape cannot drift apart.
+    """
     with _build_supported_profile_client(monkeypatch) as client:
         openapi = client.get("/openapi.json").json()
         paths = openapi.get("paths", {})
         assert "/api/agents/coding/execute" in paths
         assert "/api/agents/runs/{run_id}/coding" in paths
         assert "/api/chat/{thread_id}/coding-runs" in paths
+
+        execute = paths["/api/agents/coding/execute"]
+        # POST is the supported method for execution intake.
+        assert "post" in execute
+        assert "get" not in execute
+
+        required = _required_body_fields(openapi, execute["post"])
+        assert {"provider_id", "model_id", "credential_ref"} <= required
 
 
 def test_unrelated_quarantined_routes_remain_unavailable(
@@ -339,7 +800,15 @@ def test_supported_profile_mounts_minimax_oauth_routes_as_internal_only(
 def test_agent_orchestration_chat_readback_enforced(
     monkeypatch,
 ) -> None:
-    """Prove coding readback is mounted and requires durable thread authority."""
+    """Prove coding readback is mounted and requires account authority.
+
+    The readback route is registered, and the authenticated principal is
+    resolved before the resource lookup runs. This fixture establishes no
+    durable account-owned thread, so the read is refused as a missing
+    resource: no thread existence is disclosed and no coding run is
+    returned. An unauthenticated caller is rejected earlier, at the
+    credential boundary, so it never receives the missing-resource answer.
+    """
     with _build_supported_profile_client(monkeypatch) as client:
         openapi = client.get("/openapi.json")
         assert openapi.status_code == 200
@@ -347,53 +816,399 @@ def test_agent_orchestration_chat_readback_enforced(
 
         headers = {"X-API-Key": "test-api-key"}
         authenticated = client.get("/api/chat/1/coding-runs", headers=headers)
-        # This fixture establishes no durable account-owned thread.
-        assert authenticated.status_code == 404
+        # The authenticated identity is resolved and the resource lookup
+        # executes. A missing account-owned thread is a missing resource.
+        assert (
+            authenticated.status_code == 404
+        ), f"Expected 404, got {authenticated.status_code}: {authenticated.text}"
+        assert authenticated.json()["detail"] == "thread_not_found"
+        # No thread existence and no coding run are disclosed.
+        assert "runs" not in authenticated.json()
 
-        # Wrong key must be rejected.
+        # An invalid API key is rejected at the credential boundary, before
+        # any resource lookup. It must not receive the missing-resource
+        # answer, which would imply an implicit identity fallback.
         wrong_key_response = client.get(
             "/api/chat/1/coding-runs",
             headers={"X-API-Key": "wrong-key"},
         )
-        assert wrong_key_response.status_code in {401, 403}
+        assert wrong_key_response.status_code == 401, (
+            f"Expected 401, got {wrong_key_response.status_code}: "
+            f"{wrong_key_response.text}"
+        )
+        assert wrong_key_response.json()["detail"] != "thread_not_found"
+
+
+def test_authenticated_account_user_rejects_unresolved_identities() -> None:
+    """Prove the canonical readback identity helper fails closed.
+
+    A missing, blank, or unresolved dependency identity must never be
+    treated as an account scope. This is the behavior the retired
+    `_authenticated_read_user` helper proved; the assertions now target the
+    single canonical helper.
+    """
+    for unresolved in (None, "", "   ", "Depends(get_current_user)"):
+        with pytest.raises(HTTPException) as excinfo:
+            agent_orchestration._authenticated_account_user(unresolved)
+        assert excinfo.value.status_code == 401
+        assert excinfo.value.detail == "account_identity_missing"
+
+    assert (
+        agent_orchestration._authenticated_account_user("account-a") == "account-a"
+    )
+
+
+def test_agent_readback_uses_authenticated_account_scope(monkeypatch) -> None:
+    """Prove Agent/Coding readback asks the store for the authenticated
+    account rather than rejecting the request on an identity mismatch."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=[], account_runs=[])
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        coding_runs = client.get("/api/chat/7/coding-runs", headers=headers)
+        assert coding_runs.status_code == 200, coding_runs.text
+        agent_runs = client.get("/api/chat/7/agent-runs", headers=headers)
+        assert agent_runs.status_code == 200, agent_runs.text
+
+        # Both thread lists were read with the authenticated account scope.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+            (
+                "list_account_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_fails_closed_without_authenticated_identity(
+    monkeypatch,
+) -> None:
+    """Prove readback refuses to look up a resource without an account.
+
+    The request still authenticates with the API key; only the account
+    identity fails to resolve.
+    """
+    monkeypatch.setattr(dependencies, "get_single_user_id", lambda: "")
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=[], account_runs=[])
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get("/api/chat/7/coding-runs", headers=headers)
+
+        assert response.status_code == 401
+        # No durable resource lookup was attempted.
+        assert spy.calls == []
+
+
+def test_agent_readback_hides_unknown_resource_without_unscoped_fallback(
+    monkeypatch,
+) -> None:
+    """Prove an unknown resource stays existence-hidden and never falls
+    back to an unscoped store read."""
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        thread_response = client.get("/api/chat/7/coding-runs", headers=headers)
+        assert thread_response.status_code == 404
+        run_response = client.get("/api/agents/runs/missing-run/coding", headers=headers)
+        assert run_response.status_code == 404
+
+        # Only the account-scoped readers were used.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+            (
+                "get_coding_run_snapshot",
+                {"run_id": "missing-run", "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_rejects_foreign_account_selection(monkeypatch) -> None:
+    """Prove a forged X-User-Id header cannot select another account.
+
+    The local debug lane deliberately treats `X-User-Id` as the request
+    principal. That is a pre-existing `get_request_user_id` behavior and is
+    not changed here, so this test pins the ordinary lane explicitly by
+    removing the debug flags before the request.
+    """
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("LOCAL_DEV", raising=False)
+    with _build_supported_profile_client(monkeypatch) as client:
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get(
+            "/api/chat/7/coding-runs",
+            headers={"X-API-Key": "test-api-key", "X-User-Id": "other-account"},
+        )
+
+        assert response.status_code == 404
+        # The forged header did not replace the authenticated account scope.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "local"},
+            ),
+        ]
+
+
+def test_agent_readback_uses_the_resolved_principal_in_debug_lane(
+    monkeypatch,
+) -> None:
+    """Prove readback always scopes to the resolved account principal.
+
+    When the local debug lane is enabled, `X-User-Id` becomes the request
+    principal. The route must then scope to that principal, and to nothing
+    else. This records the lane boundary without claiming the debug lane is
+    a production authorization surface.
+    """
+    monkeypatch.setenv("LOCAL_DEV", "1")
+    with _build_supported_profile_client(monkeypatch) as client:
+        spy = _ReadbackStoreSpy(coding_runs=None, account_runs=None)
+        monkeypatch.setattr(agent_orchestration, "_store", spy)
+
+        response = client.get(
+            "/api/chat/7/coding-runs",
+            headers={"X-API-Key": "test-api-key", "X-User-Id": "other-account"},
+        )
+
+        assert response.status_code == 404
+        # The route used the resolved principal, not a request-body identity.
+        assert spy.calls == [
+            (
+                "list_coding_runs_for_thread",
+                {"thread_id": 7, "user_id": "other-account"},
+            ),
+        ]
+
+
+def test_agent_readback_preserves_local_operator_threadless_run(
+    monkeypatch,
+) -> None:
+    """Prove the local operator lane keeps its bounded threadless read.
+
+    A threadless operator-created run remains readable under the local
+    operator API key. This is the explicit local compatibility path, not
+    remote account authority.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        local_store = AgentStore()
+        deployment = local_store.create_deployment(
+            flow_id="operator-threadless",
+            thread_id=None,
+            spec_json={},
+            spec_hash="operator-threadless-spec",
+        )
+        run = local_store.create_run(
+            deployment_id=str(deployment["deployment_id"]),
+            thread_id=None,
+            status="running",
+        )
+        monkeypatch.setattr(agent_orchestration, "_store", local_store)
+
+        response = client.get(
+            f"/api/agents/runs/{run['run_id']}",
+            headers={"X-API-Key": "test-api-key"},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["run"]["thread_id"] is None
 
 
 def test_missing_route_does_not_regress_to_unclassified_404(
     monkeypatch,
 ) -> None:
-    """Prove that a nonexistent endpoint still returns 404, but the
-    Coding Loop execute route returns 200 acceptance."""
+    """Prove that a nonexistent endpoint still returns 404, and that the
+    Coding Loop execute route stays distinguishable from an unmounted route.
+
+    The execute route is mounted, so a structurally incomplete body is
+    rejected by request validation with 422 rather than falling through to
+    the 404 of an unknown path.
+    """
     with _build_supported_profile_client(monkeypatch) as client:
         headers = {"X-API-Key": "test-api-key"}
 
         # A genuinely unknown path must still 404.
         assert client.get("/api/nonexistent/endpoint", headers=headers).status_code == 404
 
-        # The Coding Loop execute route must 200.
+        # The Coding Loop execute route is mounted, so it must not answer 404.
         response = client.post(
             "/api/agents/coding/execute",
             headers=headers,
-            json={
-                "coding_task_id": "regression-check",
-                "thread_id": "1",
-                "source_message_id": "1",
-                "attempt_id": "attempt-1",
-                "user_id": "local",
-                "project_id": None,
-                "adapter_kind": "pi_codex_runner",
-                "instructions": "echo regression check",
-                "repo_root": "/tmp",
-                "context_summary": None,
-                "permission_policy": {
-                    "allow_shell": True,
-                    "allow_network": False,
-                    "allow_write": False,
-                    "allowed_paths": [],
-                    "max_runtime_seconds": 30,
-                },
-            },
+            json=_incomplete_coding_execute_body(),
         )
-        assert response.status_code == 200
+        assert (
+            response.status_code == 422
+        ), f"Expected 422, got {response.status_code}: {response.text}"
+        assert response.status_code != 404
+
+
+def test_coding_execute_incomplete_request_reaches_no_dispatch_boundary(
+    monkeypatch,
+) -> None:
+    """Prove an incomplete coding-execution request stops before every
+    dispatch boundary.
+
+    Guardian resolves execution-binding authority before it creates a
+    deployment or a coding run, publishes an accepted execution event,
+    acquires credential authority, or enqueues a worker task. A request
+    rejected by request validation must reach none of them.
+    """
+    from guardian.agents.events import AgentEventPublisher
+    from guardian.agents.store import AgentStore
+    from guardian.queue import redis_queue
+    from guardian.routes import agent_orchestration
+
+    reached: list[str] = []
+    published_events: list[dict] = []
+
+    def _record(name):
+        def _call(*args, **kwargs):
+            reached.append(name)
+            raise AssertionError(f"dispatch boundary reached: {name}")
+
+        return _call
+
+    def _record_event(*args, **kwargs):
+        published_events.append(kwargs)
+
+    monkeypatch.setattr(AgentStore, "create_deployment", _record("create_deployment"))
+    monkeypatch.setattr(AgentStore, "create_run", _record("create_run"))
+    monkeypatch.setattr(AgentEventPublisher, "emit", _record_event)
+    monkeypatch.setattr(
+        redis_queue,
+        "enqueue_coding_execution",
+        _record("enqueue_coding_execution"),
+    )
+    monkeypatch.setattr(
+        agent_orchestration,
+        "authorize_credential_selection",
+        _record("authorize_credential_selection"),
+    )
+
+    with _build_supported_profile_client(monkeypatch) as client:
+        response = client.post(
+            "/api/agents/coding/execute",
+            headers={"X-API-Key": "test-api-key"},
+            json=_incomplete_coding_execute_body(),
+        )
+
+    assert response.status_code == 422
+    # No deployment, no coding run, no worker task, and no credential
+    # authority.
+    assert reached == []
+    # No accepted execution event was published for this request.
+    assert not [
+        event
+        for event in published_events
+        if (event.get("payload") or {}).get("coding_task_id")
+    ]
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["provider_id", "model_id", "credential_ref"],
+)
+def test_coding_loop_execute_requires_binding_identity_fields(
+    monkeypatch,
+    missing_field,
+) -> None:
+    """Prove the execution-binding identity fields stay required.
+
+    A future implementation that silently makes any of them optional would
+    let a request reach authority resolution without a selected provider,
+    model, or credential reference.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+        body = _coding_execute_body()
+        body.pop(missing_field)
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=body,
+            )
+
+            assert response.status_code == 422, response.text
+            detail = response.json()["detail"]
+            assert any(
+                error.get("type") == "missing"
+                and list(error.get("loc") or []) == ["body", missing_field]
+                for error in detail
+            ), detail
+            # Nothing was authorized, created, or enqueued.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
+
+
+def test_coding_loop_execute_rejects_account_identity_mismatch(
+    monkeypatch,
+) -> None:
+    """Prove the request body cannot supply account authority.
+
+    The authenticated account identity is Guardian-controlled; a body that
+    names a different account must be refused before any authority check.
+    """
+    with _build_supported_profile_client(monkeypatch) as client:
+        headers = {"X-API-Key": "test-api-key"}
+
+        with _isolate_coding_execution(monkeypatch) as isolation:
+            response = client.post(
+                CODING_EXECUTE_ROUTE,
+                headers=headers,
+                json=_coding_execute_body(user_id="other-account"),
+            )
+
+            assert response.status_code == 403, response.text
+            # No execution binding was authorized and nothing was created.
+            assert isolation.lineage_calls == []
+            assert isolation.credential_calls == []
+            assert isolation.queued == []
+            assert isolation.store.deployments == []
+            assert isolation.store.runs == []
+
+
+def test_coding_loop_execution_isolation_restores_module_state(
+    monkeypatch,
+) -> None:
+    """Prove the Coding Loop isolation is scoped to its own test."""
+    originals = {
+        "lineage": agent_orchestration._validate_coding_lineage,
+        "authorize": agent_orchestration.authorize_credential_selection,
+        "store": agent_orchestration._store,
+        "publisher": agent_orchestration._event_publisher,
+    }
+
+    with _isolate_coding_execution(monkeypatch):
+        assert agent_orchestration._validate_coding_lineage is not originals["lineage"]
+        assert (
+            agent_orchestration.authorize_credential_selection
+            is not originals["authorize"]
+        )
+        assert agent_orchestration._store is not originals["store"]
+        assert agent_orchestration._event_publisher is not originals["publisher"]
+
+    assert agent_orchestration._validate_coding_lineage is originals["lineage"]
+    assert (
+        agent_orchestration.authorize_credential_selection is originals["authorize"]
+    )
+    assert agent_orchestration._store is originals["store"]
+    assert agent_orchestration._event_publisher is originals["publisher"]
 
 
 @pytest.mark.parametrize("route_enabled", [True, False], ids=["admitted", "flag-disabled"])

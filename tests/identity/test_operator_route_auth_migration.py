@@ -126,6 +126,52 @@ EXPECTED: dict[str, tuple[tuple[str, str, str], ...]] = {
     ),
 }
 
+# Post-freeze ADR-100 additions.
+#
+# ADR-100 (Campaign Continuation Authority) admitted three operator-protected
+# control-plane registrations after the 2026-09-27 frozen classification. They
+# are kept in their own collection so the historical baseline above stays
+# exactly as it was classified; the baseline and this delta are validated
+# independently and only then compared with the runtime as one inventory.
+#
+# These routes administer durable authority records. They neither dispatch
+# workers nor activate automatic Campaign progression, and every handler
+# reports runtime_enforcement_enabled False. This delta is regression
+# inventory, not a second source of authorization.
+ADR100_OPERATOR_ROUTE_ADDITIONS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "guardian.routes.coding_work_orders": (
+        (
+            "PUT",
+            "/api/coding/campaign-runner/campaigns/{campaign_id}"
+            "/continuation-authority",
+            "approve_campaign_continuation_authority",
+        ),
+        (
+            "GET",
+            "/api/coding/campaign-runner/campaigns/{campaign_id}"
+            "/continuation-authorities",
+            "list_campaign_continuation_authorities",
+        ),
+        (
+            "POST",
+            "/api/coding/campaign-runner/campaigns/{campaign_id}"
+            "/continuation-authorities/{authority_id}/revoke",
+            "revoke_campaign_continuation_authority",
+        ),
+    ),
+}
+
+
+def _combined_inventory() -> dict[str, tuple[tuple[str, str, str], ...]]:
+    """Baseline plus the post-freeze delta. Derived, not a second authority."""
+    combined = {module: tuple(routes) for module, routes in EXPECTED.items()}
+    for module, routes in ADR100_OPERATOR_ROUTE_ADDITIONS.items():
+        combined[module] = combined.get(module, ()) + tuple(routes)
+    return combined
+
+
+COMBINED = _combined_inventory()
+
 ENABLED_MODULES = {
     "guardian.guardian_api",
     "guardian.routes.agent_orchestration",
@@ -217,6 +263,61 @@ def test_frozen_operator_manifest_has_exactly_59_registrations_in_13_files():
             assert require_operator_auth in calls, (module_name, method, path)
             assert require_api_key not in calls, (module_name, method, path)
 
+
+def test_post_freeze_delta_admits_exactly_the_adr100_control_plane_routes():
+    assert set(ADR100_OPERATOR_ROUTE_ADDITIONS) == {
+        "guardian.routes.coding_work_orders",
+    }
+    additions = [
+        (module_name, method, path, handler)
+        for module_name, registrations
+        in ADR100_OPERATOR_ROUTE_ADDITIONS.items()
+        for method, path, handler in registrations
+    ]
+    assert len(additions) == 3
+
+    # No duplicate registration: the delta may not restate history, and the
+    # historical baseline may not silently absorb a post-freeze admission.
+    baseline = {
+        (method, path)
+        for registrations in EXPECTED.values()
+        for method, path, _ in registrations
+    }
+    added = {(method, path) for _, method, path, _ in additions}
+    assert len(added) == 3
+    assert not added & baseline, sorted(added & baseline)
+
+    resolve_actor = importlib.import_module(
+        "guardian.routes.coding_work_orders"
+    )._resolved_operator_actor_id
+    for module_name, method, path, handler in additions:
+        route = _find(module_name, method, path)
+        assert route.endpoint.__name__ == handler
+        calls = set(_calls(route))
+        assert require_operator_auth in calls, (module_name, method, path)
+        assert require_api_key not in calls, (module_name, method, path)
+
+        # Approval and revocation derive their actor from Guardian operator
+        # auth. The slot is a dependency, so a caller cannot supply it in the
+        # body or query and cannot claim another actor.
+        actor_slot = {
+            "approve_campaign_continuation_authority": "approved_by_actor_id",
+            "revoke_campaign_continuation_authority": "revoked_by_actor_id",
+        }.get(handler)
+        if actor_slot is not None:
+            slots = {
+                child.name: child.call for child in route.dependant.dependencies
+            }
+            assert slots.get(actor_slot) is resolve_actor, (
+                module_name, handler, actor_slot, slots.get(actor_slot)
+            )
+
+    assert len(COMBINED) == 13
+    assert sum(map(len, COMBINED.values())) == 62
+
+
+def test_combined_operator_inventory_matches_runtime_registrations_exactly():
+    for module_name, registrations in COMBINED.items():
         expected = {(method, path) for method, path, _ in registrations}
         actual = {
             (method, route.path)
@@ -232,6 +333,15 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert sum(len(EXPECTED[name]) for name in DEFAULT_OFF_MODULES) == 30
     assert len(EXPECTED["guardian.routes.graph"]) == 1
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
+
+    # The three ADR-100 admissions land in an enabled module, so the combined
+    # enabled ledger grows 24 -> 27. The default-off ledger carries the
+    # delegation router's uncertain coding-run quarantine route, so it grows
+    # 29 -> 30 in the same step.
+    assert sum(len(COMBINED[name]) for name in ENABLED_MODULES) == 27
+    assert sum(len(COMBINED[name]) for name in DEFAULT_OFF_MODULES) == 30
+    assert len(COMBINED["guardian.routes.graph"]) == 1
+    assert len(COMBINED["guardian.routes.llm_overrides"]) == 4
 
     for profile_name in PROFILE_NAMES:
         profile = load_supported_profile(profile_name)
@@ -268,7 +378,7 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert default_off_flags == {"guardian_delegations": False, "worktrees": False}
 
 
-def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeypatch):
+def test_local_supported_topology_mounts_27_and_excludes_disabled_routes(monkeypatch):
     from tests.core.test_supported_profile_quarantine import (
         _build_supported_profile_client,
     )
@@ -288,9 +398,9 @@ def test_local_supported_topology_mounts_24_and_excludes_disabled_routes(monkeyp
         enabled = [
             (module, method, path, handler)
             for module in ENABLED_MODULES
-            for method, path, handler in EXPECTED[module]
+            for method, path, handler in COMBINED[module]
         ]
-        assert len(enabled) == 24
+        assert len(enabled) == 27
         for module, method, path, handler in enabled:
             expected_route = (method, path, module, handler)
             assert expected_route in mounted, {

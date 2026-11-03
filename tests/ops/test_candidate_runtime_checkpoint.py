@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import os
+import shutil
 import tarfile
 import time
 import uuid
@@ -19,6 +20,35 @@ assert SPEC and SPEC.loader
 cp = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cp)
 IMAGE = "sha256:" + "a" * 64
+
+
+@pytest.fixture
+def tmp_path():
+    """A temporary tree outside the forbidden temporary storage.
+
+    ``safe_destination`` refuses checkpoint paths inside ``/tmp`` (and its
+    resolved form), because a checkpoint there is not durable. The checkpoint
+    fixtures in this module therefore cannot use pytest's default temporary
+    directory, which lives under ``/tmp`` on Linux. ``/var/tmp`` is outside
+    that forbidden set, and it is resolved so no parent is a symlink.
+    """
+    base = Path("/var/tmp").resolve() / f"codexify-checkpoint-tests-{os.getpid()}"
+    base.mkdir(parents=True, exist_ok=True)
+    try:
+        for index in range(1000):
+            candidate = base / f"t{index}"
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                continue
+            try:
+                yield candidate
+            finally:
+                shutil.rmtree(candidate, ignore_errors=True)
+            return
+        raise AssertionError("could not allocate a temporary checkpoint directory")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def sample(project="fixture"):

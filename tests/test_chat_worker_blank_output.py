@@ -17,6 +17,28 @@ def test_worker_replaces_blank_output_only_after_successful_terminal(
     mock_db.write_audit_log = MagicMock()
 
     monkeypatch.setattr(chat_worker.dependencies, "chatlog_db", mock_db)
+    # The worker only proceeds once it has confirmed the durable attempt for
+    # this accepted task; acknowledge that write through the same seam the
+    # sibling chat-worker orchestration tests use.
+    monkeypatch.setattr(
+        chat_worker,
+        "_read_attempt_for_worker",
+        lambda task: {
+            "backend_task_id": task.task_id,
+            "request_id": task.request_id,
+            "thread_id": task.thread_id,
+            "turn_id": chat_worker._extract_turn_id(task),
+            "completed_message_id": None,
+            "terminal_event_type": None,
+            "terminal_outcome": None,
+            "deadline_snapshot": None,
+        },
+    )
+    monkeypatch.setattr(
+        chat_worker,
+        "_observe_and_cleanup_terminal_attempt",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setattr(
         chat_worker, "_safe_publish", lambda *args, **kwargs: None
     )

@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -270,8 +270,14 @@ describe("WorkspaceShelfPanel", () => {
 
       render(<WorkspaceShelfPanel threadIdentity="123" projectId={null} />);
 
-      const status = await screen.findByTestId("workspace-shelf-status");
-      expect(status).toHaveTextContent(/2 docs · 1 images/i);
+      // The status element is present while the shelf is still loading, so the
+      // count is only meaningful once both fetches have been applied.
+      await screen.findByTestId("workspace-shelf-status");
+      await waitFor(() => {
+        expect(screen.getByTestId("workspace-shelf-status")).toHaveTextContent(
+          /2 docs · 1 images/i
+        );
+      });
     });
   });
 

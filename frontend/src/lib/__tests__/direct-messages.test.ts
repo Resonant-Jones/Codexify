@@ -13,10 +13,12 @@ import {
   fetchThreadProjectScope,
   filterConversationsByRelationship,
   normalizeDirectMessageError,
+  normalizeUsernameSearchQuery,
   peerPresentationLabel,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
   sendDirectMessage,
+  USERNAME_SEARCH_MIN_LENGTH,
   type DirectMessageConversation,
   type DirectMessageEnvelope,
   type DirectMessageSocialProfile,
@@ -339,6 +341,33 @@ describe("searchDirectMessageProfiles", () => {
       params: { q: "bo", limit: 20 },
     });
     expect(profiles).toHaveLength(1);
+  });
+
+  it("sends the bare handle when the @ sigil is typed", async () => {
+    mockedGet.mockResolvedValue({
+      data: { ok: true, profiles: [] },
+    } as never);
+
+    await searchDirectMessageProfiles("@resonant-");
+    expect(mockedGet).toHaveBeenCalledWith("/api/direct-messages/profiles", {
+      params: { q: "resonant-", limit: 20 },
+    });
+  });
+});
+
+describe("normalizeUsernameSearchQuery", () => {
+  it("strips the @ sigil, trims, and lowercases", () => {
+    expect(normalizeUsernameSearchQuery("@resonant-")).toBe("resonant-");
+    expect(normalizeUsernameSearchQuery("  @Resonant-Jones  ")).toBe(
+      "resonant-jones",
+    );
+    expect(normalizeUsernameSearchQuery("resonant-")).toBe("resonant-");
+    expect(normalizeUsernameSearchQuery("@")).toBe("");
+    expect(normalizeUsernameSearchQuery("")).toBe("");
+  });
+
+  it("exposes a minimum query length matching the backend bound", () => {
+    expect(USERNAME_SEARCH_MIN_LENGTH).toBe(2);
   });
 });
 

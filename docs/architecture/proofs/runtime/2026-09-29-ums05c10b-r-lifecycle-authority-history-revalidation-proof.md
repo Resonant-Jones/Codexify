@@ -4,7 +4,7 @@
 **Slice:** `UMS-05C10B-R` — lifecycle authority / persistence / state-machine revalidation
 **Campaign:** Unified Account-Owned Memory Store
 **Date:** 2026-09-29
-**ADR impact:** **Aligned with existing ADR(s)** — ADR-084 and ADR-088. No new ADR. No contract contradiction.
+**ADR impact:** **Aligned with existing ADR(s)** — ADR-084 and ADR-106. No new ADR. No contract contradiction.
 **Class:** Documentation / architecture qualification. No runtime, schema, route, or test change.
 
 ---
@@ -97,7 +97,7 @@ retire, restore, activation, or decay writer exists.
 | Hold | "Hold/release controls whether decay may change lifecycle" | §5.4 |
 | Recall | "Explicit recall does not approve, activate, restore, edit, pin, hold, or change context posture" | §6 |
 | Export | The account archive must include "lifecycle transition timestamps" | §10 |
-| Review independence | Approval does not activate; rejection/dispute do not retire; retire/restore do not change review authority | §3.3.1, ADR-088 |
+| Review independence | Approval does not activate; rejection/dispute do not retire; retire/restore do not change review authority | §3.3.1, ADR-106 |
 
 **The revision requirement has not been narrowed for lifecycle.** No accepted document says
 lifecycle transitions are receipt-only. The existence of the content and review revision families
@@ -201,7 +201,7 @@ choosing a target the contract does not state.
 
 ### Case C — `rejected + active → retired → restore`
 
-Review state is independent (§3.3, ADR-088), and §5.4 explicitly says restore "does not
+Review state is independent (§3.3, ADR-106), and §5.4 explicitly says restore "does not
 auto-approve a formerly unapproved record". So `rejected` must be preserved. That part **is**
 answerable from present state: `review_state` is untouched by lifecycle.
 
@@ -230,7 +230,7 @@ incomplete for Case E.
 | Import / ingestion | **Initialization / ingress state** — OpenAI/Anthropic import creates "dormant, `explicit_recall_only` record" (§5.1, §9) | Canonical column defaults to `dormant`; C6 direct creation sets `active` |
 | System decay `active → dormant` | **Governed automatic policy** — heat *recommends*; an audited policy transition, forbidden while held (§5.3, §11) | **No.** No canonical decay code exists; MemoryOS decay is legacy and non-canonical |
 | `dormant → active` (reactivation) | **Unresolved** | No |
-| User activation | **Absent.** No activation action exists in the Vault contract, and ADR-088 explicitly states approval does not activate | No |
+| User activation | **Absent.** No activation action exists in the Vault contract, and ADR-106 explicitly states approval does not activate | No |
 
 Hold/decay: a held record **cannot** be transitioned by decay; a pinned record **can** decay when
 not held (§11). Pin is ranking priority, not lifecycle authority.
@@ -286,7 +286,7 @@ No missing edge was invented.
 | valid from `dormant`? | **Not explicit** | no statement |
 | `retire` on `retired` is a no-op? | **Not explicit** | no rule |
 | remembers pre-retirement posture? | **Required by §5.4, NOT IMPLEMENTED** | no field exists |
-| changes review state? | **NO** | §3.3 / ADR-088 independence; review actions do not retire and retire does not change review |
+| changes review state? | **NO** | §3.3 / ADR-106 independence; review actions do not retire and retire does not change review |
 | changes context posture? | **Unresolved** | no `context_posture` column exists at all |
 | changes pin/hold? | **Unresolved** | no statement; hold is a decay control, pin is ranking |
 

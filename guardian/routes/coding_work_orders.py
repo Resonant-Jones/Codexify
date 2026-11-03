@@ -38,7 +38,7 @@ from guardian.command_bus.store import CommandBusStore
 from guardian.core.auth_dependencies import get_current_user_id
 from guardian.core.dependencies import get_single_user_id, require_operator_auth
 from guardian.db.models import WorkOrderResultReceipt
-from guardian.protocol_tokens import ErrorCode
+from guardian.protocol_tokens import ContinuationAuthorityProvenance, ErrorCode
 
 router = APIRouter(
     prefix="/api/coding/work-orders",
@@ -305,6 +305,13 @@ async def approve_campaign_continuation_authority(
             campaign_id=campaign_id,
             envelope=body.envelope.model_dump(mode="json"),
             approved_by_actor_id=approved_by_actor_id,
+            # ADR-105: this route is served by the deployment operator lane,
+            # which is not a canonical account-admin human approver. The
+            # provenance class is therefore the operator lane's own and is
+            # never inferred from the actor string.
+            approval_provenance=(
+                ContinuationAuthorityProvenance.OPERATOR_DEPLOYMENT.value
+            ),
             expires_at=body.expires_at,
         )
     except CampaignRunnerNotFound as exc:
@@ -370,6 +377,11 @@ async def revoke_campaign_continuation_authority(
             campaign_id=campaign_id,
             authority_id=authority_id,
             revoked_by_actor_id=revoked_by_actor_id,
+            # Same operator-lane provenance rule as approval: a deployment
+            # operator revocation is not a human revocation.
+            revocation_provenance=(
+                ContinuationAuthorityProvenance.OPERATOR_DEPLOYMENT.value
+            ),
             reason=body.reason,
         )
     except CampaignRunnerNotFound as exc:

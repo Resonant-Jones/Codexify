@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "docs/architecture/guardian-evidence-packet-generator-contract.md"
@@ -107,8 +109,7 @@ def test_cross_links_and_existing_tools_remain_green() -> None:
     assert link in loader_contract or "packet generator contract" in loader_contract
     assert link in reducer_contract
     assert link in readme
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)
 
     for target in (
         "guardian-evidence-packets-validate",

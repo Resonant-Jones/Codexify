@@ -59,8 +59,8 @@ services:
   frontend:
     image: ${CODEXIFY_WEBUI_IMAGE_REGISTRY:-ghcr.io/resonant-jones}/codexify-webui:${CODEXIFY_WEBUI_IMAGE_TAG:-local-beta}
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.webui
+      context: .
+      dockerfile: frontend/Dockerfile.webui
     ports:
       - "3000:80"
     restart: unless-stopped

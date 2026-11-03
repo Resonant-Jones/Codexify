@@ -123,6 +123,7 @@ vi.mock("@/features/chat/components/ChatBubble", () => ({
             ? "Playing..."
             : "Read Aloud";
     const disabled = playState === "pending" || playState === "disabled";
+    chatBubbleRenderCount.value += 1;
     return (
       <div data-testid={`bubble-${message.id}`}>
         <div>{message.content}</div>
@@ -147,6 +148,9 @@ const baseCompletion: CompletionState = {
   activeThreadId: null,
   startedAt: null,
 };
+
+/** Counts transcript renders so loop guards can assert a bounded count. */
+const chatBubbleRenderCount = { value: 0 };
 
 function buildMessage(
   id: number,
@@ -469,6 +473,16 @@ describe("ChatView loop guards", () => {
     let scrollHeight = 2000;
     let scrollTop = 1000;
 
+    // Earlier cases in this file scroll the transcript, which persists the
+    // scroll offset for the thread. That restored offset is applied on a later
+    // frame and would race this case, so the persisted position is cleared to
+    // keep the jump-to-latest behaviour deterministic.
+    try {
+      sessionStorage.removeItem("chat-scroll-7");
+    } catch {
+      // no-op
+    }
+
     Object.defineProperty(HTMLElement.prototype, "clientHeight", {
       configurable: true,
       get: () => clientHeight,
@@ -587,5 +601,131 @@ describe("ChatView loop guards", () => {
     const lane = screen.getByTestId("chat-conversation-lane");
     expect(lane).toHaveStyle({ maxWidth: `${CHAT_LANE_MAX_WIDTH}px` });
     expect(lane.className).toContain("md:max-w-[888px]");
+  });
+
+  it("does not enter a render loop while the conversation minimap measures the transcript", async () => {
+    const originalClientHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight"
+    );
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight"
+    );
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth"
+    );
+
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 500,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => 2000,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 1200,
+    });
+
+    try {
+      const transcriptLength = 4;
+      render(
+        <ChatView
+          threadId={7}
+          guardianName="Guardian"
+          messages={[
+            buildMessage(1, "user"),
+            buildMessage(2, "assistant"),
+            buildMessage(3, "user"),
+            buildMessage(4, "assistant"),
+          ]}
+          loading={false}
+          error={null}
+          hasMore={false}
+          completionState={baseCompletion}
+          endCompletion={vi.fn()}
+        />
+      );
+
+      await waitFor(() => {
+        expect(chatBubbleRenderCount.value).toBeGreaterThan(0);
+      });
+
+      const settled = chatBubbleRenderCount.value;
+
+      fireEvent.scroll(screen.getByTestId("chat-container"));
+
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      });
+
+      // A scroll settles the active section and re-measures the viewport, so
+      // at most two render passes are expected. A runaway measurement would
+      // keep re-rendering instead.
+      expect(chatBubbleRenderCount.value - settled).toBeLessThanOrEqual(
+        transcriptLength * 2
+      );
+
+      const afterSettle = chatBubbleRenderCount.value;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(chatBubbleRenderCount.value).toBe(afterSettle);
+    } finally {
+      if (originalClientHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientHeight",
+          originalClientHeight
+        );
+      }
+      if (originalScrollHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollHeight",
+          originalScrollHeight
+        );
+      }
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth
+        );
+      }
+    }
+  });
+
+  it("keeps the conversation minimap out of the transcript fetching path", async () => {
+    apiGetMock.mockClear();
+    apiPostMock.mockClear();
+
+    render(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={[
+          buildMessage(1, "user"),
+          buildMessage(2, "assistant"),
+          buildMessage(3, "user"),
+        ]}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={baseCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    });
+
+    expect(apiGetMock).not.toHaveBeenCalled();
+    expect(apiPostMock).not.toHaveBeenCalled();
   });
 });

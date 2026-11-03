@@ -13,6 +13,7 @@ const RUNTIME_IDENTITY = {
 class FakeModelRuntime {
     constructor() {
         this._allowModelNetwork = false;
+        this._runtimeApiKeys = new Map();
     }
 
     getModel(providerId, modelId) {
@@ -25,6 +26,19 @@ class FakeModelRuntime {
 
     getProviders() {
         return [RUNTIME_IDENTITY.provider_id];
+    }
+
+    // The wrapper installs the invocation-scoped credential on the runtime
+    // before it opens a session. The fake stores it in memory only, so no
+    // secret is ever written to disk.
+    async setRuntimeApiKey(providerId, apiKey, options = {}) {
+        if (!providerId || typeof apiKey !== "string" || apiKey.trim() === "") {
+            throw new Error("fake Pi: runtime API key requires a provider and a value");
+        }
+        if (options && options.allowNetwork === true) {
+            throw new Error("fake Pi: network credential installation is not allowed");
+        }
+        this._runtimeApiKeys.set(providerId, apiKey);
     }
 
     checkAuth(providerId) {
@@ -219,7 +233,18 @@ class FakeSession {
         // repair end-to-end against the real agent-wrapper.js.
         process.stdout.write("FAKE_PI_SDK_DIAGNOSTIC\n");
 
-        if (this.behavior === "hang-before-payload") {
+        // The authorized adapter hands the wrapper an explicit environment
+        // allowlist, so a test that drives the wrapper through the adapter
+        // cannot select the fake's behavior through ambient variables. The
+        // prompt is the one caller-controlled channel that survives, so the
+        // hang behaviors are selected from it as well.
+        const requestedHang = prompt.includes("hang-before-payload")
+            ? "hang-before-payload"
+            : prompt.includes("hang-after-payload")
+              ? "hang-after-payload"
+              : this.behavior;
+
+        if (requestedHang === "hang-before-payload") {
             await new Promise(() => setInterval(() => {}, 1000));
         }
 
@@ -397,7 +422,7 @@ class FakeSession {
                     throw new Error("fake Pi: DeepSeek required write payload malformed");
                 }
             }
-            if (this.behavior === "hang-after-payload" && turn === 0) {
+            if (requestedHang === "hang-after-payload" && turn === 0) {
                 await new Promise(() => setInterval(() => {}, 1000));
             }
             // Only the first turn is a "provider request" in this fake;

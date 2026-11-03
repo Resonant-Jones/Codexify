@@ -69,7 +69,7 @@ function focusAndType(value: string) {
 describe("Guardian mobile composer inline commands", () => {
   afterEach(() => cleanup());
 
-  it("renders the compact mobile pill without persistent advanced selectors and without context summary", () => {
+  it("renders the compact mobile pill with the route disclosure and without context summary", () => {
     renderComposer();
 
     const textarea = screen.getByTestId("composer-textarea");
@@ -97,8 +97,16 @@ describe("Guardian mobile composer inline commands", () => {
     // Mobile control row does not use the desktop send-edge-inset class.
     expect(compactRow.className).not.toContain(CHAT_COMPOSER_SEND_EDGE_INSET_CLASS);
 
-    expect(screen.queryByRole("button", { name: "Select provider" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Select model" })).toBeNull();
+    // The compact mobile conversation surface discloses the active route so a
+    // phone user can see and switch provider and model.
+    const routeRow = screen.getByTestId("composer-mobile-route-row");
+    expect(routeRow).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Select provider" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Select model" })
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Select inference mode" })
     ).toBeNull();

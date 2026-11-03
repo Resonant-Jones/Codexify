@@ -88,7 +88,7 @@ def temporary_postgres(tmp_path, monkeypatch):
 def test_onboarding_upgrade_constraints_durable_state_and_downgrade(temporary_postgres):
     from alembic import command
     from sqlalchemy.orm import sessionmaker
-    from guardian.db.models import User, UserOnboardingState, UserSettings
+    from guardian.db.models import User, UserOnboardingState
     from guardian.services import onboarding_service as service
 
     config, url = temporary_postgres
@@ -124,7 +124,16 @@ def test_onboarding_upgrade_constraints_durable_state_and_downgrade(temporary_po
         )
         assert service.read_state(session, "onboarding-b") == service.DEFAULT_STATE
         assert session.get(UserOnboardingState, "onboarding-b") is None
-        assert session.get(UserSettings, "onboarding-a") is None
+        # `user_settings` carries its explicit-consent column from a different
+        # branch than this revision, so assert row absence without selecting
+        # columns this schema does not have.
+        assert (
+            session.execute(
+                sa.text("SELECT 1 FROM user_settings WHERE user_id = :user_id"),
+                {"user_id": "onboarding-a"},
+            ).scalar()
+            is None
+        )
     with factory() as session:
         assert (
             service.read_state(session, "onboarding-a")["contextual_tips_enabled"]

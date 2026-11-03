@@ -194,6 +194,25 @@ class PersonalFactStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class AutomaticMemorySuggestionsConsent(str, Enum):
+    """Canonical account consent states for automatic Personal Fact collection.
+
+    This is the single state vocabulary for collection consent and mirrors the
+    accepted UMS contract vocabulary
+    (``automatic_memory_suggestions = unset | enabled | paused | declined``).
+    No other module may define a parallel consent vocabulary.
+
+    Only ``ENABLED`` permits automatic collection. ``UNSET`` is the default for
+    every account that has not recorded a choice, so a missing preference
+    denies collection.
+    """
+
+    UNSET = "unset"
+    ENABLED = "enabled"
+    PAUSED = "paused"
+    DECLINED = "declined"
+
+
 class TraceSuppressionReason(str, Enum):
     ASSISTANT_VISION_REFUSAL_ON_IMAGE_TURN = "assistant_vision_refusal_on_image_turn"
 
@@ -510,6 +529,28 @@ class CampaignExecutionAttemptStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ContinuationAuthorityProvenance(str, Enum):
+    """Provenance class of one Campaign Continuation Authority action.
+
+    ADR-105 requires actor identity and approval/revocation provenance to be
+    distinct durable facts. The actor string alone cannot tell a canonical
+    human administrator apart from a deployment principal that happens to
+    share the same bytes, so the authority record carries this discriminator
+    per action and consumers read it directly.
+
+    ``LEGACY_UNVERIFIED`` marks an action recorded before the discriminator
+    existed. Its human provenance is unverified, so it is never human
+    approved. ``OPERATOR_DEPLOYMENT`` marks an action performed by the
+    deployment operator lane, which is not a human approver.
+    ``ACCOUNT_ADMIN`` is the only class that records a canonical
+    account-admin human approval.
+    """
+
+    LEGACY_UNVERIFIED = "legacy_unverified"
+    OPERATOR_DEPLOYMENT = "operator_deployment"
+    ACCOUNT_ADMIN = "account_admin"
+
+
 class TraceSnapshotAbsenceReason(str, Enum):
     TRACE_SOURCE_UNAVAILABLE = "trace_source_unavailable"
     TRACE_SNAPSHOT_MISSING = "trace_snapshot_missing"
@@ -649,6 +690,9 @@ DELEGATION_JOB_STATUSES: frozenset[str] = frozenset(
 PERSONAL_FACT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in PersonalFactStatus}
 )
+AUTOMATIC_MEMORY_SUGGESTIONS_CONSENT_STATES: frozenset[str] = frozenset(
+    {state.value for state in AutomaticMemorySuggestionsConsent}
+)
 MEMORY_SEMANTIC_SPECIES_VALUES: frozenset[str] = frozenset(
     {species.value for species in MemorySemanticSpecies}
 )
@@ -743,6 +787,15 @@ CAMPAIGN_STATUSES: frozenset[str] = frozenset(
 )
 CAMPAIGN_EXECUTION_ATTEMPT_STATUSES: frozenset[str] = frozenset(
     {status.value for status in CampaignExecutionAttemptStatus}
+)
+CONTINUATION_AUTHORITY_PROVENANCES: frozenset[str] = frozenset(
+    {provenance.value for provenance in ContinuationAuthorityProvenance}
+)
+#: The only provenance classes that record a canonical human approval.
+#: Legacy, operator-deployment, missing, and unclassified provenance all
+#: fail closed and are therefore absent from this set (ADR-105).
+HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES: frozenset[str] = frozenset(
+    {ContinuationAuthorityProvenance.ACCOUNT_ADMIN.value}
 )
 TRACE_SNAPSHOT_ABSENCE_REASONS: frozenset[str] = frozenset(
     {reason.value for reason in TraceSnapshotAbsenceReason}
@@ -890,6 +943,7 @@ __all__ = [
     "MemoryLifecycleState",
     "MemoryReviewState",
     "PersonalFactStatus",
+    "AutomaticMemorySuggestionsConsent",
     "TraceSuppressionReason",
     "DELEGATION_SUMMARY_OUTCOME_TYPE",
     "DelegationExecutorName",
@@ -919,6 +973,7 @@ __all__ = [
     "CampaignGoalStatus",
     "CampaignStatus",
     "CampaignExecutionAttemptStatus",
+    "ContinuationAuthorityProvenance",
     "ImageRoutingPath",
     "TraceSnapshotAbsenceReason",
     "RemoteRecallSourceKind",
@@ -946,6 +1001,7 @@ __all__ = [
     "TEST_RESULT_STATUSES",
     "DELEGATION_JOB_STATUSES",
     "PERSONAL_FACT_STATUSES",
+    "AUTOMATIC_MEMORY_SUGGESTIONS_CONSENT_STATES",
     "MEMORY_SEMANTIC_SPECIES_VALUES",
     "MEMORY_PERSONA_LINK_KIND_VALUES",
     "TRACE_SUPPRESSION_REASONS",
@@ -977,6 +1033,8 @@ __all__ = [
     "CAMPAIGN_GOAL_STATUSES",
     "CAMPAIGN_STATUSES",
     "CAMPAIGN_EXECUTION_ATTEMPT_STATUSES",
+    "CONTINUATION_AUTHORITY_PROVENANCES",
+    "HUMAN_APPROVED_CONTINUATION_AUTHORITY_PROVENANCES",
     "CONTEXT_REQUEST_STATUSES",
     "IMAGE_ROUTING_PATHS",
     "TRACE_SNAPSHOT_ABSENCE_REASONS",

@@ -149,6 +149,10 @@ def test_success_preserves_queue_event_and_serialization_contract(
     monkeypatch, immediate_redis
 ):
     task = _task()
+    # A caller may not choose the accepted turn identity: the server resolves
+    # it. Seed a deliberately incorrect pre-enqueue value so the corrected
+    # expectation below also proves that the server overrides it.
+    task.turn_id = "caller-supplied-turn"
     captured: dict[str, object] = {}
     lock = _lock(task, turn_id="turn-1")
     expected_payload = task.to_dict()
@@ -157,6 +161,11 @@ def test_success_preserves_queue_event_and_serialization_contract(
         "profile_id": None,
         "profile_revision": None,
     }
+    # Accepted enqueue assigns the server-resolved turn identity before queue
+    # serialization (agent-tool-loop-contract.md, "Accepted Turn Identity
+    # Through Queue and Persistence"), so the expected payload carries the
+    # accepted turn id rather than the caller's pre-enqueue value.
+    expected_payload["turn_id"] = "turn-1"
     monkeypatch.setattr(service, "acquire_turn_lock", lambda *_a, **_k: lock)
     monkeypatch.setattr(
         service,
@@ -183,6 +192,11 @@ def test_success_preserves_queue_event_and_serialization_contract(
     assert result.task_id == task.task_id
     assert captured["queue_name"] == "codexify:queue:chat"
     assert captured["payload"] == expected_payload
+    # The accepted turn identity survives acceptance and the queue boundary.
+    assert captured["payload"]["turn_id"] == "turn-1"
+    assert "caller-supplied-turn" not in captured["payload"].values()
+    assert task.turn_id == "turn-1"
+    assert task_from_dict(captured["payload"]).turn_id == "turn-1"
     assert captured["payload"]["type"] == "chat_completion"
     assert "hosted" + "_room" not in captured["payload"]
     assert "actor" + "_ref" not in captured["payload"]
@@ -866,52 +880,24 @@ def test_concurrent_duplicate_requests_publish_once(monkeypatch, immediate_redis
     assert failures[0].reason == "turn_in_flight"
 
 
-def test_stale_terminal_lock_is_recovered(monkeypatch, immediate_redis):
-    task = _task()
-    stale = build_turn_lock_envelope(1, "stale-task", turn_id="old-turn")
-    fresh = _lock(task, turn_id="turn-1")
-    acquire_calls = 0
-    cleared: list[tuple[int, object]] = []
-    orphan_events: list[tuple[str, dict[str, object]]] = []
-
-    def acquire(*_args, **_kwargs):
-        nonlocal acquire_calls
-        acquire_calls += 1
-        return None if acquire_calls == 1 else fresh
-
-    monkeypatch.setattr(service, "acquire_turn_lock", acquire)
-    monkeypatch.setattr(service, "get_turn_lock", lambda *_: stale)
-    monkeypatch.setattr(service, "turn_lock_is_stale", lambda *_: True)
-    monkeypatch.setattr(
-        service,
-        "_task_terminal_event",
-        lambda *_: {"state": "terminal", "reason": "completed"},
-    )
-    monkeypatch.setattr(
-        service,
-        "clear_turn_lock",
-        lambda thread_id, expected=None: cleared.append((thread_id, expected)) or True,
-    )
-    monkeypatch.setattr(
-        service.event_bus,
-        "emit_event",
-        lambda name, payload: orphan_events.append((name, payload)),
-    )
-    monkeypatch.setattr(service, "enqueue", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        service.task_events,
-        "publish_with_visibility",
-        lambda *_a, **_k: _event_result(task),
-    )
-
-    result = service.enqueue_chat_completion(task, thread_id=1, turn_id="turn-1")
-
-    assert result.acceptance_status == AcceptanceStatus.ACCEPTED.value
-    assert acquire_calls == 2
-    assert len(cleared) == 1
-    assert orphan_events[0][0] == "chat.orphaned_turn_recovered"
-
-
+# The former `test_stale_terminal_lock_is_recovered` case was removed here.
+# It asserted the pre-2026-10-04 recovery contract: that a lease-margin-stale
+# turn lock plus a terminal task event proved recoverability, that the lock was
+# cleared with `clear_turn_lock`, and that recovery emitted an operator-
+# observable `chat.orphaned_turn_recovered` event.
+#
+# That contract was deliberately retired, not broken. The durable-terminal
+# recovery redesign replaced lock-staleness and worker-heartbeat inference with
+# the durable attempt outcome and its receipts, removed the non-atomic clear and
+# the unbounded recovery audit write, and stopped emitting an orphan event for a
+# task merely because its lock was cleaned. The rationale and the evidence
+# limits are recorded in
+# `docs/architecture/proofs/supported-compose/2026-10-04-chat-recovery-controller.md`.
+#
+# The current contract is covered by `tests/core/test_turn_lock_recovery.py`,
+# which proves that durable terminal truth releases the lock, that a heartbeat
+# alone never infers recovery, that a mismatched attempt/lock binding fails
+# closed, and that the enqueue path recovers with only the new queue identity.
 def test_queue_failure_releases_lock_and_returns_safe_typed_failure(
     monkeypatch, immediate_redis
 ):
@@ -981,12 +967,16 @@ def test_server_captures_after_lock_into_actual_queue_payload(
     payload = redis_queue._deserialize(raw)
     expected = {"profile_id": profile_id, "profile_revision": revision}
     assert payload["persona_selection_snapshot"] == expected
+    # The real serialization path carries the accepted turn identity, and the
+    # server-owned persona selection snapshot is unchanged by it.
+    assert payload["turn_id"] == "turn-1"
     assert publish.call_args.args[2]["persona_selection_snapshot"] == expected
     assert result.queue_accepted is True
     canonical_thread.update(active_profile_id="later", active_profile_revision=7)
     assert task_from_dict(
         payload
     ).persona_selection_snapshot == PersonaSelectionSnapshot(profile_id, revision)
+    assert task_from_dict(payload).turn_id == "turn-1"
 
 
 @pytest.mark.parametrize(

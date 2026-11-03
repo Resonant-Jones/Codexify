@@ -127,6 +127,7 @@ from guardian.queue.turn_lock import (
     acquire_turn_lock,
     release_turn_lock,
 )
+from guardian.services import iddb_settings_service
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 from guardian.utils.log_safety import install_safe_logging
@@ -1080,6 +1081,32 @@ def _normalize_message_content_for_persistence(
     return db_text, content
 
 
+def _automatic_collection_consent_granted(owner: str) -> bool:
+    """
+    Report whether the account owns explicit consent for automatic collection.
+
+    Automatic Personal Fact collection is gated on a durable, account-owned
+    consent record (UMS contract §8.1/§8.2).  The check is fail-closed: a
+    missing, invalid, stale, ambiguous or unreadable consent record denies
+    collection.
+
+    A consent read failure must never fail ordinary chat-message persistence,
+    so every failure path here denies collection and returns False.  Only
+    static, non-sensitive diagnostic tokens are logged.
+    """
+    try:
+        record = iddb_settings_service.read_automatic_memory_suggestions_consent(
+            owner
+        )
+    except Exception:
+        logger.warning("personal_fact_candidate_collection_denied")
+        return False
+    if not record.get("effective"):
+        logger.debug("personal_fact_candidate_collection_skipped")
+        return False
+    return True
+
+
 def _persist_message_to_thread(
     *,
     thread_id: int,
@@ -1174,7 +1201,14 @@ def _persist_message_to_thread(
     )
 
     # ── Fact candidate extraction (fire-and-forget, non-blocking) ──
-    if role == "user" and db_content:
+    # Automatic collection is gated on the account's durable, explicit
+    # consent record.  The extractor is not called at all unless consent is
+    # effective; it is never called and then discarded.
+    if (
+        role == "user"
+        and db_content
+        and _automatic_collection_consent_granted(str(owner))
+    ):
         try:
             refreshed_thread_for_facts = chatlog_db.get_chat_thread(thread_id)
         except Exception:

@@ -58,12 +58,14 @@ route_posture:
     - documents
     - media
     - personal_facts
+    - saved_widgets
     - migration
     - embeddings
     - obsidian
     - auth
     - persona_profiles
     - direct_messages
+    - share
     - hosted_rooms
     - hosted_room_guest
   internal_only:
@@ -81,7 +83,6 @@ route_posture:
     - memory
     - agent
     - research
-    - share
     - federation
     - collaboration
     - connectors

@@ -327,8 +327,9 @@ Primary phone navigation projection:
 - Every primary phone view becomes one frame-first mobile primary block inside
   the same uniform edge-chrome, bezel, frame, rim, and card-radius law.
 - Narrow Guardian keeps its current utility/header controls, runtime notices,
-  session rail, transcript or empty state, and composer inside the canonical
-  Guardian frame.
+  transcript or empty state, and composer inside the canonical Guardian frame.
+  The session rail is a desktop/tablet control and is not surfaced in the
+  narrow frame, where the compact two-control header already owns navigation.
 - Wallpaper or the configured gradient remains visible around that frame
   through one uniform `--edge-chrome` perimeter on all four sides.
 - The drawer remains a subordinate overlay/projection and MUST NOT resize the
@@ -395,6 +396,12 @@ Primary phone navigation projection:
   New Chat enters Guardian without mutating DocumentsScope.
 
 Session Pill Rail (implemented):
+
+Presentation scope:
+
+Desktop and tablet widths. Narrow Guardian does not surface the rail in the
+ChatUI; its compact two-control header owns navigation, and on a phone the
+rail's truncated labels cost more vertical space than they return.
 
 Placement:
 

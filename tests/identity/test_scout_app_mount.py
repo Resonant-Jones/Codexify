@@ -155,6 +155,9 @@ def test_hosted_transport_retains_mainline_durable_task_authorization(
 
     monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "synthetic-mounted-task-fixture")
     monkeypatch.setenv("CODEXIFY_PREVIEW_APPROVED_EMAILS", "fixture@example.com")
+    # The mounted route derives its bounded transport block from this variable.
+    # Pin it so the expected bounded read is deterministic.
+    monkeypatch.setenv("TASK_EVENT_BLOCK_MS", "250")
     monkeypatch.setattr(
         scout_account_transport, "verify_access_assertion", lambda _: None
     )
@@ -177,30 +180,42 @@ def test_hosted_transport_retains_mainline_durable_task_authorization(
     lookup = Mock(
         return_value={"backend_task_id": "scout-fixture-task", "thread_id": 76}
     )
-    events = Mock(
-        return_value=[("1-0", {"type": "task.completed", "data": {"thread_id": 76}})]
-    )
+    terminal_event = ("1-0", {"type": "task.completed", "data": {"thread_id": 76}})
+    # The mounted route consumes the bounded reader. Patching only the legacy
+    # unbounded reader left the SSE generator polling a transport that never
+    # produced a terminal event, so the response body never completed.
+    bounded_reader = Mock(return_value=[terminal_event])
+    legacy_reader = Mock(return_value=[terminal_event])
     monkeypatch.setattr(guardian_api, "chatlog_db", db)
     monkeypatch.setattr(
         "guardian.core.task_event_access.get_chat_completion_attempt_by_task_id", lookup
     )
-    monkeypatch.setattr(task_events, "read_events", events)
+    monkeypatch.setattr(task_events, "read_events_bounded", bounded_reader)
+    monkeypatch.setattr(task_events, "read_events", legacy_reader)
     headers = {"X-Guardian-Account-Session": token}
     if case != "no_access":
         headers["CF-Access-Jwt-Assertion"] = "synthetic-assertion"
     client = _scout_client(guardian_api.app, base_url="https://preview.codexify.space")
-    response = client.get("/api/tasks/scout-fixture-task/events", headers=headers)
-    client.close()
+    try:
+        response = client.get("/api/tasks/scout-fixture-task/events", headers=headers)
+    finally:
+        client.close()
     assert response.status_code == expected
     if case in {"owner", "other_owner"}:
-        lookup.assert_called_once()
+        lookup.assert_called_once_with(db, "scout-fixture-task")
         db.get_chat_thread.assert_called_once_with(76)
     else:
         lookup.assert_not_called()
         db.get_chat_thread.assert_not_called()
+    # The bounded transport is the only reader this route may reach.
+    legacy_reader.assert_not_called()
     if expected == 200:
-        events.assert_called_once()
+        bounded_reader.assert_called_once_with(
+            "scout-fixture-task", "0-0", block_ms=250, count=100
+        )
         assert "event: task.completed" in response.text
+        assert '"thread_id": 76' in response.text
         assert response.headers["X-Scout-Access-Admission"] == "edge-consumed"
     else:
-        events.assert_not_called()
+        bounded_reader.assert_not_called()
+        assert "task.completed" not in response.text

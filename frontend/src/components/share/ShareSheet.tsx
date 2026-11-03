@@ -19,7 +19,7 @@
  *   so.
  */
 import { Check, Copy, Link2, Loader2, Search, Send, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { RuntimeRouteCapabilityState } from "@/contracts/supportedProfileRoutes";
@@ -28,10 +28,12 @@ import {
   createDirectMessageConversation,
   fetchRelationshipConversations,
   fetchThreadProjectScope,
+  normalizeUsernameSearchQuery,
   peerPresentationLabel,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
   sendDirectMessage,
+  USERNAME_SEARCH_MIN_LENGTH,
   type DirectMessageConversation,
   type DirectMessageRelationship,
   type DirectMessageSocialProfile,
@@ -223,8 +225,8 @@ export default function ShareSheet({
 
   const runSearch = useCallback(
     async (query: string, requestSequence: number) => {
-      const trimmed = query.trim();
-      if (trimmed.length === 0) {
+      const normalized = normalizeUsernameSearchQuery(query);
+      if (normalized.length < USERNAME_SEARCH_MIN_LENGTH) {
         if (requestSequence === searchRequestSequence.current) {
           setSearchResults([]);
           setSearching(false);
@@ -233,7 +235,7 @@ export default function ShareSheet({
       }
       setSearching(true);
       try {
-        const results = await searchDirectMessageProfiles(trimmed);
+        const results = await searchDirectMessageProfiles(normalized);
         if (requestSequence === searchRequestSequence.current) {
           setSearchResults(results);
         }
@@ -256,7 +258,7 @@ export default function ShareSheet({
       searchRequestSequence.current = requestSequence;
       setSearchQuery(value);
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
-      if (value.trim().length === 0) {
+      if (normalizeUsernameSearchQuery(value).length < USERNAME_SEARCH_MIN_LENGTH) {
         setSearchResults([]);
         setSearching(false);
         return;
@@ -266,6 +268,11 @@ export default function ShareSheet({
       }, 250);
     },
     [runSearch]
+  );
+
+  const normalizedSearchQuery = useMemo(
+    () => normalizeUsernameSearchQuery(searchQuery),
+    [searchQuery]
   );
 
   const selectProfile = useCallback(
@@ -619,11 +626,21 @@ export default function ShareSheet({
               />
             </label>
             {searching ? <p className="share-sheet-status">Searching…</p> : null}
-            {!searching && searchQuery.trim() && searchResults.length === 0 ? (
+            {!searching &&
+            searchQuery.trim() &&
+            normalizedSearchQuery.length < USERNAME_SEARCH_MIN_LENGTH ? (
               <p className="share-sheet-status">
-                No profiles match that username.
+                Type at least {USERNAME_SEARCH_MIN_LENGTH} characters to search.
               </p>
             ) : null}
+            {!searching &&
+            normalizedSearchQuery.length >= USERNAME_SEARCH_MIN_LENGTH &&
+            searchResults.length === 0 ? (
+              <p className="share-sheet-status">
+                No profiles on this node match “{normalizedSearchQuery}”.
+              </p>
+            ) : null}
+            <p className="share-sheet-status">Search covers people on this node only.</p>
             <div className="share-sheet-results" role="list">
               {searchResults.map((profile) => (
                 <button

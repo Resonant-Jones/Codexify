@@ -258,13 +258,23 @@ class PiCodexRunnerAdapter:
                     text=True,
                     timeout=request.timeout_seconds,
                 )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            # A timeout still has to preserve the phase evidence the wrapper
+            # already emitted, so the caller can see how far the run got
+            # without a terminal result.
+            phases, effort = _parse_authorized_timeout_phases(exc.stderr)
             return AgentRunEnvelope(
                 status="error",
                 summary="Guardian-authorized Pi execution timed out",
                 failure_classification=PiAuthorizedFailureClass.ADAPTER_TIMEOUT.value,
                 failure_stage="adapter_execution",
                 metrics={"timeout_seconds": request.timeout_seconds},
+                observed_execution_phases=phases or None,
+                highest_observed_execution_phase=phases[-1] if phases else None,
+                runtime_identity_established=len(phases) >= 2,
+                session_initialized=True if len(phases) >= 3 else None,
+                provider_request_started=True if len(phases) >= 4 else None,
+                effective_reasoning_effort=effort,
             )
         except FileNotFoundError:
             return AgentRunEnvelope(

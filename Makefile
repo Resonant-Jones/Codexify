@@ -174,12 +174,12 @@ private-preview-autostart-uninstall:
 
 # Start Tauri desktop shell against frontend/src + external backend
 desktop-dev:
-	pnpm --dir frontend/src install
+	pnpm install
 	cd src-tauri && cargo tauri dev
 
 # Build frontend and package desktop bundle locally (manual release gate)
 desktop-build:
-	pnpm --dir frontend/src install
+	pnpm install
 	pnpm --dir frontend/src build
 	cd src-tauri && cargo tauri build
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import CheckConstraint
@@ -17,6 +17,8 @@ from guardian.agents.coding_agent_contracts import (
 )
 from guardian.agents.events import AgentEventPublisher
 from guardian.agents.store import AgentStore
+from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+from guardian.core.session_store import get_session_store
 from guardian.db.models import AgentEvent, AgentRun
 from guardian.routes import agent_orchestration
 from guardian.tasks.types import CodingExecutionTask
@@ -96,6 +98,108 @@ def _build_client() -> TestClient:
         lambda: "local-user"
     )
     return TestClient(app)
+
+
+def _build_identity_client() -> TestClient:
+    """Build a client that resolves the principal through the real
+    authentication dependencies instead of an override."""
+    app = FastAPI()
+    app.include_router(agent_orchestration.router)
+    app.include_router(agent_orchestration.chat_router)
+    return TestClient(app)
+
+
+def _account_session_headers(email: str) -> dict[str, str]:
+    """Issue a real account-session credential for the given subject."""
+    token, _ = issue_session_token(
+        subject=email,
+        ttl_seconds=60,
+        purpose=ACCOUNT_SESSION_PURPOSE,
+    )
+    get_session_store().store(token, email, 60)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _remote_account_env(monkeypatch) -> None:
+    """Put the process in the remote account boundary."""
+    monkeypatch.setenv("CODEXIFY_DISABLE_DOTENV", "1")
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "test-session-secret")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "local_safe")
+
+
+class _AccountScopedStoreSpy:
+    """Route-wiring spy for the account-scoped readback store methods.
+
+    It records the identity each readback handler supplies and applies the
+    same ownership rule the real AgentStore applies: only the owning account
+    may read the resource, and any other account is refused. This is route
+    and authentication wiring proof. The durable ownership decision itself
+    is owned by the real AgentStore and is proven separately by the
+    PostgreSQL snapshot suite.
+    """
+
+    def __init__(self, owner: str) -> None:
+        self.owner = owner
+        self.calls: list[tuple[str, str | None]] = []
+        self.run = {
+            "run_id": "run-owned",
+            "deployment_id": "dep-owned",
+            "thread_id": 77,
+            "status": "running",
+            "runtime_target": "container",
+        }
+        self.snapshot = {
+            "run_id": "run-owned",
+            "deployment_id": "dep-owned",
+            "thread_id": 77,
+            "coding_task_id": "coding-owned",
+            "status": "running",
+        }
+
+    def _owned(self, method: str, user_id: str | None) -> bool:
+        resolved = str(user_id or "").strip()
+        self.calls.append((method, resolved or None))
+        return resolved == self.owner
+
+    def get_account_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
+        if not self._owned("get_account_run", user_id):
+            return None
+        return dict(self.run)
+
+    def get_run(
+        self, run_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        if not self._owned("get_run", user_id):
+            return None
+        return dict(self.run)
+
+    def get_coding_run_snapshot(
+        self, run_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        if not self._owned("get_coding_run_snapshot", user_id):
+            return None
+        return dict(self.snapshot)
+
+    def list_account_runs_for_thread(
+        self, thread_id: int, *, user_id: str
+    ) -> list[dict[str, Any]] | None:
+        if not self._owned("list_account_runs_for_thread", user_id):
+            return None
+        return [dict(self.run)]
+
+    def list_coding_runs_for_thread(
+        self, thread_id: int, *, user_id: str | None = None
+    ) -> list[dict[str, Any]] | None:
+        if not self._owned("list_coding_runs_for_thread", user_id):
+            return None
+        return [dict(self.snapshot)]
+
+
+def _patch_readback_store(monkeypatch, store: Any) -> None:
+    monkeypatch.setattr(agent_orchestration, "_store", store)
+    monkeypatch.setattr(agent_orchestration, "_event_publisher", AgentEventPublisher())
 
 
 def _patch_execution_authority(monkeypatch: Any) -> None:
@@ -1081,3 +1185,244 @@ def test_coding_execution_request_rejects_validation_attempts_over_cap() -> (
             validation_command="pytest -q",
             max_validation_attempts=4,
         )
+
+
+def test_account_owner_reads_run_and_thread_projections(monkeypatch) -> None:
+    """An authenticated account owner reaches the resource lookup and reads
+    the permitted projection.
+
+    This is route and authentication wiring proof against a store spy: the
+    handler must hand the authenticated account identity to the store and
+    must not answer an identity mismatch. The durable ownership decision
+    itself is proven by the PostgreSQL snapshot suite.
+    """
+    _remote_account_env(monkeypatch)
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    client = _build_identity_client()
+    headers = _account_session_headers("account-a@example.invalid")
+
+    coding = client.get("/api/agents/runs/run-owned/coding", headers=headers)
+    assert coding.status_code == 200, coding.text
+    assert coding.json()["run"]["coding_task_id"] == "coding-owned"
+
+    single = client.get("/api/agents/runs/run-owned", headers=headers)
+    assert single.status_code == 200, single.text
+    assert single.json()["run"]["run_id"] == "run-owned"
+
+    canonical = client.get("/api/agents/chat/77/agent-runs", headers=headers)
+    assert canonical.status_code == 200, canonical.text
+    assert canonical.json()["runs"][0]["run_id"] == "run-owned"
+
+    coding_threads = client.get("/api/chat/77/coding-runs", headers=headers)
+    assert coding_threads.status_code == 200, coding_threads.text
+    assert coding_threads.json()["runs"][0]["coding_task_id"] == "coding-owned"
+
+    # Every readback supplied the authenticated account identity, never an
+    # empty or caller-supplied one.
+    assert {identity for _method, identity in spy.calls} == {
+        "account-a@example.invalid"
+    }
+
+
+def test_readback_refuses_a_foreign_accounts_resource(monkeypatch) -> None:
+    """A foreign account cannot read another account's run or thread.
+
+    The denial is a resource-existence 404, not an identity failure: the
+    store was asked with the caller's own account, so the ownership decision
+    is what refuses the read.
+    """
+    _remote_account_env(monkeypatch)
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    client = _build_identity_client()
+    headers = _account_session_headers("account-b@example.invalid")
+
+    for path in (
+        "/api/agents/runs/run-owned/coding",
+        "/api/agents/runs/run-owned",
+        "/api/agents/chat/77/agent-runs",
+        "/api/chat/77/agent-runs",
+        "/api/chat/77/coding-runs",
+    ):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 404, f"{path}: {response.text}"
+        assert "run-owned" not in response.text
+
+    # The caller's own account identity reached the store; the resource
+    # ownership check refused it.
+    assert {identity for _method, identity in spy.calls} == {
+        "account-b@example.invalid"
+    }
+
+
+def test_readback_identity_ignores_a_forged_user_id_header(monkeypatch) -> None:
+    """A caller-supplied identity header cannot replace account authority."""
+    _remote_account_env(monkeypatch)
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    client = _build_identity_client()
+    headers = _account_session_headers("account-a@example.invalid")
+    headers["X-User-Id"] = "account-c@example.invalid"
+
+    response = client.get("/api/agents/runs/run-owned", headers=headers)
+    assert response.status_code == 200, response.text
+    # The authenticated session subject is the read identity, not the
+    # forged header.
+    assert {identity for _method, identity in spy.calls} == {
+        "account-a@example.invalid"
+    }
+
+
+def test_readback_fails_closed_without_an_authenticated_identity(monkeypatch) -> None:
+    """A missing authenticated identity denies the read before any lookup."""
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    app = FastAPI()
+    app.include_router(agent_orchestration.router)
+    app.include_router(agent_orchestration.chat_router)
+    app.dependency_overrides[agent_orchestration.get_current_user] = lambda: None
+
+    response = TestClient(app).get(
+        "/api/agents/runs/run-owned",
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "account_identity_missing"
+    # No resource lookup happened.
+    assert spy.calls == []
+
+
+def test_remote_readback_rejects_an_operator_api_key_as_an_account_session(
+    monkeypatch,
+) -> None:
+    """An operator credential cannot act as an account session."""
+    _remote_account_env(monkeypatch)
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    client = _build_identity_client()
+    response = client.get(
+        "/api/agents/runs/run-owned",
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 401
+    assert spy.calls == []
+
+
+def test_remote_readback_does_not_fall_back_to_memory_only_state(monkeypatch) -> None:
+    """Remote account readback must not read a memory-only run."""
+    _remote_account_env(monkeypatch)
+    local_store = AgentStore()
+    _patch_readback_store(monkeypatch, local_store)
+
+    deployment = local_store.create_deployment(
+        flow_id="flow-memory-only",
+        thread_id=77,
+        spec_json={"user_id": "account-a@example.invalid"},
+        spec_hash="spec-memory-only",
+    )
+    run = local_store.create_run(
+        deployment_id=str(deployment["deployment_id"]),
+        thread_id=77,
+        status="running",
+    )
+
+    client = _build_identity_client()
+    headers = _account_session_headers("account-a@example.invalid")
+
+    for path in ("/api/chat/77/coding-runs", "/api/agents/chat/77/agent-runs"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 404, f"{path}: {response.text}"
+        assert str(run["run_id"]) not in response.text
+
+
+def test_local_operator_readback_still_refuses_another_accounts_run(
+    monkeypatch,
+) -> None:
+    """Local operator readback keeps its established ownership boundary."""
+    monkeypatch.setenv("GUARDIAN_API_KEY", "test-key")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "local")
+    monkeypatch.setattr(
+        agent_orchestration.dependencies, "is_private_preview", lambda: False
+    )
+    local_store = AgentStore()
+    _patch_readback_store(monkeypatch, local_store)
+
+    deployment = local_store.create_deployment(
+        flow_id="operator-other-account",
+        thread_id=None,
+        spec_json={"user_id": "account-b@example.invalid"},
+        spec_hash="operator-other-account-spec",
+    )
+    run = local_store.create_run(
+        deployment_id=str(deployment["deployment_id"]),
+        thread_id=None,
+        status="running",
+    )
+
+    response = _build_identity_client().get(
+        f"/api/agents/runs/{run['run_id']}",
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert response.status_code == 404, response.text
+    assert str(run["run_id"]) not in response.text
+
+
+def test_thread_list_aliases_use_the_same_authoritative_account(monkeypatch) -> None:
+    """Both thread-list aliases resolve the same account identity."""
+    _remote_account_env(monkeypatch)
+    spy = _AccountScopedStoreSpy(owner="account-a@example.invalid")
+    _patch_readback_store(monkeypatch, spy)
+
+    client = _build_identity_client()
+    headers = _account_session_headers("account-a@example.invalid")
+
+    canonical = client.get("/api/agents/chat/77/agent-runs", headers=headers)
+    alias = client.get("/api/chat/77/agent-runs", headers=headers)
+
+    assert canonical.status_code == 200, canonical.text
+    assert alias.status_code == 200, alias.text
+    assert canonical.json() == alias.json()
+    assert [
+        identity
+        for method, identity in spy.calls
+        if method == "list_account_runs_for_thread"
+    ] == ["account-a@example.invalid", "account-a@example.invalid"]
+
+
+def test_strict_requested_identity_helper_still_requires_a_matching_identity() -> None:
+    """The strict execution-request identity helper is unchanged.
+
+    A request that supplies an identity to be checked must still match the
+    authenticated account exactly, and an empty requested identity is not a
+    match.
+    """
+    assert (
+        agent_orchestration._resolved_request_user("account-a", "account-a")
+        == "account-a"
+    )
+
+    with pytest.raises(HTTPException) as mismatch:
+        agent_orchestration._resolved_request_user("account-a", "account-b")
+    assert mismatch.value.status_code == 403
+    assert mismatch.value.detail == "account_identity_mismatch"
+
+    with pytest.raises(HTTPException) as empty:
+        agent_orchestration._resolved_request_user("account-a", "")
+    assert empty.value.status_code == 403
+    assert empty.value.detail == "account_identity_mismatch"
+
+    with pytest.raises(HTTPException) as missing:
+        agent_orchestration._resolved_request_user("", "account-a")
+    assert missing.value.status_code == 401
+    assert missing.value.detail == "account_identity_missing"

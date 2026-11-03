@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine, func, inspect, or_, text
+from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -90,7 +90,22 @@ def create_chat_message_with_metadata(
         thread.updated_at = now
         thread.last_interaction_at = now
         session.flush()
-        return int(message.id)
+        message_id = getattr(message, "id", None)
+        if message_id is None:
+            # The session did not materialize an id, so the row was not
+            # inserted. Abort the pending ORM transaction before using the
+            # store's own write path: the flushed insert and the thread update
+            # still hold their transaction, and a second write on another
+            # connection would block on the thread row lock and, if it
+            # succeeded, leave the outer commit to persist a duplicate
+            # message.
+            session.rollback()
+            return int(
+                chatlog_db.create_message(
+                    thread_id, role, content, extra_meta=dict(extra_meta)
+                )
+            )
+        return int(message_id)
 
 
 def _accepted_tool_attempt(
@@ -552,6 +567,93 @@ def list_chat_completion_attempts_for_thread(
                 }
             )
         return rows
+
+
+def _unresolved_saved_widget_source() -> Dict[str, Any]:
+    """Uniform refusal for every Saved Widget source authorization failure.
+
+    The reason is deliberately identical for "message does not exist",
+    "message is in another thread", and "thread belongs to another account".
+    Distinguishing them would let a caller probe for the existence of another
+    account's messages.
+    """
+    return {
+        "resolved": False,
+        "reason": "source_not_authorized",
+        "thread_id": None,
+        "message_id": None,
+        "content": None,
+        "attempts": [],
+    }
+
+
+def read_saved_widget_source_provenance(
+    chatlog_db: Any,
+    *,
+    thread_id: int,
+    message_id: int,
+    account_id: str,
+) -> Dict[str, Any]:
+    """Read one stored assistant message and its completion-attempt lineage.
+
+    Narrowly scoped and read-only. This is the server-side authority for
+    "where did this generated UI come from". The artifact is resolved from
+    stored message content; a caller-supplied payload is never accepted as
+    proof that it belongs to this message.
+
+    Authorization rests on a single authority: the thread's owning account.
+    The message's own ``user_id`` is deliberately not consulted as a second
+    co-authority, for the same reason ADR-081 gives for Project ownership.
+
+    Returns a mapping with:
+
+    ``resolved``
+        Whether the source was authorized and resolved.
+    ``reason``
+        Empty when resolved, otherwise ``source_not_authorized``.
+    ``content``
+        The stored assistant message content, when resolved.
+    ``attempts``
+        The durable completion attempts that reference this exact message.
+
+    A missing, wrong-thread, or cross-account source all return the same
+    shape, so a caller cannot learn whether another account's message exists.
+    """
+    with chatlog_db._sa_session() as session:
+        message = (
+            session.query(ChatMessage).filter_by(id=message_id).one_or_none()
+        )
+        if message is None or message.role != "assistant":
+            return _unresolved_saved_widget_source()
+        if int(message.thread_id) != int(thread_id):
+            return _unresolved_saved_widget_source()
+
+        thread = (
+            session.query(ChatThread).filter_by(id=thread_id).one_or_none()
+        )
+        if thread is None or thread.user_id != account_id:
+            return _unresolved_saved_widget_source()
+
+        attempts = (
+            session.query(ChatCompletionAttempt)
+            .filter_by(completed_message_id=message_id)
+            .all()
+        )
+        return {
+            "resolved": True,
+            "reason": "",
+            "thread_id": int(thread_id),
+            "message_id": int(message_id),
+            "content": message.content or "",
+            "attempts": [
+                {
+                    "request_id": attempt.request_id,
+                    "accepted_at": attempt.accepted_at,
+                    "terminal_event_type": attempt.terminal_event_type,
+                }
+                for attempt in attempts
+            ],
+        }
 
 
 def _default_user_id() -> str:
@@ -1527,26 +1629,93 @@ class _PostgresGuardianDB:
             ),
         }
 
+    def _fact_filter_query(
+        self,
+        session: Session,
+        user_id: str,
+        status: Optional[str] = None,
+        active_only: bool = True,
+        thread_id: Optional[int] = None,
+    ):
+        """Build the canonical Personal Fact read filter.
+
+        ``list_facts`` and ``count_facts`` must agree on this predicate so a
+        reported ``total`` always describes the same population the page is
+        drawn from.
+        """
+        query = session.query(PersonalFact).filter_by(user_id=user_id)
+        if status:
+            query = query.filter_by(status=status)
+        if active_only:
+            query = query.filter_by(is_active=True)
+        if thread_id is not None:
+            # Thread membership lives in the evidence metadata, so restrict on
+            # the evidence table instead of scanning every fact's evidence
+            # rows in Python. ``->>`` yields the JSON scalar as text, which
+            # matches both numeric and string encodings of the thread id.
+            thread_fact_ids = select(PersonalFactEvidence.fact_id).where(
+                PersonalFactEvidence.evidence_meta["thread_id"].astext
+                == str(thread_id)
+            )
+            query = query.filter(PersonalFact.id.in_(thread_fact_ids))
+        return query
+
     def list_facts(
         self,
         user_id: str,
         status: Optional[str] = None,
         active_only: bool = True,
         limit: int = 100,
+        offset: int = 0,
+        thread_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """List personal facts for a user."""
+        """List personal facts for a user.
+
+        ``offset`` and ``thread_id`` are applied in SQL so a caller can page
+        through a population larger than a single fetch window. Ordering is
+        ``updated_at DESC, id DESC`` so that repeated pages over an unchanged
+        dataset are deterministic.
+        """
         with self.get_session() as session:
-            query = session.query(PersonalFact).filter_by(user_id=user_id)
-            if status:
-                query = query.filter_by(status=status)
-            if active_only:
-                query = query.filter_by(is_active=True)
-            facts = (
-                query.order_by(PersonalFact.updated_at.desc())
-                .limit(limit)
-                .all()
+            query = self._fact_filter_query(
+                session,
+                user_id,
+                status=status,
+                active_only=active_only,
+                thread_id=thread_id,
             )
+            query = query.order_by(
+                PersonalFact.updated_at.desc(), PersonalFact.id.desc()
+            )
+            if limit is not None:
+                query = query.limit(limit)
+            if offset:
+                query = query.offset(offset)
+            facts = query.all()
             return [self._fact_to_dict(fact) for fact in facts]
+
+    def count_facts(
+        self,
+        user_id: str,
+        status: Optional[str] = None,
+        active_only: bool = True,
+        thread_id: Optional[int] = None,
+    ) -> int:
+        """Count the personal facts a caller would page through.
+
+        Uses the same predicate as :meth:`list_facts` and is independent of any
+        page-size limit.
+        """
+        with self.get_session() as session:
+            query = self._fact_filter_query(
+                session,
+                user_id,
+                status=status,
+                active_only=active_only,
+                thread_id=thread_id,
+            )
+            total = query.with_entities(func.count(PersonalFact.id)).scalar()
+            return int(total or 0)
 
     def create_fact(
         self,
@@ -1705,6 +1874,35 @@ class _PostgresGuardianDB:
                 .all()
             )
             return [self._evidence_to_dict(row) for row in evidence]
+
+    def list_fact_evidence_for_facts(
+        self, fact_ids: List[int]
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """List evidence rows for a set of facts in one query.
+
+        Returns a mapping of fact id to its evidence rows, ordered by
+        ``created_at`` ascending. Used to attach matching evidence to a page
+        of candidates without issuing one query per fact.
+        """
+        wanted = [int(fact_id) for fact_id in fact_ids or []]
+        if not wanted:
+            return {}
+        with self.get_session() as session:
+            rows = (
+                session.query(PersonalFactEvidence)
+                .filter(PersonalFactEvidence.fact_id.in_(wanted))
+                .order_by(
+                    PersonalFactEvidence.fact_id.asc(),
+                    PersonalFactEvidence.created_at.asc(),
+                )
+                .all()
+            )
+            grouped: Dict[int, List[Dict[str, Any]]] = {}
+            for row in rows:
+                grouped.setdefault(int(row.fact_id), []).append(
+                    self._evidence_to_dict(row)
+                )
+            return grouped
 
     def add_fact_evidence(
         self,

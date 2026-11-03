@@ -302,7 +302,7 @@ describe("GuardianChat catalog-backed model options", () => {
     );
 
     const providerOptions = await screen.findByTestId("provider-options");
-    expect(providerOptions).toHaveTextContent("Whoosh'd");
+    await waitFor(() => expect(providerOptions).toHaveTextContent("Whoosh'd"));
     expect(providerOptions).not.toHaveTextContent("Local");
     expect(providerOptions).not.toHaveTextContent("Ollama");
     expect(providerOptions).toHaveTextContent(
@@ -383,12 +383,14 @@ describe("GuardianChat catalog-backed model options", () => {
 
     const providerOptions = await screen.findByTestId("provider-options");
     const modelOptions = await screen.findByTestId("model-options");
-    expect(providerOptions).toHaveTextContent("Whoosh'd");
+    await waitFor(() => {
+      expect(providerOptions).toHaveTextContent("Whoosh'd");
+      expect(modelOptions).toHaveTextContent("Gemma 4 12B IT QAT 4-bit");
+    });
     expect(providerOptions.firstElementChild).toHaveAttribute(
       "data-provider-value",
       "local"
     );
-    expect(modelOptions).toHaveTextContent("Gemma 4 12B IT QAT 4-bit");
     expect(modelOptions).not.toHaveTextContent("local-chat");
     expect(modelOptions.firstElementChild).toHaveAttribute(
       "data-model-value",
@@ -464,7 +466,7 @@ describe("GuardianChat catalog-backed model options", () => {
     );
 
     const modelOptions = await screen.findByTestId("model-options");
-    expect(modelOptions).toHaveTextContent("Gemma 4 12B QAT");
+    await waitFor(() => expect(modelOptions).toHaveTextContent("Gemma 4 12B QAT"));
     expect(screen.queryByText("/Users/resonant_jones/models/gemma-4-12B-it-qat-4bit")).not.toBeInTheDocument();
   });
 

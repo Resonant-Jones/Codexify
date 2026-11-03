@@ -138,6 +138,28 @@ def _mock_redis_queue_for_chat_routes():
         yield
 
 
+def _recoverable_attempt(thread_id: int = 1, turn_id: str = "turn-stale"):
+    """A durable attempt bound to the locked thread and turn."""
+    return {
+        "request_id": "req-stale",
+        "backend_task_id": "task-stale",
+        "thread_id": thread_id,
+        "turn_id": turn_id,
+        "completed_message_id": None,
+        "terminal_event_type": None,
+    }
+
+
+def _reconciled_attempt(terminal_event_type: str | None):
+    """A reconciliation result, with or without a terminal outcome."""
+    return SimpleNamespace(
+        completed_message_id=None,
+        terminal_event_type=terminal_event_type,
+        terminal_outcome=None,
+        turn_lock_token="stale-route-test-lease",
+    )
+
+
 def _stale_lock():
     return build_turn_lock_envelope(
         1,
@@ -1109,19 +1131,22 @@ class TestChatCompletePost:
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
+        # Recovery follows durable attempt truth: the attempt must be bound to
+        # this thread and turn, and its reconciliation must report a terminal
+        # outcome. No Redis observation or heartbeat can decide it.
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.get_chat_completion_attempt_by_task_id",
+            lambda *_a, **_k: _recoverable_attempt(),
         )
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service._task_terminal_event",
-            lambda *_: _terminal_evidence("terminal"),
+            "guardian.core.chat_completion_service.reconcile_chat_completion_attempt_after_deadline",
+            lambda *_a, **_k: _reconciled_attempt("task.completed"),
         )
+        release_spy = MagicMock(return_value=True)
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
-            lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
+            "guardian.core.chat_completion_service.release_terminal_attempt_turn_lock",
+            release_spy,
         )
-        clear_spy = MagicMock(return_value=True)
-        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.enqueue",
             lambda task, queue_name: captured.update(
@@ -1133,7 +1158,7 @@ class TestChatCompletePost:
 
         assert response.status_code == 200
         assert acquire_calls["count"] == 2
-        clear_spy.assert_called_once()
+        release_spy.assert_called_once()
         assert captured["queue_name"] == "codexify:queue:chat"
         assert getattr(captured["task"], "turn_lock_owner") == getattr(
             captured["task"], "task_id"
@@ -1153,19 +1178,17 @@ class TestChatCompletePost:
         monkeypatch.setattr(
             "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
+        # The durable attempt is not bound to this thread and turn, so the
+        # lock cannot be recovered and the turn stays in flight.
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.get_chat_completion_attempt_by_task_id",
+            lambda *_a, **_k: _recoverable_attempt(thread_id=2),
         )
+        release_spy = MagicMock(return_value=False)
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service._task_terminal_event",
-            lambda *_: _terminal_evidence("nonterminal"),
+            "guardian.core.chat_completion_service.release_terminal_attempt_turn_lock",
+            release_spy,
         )
-        monkeypatch.setattr(
-            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
-            lambda: _heartbeat_evidence("fresh", age_seconds=1.0),
-        )
-        clear_spy = MagicMock(return_value=False)
-        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         enqueue_spy = MagicMock()
         monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue_spy)
 
@@ -1173,7 +1196,7 @@ class TestChatCompletePost:
 
         assert response.status_code == 429
         assert response.json()["detail"] == "turn_in_flight"
-        clear_spy.assert_not_called()
+        release_spy.assert_not_called()
         enqueue_spy.assert_not_called()
         mock_db.write_audit_log.assert_not_called()
 
@@ -1192,20 +1215,20 @@ class TestChatCompletePost:
             "guardian.core.chat_completion_service.get_turn_lock", lambda *_: _stale_lock()
         )
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service.turn_lock_is_stale", lambda *_: True
+            "guardian.core.chat_completion_service.get_chat_completion_attempt_by_task_id",
+            lambda *_a, **_k: _recoverable_attempt(),
         )
+        # The attempt is bound, but its reconciliation reports no terminal
+        # outcome, so the lock stays in flight.
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service._task_terminal_event",
-            lambda *_: _terminal_evidence(
-                "unknown", reason="event_probe_failed"
-            ),
+            "guardian.core.chat_completion_service.reconcile_chat_completion_attempt_after_deadline",
+            lambda *_a, **_k: _reconciled_attempt(None),
         )
+        release_spy = MagicMock(return_value=False)
         monkeypatch.setattr(
-            "guardian.core.chat_completion_service._chat_worker_heartbeat_evidence",
-            lambda: _heartbeat_evidence("stale", age_seconds=27.0),
+            "guardian.core.chat_completion_service.release_terminal_attempt_turn_lock",
+            release_spy,
         )
-        clear_spy = MagicMock(return_value=False)
-        monkeypatch.setattr("guardian.core.chat_completion_service.clear_turn_lock", clear_spy)
         enqueue_spy = MagicMock()
         monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue_spy)
 
@@ -1213,7 +1236,7 @@ class TestChatCompletePost:
 
         assert response.status_code == 429
         assert response.json()["detail"] == "turn_in_flight"
-        clear_spy.assert_not_called()
+        release_spy.assert_not_called()
         enqueue_spy.assert_not_called()
         mock_db.write_audit_log.assert_not_called()
 

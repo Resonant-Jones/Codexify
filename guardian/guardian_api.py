@@ -80,7 +80,9 @@ from guardian.core.db import load_guardian_db_from_env
 from guardian.core.dependencies import (
     ENABLE_CONNECTOR_WORKER,
     ENABLE_OUTBOX,
+    RequestUserScope,
     allowed_origins,
+    get_account_user_scope,
     get_single_user_id,
     get_vector_store,
     init_database,
@@ -110,7 +112,10 @@ from guardian.core.supported_profile import (
     build_supported_profile_runtime_state,
     get_active_supported_profile,
 )
-from guardian.core.task_event_access import authorize_task_event_read
+from guardian.core.task_event_access import (
+    authorize_task_event_read,
+    cancel_account_task,
+)
 from guardian.core.user_manager import get_or_create_default_user
 from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
@@ -493,6 +498,7 @@ def _retrieval_proof_state(
 # Import all routers (after DB init so dependencies.chatlog_db is ready)
 from guardian.routes import account_observability, admin, agent, agent_orchestration
 from guardian.routes import auth as auth_routes
+from guardian.routes import metering_admin
 from guardian.routes import backfill, browser_host, coding_work_orders
 from guardian.routes import command_bus as command_bus_routes
 from guardian.routes import configuration_inspector
@@ -548,6 +554,7 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.saved_widgets import router as saved_widgets_router
 from guardian.routes.scout_auth import router as scout_auth_router
 from guardian.routes.user_profile import router as user_profile_router
 from guardian.routes.voice import router as voice_router
@@ -1085,6 +1092,7 @@ def _include_browser_host_negotiation_router() -> None:
 
 def _include_admin_surface() -> None:
     app.include_router(admin.router)
+    app.include_router(metering_admin.router)
     app.include_router(configuration_inspector.router)
 
 
@@ -1232,6 +1240,11 @@ _include_router(
     label="persona_profiles",
     flag_name="CODEXIFY_ENABLE_PERSONA_PROFILE_ROUTES",
     include_fn=lambda: app.include_router(persona_profiles_router),
+)
+_include_router(
+    label="saved_widgets",
+    flag_name="CODEXIFY_ENABLE_SAVED_WIDGET_ROUTES",
+    include_fn=lambda: app.include_router(saved_widgets_router),
 )
 _include_router(
     label="agent",
@@ -1737,10 +1750,13 @@ async def stream_task_events(
 async def request_task_cancel(
     task_id: str,
     api_key: str = Depends(require_account_session),
+    principal: RequestUserScope = Depends(get_account_user_scope),
 ):
-    """Mark a queued or running task as cancelled."""
+    """Mark an account-owned queued or running task as cancelled."""
     _ = api_key
-    cancel_task(task_id)
+    cancel_account_task(
+        task_id, principal, chatlog_db=chatlog_db, cancel_task=cancel_task
+    )
     return {
         "ok": True,
         "task_id": task_id,

@@ -862,6 +862,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(latestProps?.activeApplicationView).toBe("guardian");
     expect(latestProps?.applicationDestinations).toEqual([
       { view: "guardian", label: "Guardian", priority: "primary" },
+      { view: "library", label: "Library", priority: "primary" },
       { view: "documents", label: "Documents", priority: "primary" },
       { view: "gallery", label: "Gallery", priority: "primary" },
       { view: "dashboard", label: "Dashboard", priority: "secondary" },

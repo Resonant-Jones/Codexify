@@ -4,6 +4,7 @@ chat completion assembly seam without a real daemon or network calls.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -55,47 +56,112 @@ class TestContextBundleToSystemMessage:
         assert meta.get("semantic", {}).get("injected") is True
 
 
+class _DispatchObserved(Exception):
+    """Raised by a transport stub to record that it was the one invoked."""
+
+
 class TestLocalProviderPath:
     """Prove the local/Whoosh'd provider path exists in completion attempt."""
 
-    def test_execute_completion_attempt_has_local_provider_branch(self) -> None:
-        import re
+    @staticmethod
+    def _drive_local_attempt(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        model: str,
+        tools: list[dict[str, Any]] | None,
+    ) -> list[str]:
+        """Run one local completion attempt and report the transport used.
 
-        import inspect
-        from guardian.core.chat_completion_service import _execute_completion_attempt
+        The transport is observed rather than inferred from source text: the
+        real qualification function decides, and the seam that is actually
+        invoked is recorded. Both transports are stubbed, so no provider is
+        contacted and no inference runs.
+        """
+        from guardian.core import chat_completion_service as service
+        from guardian.core.config import get_settings as real_get_settings
+        from guardian.providers.whooshd_tool_adapter import QUALIFIED_VENDOR
 
-        source = inspect.getsource(_execute_completion_attempt)
+        dispatched: list[str] = []
 
-        # 1. Qualified Whoosh'd structured-transport classification is evaluated.
-        assert "is_qualified_transport_candidate(" in source, (
-            "_execute_completion_attempt must evaluate structured-transport "
-            "qualification via is_qualified_transport_candidate"
+        def _record(name: str):
+            def _call(*_args: Any, **_kwargs: Any) -> Any:
+                dispatched.append(name)
+                raise _DispatchObserved(name)
+
+            return _call
+
+        monkeypatch.setattr(service, "stream_local", _record("stream_local"))
+        monkeypatch.setattr(service, "chat_with_ai", _record("chat_with_ai"))
+        settings = real_get_settings().model_copy(
+            update={"LOCAL_PROVIDER_VENDOR": QUALIFIED_VENDOR}
+        )
+        monkeypatch.setattr(service, "get_settings", lambda: settings)
+
+        task = SimpleNamespace(
+            origin="api:chat.complete",
+            request_id="req-whooshd-transport",
+            task_id="task-whooshd-transport",
+            thread_id=1,
+            tools=tools,
+        )
+        with pytest.raises(_DispatchObserved):
+            service._execute_completion_attempt(
+                task=task,
+                messages_for_llm=[{"role": "user", "content": "probe"}],
+                provider="local",
+                model=model,
+                bundle=None,
+            )
+        return dispatched
+
+    def test_execute_completion_attempt_has_local_provider_branch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ordinary local inference dispatches through stream_local."""
+        dispatched = self._drive_local_attempt(
+            monkeypatch,
+            model="qwen2.5-7b-instruct",
+            tools=[],
         )
 
-        # 2. The qualified-transport state variable is stored.
-        assert "uses_whooshd_structured_transport" in source, (
-            "_execute_completion_attempt must capture the qualified-transport "
-            "decision in uses_whooshd_structured_transport"
+        assert dispatched == ["stream_local"]
+
+    def test_qualified_whooshd_transport_excludes_local_streaming(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Qualified Whoosh'd structured transport is excluded from stream_local.
+
+        A qualified local request carries an explicit provider, model, and
+        tool, so it must not fall through to ordinary local streaming.
+        """
+        from guardian.providers.whooshd_tool_adapter import QUALIFIED_MODEL_ALIAS
+
+        dispatched = self._drive_local_attempt(
+            monkeypatch,
+            model=QUALIFIED_MODEL_ALIAS,
+            tools=[{"type": "function", "function": {"name": "search"}}],
         )
 
-        # 3. Ordinary local streaming dispatches through stream_local.
-        assert "stream_local(" in source, (
-            "_execute_completion_attempt must dispatch ordinary local completion "
-            "through stream_local()"
+        assert "stream_local" not in dispatched
+        assert dispatched == ["chat_with_ai"]
+
+    def test_qualified_model_without_tools_excludes_structured_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The tool requirement is part of the qualification contract.
+
+        The qualified model alias alone does not qualify a request: without a
+        tool list the request stays on the ordinary local streaming path.
+        """
+        from guardian.providers.whooshd_tool_adapter import QUALIFIED_MODEL_ALIAS
+
+        dispatched = self._drive_local_attempt(
+            monkeypatch,
+            model=QUALIFIED_MODEL_ALIAS,
+            tools=[],
         )
 
-        # 4. The ordinary local branch is guarded by the semantic equivalent of
-        #    `provider == "local" and not uses_whooshd_structured_transport`.
-        #    Tolerate Black-compatible line wrapping by collapsing whitespace.
-        normalized = re.sub(r"\s+", " ", source)
-        guard_pattern = (
-            r"if\s+provider\s*==\s*[\"']local[\"']\s+and\s+not\s+uses_whooshd_structured_transport\s*:"
-        )
-        assert re.search(guard_pattern, normalized), (
-            "_execute_completion_attempt ordinary local branch must guard with "
-            "`if provider == \"local\" and not uses_whooshd_structured_transport:` "
-            "(qualified Whoosh'd structured transport must be excluded)"
-        )
+        assert dispatched == ["stream_local"]
 
     def test_stream_local_accepts_messages_model(self) -> None:
         import inspect

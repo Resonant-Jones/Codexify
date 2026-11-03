@@ -79,8 +79,113 @@ function enableGate(value = "true") {
 
 function frameDocument(container: HTMLElement): string {
   const frame = container.querySelector("iframe");
+  const wrapper = frame?.getAttribute("srcdoc") ?? "";
+  // The app-level frame is the TRUSTED WRAPPER. The generated document lives
+  // in the nested frame's srcdoc inside it, so reach the generated document
+  // rather than the wrapper that carries it.
+  const parsed = new DOMParser().parseFromString(wrapper, "text/html");
+  const inner = parsed.querySelector("iframe");
+  return inner?.getAttribute("srcdoc") ?? "";
+}
+
+function wrapperDocument(container: HTMLElement): string {
+  const frame = container.querySelector("iframe");
   return frame?.getAttribute("srcdoc") ?? "";
 }
+
+// ---------------------------------------------------------------------------
+// Trusted wrapper — the navigation-containment repair
+// ---------------------------------------------------------------------------
+
+describe("generative UI trusted wrapper", () => {
+  it("embeds the generated document in a nested sandboxed frame", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+
+    const wrapper = wrapperDocument(container);
+    const parsed = new DOMParser().parseFromString(wrapper, "text/html");
+    const inner = parsed.querySelector("iframe");
+
+    expect(inner).not.toBeNull();
+    expect(inner?.getAttribute("sandbox")).toBe("allow-scripts");
+    // The generated document itself is unchanged inside the wrapper.
+    expect(inner?.getAttribute("srcdoc")).toBe(frameDocument(container));
+  });
+
+  it("forbids the nested frame from navigating, so the network policy survives", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const wrapper = wrapperDocument(container);
+
+    // frame-src 'none' is the load-bearing repair: it permits the inner
+    // about:srcdoc frame to load, and blocks it from navigating to any URL.
+    expect(wrapper).toContain("frame-src 'none'");
+    expect(wrapper).toContain("default-src 'none'");
+    expect(wrapper).toContain("connect-src 'none'");
+  });
+
+  it("keeps the generated document's own CSP intact", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const generated = frameDocument(container);
+
+    expect(generated).toContain("default-src 'none'");
+    expect(generated).toContain("connect-src 'none'");
+    expect(generated).toContain("frame-src 'none'");
+  });
+
+  it("sandboxes the wrapper itself, so it cannot reach the Codexify document", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const frame = container.querySelector("iframe");
+
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+  });
+
+  it("relays only validated, approved actions", () => {
+    enableGate();
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const wrapper = wrapperDocument(container);
+
+    // The relay re-validates source, origin, session, action and payload
+    // before it forwards anything, and never forwards an unknown action.
+    expect(wrapper).toContain("ev.source !== inner.contentWindow");
+    expect(wrapper).toContain('ev.origin !== "null"');
+    expect(wrapper).toContain("d.session !== SESSION");
+    expect(wrapper).toContain('d.action === "resize"');
+    expect(wrapper).toContain('d.action === "send_prompt"');
+    expect(wrapper).toContain("text.length > ");
+    expect(wrapper).not.toContain("forward(d.action");
+  });
+
+  it("rejects a message posted directly by the nested generated frame", () => {
+    enableGate();
+    const seen: string[] = [];
+    const listener = (event: Event) => {
+      seen.push((event as CustomEvent<{ text: string }>).detail?.text ?? "");
+    };
+    window.addEventListener(COMPOSER_PREFILL_EVENT, listener);
+    const { container } = render(bubble(serializeUiArtifact(CALCULATOR)));
+    const session = frameSession(container);
+
+    // The nested frame knows the session, but it is not the wrapper, so the
+    // host must not accept it merely because the session matches.
+    const nested = { name: "nested-generated-frame" } as unknown as MessageEventSource;
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { channel: "cfy-ui", session, action: "send_prompt", payload: { text: "from the inner frame" } },
+          origin: "null",
+          source: nested,
+        })
+      );
+    });
+
+    expect(seen).toEqual([]);
+    window.removeEventListener(COMPOSER_PREFILL_EVENT, listener);
+  });
+});
+
 
 function frameSession(container: HTMLElement): string {
   const match = /var SESSION = "([^"]+)"/.exec(frameDocument(container));
@@ -386,7 +491,52 @@ describe("registered native components", () => {
   });
 
   it("exposes only explicitly registered ids", () => {
-    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "table.rows"]);
+    expect(Object.keys(NATIVE_UI_REGISTRY).sort()).toEqual(["chart.bar", "openui.program", "table.rows"]);
+  });
+
+  it("renders the version-2 OpenUI foundation pack through the ordinary transcript", async () => {
+    enableGate();
+    render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "openui.program",
+      props: {
+        libraryVersion: 2,
+        program:
+          'root = CodexifyStack("vertical", [CodexifyHeading("Overview", "2"), CodexifyCard([CodexifyMetric("Tasks", "12"), CodexifyProgress("Indexing", 3, 4, "Almost done"), CodexifyList(["alpha", "beta"])], "Queue")])',
+      },
+    })));
+
+    expect(await screen.findByTestId("openui-foundation-stack")).toBeInTheDocument();
+    expect(screen.getByTestId("openui-foundation-metric")).toHaveTextContent("Tasks");
+    expect(screen.getByTestId("openui-foundation-progress-status")).toHaveTextContent("Almost done");
+    expect(screen.getByTestId("openui-foundation-list").querySelectorAll("li")).toHaveLength(2);
+    // Still a first-party host render: no sandbox, no network frame.
+    expect(document.querySelector("iframe")).toBeNull();
+  });
+
+  it("keeps the version-2 pack inert under the default-off renderer gate", () => {
+    enableGate();
+    vi.stubEnv("VITE_GENERATIVE_UI", "false");
+    const { container } = render(bubble(serializeUiArtifact({
+      version: 1, kind: "native", component: "openui.program",
+      props: { libraryVersion: 2, program: 'root = CodexifyStack("vertical", [CodexifyText("body")])' },
+    })));
+    expect(container.querySelector('[data-testid="openui-foundation-stack"]')).toBeNull();
+  });
+
+  it("strips a refused version-2 program from display and leaves prose intact", () => {
+    enableGate();
+    render(bubble(
+      "Readable answer.\n" + serializeUiArtifact({
+        version: 1, kind: "native", component: "openui.program",
+        props: {
+          libraryVersion: 2,
+          program: 'root = CodexifyStack("vertical", [CodexifyCard([CodexifyCard([CodexifyText("x")], "inner")], "outer")])',
+        },
+      }),
+    ));
+    expect(screen.getByText("Readable answer.")).toBeInTheDocument();
+    expect(document.querySelector('[data-testid^="openui-foundation-"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("CodexifyCard");
   });
 
   it("degrades a chart with unusable data instead of throwing", () => {

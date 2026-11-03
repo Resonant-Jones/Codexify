@@ -11,6 +11,31 @@
 
 import api from "@/lib/api";
 
+/**
+ * Shortest username query worth sending.
+ *
+ * Username search is a same-node prefix query, so a partial handle such as
+ * "res" is legitimate even though it is shorter than the 3-character
+ * username grammar. Two characters is the shortest query that still
+ * discriminates between handles. Mirrors the backend's own bound in
+ * `guardian/messaging/service.py`.
+ */
+export const USERNAME_SEARCH_MIN_LENGTH = 2;
+
+/**
+ * Canonicalize a username search query into the stored-handle form.
+ *
+ * A stored username never carries the `@` sigil — the V1 username grammar
+ * admits only lowercase letters, digits, underscore, and hyphen — but the
+ * People UI presents handles with the sigil and people type them that way.
+ * Normalizing here means `@resonant-` and `resonant-` resolve to the same
+ * query instead of silently matching nothing.
+ */
+export function normalizeUsernameSearchQuery(query: string): string {
+  const trimmed = (query ?? "").trim().toLowerCase();
+  return trimmed.startsWith("@") ? trimmed.slice(1).trim() : trimmed;
+}
+
 export type DirectMessageSocialProfile = {
   node_id: string;
   profile_id: string;
@@ -64,6 +89,12 @@ export type DirectMessageConversation = {
   placement: DirectMessageConversationPlacement;
   /** Additive read projection: bounded latest-message preview or null. */
   latest_message: LatestMessageProjection | null;
+  /**
+   * Recipient-local unread count for the CALLER. Derived by the server from
+   * the durable message store and the caller's own read cursor; the peer can
+   * never observe it, so it is not a read receipt.
+   */
+  unread_count: number;
 };
 
 export type DirectMessageEnvelope = {
@@ -166,7 +197,7 @@ export async function searchDirectMessageProfiles(
       profiles: DirectMessageSocialProfile[];
     }>("/api/direct-messages/profiles", {
       params: {
-        q: query.trim(),
+        q: normalizeUsernameSearchQuery(query),
         limit: Math.min(Math.max(limit, 1), 20),
       },
     });
@@ -288,6 +319,36 @@ export async function fetchDirectMessageConversation(
       conversation: DirectMessageConversation;
     }>(
       `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}`,
+    );
+    return response.data.conversation;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+/**
+ * Explicitly mark one conversation read for the authenticated participant.
+ *
+ * This is the only operation that advances the recipient-local read cursor.
+ * Fetching a conversation is read-only: a retry or a prefetch must never mark
+ * a conversation read without the participant choosing to open it.
+ *
+ * `lastReadMessageId` is the caller's **read watermark** — the id of the last
+ * message they actually saw. The cursor advances to exactly that message and
+ * never past it, so a message that arrived after their transcript was fetched
+ * stays unread. Pass `null` to assert that nothing was shown.
+ */
+export async function markDirectMessageConversationRead(
+  conversationId: string,
+  lastReadMessageId: string | null,
+): Promise<DirectMessageConversation> {
+  try {
+    const response = await api.post<{
+      ok: boolean;
+      conversation: DirectMessageConversation;
+    }>(
+      `/api/direct-messages/conversations/${encodeURIComponent(conversationId)}/read`,
+      { last_read_message_id: lastReadMessageId },
     );
     return response.data.conversation;
   } catch (error) {

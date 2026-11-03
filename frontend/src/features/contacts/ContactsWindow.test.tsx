@@ -96,6 +96,7 @@ function makeState(overrides: Partial<PeopleMessagingState> = {}): PeopleMessagi
     messagesByConversationId: {},
     loadedByConversationId: {},
     conversationMetaById: {},
+    unreadTotal: 0,
     openPeople: vi.fn(),
     closePeople: vi.fn(),
     setTab: vi.fn(),
@@ -112,6 +113,9 @@ function makeState(overrides: Partial<PeopleMessagingState> = {}): PeopleMessagi
     replaceMessages: vi.fn(),
     appendServerMessage: vi.fn(),
     markTranscriptLoaded: vi.fn(),
+    refreshUnreadProjection: vi.fn(async () => []),
+    ensureUnreadProjection: vi.fn(async () => {}),
+    markConversationRead: vi.fn(async () => true),
     ...overrides,
   };
 }

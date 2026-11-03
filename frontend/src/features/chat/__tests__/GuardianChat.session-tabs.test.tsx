@@ -135,6 +135,13 @@ vi.mock("@/components/SessionRail/SessionRail", () => ({
             data-testid={`mock-session-tab-${tab.tabId}`}
           >
             <span data-testid={`mock-tab-label-${tab.tabId}`}>{tab.title}</span>
+            <button
+              type="button"
+              data-testid={`mock-tab-activate-${tab.tabId}`}
+              onClick={() => props.onActivateTab?.(tab.tabId)}
+            >
+              Activate {tab.title}
+            </button>
             {tab.tabId === props.activeTabId && (
               <button
                 data-testid={`mock-tab-close-${tab.tabId}`}
@@ -143,6 +150,12 @@ vi.mock("@/components/SessionRail/SessionRail", () => ({
             )}
           </div>
         ))}
+        <button
+          type="button"
+          aria-label="New tab"
+          data-testid="mock-session-new-tab"
+          onClick={() => props.onOpenTab?.()}
+        />
       </div>
     );
   },
@@ -521,6 +534,259 @@ describe("GuardianChat session rail segmented strip behavior", () => {
       const railMock = screen.getByTestId("session-rail-mock");
       expect(railMock).toHaveAttribute("data-has-tabs", "true");
     });
+  });
+
+  it("activates a session tab from the rail", async () => {
+    const onSessionTabActivate = vi.fn();
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        onSessionTabActivate={onSessionTabActivate}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+          {
+            tabId: "tab-2",
+            threadId: "2",
+            pendingThread: false,
+            title: "Beta",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-tab-activate-tab-2")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("mock-tab-activate-tab-2"));
+
+    expect(onSessionTabActivate).toHaveBeenCalledWith("tab-2");
+  });
+
+  it("opens a new session tab from the rail", async () => {
+    const onSessionTabOpen = vi.fn();
+
+    render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        onSessionTabOpen={onSessionTabOpen}
+        sessionTabs={[
+          {
+            tabId: "tab-1",
+            threadId: "1",
+            pendingThread: false,
+            title: "Alpha",
+            modelId: "default",
+            createdAt: "2026-03-06T00:00:00.000Z",
+            updatedAt: "2026-03-06T00:00:00.000Z",
+            inferenceMode: "default",
+          } as any,
+        ]}
+        activeSessionTabId={"tab-1" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("mock-session-new-tab")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("mock-session-new-tab"));
+
+    expect(onSessionTabOpen).toHaveBeenCalled();
+  });
+});
+
+describe("GuardianChat compact mobile header presentation", () => {
+  const ALPHA_TAB = {
+    tabId: "tab-1",
+    threadId: "1",
+    pendingThread: false,
+    title: "Alpha",
+    modelId: "default",
+    createdAt: "2026-03-06T00:00:00.000Z",
+    updatedAt: "2026-03-06T00:00:00.000Z",
+    inferenceMode: "default",
+  } as any;
+
+  const BETA_TAB = {
+    tabId: "tab-2",
+    threadId: "2",
+    pendingThread: false,
+    title: "Beta",
+    modelId: "default",
+    createdAt: "2026-03-06T00:00:00.000Z",
+    updatedAt: "2026-03-06T00:00:00.000Z",
+    inferenceMode: "default",
+  } as any;
+
+  function renderChat(props: {
+    compactMobileHeader: boolean;
+    sessionTabs?: any[];
+    activeSessionTabId?: string;
+    onSessionTabActivate?: (tabId: string) => void;
+    onSessionTabClose?: (tabId: string) => void;
+    onSessionTabOpen?: () => void;
+  }) {
+    return render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "1", title: "Thread 1", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        compactMobileHeader={props.compactMobileHeader}
+        sessionTabs={props.sessionTabs ?? [ALPHA_TAB, BETA_TAB]}
+        activeSessionTabId={(props.activeSessionTabId ?? "tab-1") as any}
+        onSessionTabActivate={props.onSessionTabActivate}
+        onSessionTabClose={props.onSessionTabClose}
+        onSessionTabOpen={props.onSessionTabOpen}
+      />
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionRailSpy.mockClear();
+    window.history.pushState({}, "", "/chat/1");
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not render the session rail on the compact mobile header", async () => {
+    renderChat({ compactMobileHeader: true });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    });
+
+    expect(sessionRailSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("session-rail-mock")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-session-tab-tab-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-session-tab-tab-2")).not.toBeInTheDocument();
+  });
+
+  it("omits tab labels, close controls, and the new tab button on mobile", async () => {
+    renderChat({ compactMobileHeader: true });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("mock-tab-label-tab-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-tab-label-tab-2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-tab-close-tab-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-session-new-tab")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("New tab")).not.toBeInTheDocument();
+  });
+
+  it("leaves no empty header footprint for the removed mobile rail", async () => {
+    const { container } = renderChat({ compactMobileHeader: true });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    });
+
+    const shell = screen.getByTestId("guardian-shell");
+    expect(shell.querySelectorAll("header")).toHaveLength(0);
+    expect(container.querySelectorAll("header")).toHaveLength(0);
+    expect(screen.queryByTestId("session-rail-mock")).not.toBeInTheDocument();
+  });
+
+  it("keeps rendering the session rail when the compact mobile header is off", async () => {
+    renderChat({ compactMobileHeader: false });
+
+    await waitFor(() => {
+      expect(sessionRailSpy).toHaveBeenCalled();
+    });
+
+    const props = sessionRailSpy.mock.calls.at(-1)?.[0];
+    expect(props.tabs).toHaveLength(2);
+    expect(props.activeTabId).toBe("tab-1");
+
+    const railMock = screen.getByTestId("session-rail-mock");
+    expect(railMock).toHaveAttribute("data-has-tabs", "true");
+    expect(screen.getByTestId("mock-session-tab-tab-1")).toBeInTheDocument();
+    expect(screen.getByTestId("mock-session-tab-tab-2")).toBeInTheDocument();
+    expect(screen.getByTestId("mock-tab-label-tab-1")).toHaveTextContent("Alpha");
+    expect(screen.getByTestId("mock-tab-label-tab-2")).toHaveTextContent("Beta");
+    expect(screen.getByTestId("mock-session-new-tab")).toBeInTheDocument();
+  });
+
+  it("renders exactly one header on the desktop presentation", async () => {
+    const { container } = renderChat({ compactMobileHeader: false });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-rail-mock")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("header")).toHaveLength(1);
+  });
+
+  it("preserves active session selection when switching between mobile and desktop", async () => {
+    const { rerender } = render(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        compactMobileHeader
+        sessionTabs={[ALPHA_TAB, BETA_TAB]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-view-stub")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("session-rail-mock")).not.toBeInTheDocument();
+    expect(chatViewSpy.mock.calls.at(-1)?.[0]?.threadId).toBe(2);
+
+    rerender(
+      <GuardianChat
+        guardianName="Guardian"
+        userName="tester"
+        activeThread={{ id: "2", title: "Thread 2", messages: [] } as any}
+        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onNewChat={vi.fn()}
+        compactMobileHeader={false}
+        sessionTabs={[ALPHA_TAB, BETA_TAB]}
+        activeSessionTabId={"tab-2" as any}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-rail-mock")).toBeInTheDocument();
+    });
+    const railProps = sessionRailSpy.mock.calls.at(-1)?.[0];
+    expect(railProps.activeTabId).toBe("tab-2");
+    expect(railProps.tabs).toHaveLength(2);
+    expect(chatViewSpy.mock.calls.at(-1)?.[0]?.threadId).toBe(2);
   });
 });
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -308,6 +308,147 @@ def create_personal_fact(
         confidence=body.confidence,
     )
     return {"ok": True, "id": fact_id}
+
+
+# NOTE: this literal route MUST be registered before "/{fact_id}".
+# Starlette dispatches on first path match, so a later "/candidates"
+# declaration would be captured by the "{fact_id}" pattern and rejected as a
+# non-integer path parameter (HTTP 422) before this handler ever ran.
+@router.get("/candidates", dependencies=[Depends(require_api_key)])
+def list_fact_candidates(
+    status: str | None = "candidate",
+    thread_id: int | None = None,
+    limit: int = 50,
+    offset: int = Query(0, ge=0),
+    current_user: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List fact candidates for the current user.
+
+    Supports filtering by status (default: candidate) and thread_id.
+    Evidence rows are included inline when available.
+
+    Paging is applied in the database, and ``total`` counts the whole
+    matching population rather than the size of the fetched page.
+
+    Query params:
+        status: filter by fact status (candidate, verified, disputed, archived)
+        thread_id: only show facts with evidence linked to this thread
+        limit: max results (default 50, max 200)
+        offset: pagination offset (must be >= 0)
+    """
+    db = _get_chatlog_db()
+    limit = max(1, min(limit, 200))
+
+    # Archival and activation are separate dimensions. The normal archive path
+    # sets ``status="archived"`` *and* ``is_active=False``, so an explicitly
+    # requested archived read must not also apply the active-only predicate,
+    # or the archived population would be invisible while the route still
+    # advertises it. Every other status keeps the existing active-only
+    # behaviour, and the same effective value is used for the page and for the
+    # count so ``total`` always describes the population the page is drawn
+    # from.
+    active_only = status != "archived"
+
+    page = db.list_facts(
+        current_user,
+        status=status,
+        active_only=active_only,
+        limit=limit,
+        offset=offset,
+        thread_id=thread_id,
+    )
+
+    counted = db.count_facts(
+        current_user,
+        status=status,
+        active_only=active_only,
+        thread_id=thread_id,
+    )
+    total = counted if isinstance(counted, int) else len(page)
+
+    if thread_id is not None and page:
+        # Attach the evidence row that matched the thread. Only the returned
+        # page is inspected, so the evidence read stays bounded by the page
+        # size instead of scanning every fact's evidence.
+        #
+        # Evidence integrity is fail-closed. The Guardrails Contract requires
+        # that evidence is never silently dropped, so a storage failure, an
+        # unusable loader, or a page fact whose matching thread evidence is
+        # absent must not be presented as a complete successful review page.
+        fact_ids = [fact["id"] for fact in page]
+        loader = getattr(db, "list_fact_evidence_for_facts", None)
+        if not callable(loader):
+            logger.error(
+                "personal_fact_candidate_evidence_loader_unavailable"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
+        try:
+            loaded = loader(fact_ids)
+        except Exception:
+            # A backend exception can carry connection strings, credentials,
+            # tokens or private record detail, so nothing derived from it is
+            # logged or chained into the handled HTTP error. The static event
+            # token keeps the failure observable without disclosing content.
+            logger.error("personal_fact_candidate_evidence_load_failed")
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            ) from None
+        if not isinstance(loaded, dict):
+            logger.error(
+                "personal_fact_candidate_evidence_result_invalid"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Candidate evidence could not be loaded",
+            )
+        for fact in page:
+            rows = loaded.get(fact["id"])
+            if rows is None:
+                rows = []
+            if not isinstance(rows, (list, tuple)):
+                logger.error(
+                    "personal_fact_candidate_evidence_rows_malformed"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            matched: dict[str, Any] | None = None
+            for ev in rows:
+                meta = ev.get("evidence_meta") if isinstance(ev, dict) else {}
+                if not isinstance(meta, dict):
+                    meta = {}
+                ev_thread = meta.get("thread_id")
+                if ev_thread is None:
+                    continue
+                try:
+                    matches = int(ev_thread) == thread_id
+                except (TypeError, ValueError):
+                    matches = False
+                if matches:
+                    matched = ev
+                    break
+            if matched is None:
+                logger.error(
+                    "personal_fact_candidate_evidence_missing"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Candidate evidence could not be loaded",
+                )
+            fact["_evidence"] = matched
+
+    return {
+        "ok": True,
+        "facts": page,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/{fact_id}", dependencies=[Depends(require_api_key)])
@@ -655,59 +796,6 @@ def list_fact_revisions(
 
 
 # ── Developer-facing candidate inspection routes ──
-
-
-@router.get("/candidates", dependencies=[Depends(require_api_key)])
-def list_fact_candidates(
-    status: str | None = "candidate",
-    thread_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-    current_user: str = Depends(get_current_user),
-) -> dict[str, Any]:
-    """List fact candidates for the current user.
-
-    Supports filtering by status (default: candidate) and thread_id.
-    Evidence rows are included inline when available.
-
-    Query params:
-        status: filter by fact status (candidate, verified, disputed, archived)
-        thread_id: only show facts with evidence linked to this thread
-        limit: max results (default 50, max 200)
-        offset: pagination offset
-    """
-    db = _get_chatlog_db()
-    limit = max(1, min(limit, 200))
-
-    facts = db.list_facts(
-        current_user,
-        status=status,
-        active_only=True,
-        limit=200,
-    )
-
-    if thread_id is not None:
-        # Filter to facts with evidence linking to the given thread.
-        filtered: list[dict[str, Any]] = []
-        for fact in facts:
-            try:
-                evidence = db.list_fact_evidence(fact["id"])
-            except Exception:
-                evidence = []
-            for ev in evidence or []:
-                meta = ev.get("evidence_meta") if isinstance(ev, dict) else {}
-                if not isinstance(meta, dict):
-                    meta = {}
-                ev_thread = meta.get("thread_id")
-                if ev_thread is not None and int(ev_thread) == thread_id:
-                    fact["_evidence"] = ev
-                    filtered.append(fact)
-                    break
-        facts = filtered
-
-    total = len(facts)
-    page = facts[offset : offset + limit]
-    return {"ok": True, "facts": page, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/candidates/debug/recent", dependencies=[Depends(require_api_key)])

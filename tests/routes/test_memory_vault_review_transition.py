@@ -228,7 +228,7 @@ def test_optional_reason_and_request_ref_are_forwarded(fake, client):
 def test_route_cannot_target_pending():
     """The request surface has no review-state field at all.
 
-    The route can only express one of ADR-088's three admitted actions, so a
+    The route can only express one of ADR-106's three admitted actions, so a
     client has no way to request `pending` as a target. Admission of the
     action string itself is the service's authority, proven separately.
     """

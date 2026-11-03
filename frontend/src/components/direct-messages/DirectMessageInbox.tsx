@@ -20,7 +20,7 @@
  * route capability is not `available`.
  */
 import { MessageSquarePlus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MessageRequestPanel from "./MessageRequestPanel";
 import { useOnboarding } from "@/features/onboarding/OnboardingProvider";
 
@@ -30,15 +30,16 @@ import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagin
 import {
   buildPeerFilterOptions,
   createDirectMessageConversation,
-  fetchDirectMessageConversations,
   fetchDirectMessageConversation,
   fetchProjectLabelMap,
   fetchThreadProjectScope,
   filterConversationsByRelationship,
   normalizeDirectMessageError,
+  normalizeUsernameSearchQuery,
   peerPresentationLabel,
   resolveDirectMessageRelationship,
   searchDirectMessageProfiles,
+  USERNAME_SEARCH_MIN_LENGTH,
   type ConversationOriginInput,
   type DirectMessageConversation,
   type DirectMessageSocialProfile,
@@ -52,6 +53,10 @@ type DirectMessageInboxProps = {
   sourceThreadId: number | null;
   state: PeopleMessagingState;
 };
+
+/** How often the open Inbox re-reads the conversation projection so a message
+ *  that arrives elsewhere surfaces as unread without a manual reload. */
+const UNREAD_REFRESH_INTERVAL_MS = 15_000;
 
 function profileSubtitle(profile: DirectMessageSocialProfile | null): string {
   if (!profile) return "";
@@ -143,19 +148,23 @@ export default function DirectMessageInbox({
     [onboarding?.setProfile],
   );
 
+  // Depend on the specific stable callbacks, never on the whole `state`
+  // object.  The People state owner replaces its state object whenever
+  // conversation metadata is cached; a callback that depended on the whole
+  // object would be recreated by that replacement, re-running the fetch
+  // effect, which would fetch, cache, replace, and fetch again.
+  const { cacheConversationMeta, refreshUnreadProjection } = state;
+
   const reload = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
       const [conversationRows, labels] = await Promise.all([
-        fetchDirectMessageConversations(),
+        refreshUnreadProjection(),
         fetchProjectLabelMap(),
       ]);
       setConversations(conversationRows);
       setProjectLabels(labels);
-      conversationRows.forEach((conversation) =>
-        state.cacheConversationMeta(conversation),
-      );
     } catch (error) {
       const normalized = normalizeDirectMessageError(error);
       setLoadError(
@@ -166,22 +175,123 @@ export default function DirectMessageInbox({
     } finally {
       setLoading(false);
     }
-  }, [state]);
+  }, [refreshUnreadProjection]);
+
+  /**
+   * Refresh only the conversation projection so recipient-local unread
+   * counts stay current while the Inbox is open.  It never advances a read
+   * cursor: only opening a conversation does that, server-side.
+   */
+  const refreshUnread = useCallback(async () => {
+    try {
+      const conversationRows = await refreshUnreadProjection();
+      setConversations(conversationRows);
+    } catch {
+      // A failed unread refresh must never disturb the visible Inbox.
+    }
+  }, [refreshUnreadProjection]);
+
+  /**
+   * Marking a conversation read is the reader's own explicit action: it
+   * advances the caller's recipient-local cursor through the ONE shared path
+   * in the People state owner — the same path the floating window uses — and
+   * the projection is then re-read so the caller's own unread badge clears.
+   * Fetching a conversation is read-only and never marks anything read.  The
+   * peer can never observe this.
+   *
+   * The cursor advances to the caller's **read watermark** — the last message
+   * they actually saw — and never past it, so a message that arrived after
+   * their transcript was fetched is not marked read without having been shown.
+   *
+   * Resolves to whether the read is recorded.  A failed read is left
+   * *retryable*: the watermark is remembered only once the mutation has
+   * actually succeeded, so reopening the conversation retries it.
+   */
+  const markConversationRead = useCallback(
+    async (conversationId: string, watermarkMessageId: string | null) => {
+      const recorded = await state.markConversationRead(
+        conversationId,
+        watermarkMessageId,
+      );
+      if (recorded) await refreshUnread();
+      return recorded;
+    },
+    [refreshUnread, state.markConversationRead],
+  );
 
   const openAcceptedConversation = useCallback(
     async (conversationId: string) => {
       const conversation = await fetchDirectMessageConversation(conversationId);
-      state.cacheConversationMeta(conversation);
-      await reload();
+      cacheConversationMeta(conversation);
       state.openConversation(conversationId, conversation);
     },
-    [reload, state],
+    [cacheConversationMeta, state.openConversation],
   );
 
   useEffect(() => {
     if (!messagingEnabled) return;
     void reload();
   }, [messagingEnabled, reload]);
+
+  // Mark the opened conversation read once its transcript has actually been
+  // rendered, using the last rendered message as the read watermark.  Waiting
+  // for the transcript is what keeps the watermark honest: a message that
+  // arrived after the transcript was fetched is not marked read.
+  //
+  // The watermark is remembered per conversation, so reopening a conversation
+  // whose transcript has not changed yet does not re-post a stale watermark;
+  // the refreshed transcript posts its own once it renders.
+  //
+  // This is surface-local bookkeeping: it keeps THIS surface from re-posting
+  // and re-refreshing for a watermark it already handled.  The People state
+  // owner holds the *shared* guard, so the Inbox and the floating window
+  // never post the same watermark twice.
+  //
+  // A watermark is remembered only once the mutation has actually SUCCEEDED.
+  // The mutation is idempotent, so a failed read stays retryable: the next
+  // reopen posts it again instead of leaving the badge stuck.
+  const markedWatermarks = useRef<Map<string, string>>(new Map());
+  const pendingWatermarks = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const conversationId = state.selectedConversationId;
+    if (!conversationId) return;
+    if (!state.loadedByConversationId[conversationId]) return;
+    const rendered = state.messagesByConversationId[conversationId] ?? [];
+    const watermark = rendered.length > 0 ? rendered[rendered.length - 1].message_id : null;
+    if (watermark === null) return;
+    if (markedWatermarks.current.get(conversationId) === watermark) return;
+    const attemptKey = `${conversationId}:${watermark}`;
+    if (pendingWatermarks.current.has(attemptKey)) return;
+    pendingWatermarks.current.add(attemptKey);
+    void markConversationRead(conversationId, watermark).then((recorded) => {
+      pendingWatermarks.current.delete(attemptKey);
+      if (recorded) {
+        markedWatermarks.current.set(conversationId, watermark);
+      }
+    });
+  }, [
+    markConversationRead,
+    state.loadedByConversationId,
+    state.messagesByConversationId,
+    state.selectedConversationId,
+  ]);
+
+  // Poll the conversation projection while the Inbox is visible so a message
+  // that arrives in another session surfaces as unread without a manual
+  // reload.  The poll is inert once the surface is closed.
+  useEffect(() => {
+    if (!messagingEnabled) return;
+    if (!state.peopleOpen || state.activeTab !== "inbox") return;
+    const timer = window.setInterval(() => {
+      void refreshUnread();
+    }, UNREAD_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [
+    messagingEnabled,
+    refreshUnread,
+    state.peopleOpen,
+    state.activeTab,
+  ]);
 
   const filterOptions = useMemo(
     () => buildPeerFilterOptions(conversations),
@@ -199,23 +309,86 @@ export default function DirectMessageInbox({
     return visibleConversations[0]?.peer ?? null;
   }, [filterRelationshipId, visibleConversations]);
 
-  const runSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) {
-      setSearchResults([]);
-      return;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestSequence = useRef(0);
+
+  const runSearch = useCallback(
+    async (query: string, requestSequence: number) => {
+      const normalized = normalizeUsernameSearchQuery(query);
+      if (normalized.length < USERNAME_SEARCH_MIN_LENGTH) {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults([]);
+          setSearching(false);
+        }
+        return;
+      }
+      setSearching(true);
+      setCreateError(null);
+      try {
+        const results = await searchDirectMessageProfiles(normalized);
+        // A slower earlier response must never replace a newer query's
+        // results.
+        if (requestSequence === searchRequestSequence.current) {
+          setSearchResults(results);
+        }
+      } catch (error) {
+        if (requestSequence === searchRequestSequence.current) {
+          setCreateError(normalizeDirectMessageError(error).message);
+          setSearchResults([]);
+        }
+      } finally {
+        if (requestSequence === searchRequestSequence.current) {
+          setSearching(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleSearchQueryChange = useCallback(
+    (value: string) => {
+      const requestSequence = searchRequestSequence.current + 1;
+      searchRequestSequence.current = requestSequence;
+      setSearchQuery(value);
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+      if (normalizeUsernameSearchQuery(value).length < USERNAME_SEARCH_MIN_LENGTH) {
+        setSearchResults([]);
+        setSearching(false);
+        return;
+      }
+      searchTimer.current = window.setTimeout(() => {
+        void runSearch(value, requestSequence);
+      }, 250);
+    },
+    [runSearch],
+  );
+
+  const closeSearch = useCallback(() => {
+    // Invalidate any in-flight search so a late response cannot repopulate a
+    // surface the user already closed.
+    searchRequestSequence.current += 1;
+    if (searchTimer.current) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
     }
-    setSearching(true);
+    setNewConversationOpen(false);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearching(false);
     setCreateError(null);
-    try {
-      setSearchResults(await searchDirectMessageProfiles(trimmed));
-    } catch (error) {
-      setCreateError(normalizeDirectMessageError(error).message);
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
   }, []);
+
+  useEffect(
+    () => () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+
+  const normalizedSearchQuery = useMemo(
+    () => normalizeUsernameSearchQuery(searchQuery),
+    [searchQuery],
+  );
 
   const computeOrigin =
     useCallback(async (): Promise<ConversationOriginInput> => {
@@ -360,24 +533,21 @@ export default function DirectMessageInbox({
               placeholder="Search by Codexify username"
               aria-label="Search profiles by username"
               onChange={(event) => {
-                setSearchQuery(event.target.value);
-                void runSearch(event.target.value);
+                handleSearchQueryChange(event.target.value);
               }}
             />
             <button
               type="button"
               aria-label="Close new conversation search"
               className="text-[var(--text-subtle)] hover:text-[var(--text)]"
-              onClick={() => {
-                setNewConversationOpen(false);
-                setSearchQuery("");
-                setSearchResults([]);
-                setCreateError(null);
-              }}
+              onClick={closeSearch}
             >
               <X size={13} aria-hidden="true" />
             </button>
           </div>
+          <p className="mt-1 text-[11px] text-[var(--text-subtle)]">
+            Search covers people on this node only.
+          </p>
           {createError ? (
             <p className="mt-2 text-xs text-[var(--text-subtle)]">
               {createError}
@@ -385,11 +555,17 @@ export default function DirectMessageInbox({
           ) : null}
           {searching ? (
             <p className="mt-2 text-xs text-[var(--text-subtle)]">Searching…</p>
-          ) : searchQuery.trim() && searchResults.length === 0 ? (
-            <p className="mt-2 text-xs text-[var(--text-subtle)]">
-              No profiles match that username.
-            </p>
-          ) : (
+          ) : searchQuery.trim() &&
+            normalizedSearchQuery.length < USERNAME_SEARCH_MIN_LENGTH ? (
+              <p className="mt-2 text-xs text-[var(--text-subtle)]">
+                Type at least {USERNAME_SEARCH_MIN_LENGTH} characters to search.
+              </p>
+            ) : normalizedSearchQuery.length >= USERNAME_SEARCH_MIN_LENGTH &&
+              searchResults.length === 0 ? (
+              <p className="mt-2 text-xs text-[var(--text-subtle)]">
+                No profiles on this node match “{normalizedSearchQuery}”.
+              </p>
+            ) : (
             <div className="mt-2 space-y-1" role="list">
               {searchResults.map((profile) => (
                 <button
@@ -488,6 +664,29 @@ export default function DirectMessageInbox({
           {visibleConversations.map((conversation) => {
             const peer = conversation.peer;
             const peerLabel = peerPresentationLabel(peer);
+            // The badge reads the SHARED caller-local projection first.
+            //
+            // A read recorded by another surface — the floating window —
+            // updates that shared projection immediately, while this
+            // Inbox's own conversation rows are only refreshed by a
+            // refetch or the poll tick.  Preferring the shared entry keeps
+            // an already-visible badge honest without adding a second
+            // counter, a second store, or another request; the shared
+            // projection is a presentation copy of the same caller-local
+            // read state, never an authority.
+            //
+            // The Inbox's own row remains the fallback for a Conversation
+            // the shared projection does not carry yet.
+            const sharedConversation =
+              state.conversationMetaById[conversation.conversation_id];
+            const unreadCount = Math.max(
+              0,
+              Number(
+                sharedConversation?.unread_count ??
+                  conversation.unread_count ??
+                  0,
+              ) || 0,
+            );
             return (
               <button
                 key={conversation.conversation_id}
@@ -512,8 +711,21 @@ export default function DirectMessageInbox({
                     <span className="truncate text-sm font-medium text-[var(--text)]">
                       {peerLabel}
                     </span>
-                    <span className="shrink-0 text-[11px] text-[var(--text-subtle)]">
-                      {formatActivity(conversation.latest_activity_at)}
+                    <span className="flex shrink-0 items-center gap-2">
+                      {unreadCount > 0 ? (
+                        <span
+                          data-testid="conversation-unread-badge"
+                          aria-label={`${unreadCount} unread message${
+                            unreadCount === 1 ? "" : "s"
+                          }`}
+                          className="inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-contrast,#fff)]"
+                        >
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
+                      <span className="text-[11px] text-[var(--text-subtle)]">
+                        {formatActivity(conversation.latest_activity_at)}
+                      </span>
                     </span>
                   </span>
                   {profileSubtitle(peer) ? (

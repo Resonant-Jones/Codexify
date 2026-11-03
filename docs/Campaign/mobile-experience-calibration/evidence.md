@@ -1,0 +1,1518 @@
+# Mobile Experience Calibration — Evidence Register
+
+**Campaign ID:** `CAMPAIGN-MOB-2026-10-23`
+**Companion:** [README.md](./README.md)
+**Tracking issue:** https://github.com/Resonant-Jones/Codexify/issues/888
+**Baseline commit:** `b2907f828` (branch `feat/auto-20261023-5ef3356f`)
+**Gate 0 status:** complete
+**Classification:** repository-local execution record. Non-normative. Cannot
+authorize runtime behavior, identity claims, provider calls, or release changes.
+
+---
+
+## 1. How to read this register
+
+Every entry states an **evidence class** (see README §2). Class is never
+inferred from another class.
+
+- `code-path` proves what the source says at a cited line. It does not prove a
+  user saw it.
+- `unit-test` proves an assertion held when the test ran. It does not prove
+  runtime behavior, and it is not live-runtime proof.
+- `docs-only` proves a contract or a recorded prior proof exists. Its evidence
+  maturity is stated, never assumed.
+
+The five reported symptoms originate from **reported observations**
+(screenshots and operator description). Nothing in this register yet
+establishes a cause for any of them on a physical device.
+
+---
+
+## 2. Environment and method
+
+| Item | Value |
+|---|---|
+| Worktree | `/Volumes/Dev_SSD/Codexify-main/.worktrees/feat-auto-20261023-5ef3356f` |
+| Branch | `feat/auto-20261023-5ef3356f` (pushed to origin after the gates closed; PR #891) |
+| Baseline | `b2907f828` (merge of PR #887) |
+| Working tree at Gate 0 start | clean |
+| Frontend test runner | vitest 3.2.7, config `frontend/src/vitest.config.ts` |
+| Backend test runner | `pytest` (`pytest.ini` sets `addopts = -q`, which **overrides** a command-line `-v`; use `pytest -o addopts="" -v` when test identities matter) |
+| Documentation validation | `scripts/validate_docs.py` validates the `docs/architecture/` corpus only. It does **not** scan `docs/Campaign/`, so no repository documentation validation applies to this gate's files. |
+
+Gate 0 was read-only apart from the two authorized campaign documents. Two
+focused read-only source sweeps were delegated (mobile composer layout;
+provider/model selection truth path); every load-bearing claim below was
+re-verified directly against source before being recorded.
+
+---
+
+## 3. Evidence register — onboarding density and copy (symptoms 1 and 2)
+
+### E-01 — The onboarding wizard has six semantic steps, one of which renders seven cards at once
+
+**Class:** `code-path`
+
+`frontend/src/features/onboarding/onboardingTypes.ts:1-8` defines exactly six
+step keys: `welcome`, `identity`, `username`, `navigation`, `core_surfaces`,
+`help`.
+
+`frontend/src/features/onboarding/OnboardingWizard.tsx:113-139` renders the
+`core_surfaces` step as a `learning-grid` of **seven** tip cards, each showing
+its full `title` + `body` from `onboardingContent.ts`.
+
+The six-key set is a **contract**, not an implementation detail:
+`docs/architecture/onboarding-and-tips-contract.md:11` requires the six
+semantic step keys and forbids removing them. The contract also requires that
+the six keys map to the account-owned progress record
+(`onboarding-and-tips-contract.md:19-21`).
+
+**Consequence for Gate 4:** the fix must be presentation-only. Paginating the
+seven cards does not change the six step keys, the persisted `last_step_key`,
+or the progress record.
+
+**Gate 4 resolution.** The step now presents the surface cards in bounded
+pages of two on a phone, with Previous/Next and a page indicator. The desktop
+grid still shows every card on one page, so desktop behavior is unchanged.
+Pagination is local component state: no key, request field, or persisted value
+was added, and changing a page writes nothing.
+
+### E-02 — The card grid collapses to one column on a phone, making the surfaces page the tallest step
+
+**Class:** `code-path`
+
+`frontend/src/features/onboarding/onboarding.css:50-54` defines `.learning-grid`
+as a two-column grid (`repeat(2, minmax(0, 1fr))`); `onboarding.css:88-90`
+collapses it to a single column at `max-width: 640px`.
+
+`frontend/src/features/onboarding/onboarding.css:13-15` gives `.learning-dialog`
+`max-height: calc(100dvh - 36px)` with `overflow: auto`.
+
+**Consequence for Gate 4:** on a phone the seven two-sentence cards stack in
+one column inside a scroll container. This is the structural cause of
+"onboarding content exceeds comfortable phone viewport limits". No device
+measurement was taken; the geometry follows from the declarations.
+
+**Gate 4 resolution.** Two cards per page (the grid is one column on a phone)
+and a card now carries the tip *summary* rather than its full body. The
+deeper body remains in Tips, where the catalog already presents it behind a
+`<details>` disclosure. On a 568px-tall phone the dialog body has roughly
+430px of usable height after the header, progress bar, and footer; two cards
+plus the step heading and the page indicator fit inside it, while three
+cards plus the same chrome do not. The page size of two is therefore a
+geometry bound, not an arbitrary number.
+
+### E-28 — Browser-emulated measurement: the surfaces step overflowed by 757px before the fix and fits with zero overflow after
+
+**Class:** `browser-emulated`
+
+**Method.** A temporary harness (outside the repository) served the **real**
+`OnboardingWizard` component and the **real** `onboarding.css` from the
+worktree, with the onboarding provider stubbed to a fixed phone context
+because the account-state API is not available in this environment. The
+harness also renders a second scenario that reproduces the **pre-change**
+markup for the same step — all seven surface cards in one grid, each with its
+full body — using the same stylesheet and the same tip catalog. Both
+scenarios were measured in Chrome at a 390×844 phone viewport (device scale
+3, touch emulation) and at 1440×900 desktop.
+
+**The surfaces step (`core_surfaces`), phone, 390×844:**
+
+| Scenario | Cards | Dialog client height | Dialog scroll height | Overflows? | Overflow by |
+|---|---|---|---|---|---|
+| **Before** (7 cards, full bodies) | 7 | 826 | 1583 | **yes** | **757px** |
+| **After** (bounded pages of 2) | 2 | 608 | 608 | **no** | 0 |
+
+**Every step after the fix, phone, 390×844 — all fit with zero overflow:**
+
+| Step | Heading | Dialog client = scroll height | Overflow |
+|---|---|---|---|
+| `welcome` | An optional introduction | 474 | 0 |
+| `identity` | Your identity, your choice | 602 | 0 |
+| `username` | Choose a username | 616 | 0 |
+| `navigation` | Phone navigation | 448 | 0 |
+| `core_surfaces` (pages 1–4) | One workspace, several surfaces | 608 / 608 / 633 / 475 | 0 / 0 / 0 / 0 |
+| `help` | Keep learning at your pace | 449 | 0 |
+
+**Desktop, 1440×900:** the surfaces step renders **all seven cards** in a
+two-column grid (`348.5px 348.5px`) with **no pager** and **no overflow**
+(dialog 824 = 824). Desktop behavior is unchanged by the fix.
+
+**Limit of this evidence.** This is a **browser-emulated** measurement of the
+real component and the real stylesheet, not the running application: the
+account-state API, the provider catalog, and the chat surface were not
+running, and the provider context was stubbed. It is **not** real-device
+proof and it is **not** live-runtime proof. The composer and chat surfaces
+were **not** measured this way — mounting the real `GuardianChat` requires
+the auth, API, and chat-session seams that are not available here, so the
+Gate 1–3 claims remain `code-path` + `unit-test` and are recorded as such.
+
+**The A/B is faithful in the way that matters.** Both scenarios use the same
+stylesheet and the same tip catalog; they differ only in the markup and the
+card body vs summary choice, which is exactly what the fix changed. The
+"before" figure is measured against the **revised** copy, so the original
+copy — whose bodies were longer — overflowed by at least as much.
+
+### E-29 — The onboarding contract's stale baseline limitation is corrected
+
+**Class:** `code-path` + `docs-only`
+
+`docs/architecture/onboarding-and-tips-contract.md` stated that
+`config/supported_profiles/v1-whooshd-deepseek-web.yaml` contains an orphan
+`=======` line and cannot be loaded. The file parses cleanly and contains no
+such line; the orphan was removed in commit `3f4ba0034`. The paragraph was
+corrected in commit `bb9d79dc8` to record the repair while retaining the
+original limitation as provenance. `scripts/validate_docs.py` passes after the
+edit. See D-02.
+
+### E-03 — Onboarding body copy carries internal-contract language
+
+**Class:** `code-path`
+
+`frontend/src/features/onboarding/onboardingContent.ts` — the `body` strings
+include: `"Execution capabilities depend on the current runtime and
+permissions."` (Guardian), `"Availability and processing depend on the
+current runtime."` (Documents), `"Generation tools depend on the runtime's
+available capabilities."` (Gallery), `"according to the workspace's current
+behavior"` (Projects), `"not established by this introduction"` (People), and
+the full username charset rule (`"3–32 lowercase ASCII letters, digits,
+underscores, or hyphens"`).
+
+**Consequence for Gate 4:** the copy must be rewritten to user-facing language
+while keeping the underlying truths. Two constraints from the governing
+contract must survive the rewrite:
+
+- `onboarding-and-tips-contract.md:15` — the account is a privacy
+  boundary; onboarding must not require self-doxxing.
+- `onboarding-and-tips-contract.md:13` — onboarding must not require a
+  username.
+
+The username charset rule is a *contract-level* claim about the username
+field. It must be stated plainly without becoming an internal error message.
+
+**Gate 4 resolution — the revision and what it kept.** Every `summary` and
+`body` string was rewritten to remove internal contract language while keeping
+the truths the contract requires the onboarding to convey
+(`onboarding-and-tips-contract.md:21`, `:29`):
+
+| Internal language removed | User-facing replacement | Truth preserved |
+|---|---|---|
+| "one shared underlying system" | "explains things without moving you around the app" | the introduction does not navigate the app |
+| "private authentication and ownership identity" | "how you sign in and what you own" | account ownership |
+| "durable social profile" | "what other people see" | profile identity |
+| "discovery alias" / "presentation only" | "an optional way to be found" / "how you appear" | optional username, presentational display name |
+| "not exposed through People discovery" | "never exposed through People" | email is not exposed |
+| "must not require self-doxxing" | "you never have to use your real name" | participation needs no real identity |
+| "This does not promise anonymity" | "This is privacy, not anonymity" | the honesty clause, kept verbatim in meaning |
+| "the current runtime and permissions" | "what this device's setup allows" | capability is conditional |
+| "according to the workspace's current behavior" | "inside a Project or across the ones you work in" | — |
+| "exposed by your current workspace" | "your workspace gives you" | — |
+| "the runtime's available capabilities" | "what this device's setup provides" | — |
+| "workspace/sidebar model" | "the workspace/sidebar" | contract-sanctioned surface language (`:29`) |
+| "same-node human-to-human Conversations" | "works between people on this node" | Private Preview and same-node (`:21`) |
+
+The contract's own phrasings were preserved deliberately so the existing
+navigation assertions still hold: "Threads and Projects live in the
+workspace/sidebar" and "Access your workspace, Threads, and Projects through
+the mobile drawer" survive verbatim in the revised bodies, and every step and
+tip *title* is unchanged.
+
+### E-04 — Onboarding account-state semantics that must not drift
+
+**Class:** `code-path`
+
+`frontend/src/features/onboarding/OnboardingProvider.tsx` implements the
+account-owned record: skip sets `status: "skipped"` with the durable
+`last_step_key` preserved; resume restores from `last_step_key`; restart
+clears the record. `onboarding-and-tips-contract.md:9-21` fixes these
+semantics.
+
+`frontend/src/features/onboarding/__tests__/Onboarding.test.tsx` is the
+neighboring test surface and must be extended, not replaced.
+
+---
+
+## 4. Evidence register — composer placement (symptom 3)
+
+### E-05 — The landing composer unit was translated upward by half its own height, on every viewport
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/GuardianChat.tsx:4576-4582` — the landing stage is
+`relative flex min-h-0 min-w-0 flex-1 items-center justify-center`.
+
+`frontend/src/features/chat/GuardianChat.tsx:4596-4602` — the landing unit
+carried `transform: "translateY(-50%)"`.
+
+The **conversation** posture had no equivalent transform.
+
+**Provenance (traced during Gate 3).** `git show 93bb09a37` ("Respect
+Guardian sidebar in landing layout", 2026-09-23) shows the transform was
+*recalibrated*, not introduced. Before that commit the landing unit was
+`position: fixed; top: 50vh; transform: translateY(-100%)` — its bottom edge
+sat at the vertical centre of the viewport. The same commit removed the fixed
+positioning and moved the unit into a flow child of a flex stage that already
+centers its child (`items-center justify-center`), and changed the transform
+from `translateY(-100%)` to `translateY(-50%)`.
+
+**The defect.** Once the unit became a flow child, the stage's own
+`align-items: center` already centred it. The remaining `translateY(-50%)`
+became an *additional* half-height lift on top of that centring, so the unit
+— and the composer at the bottom of it — rose by half the unit's height
+relative to the fixed layout it was calibrated for. The code's own comment
+(`GuardianChat.tsx:4574-4575`) states the intent: the landing keeps the
+greeting and Composer together as "one **centered** prompt-first unit". The
+transform contradicted the stated intent.
+
+**Limit of this evidence:** this is code-path and history proof of *geometry*
+and of a *stale calibration*, not a measurement of what the operator saw. It
+is the most direct candidate for "the floating composer sits too high" on the
+new-thread surface, and it is the only composer-posture defect in the survey
+that has a demonstrable cause rather than a plausible one.
+
+### E-06 — The composer had no safe-area or keyboard inset of its own; the shell root shrinks instead
+
+**Class:** `code-path`
+
+- `frontend/src/components/persona/layout/AppShell.tsx:3671-3676` — the phone
+  shell root is `position: fixed` with `height: var(--shell-viewport-height,
+  100vh)`.
+- `frontend/src/components/persona/layout/AppShell.tsx:2465` publishes
+  `--shell-keyboard-inset` from `viewportInsets.keyboardInset`.
+- `frontend/src/hooks/useViewportInsets.ts` computes `keyboardInset` from
+  `layoutViewportHeight - visualViewportHeight - visualViewportOffsetTop`,
+  with `isKeyboardOpen` at a 24px threshold, and binds `resize`,
+  `orientationchange`, `focusin`, `focusout`, and `visualViewport`
+  `resize`/`scroll`.
+- `frontend/src/components/persona/layout/mobileShellProfile.ts` declares
+  `chat.composer.bottomSafeArea: "env(safe-area-inset-bottom, 0px)"`.
+
+**Verified by direct search:** `--shell-keyboard-inset` is written at
+`AppShell.tsx:2465` and read **only** by a test assertion
+(`AppShell.test.tsx:2187`). No stylesheet or component consumes it. The
+`bottomSafeArea` token reaches only the ChatView jump-to-latest overlay
+(`frontend/src/features/chat/ChatView.tsx:903`, applied at `ChatView.tsx:1149`),
+**not** the composer.
+
+**Consequence for Gate 3:** the canonical keyboard-inset and safe-area seams
+already exist and are measured correctly. They are simply not plumbed to the
+composer. When the iOS keyboard opens, the fixed shell root shrinks and the
+flow-positioned composer rises with it — which is consistent with "feels
+detached from the bottom of the usable screen" while typing.
+
+**Gate 3 resolution — the keyboard is handled at the shell root, and the
+unconsumed `--shell-keyboard-inset` is a latent seam, not a defect.** The phone
+shell root is `position: fixed; top: var(--shell-viewport-offset-top); height:
+var(--shell-viewport-height)`, and `--shell-viewport-height` is the
+`visualViewport` height (`AppShell.tsx:2462`). The root's bottom edge is
+therefore the visual viewport's bottom edge, which is the top of the iOS
+keyboard. The composer is the last flow child of that root, so it rises to sit
+directly above the keyboard. The message lane agrees:
+`frontend/src/components/persona/layout/mobileBottomEdgeContract.ts:43-51`
+(`resolveMessageLaneBottomPad`) returns `0` on a phone with the keyboard open
+precisely so the lane does not add padding that would push content up, and
+`ChatView.tsx:316-320` consumes it.
+
+**Consequence:** adding `--shell-keyboard-inset` to the composer would
+double-count the keyboard, because the root geometry already accounts for it.
+Gate 3 therefore did **not** introduce a new consumption path for that token.
+The genuine gap was the *safe-area* inset only, and that is what Gate 3
+closed.
+
+The safe-area token's absence from the composer was a real inconsistency: the
+sibling jump-to-latest overlay already consumed it, and the phone shell root's
+own padding is a flat `--edge-chrome: "4px"`
+(`frontend/src/components/persona/layout/shellBreakpointContract.ts:32`), which
+does not clear a home indicator.
+
+### E-07 — The composer is deliberately in normal document flow, and that is asserted
+
+**Class:** `code-path` + `unit-test`
+
+`frontend/src/features/chat/__tests__/GuardianChat.session-shortcuts.test.tsx:431`
+asserts the landing unit's `position` is **not** `fixed`. The composer is in
+normal flow by contract.
+
+**Consequence for Gate 3:** Gate 3 must not "fix" the composer by making it
+`position: fixed`. The correct seam is the existing shell token channel.
+
+### E-08 — No test currently asserts the landing vertical position or the composer bottom offset
+
+**Class:** `code-path`
+
+`frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx`
+(749 lines, 13 tests) covers single-surface rendering, draft preservation,
+near-bottom subject lock, and shell-in-normal-flow. It asserts **no**
+composer vertical position and **no** landing transform. The landing transform
+at `GuardianChat.tsx:4592` is therefore unprotected by any test.
+
+### E-09 — A second, legacy composer exists with no importers
+
+**Class:** `code-path`
+
+`frontend/src/components/chat/Composer.tsx` (649 lines) has **zero** importers
+across `frontend/src`. The live composer is
+`frontend/src/features/chat/components/Composer.tsx`.
+
+**Disposition:** recorded, not removed. Deleting it is outside the campaign's
+authorized scope and is not required by any acceptance criterion. It is listed
+as deferred work in §10.
+
+### E-10 — Declared composer shell tokens are not consumed
+
+**Class:** `code-path`
+
+`mobileShellProfile.ts` declares `chat.composer.padX`, `padY`, `textPadX`,
+`textPadY`, `controlGap`, and `controlSize`. Direct search shows
+`shellMaxHeight` is consumed (`GuardianChat.tsx:4684`) and `bottomSafeArea` is
+consumed only by the ChatView overlay; the remaining declared tokens have no
+consumer. The composer hardcodes its own padding rather than reading the
+declared profile.
+
+**Consequence for Gate 3:** part of the "sits too high" calibration may be
+token-plumbing rather than new geometry. Gate 3 must determine which, and must
+not invent a parallel token set.
+
+---
+
+## 5. Evidence register — provider/model truth (symptom 4)
+
+### E-11 — The provider catalog is server-authoritative; the frontend hardcodes no provider list
+
+**Class:** `code-path`
+
+- `frontend/src/features/chat/hooks/useLlmCatalog.ts:405-451` fetches
+  `GET /api/llm/catalog`; the path builder is `frontend/src/lib/api.ts:314-316`.
+- `guardian/routes/health.py:984-987` serves it via `build_llm_catalog`.
+- `guardian/core/llm_catalog.py:822-857` builds each provider entry with
+  `id`, `displayName`, `enabled`, `authorized`, `available`, `models`,
+  `truth`, `source`, `runtime`, `endpoint_resolution`, `model_resolution`,
+  `default_model`, `configured_model`, and `disabled_reason`.
+- `frontend/src/features/chat/GuardianChat.tsx:1358-1382` labels providers by
+  `provider.runtime?.displayName ?? provider.displayName` — the **runtime
+  identity** ("Whoosh'd"), not the provider class.
+
+**Consequence for Gate 1:** the catalog is the correct and only source. The
+Gate 1 fix is a presentation and reconciliation fix over an existing
+authoritative source, not a new provider framework.
+
+### E-12 — A locally hosted DeepSeek model presents under the label "DeepSeek"
+
+**Class:** `code-path`
+
+`guardian/core/llm_catalog.py:44-45` defines
+`_MODEL_FAMILY_ALIASES = { "deepseek": "DeepSeek", "gemma": "Gemma", ... }`,
+applied at `llm_catalog.py:258-259` when deriving a model's display label.
+
+**Consequence for Gate 1 — decisive for the reported symptom.** A model in the
+**local** provider inventory whose family is `deepseek` is displayed as
+"DeepSeek", while the provider itself is displayed by runtime identity
+("Whoosh'd"). A user who sees "DeepSeek" and then observes Whoosh'd executing
+is seeing **two consistent facts rendered adjacently** — the physical model
+family of the local runtime, and the runtime identity.
+
+This is consistent with the governing domain fact (`00-current-state.md:37`):
+physical model display metadata is observation only. It is **not** proof of
+silent substitution, and it **must not** be "fixed" by inventing a separate
+DeepSeek provider.
+
+### E-13 — Requested and effective execution are distinct, recorded, and already exposed
+
+**Class:** `code-path`
+
+| Fact | Written | Read |
+|---|---|---|
+| `requested_provider` | `guardian/routes/chat.py:3065` | `guardian/workers/chat_worker.py:1584` |
+| `requested_model` | `guardian/routes/chat.py:3066` | `chat_worker.py:1585, 1590` |
+| `selection_source` (`"explicit"` when either requested field is set) | `guardian/routes/chat.py:3067-3069` | `chat_worker.py:1587-1589` |
+| effective `provider` | `chat.py:3063` | `chat_worker.py:1599, 1718` |
+| effective `model` | `chat.py:3064` | `chat_worker.py:1600, 1719` |
+| `attempted_*` / `final_*` / `fallback_triggered` | `guardian/workers/chat_worker.py:2262` | `chat.py:4056-4080`; `useChat.ts:320-363`; `ChatBubble.tsx:503-507` |
+
+The backend trace builder is `guardian/routes/chat.py:4044-4140`, exposed at
+`chat.py:4690-4702`. It derives `policy_reason` values
+`requested_model_not_selected` (`chat.py:4133`) and
+`requested_provider_not_selected` (`chat.py:4139`).
+
+**Consequence for Gate 1:** the requested-vs-effective truth already exists in
+authoritative fields. Gate 1 surfaces it on mobile. It does not create a new
+record.
+
+### E-14 — The effective-execution badge exists but is display-gated
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/components/ChatBubble.tsx:504-507` renders
+`⚠ Executed on ${execution.final_model}` when `final_model !== attempted_model`.
+
+`frontend/src/features/chat/hooks/useChat.ts:339-341` requires all four
+provider/model strings; `useChat.ts:354` additionally requires
+`fallback_triggered` to be present or coercible. A partial `execution` payload
+renders **no badge** — a display-only failure mode independent of whether
+execution was correct.
+
+### E-15 — The compact mobile composer deliberately has no provider/model selector and no summary chip
+
+**Class:** `code-path` + `unit-test`
+
+`frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx:430-495`
+("renders compact mobile composer without provider/model summary chip and
+without projection markers") asserts, against the live `Composer`:
+
+- `composer-mobile-context-summary` is **absent** (`:473-476`);
+- the "Select provider" button is **absent** (`:487`);
+- the "Select model" button is **absent** (`:488`);
+- "Select inference mode" and "Select retrieval source" are **absent**
+  (`:489-494`);
+- only the `composer-controls-strip` and the "Open composer actions" trigger
+  remain (`:456-459`).
+
+**Consequence for Gate 1 — this is the direct code-path candidate for "the
+user could not reliably find/switch the active route".** On the compact phone
+composer there is no visible provider/model affordance at all in conversation
+presentation. Reachability depends on the actions menu. Note that the landing
+posture behaves differently: `frontend/src/features/chat/components/Composer.tsx:371-372`
+forces `isLandingControlsOpen` true when `compactMobile` is set, and the
+neighboring test at `:497` asserts the landing inference controls stay mounted
+but quiet until lower-edge reveal.
+
+**The four-posture matrix (the decisive Gate 1 finding).** Tracing every
+posture of `Composer.tsx` shows that three of four render the route controls
+and one does not:
+
+| Posture | Provider visible | Provider switchable | Model visible | Model switchable |
+|---|---|---|---|---|
+| Desktop conversation (`Composer.tsx:1576-1594`) | yes | yes | yes | yes |
+| Desktop landing (`Composer.tsx:1330`) | yes | yes | yes | yes |
+| Mobile landing (`Composer.tsx:1308`) | yes | yes | yes | yes |
+| **Mobile conversation (`Composer.tsx:1514-1539`)** | **no** | **no** | **no** | yes (actions menu) |
+
+The mobile conversation surface was the single missing branch in an otherwise
+consistent pattern. The user composes on the landing surface — where the
+provider and model are visible — sends, and lands in the conversation surface,
+where the route is invisible and the provider cannot be changed at all.
+
+### E-16 — A stored provider preference *would* be silently discarded when the provider is absent from the catalog — but the caller is never mounted
+
+**Class:** `code-path`
+
+`frontend/src/lib/providerPref.ts:144-147` — `reconcilePreferredProviderSelection`
+clears the stored selection when the persisted provider id is not present in
+the reconciled provider list, and clears the stored model when the persisted
+model id is not present in that provider's models.
+`frontend/src/components/ProviderSelect.tsx:271` filters the provider list to
+entries with `enabled` set, and `ProviderSelect.tsx:274` is the **only**
+caller of `reconcilePreferredProviderSelection`.
+
+**Correction to the Gate 0 reading of this entry.** Gate 0 recorded this as a
+live silent-substitution mechanism. A direct import sweep of `frontend/src`
+shows `ProviderSelect.tsx` has **no importer outside its own test file**
+(`components/__tests__/ProviderSelect.catalog.test.tsx`). The component is not
+mounted anywhere in the application, so the reconciliation — and therefore the
+silent discard — is **not reachable in the live Guardian flow**.
+
+**Consequence for Gate 1.** `frontend/src/lib/providerPref.ts` was removed from
+the Gate 1 authorized file list. The mechanism is real but dormant; removing
+it is deferred hygiene (§10), not a campaign fix. The live selection path is
+instead proven to be explicit: `GuardianChat.tsx:1902-1915`
+(`resolveCompletionSelection`) resolves `providerId`/`modelId` from the
+selected provider and model, and `GuardianChat.tsx:1948-1956` passes them
+explicitly to `buildChatCompletionPayload`, where
+`frontend/src/lib/chatClient.ts:139-146` prefers the explicit values over the
+persisted preference. The request therefore carries an explicit provider and
+model, and `selection_source` is `"explicit"`.
+
+### E-17 — A stored thread configuration overrides the requested provider/model at acceptance
+
+**Class:** `code-path`
+
+`guardian/core/chat_completion_service.py:3070-3100` — when the thread carries
+a stored `thread_config`, the requested provider and model are discarded for
+the effective provider; the thread config wins. `requested_*` is still
+recorded, so `selection_source` remains `"explicit"`.
+
+**Consequence for Gate 1:** a third divergence source, independent of E-16.
+Because `selection_source` stays `"explicit"`, the worker still **rejects**
+rather than substitutes. The divergence is a policy decision, not a silent
+replacement.
+
+---
+
+## 6. Evidence register — explicit-model authority (external prerequisite)
+
+### E-18 — Explicit unavailable models already fail closed, and are test-backed
+
+**Class:** `code-path` + `unit-test` + `docs-only`
+
+Backend gate: `guardian/workers/chat_worker.py:1588-1595` requires
+`selection_source == "explicit"`, a non-empty `requested_model`, and no image
+parts for the explicit-text-model path.
+
+- Local path: `chat_worker.py:1659-1681` resolves with
+  `requested_model_is_authoritative=True`; on failure it raises
+  `HTTPException(400)` carrying `requested_provider`, `requested_model`,
+  `selection_source`, `model_resolution`, and a `completion_truth` block with
+  `accepted: True` and every other flag false, plus `visible_output_emitted=False`.
+- Non-local path: `chat_worker.py:1682-1709` calls
+  `validate_provider_model_selection`; an explicit invalid selection raises
+  `LLMConfigError` (**fail closed**). The degraded fallback at
+  `chat_worker.py:1427-1474` is reachable **only** for a non-explicit
+  selection and only when the reason contains `"no chat-capable models"`.
+
+Automated coverage: `tests/workers/test_chat_worker_explicit_model_authority.py:62`
+(`test_unavailable_explicit_model_fails_before_execution_and_releases_lock`),
+`:139` (`test_explicit_unavailable_model_never_calls_degraded_fallback`),
+`:122`, `:132`; and
+`guardian/tests/workers/test_chat_worker_provider_resolution.py:159, 192, 136`.
+
+Live proof at HEAD:
+`docs/architecture/proofs/supported-compose/2026-10-05-chat-unavailable-explicit-model-recovered-candidate.md`
+— an explicit sentinel model produced exactly one `task.failed` with failure
+kind `local_model_unavailable`, no substitute executed, and no assistant
+persisted.
+
+### E-19 — The explicit-model release item is open and externally owned
+
+**Class:** `docs-only`
+
+`docs/architecture/00-current-state.md:74` carries an **unchecked** release
+item: *"An unavailable explicit model fails before provider execution and
+cannot be silently substituted."* Supporting lines: `:46` ("Do not infer exact
+unavailable-model rejection; the recorded complete Compose proof accepted work
+with model substitution and no assistant fallback flag."), `:56`, and `:65`.
+
+ADR-074 (`docs/architecture/adr/074-tester-provider-model-configuration-authority.md:84-86,
+:92-98, :100-112`) establishes the fail-closed doctrine: Guardian must remain
+fail closed; no Qwen-to-Gemma or Gemma-to-Qwen substitution is permitted.
+
+**Ownership is recorded, not duplicated.** The task explicitly forbids
+creating a competing implementation. Gate 1 records this as an external
+prerequisite owned by the release track, and Gate 1's own scope is the mobile
+interface's ability to *disclose* truth — not the backend contract.
+
+### E-20 — Two sibling proof documents referenced by the lineage are absent at HEAD
+
+**Class:** `code-path` (verified by `git cat-file -e HEAD:<path>`)
+
+Absent at HEAD, present in history:
+
+- `docs/architecture/proofs/supported-compose/2026-10-03-explicit-model-test-contradiction-reassessment.md`
+- `docs/architecture/proofs/supported-compose/2026-10-03-main-explicit-model-fail-closed.md`
+
+The retained Oct 5 candidate proof **is** present at HEAD. Recorded as a
+documentation gap for the owning track (see D-03).
+
+---
+
+## 7. Evidence register — request observation and latency (symptom 5)
+
+### E-21 — Observation loss is correctly reported as observation loss, not execution failure
+
+**Class:** `code-path` + `unit-test`
+
+`frontend/src/features/chat/components/ThreadAttemptObservation.tsx:220`
+renders the literal string *"Response observation is unavailable. The request
+outcome has not been changed."* The trigger is the `catch` at
+`ThreadAttemptObservation.tsx:208-221` wrapping the
+`GET /chat/threads/{threadId}/tasks` poll (`ThreadAttemptObservation.tsx:141-145`,
+5s timeout) and the history sweep (`:165-169`). Any transport, timeout, auth,
+or parse error sets the observation error while prior rows are retained and
+polling continues (`:222-226`).
+
+Test proof: `frontend/src/features/chat/components/__tests__/ThreadAttemptObservation.test.tsx:144-152`
+asserts the string renders, that the status does **not** match `/failed|stopped/i`,
+and that `api.post` is never called. `:249` covers retaining observation
+uncertainty after a canonical refresh fails.
+
+**Disposition:** the *message* is already correct. The reported symptom is
+therefore about **visibility and distinctness on a phone**, not about the
+message's wording. This finding narrows Gate 2's scope usefully.
+
+### E-22 — The lifecycle diagnostic detail is hidden below the `sm` breakpoint
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/components/InferenceStatusBanner.tsx:81` renders
+the diagnostic `detail` inside a container classed
+`"hidden truncate sm:inline"`. The `sm` breakpoint is 640px, so on a phone the
+detail is not rendered at all.
+
+The detail is the carrier of the canonical lifecycle distinctions. From
+`frontend/src/features/chat/hooks/useInferenceRequestState.ts`:
+
+| State | `statusText` | `detailText` | Source |
+|---|---|---|---|
+| queued | `INFERENCE_STATUS_TEXT.QUEUED` | `INFERENCE_DETAIL_TEXT.QUEUED` | `:540-546` |
+| model warmup | `INFERENCE_STATUS_TEXT.WARMING_MODEL` | `INFERENCE_DETAIL_TEXT.WARMING_MODEL` | `:548-554` |
+| awaiting first token | `INFERENCE_STATUS_TEXT.WAITING_FOR_FIRST_TOKEN` | `INFERENCE_DETAIL_TEXT.WAITING_FOR_FIRST_TOKEN` | `:556-562` |
+| streaming | `INFERENCE_STATUS_TEXT.GENERATING` | `INFERENCE_DETAIL_TEXT.STREAMING` | `:564-570` |
+| provider degraded | `INFERENCE_STATUS_TEXT.PROVIDER_DEGRADED` | degraded variants | `:89-96`, `:958-960` |
+| stop unconfirmed | — | `"stop request could not be confirmed"` | `InferenceStatusBanner.tsx:52` |
+
+**Consequence for Gate 2 — the direct code-path candidate for symptom 5.** The
+interface already distinguishes "queued", "warming the model", "waiting for
+the first token", "generating", and "degraded". On a phone, the label alone
+("Working…", "Thinking…", "Replying…") is what the user sees, and the
+distinguishing detail is not rendered. A slow local model and a stalled
+transport are therefore not distinguishable on the device that reported the
+problem.
+
+### E-23 — The banner's visibility predicate does not hide the queued state (Gate 0 reading corrected)
+
+**Class:** `code-path`
+
+Gate 0 recorded this entry as "the banner's visibility predicate hides the
+queued state entirely". **That reading was wrong and is corrected here.**
+
+`frontend/src/features/chat/components/InferenceStatusBanner.tsx:11-20` —
+`isVisibleState` returns true for `sending`, `thinking`, `streaming`,
+`failed`, `cancelled`, and a `completed` state carrying latency metrics.
+
+The queued state is **not** hidden. `frontend/src/features/chat/hooks/useInferenceRequestState.ts:540-546`
+builds the queued patch with `phase: "sending"` and
+`statusText: INFERENCE_STATUS_TEXT.QUEUED` ("Queued…"), so the banner does
+render during queueing.
+
+**Correction to the Gate 0 reading of this entry.** The defect is not
+visibility but **labeling** — see E-26. The queued state renders, but under
+the same "Working…" label as model warmup and first-token wait, so it is not
+*distinguishable* from them.
+
+What the queued status is genuinely suppressed from is the runtime status
+strip: `frontend/src/features/chat/GuardianChat.tsx:291` treats
+`statusText === "Queued…"` as diagnostic-only and
+`GuardianChat.tsx:293-296` excludes it from `showRequestState`, so the strip
+renders nothing for a queued request while the provider is `READY`. That is
+an intentional, documented decision ("Queue acceptance is diagnostic state"),
+not a defect — and it is one more reason the banner must be legible on a
+phone.
+
+### E-26 — The banner discards the canonical lifecycle stage: its `statusText` fallback is unreachable dead code
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/components/InferenceStatusBanner.tsx:37-47` —
+the label is an IIFE whose branches are, in order: `isPendingStop` →
+`"Stopping…"`; `phase === "failed"` → `"Reply failed"`; `phase === "cancelled"`
+→ `"Reply stopped"`; `phase === "completed"` → `"Completed"`; `phase ===
+"sending"` → `"Working…"`; `phase === "thinking"` → `"Thinking…"`; `phase ===
+"streaming"` → `"Replying…"`; and only then `if (state.statusText) return
+state.statusText;` followed by `return state.statusText ?? "Working…";`.
+
+**The last two lines are unreachable.** `InferencePhase`
+(`frontend/src/types/inference.ts:10-17`) is exactly `idle | sending |
+thinking | streaming | completed | failed | cancelled`. Every phase except
+`idle` returns at one of the earlier branches, and `idle` never reaches the
+label at all because `isVisibleState` returns false for it and the component
+returns `null` at `InferenceStatusBanner.tsx:27-29`.
+
+**Consequence.** The banner can *never* display `state.statusText`. The
+canonical lifecycle stage — "Queued…", "Warming model…", "Waiting for first
+token…", "Generating…", "Provider degraded…" — is computed by the request
+state machine and is rendered by the runtime status strip
+(`GuardianChat.tsx:335-338`), but the in-thread banner, which sits directly
+above the reply the user is waiting for, can only ever say "Working…".
+
+This is the direct code-path explanation of the reported symptom *"Working…
+persisted"* for roughly three minutes: queueing, model warmup, and
+first-token wait are three distinct canonical stages that the banner renders
+identically. Together with E-22 (the detail is `hidden … sm:inline`), a phone
+user had no way to distinguish a slow local model from a stalled request.
+
+### E-27 — The runtime status strip is the desktop owner of the request stage
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/GuardianChat.tsx:311-347` — the strip renders the
+provider runtime state (dot, tone, `providerDesc.title`) and, in the same
+truncated row, the request stage for active requests
+(`{inferenceState.statusText ?? "Working…"}`, `:335-338`) and a terminal word
+(`:340-347`).
+
+**Consequence for Gate 2.** Because both surfaces would otherwise carry the
+same canonical stage, a phone-scoped change to the banner alone would render
+the stage twice on one screen. Gate 2 therefore gives each surface one owner:
+on a phone the banner owns the request state and the strip keeps the provider
+runtime state. The strip's terminal word is retained on all viewports.
+
+### E-24 — The backend emits a lifecycle timing chain, but no dispatch timestamp and no durable latency record
+
+**Class:** `code-path`
+
+Present in the worker event payload (`guardian/workers/chat_worker.py`):
+
+| Timestamp | Lines |
+|---|---|
+| `queued_at` (from `task.created_at`) | `:2799-2806`, field list `:202-209` |
+| `awaiting_model_at` | `:2828-2830` |
+| `awaiting_first_token_at` | `:2831-2835` |
+| `first_token_at` / `first_output_at` | `:2836-2846` |
+| `completed_at` | `:259-260`, `:2847-2849` |
+| `worker_started_at` | `:2789`, `:3209` — **not** in the lifecycle timing field list and **not** surfaced to the UI |
+
+**Missing:**
+
+- **Dispatch timestamp** (queue-accepted → worker pickup). A direct search for
+  `dispatched_at|dispatch_at|picked_up_at|dequeued_at` returns no chat hit.
+  `worker_started_at` exists but is not exposed, so the queue-wait interval
+  cannot be reconstructed in the interface.
+- **Model-warmup span** as a measured interval — only the single
+  `awaiting_model_at` boundary exists.
+- **Durable per-request latency columns.** A search of `guardian/db/migrations/**`
+  for `latency|first_token|queued_at|dispatch|warmup` returns only unrelated
+  tables (notably `62127ee9a537_add_inference_provider_state_tables.py:112`,
+  `avg_latency_ms`, which is provider health, not per-request).
+
+**Consequence for Gate 2:** a genuine instrumentation gap exists for the
+queue-wait interval. Gate 2 must either ground the latency picture in the
+timestamps that exist, or record the gap explicitly. It must **not** present
+a guessed root cause for slow first-token responses.
+
+### E-25 — Displayed latency can be client-clock approximation
+
+**Class:** `code-path`
+
+`frontend/src/features/chat/hooks/useInferenceRequestState.ts:836-853` —
+when a lifecycle event lacks a timestamp, the client substitutes
+`new Date().toISOString()`.
+
+**Consequence for Gate 2:** any latency figure the phone shows may be
+client-synthesized rather than server-derived. The interface must not present
+a client approximation as a server measurement.
+
+---
+
+## 8. Discrepancies requiring reconciliation
+
+These are recorded, not resolved. Each names its owner.
+
+### D-01 — Branch-local proof shows fail-closed rejection; current-state says the complete Compose proof accepted substitution
+
+**Owner:** release track (not this campaign)
+
+`docs/architecture/proofs/supported-compose/2026-10-03-chat-unavailable-model-ui-truth.md`
+and the retained Oct 5 candidate proof record an explicit unavailable model
+rejected before execution. But `00-current-state.md:46` states the recorded
+**complete** Compose proof accepted work with model substitution and no
+assistant fallback flag, and `:74` carries the item as unchecked.
+
+**Resolution path:** these may describe different profiles or request shapes —
+the Oct 5 proof is explicitly "not a native model-picker or active browser
+Send/Stop failure test". The campaign must not resolve this by assertion. It
+is recorded as the external prerequisite in §9 and must be reconciled by the
+owning track before release qualification.
+
+### D-02 — The onboarding contract states a baseline limitation that no longer holds
+
+**Owner:** Gate 4 (documentation correction, within the campaign's scope)
+
+`docs/architecture/onboarding-and-tips-contract.md:43` states that
+`config/supported_profiles/v1-whooshd-deepseek-web.yaml` contains an orphan
+`=======` line and therefore cannot be loaded. **Verified false at the
+baseline:** the file parses cleanly as YAML, and no `=======` line exists.
+The repair landed in commit `3f4ba0034` ("Repair inherited backend profile and
+auth fixtures").
+
+The contract text is now stale. Gate 4 owns the correction because the
+onboarding contract is in the same subject area and the correction is
+one-line. No functional behavior depends on it.
+
+**RESOLVED in Gate 4.** `docs/architecture/onboarding-and-tips-contract.md` was
+corrected in commit `bb9d79dc8`. The paragraph now states that the orphan line
+was removed in `3f4ba0034` and that the profile parses, and retains the
+original limitation as provenance rather than as a current property.
+`scripts/validate_docs.py` passes after the edit.
+
+### D-03 — Two explicit-model proof documents are referenced by lineage but absent at HEAD
+
+**Owner:** release track
+
+See E-20. The Oct 5 candidate proof is present and sufficient for the
+fail-closed behavior; the two absent documents concern an earlier
+reassessment and a main-branch fail-closed run. Recorded so the owning track
+can decide whether they must be restored. Not this campaign's scope to
+restore them.
+
+### D-04 — The ADR index references ADR-052 by wikilink title, while the file carries an `ADR-` filename prefix
+
+**Owner:** documentation hygiene (recorded, not fixed)
+
+`docs/architecture/adr/adr-index.md` links
+`[[ADR-052-Whoosh'd Gemma and Approved DeepSeek Startup Profile|...]]`, and
+the file is `docs/architecture/adr/ADR-052-whooshd-deepseek-dual-provider-startup-profile.md`.
+The link resolves by title, not by filename.
+
+A second naming collision exists in the same directory:
+`docs/architecture/adr/ADR-051-whooshd-deepseek-dual-provider-startup-profile.md`
+carries the *same* slug as ADR-052, while `051-chrome-side-panel-dual-auth-client-contract.md`
+holds the ADR-051 number.
+
+**Disposition:** recorded. Renumbering or renaming ADRs is a governance change
+with wide blast radius and is outside this campaign's authorized files. It is
+deferred work, listed in §10.
+
+---
+
+## 9. External prerequisites and ownership
+
+| Prerequisite | Owner | Evidence | Status |
+|---|---|---|---|
+| Explicit unavailable model must fail before provider execution, with no silent substitution | Release track | `00-current-state.md:74` (unchecked), ADR-074, Oct 5 proof (E-18, E-19) | Open, externally owned |
+| Complete-Compose explicit-model contradiction (D-01) | Release track | `00-current-state.md:46` | Open, externally owned |
+| Queue-wait (dispatch) timestamp not instrumented (E-24) | Runtime track | `chat_worker.py` timing field list | Open — Gate 2 may record, not invent |
+| Missing explicit-model proof documents (D-03) | Release track | `git cat-file -e HEAD:<path>` | Open, externally owned |
+
+**Rule:** where an existing campaign or track owns a prerequisite, this
+campaign records the dependency and does not create a competing implementation.
+
+---
+
+## 10. Deferred work (not admitted into this campaign)
+
+| Item | Reason | Suggested owner |
+|---|---|---|
+| Remove the dead legacy `frontend/src/components/chat/Composer.tsx` | Unrelated cleanup; no acceptance criterion depends on it | Runtime hygiene |
+| Remove the unmounted `frontend/src/components/ProviderSelect.tsx` and its dormant `reconcilePreferredProviderSelection` path (E-16) | Dead code; removing it is cleanup, not a campaign fix | Runtime hygiene |
+| Consume the declared-but-unused `mobileShellProfile.chat.composer.*` tokens | May be subsumed by Gate 3; decide there | Gate 3, if it falls out of scope |
+| Resolve the ADR-051/ADR-052 filename collision (D-04) | Governance change with wide blast radius | Architecture |
+| Restore or supersede the two absent explicit-model proofs (D-03) | Release track owns the explicit-model contract | Release track |
+| Instrument a dispatch timestamp and durable per-request latency columns (E-24) | Schema/backend change; requires an independent decision | Runtime track |
+
+---
+
+## 11. Validation performed
+
+### 11.1 Gate 0
+
+| Check | Result |
+|---|---|
+| Campaign documents inspected after authoring | Both files re-read for internal consistency |
+| `git diff --check` (whitespace/conflict markers) | Clean — see §12 |
+| `scripts/validate_docs.py` | Not applicable: it validates the `docs/architecture/` corpus and does not scan `docs/Campaign/` |
+| `scripts/check_diagram_freshness.py` | Not applicable: no diagram sources changed |
+| Repository documentation validation | None applies to `docs/Campaign/` additions |
+| Automated runtime tests | None apply — Gate 0 is docs-only and changed no functional source |
+| Frontend test runner availability | vitest 3.2.7 confirmed executable in the worktree (`frontend/node_modules` symlinked to the main checkout; `frontend/package.json` and `frontend/pnpm-lock.yaml` verified byte-identical to the main checkout) |
+| Frontend test smoke | `ComposerSelectMenu.test.tsx` — 1 file passed, 2 tests passed. **Smoke only** — not a campaign acceptance proof |
+| Issue #888 correspondence | Confirmed: title, campaign ID, and gate sequence match this register |
+| Frozen execution sequence vs issue | Gate 0–5 sequence in the issue matches README §4 |
+
+**Deliberately not claimed:** no device measurement, no browser emulation, no
+live-runtime execution, and no full-suite run was performed in Gate 0. The
+frontend smoke run above is a toolchain check and is labeled as such.
+
+### 11.2 Gate 1
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suites | `vitest run features/chat/components/__tests__/Composer.mobile-route.test.tsx components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx components/persona/layout/__tests__/GuardianMobileComposerCommands.test.tsx` | **pass** — 3 files, 37 tests |
+| Chat + layout regression sweep | `vitest run features/chat components/persona/layout` | 56 files passed, **3 tests failed** — all three confirmed **pre-existing** on the clean baseline by stashing the change and re-running (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint | `eslint <changed files>` | **not run** — `eslint-plugin-react` is absent from the installed `node_modules` in this environment. Toolchain gap, not a code result |
+| Prettier | `prettier --check <changed files>` | **not run** — the `prettier` binary is absent from the installed `node_modules`. Line lengths were manually checked against the repo's `printWidth: 100` |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 1's evidence class is `code-path` +
+`unit-test`. No browser-emulated, real-device, or live-runtime proof was
+produced. The route disclosure is proven to render and to dispatch the correct
+selection callbacks; it has **not** been observed on a physical phone.
+
+### 11.3 Gate 2
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/chat/components/__tests__/InferenceStatusBanner.phone-lifecycle.test.tsx` | **pass** — 1 file, 12 tests |
+| Chat + layout + components regression sweep | `vitest run features/chat components/persona/layout components/__tests__` | 69 files passed, 971 tests run, **4 failed** — all four confirmed **pre-existing** on the clean baseline by stashing the change and re-running (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are both absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Backend / latency instrumentation | — | **not changed.** The dispatch timestamp and durable latency columns remain an open gap owned by the runtime track (§9) |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 2's evidence class is `code-path` +
+`unit-test`. The phone lifecycle legibility is proven by test, not observed on
+a physical phone.
+
+### 11.4 Gate 3
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/chat/__tests__/GuardianChat.composer-posture.test.tsx` | **pass** — 1 file, 8 tests |
+| Chat + layout + components regression sweep | `vitest run features/chat components/persona/layout components/__tests__` | 70 files passed, 979 tests run, **4 failed** — the same four confirmed **pre-existing** on the clean baseline (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Note on the test environment.** jsdom's CSS parser rejects `env(...)`, so
+the safe-area token cannot be asserted through a parsed style property. The
+test therefore asserts the *wiring* with a parseable sentinel, and asserts the
+real token (`env(safe-area-inset-bottom, 0px)` for phone, `0px` for desktop)
+directly against the profile contract via `getMobileShellProfile`. This is a
+limitation of the test environment, not of the implementation, and it is
+recorded so a reviewer does not mistake it for a weakened assertion.
+
+**Deliberately not claimed:** Gate 3's evidence class is `code-path` +
+`unit-test`. The posture correction is proven by test and by source history;
+it has **not** been observed on a physical phone, and no visual screenshot
+comparison was performed.
+
+### 11.5 Gate 4
+
+| Check | Command | Result |
+|---|---|---|
+| Affected suite | `vitest run features/onboarding` | **pass** — 2 files, 24 tests (19 pre-existing + 5 new) |
+| Full frontend suite | `vitest run` (whole `frontend/src`) | 225 files, 2225 tests — **2220 passed**, 1 skipped, **4 failed**. All four are the known pre-existing failures, each individually confirmed on the clean baseline (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu` ×1, `SettingsPanelShell` ×1). Not caused by this change |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Architecture documentation validation | `python3 scripts/validate_docs.py` | **pass** — "Docs validation passed: required architecture docs, README links, and source headings verified." |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100`; the over-length lines are string literals and a markdown paragraph, which the formatter does not reflow and which match the files' existing style |
+| Browser emulation / real device / live runtime | — | **not performed, not claimed** |
+
+**Deliberately not claimed:** Gate 4's evidence class is `code-path` +
+`unit-test`. The bounded-page geometry is derived from the CSS declarations
+and the dialog's own `max-height`, not measured on a device.
+
+### 11.6 Gate 5
+
+| Check | Command | Result |
+|---|---|---|
+| Full frontend suite (re-run at closeout) | `vitest run` (whole `frontend/src`) | 225 files, 2225 tests — **2220 passed**, 1 skipped, **4 failed** (the known pre-existing failures, each individually confirmed on the clean baseline) |
+| Affected suites, re-run at closeout | `vitest run features/chat features/onboarding components/persona/layout` | **pass** for every suite that this campaign touched. 62 files, 842 tests — **839 passed**, 3 failed (the stable pre-existing set) |
+| **Baseline-source comparison** | The campaign's changed source files were checked out from the baseline commit `b2907f828` and the same sweep was re-run | **Every test this campaign added fails against the baseline source and passes against the campaign source.** The new tests are therefore meaningful regression tests, not tautologies. The stable pre-existing failures were unchanged by the substitution |
+| **Flake characterization** | The same sweep was run three times on the campaign tree | The failure set is **not** stable. The stable failures are three (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu`); a **fourth, varying** identity appeared in some runs only (`GuardianChat turn lock lifecycle` in one run, `ChatView loop guards` in another). Both pass **in isolation** (76/76 and 12/12) and neither is attributable to this campaign — the baseline-source run produced neither. This matches the suite's known load-dependent flakiness |
+| TypeScript | `tsc --noEmit --incremental false` | **pass** — no diagnostics |
+| Architecture documentation validation | `python3 scripts/validate_docs.py` | **pass** |
+| Diagram freshness | `python3 scripts/check_diagram_freshness.py` | Not applicable — no diagram sources changed |
+| Whitespace / conflict markers | `git diff --cached --check` | Clean |
+| **Browser-emulated geometry** | Chrome, 390×844 phone emulation and 1440×900 desktop, real component + real stylesheet | **pass** — the surfaces step overflowed by **757px** before the fix and fits with **zero** overflow after; every step and every page fits on a phone; desktop is unchanged (E-28) |
+| Backend suite | `pytest` | **not run** — this campaign changed no backend file. Not a claim about backend health |
+| ESLint / Prettier | — | **not run** — `eslint-plugin-react` and the `prettier` binary are absent from the installed `node_modules`. Toolchain gap, not a code result. Added line lengths manually checked against `printWidth: 100` |
+| Real mobile device | — | **not performed, not claimed** |
+| Live runtime | — | **not performed, not claimed** |
+
+**Environment note.** The browser harness ran three temporary Vite dev
+servers on localhost ports 5211–5213, serving a harness outside the
+repository. The sandbox denied `kill` on those detached processes, so they
+may still be running. They have **no repository impact**: the worktree's
+`git status` is clean, and the harness cache directory was removed and
+git-excluded.
+
+---
+
+## 12. Gate checkpoints
+
+### 12.1 Gate 0 — evidence inventory and campaign freeze
+
+**Outcome:** complete.
+
+**Files changed:** `docs/Campaign/mobile-experience-calibration/README.md`
+(created), `docs/Campaign/mobile-experience-calibration/evidence.md` (created).
+
+**ADR impact:** none. No ADR is added, amended, or retired. ADR-052 and
+ADR-074 are read and cited, not modified.
+
+**Preserved invariants:** unchanged — no functional source was touched.
+
+**Commit:** the Gate 0 documentation commit —
+`docs(campaign): define mobile experience calibration gates` — on branch
+`feat/auto-20261023-5ef3356f`, baseline `b2907f828`, 2 files added, 1011
+insertions, no functional source touched.
+
+The commit hash is recorded in the Gate 0 checkpoint comment on Issue #888.
+It is not written here because amending this register to embed its own hash
+would change that hash.
+
+**Tracking issue checkpoint:** posted to Issue #888.
+
+**Outstanding blockers:** none for Gate 0. Four external prerequisites are
+recorded in §9.
+
+**Next atomic Task:** Gate 1 — provider/model selection and execution-truth
+reconciliation on mobile. It is scoped against the allowlist in README §4 and
+must narrow that list before implementation.
+
+### 12.2 Gate 1 — provider/model selection and execution-truth reconciliation
+
+**Task:** `MOB-G1-TASK-1` — mobile route disclosure and provider reachability.
+**Lane:** architecture-impact.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* make the active provider/model route visible and switchable on a
+  phone in the compact mobile conversation surface, without adding a second
+  selection surface, a new authority, or a new provider identity.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/components/Composer.tsx`
+  2. `frontend/src/features/chat/components/__tests__/Composer.mobile-route.test.tsx` (new)
+  3. `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerSingleSurface.test.tsx`
+  4. `frontend/src/components/persona/layout/__tests__/GuardianMobileComposerCommands.test.tsx`
+- *Deliberately excluded:* `frontend/src/lib/providerPref.ts` (the reconcile
+  path is unreachable — E-16), `frontend/src/components/ProviderSelect.tsx`
+  (not mounted), `frontend/src/features/chat/GuardianChat.tsx` (every required
+  prop was already passed), and all backend files.
+
+**Behavior change.**
+
+- The compact mobile **conversation** surface now renders the provider and
+  model route in a dedicated row (`composer-mobile-route-row`) above the
+  control row, using the same `ComposerSelectMenu` controls and the
+  phone-shell bare trigger variant the mobile landing surface already used.
+- The row is omitted entirely when the authorized catalog offers no provider
+  and no model, so no placeholder route is shown.
+- The composer actions menu no longer carries its own Model section on this
+  surface. Model selection is owned by the route row only, matching the
+  precedent the landing surface already set (`Composer.tsx:1321`). This
+  removes a duplicate model affordance rather than adding one.
+
+**Why this is the truthful fix.** The route is drawn from the same
+server-authoritative catalog the landing surface uses
+(`GET /api/llm/catalog`, E-11), and the selection callbacks are the existing
+`onProviderChange` / `onModelChange`, which write the same thread-config
+snapshot the landing surface writes (`GuardianChat.tsx:4747-4801`). No new
+authority, request field, persistence key, or provider identity was introduced.
+
+**Deliberately not changed.**
+
+- The backend explicit-model contract. It already fails closed and is
+  test-backed (E-18). The open release item (`00-current-state.md:74`) and the
+  complete-Compose contradiction (D-01) remain **externally owned** and are
+  **not** marked complete by this campaign.
+- The "⚠ Executed on" effective-route badge and its payload guard
+  (`useChat.ts:339-341`, `:354`). A partial `execution` payload would render
+  no badge, but **no partial payload was proven to occur**, so the guard was
+  left alone. Recorded as an observation, not a defect.
+- The `DeepSeek` display label. `llm_catalog.py:44-45` maps a *local* model's
+  family to its display label. The route row now shows that label next to the
+  provider's runtime identity, so the pairing is explicit rather than
+  ambiguous. Hiding the label would be the misleading fix.
+
+**Files changed:** the four authorized files above. 4 files changed, 279
+insertions, 26 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired.
+
+**Preserved invariants:** Guardian ownership, account scoping, provider policy,
+canonical tokens, message/attempt identity, transcript integrity, the removed
+mobile Session rail, FrameCard styling, and desktop behavior are all unchanged.
+The single-composer-surface invariant is preserved — the route row renders
+inside the same `data-composer-root`, and no projection surface was added.
+
+**Commit:** `fea3338` — `fix(chat): disclose the active provider and model
+route on mobile`. Hash recorded in the Gate 1 checkpoint comment on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. The external prerequisites in §9
+are unchanged, and the explicit-model release item is still open and still
+externally owned.
+
+**Next atomic Task:** Gate 2 — request-observation correctness and first-token
+latency diagnosis (`MOB-G2-TASK-1`). Scope is bounded by E-21 through E-25:
+the observation-loss message is already correct (E-21), the lifecycle
+diagnostic is real but hidden below the `sm` breakpoint on a phone (E-22), the
+banner's visibility predicate omits the queued state (E-23), there is no
+dispatch timestamp and no durable per-request latency record (E-24), and
+displayed latency may be client-synthesized (E-25). Gate 2 must improve UI
+state only where authoritative evidence exists and must record the
+instrumentation gap rather than invent a root cause.
+
+### 12.3 Gate 2 — request-observation correctness and first-token latency diagnosis
+
+**Task:** `MOB-G2-TASK-1` — phone lifecycle legibility.
+**Lane:** architecture-impact.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* let a phone distinguish the canonical request lifecycle stages
+  that the request state machine already computes, without inventing a state,
+  inferring a retry, or asserting a cause for slow responses.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/components/InferenceStatusBanner.tsx`
+  2. `frontend/src/features/chat/ChatView.tsx`
+  3. `frontend/src/features/chat/GuardianChat.tsx`
+  4. `frontend/src/features/chat/components/__tests__/InferenceStatusBanner.phone-lifecycle.test.tsx` (new)
+- *Deliberately excluded:* all backend files, the request state machine, the
+  lifecycle snapshot builder, and the persistence layer.
+
+**Behavior change.**
+
+- On a phone shell the in-thread banner names the canonical lifecycle stage
+  ("Queued…", "Warming model…", "Waiting for first token…", "Provider
+  degraded…") instead of collapsing every active phase into "Working…".
+- On a phone shell the diagnostic detail is rendered as a visible line instead
+  of the desktop-only `hidden … sm:inline` span, so the degraded/uncertainty
+  text ("Provider visibility is degraded; still waiting for a terminal task
+  event.") is legible on the device that reported the problem.
+- The runtime status strip no longer repeats the *active* request stage on a
+  phone. The strip keeps the provider runtime state on every viewport, and
+  keeps its terminal word on every viewport, so the stage is never shown
+  twice on one phone screen.
+- **Desktop is unchanged.** The banner's label logic, the detail's markup, and
+  the strip's rendering are all byte-for-byte the prior behavior when the
+  shell is not a phone. This is asserted by test, not by inspection alone.
+
+**Why this is the truthful fix.** Every string surfaced is one the request
+state machine already computes from the canonical lifecycle state
+(`useInferenceRequestState.ts:540-570` and the degraded variants at `:89-96`,
+`:958-960`). Nothing was inferred, and no timestamp, retry, or terminal state
+was invented.
+
+**Deliberately not changed.**
+
+- **The observation-loss message.** "Response observation is unavailable. The
+  request outcome has not been changed." is already correct (E-21) and is
+  covered by an existing assertion that the status does not match
+  `/failed|stopped/i`. It was left alone.
+- **The missing dispatch timestamp and the missing durable per-request latency
+  columns** (E-24). Instrumenting them is a backend and schema change
+  requiring an independent architecture decision, and the release track owns
+  that question. **Recorded as an open gap, not fixed, and not diagnosed.**
+- **Client-clock timestamp synthesis** (E-25). The client substitutes
+  `new Date().toISOString()` when a lifecycle event carries no timestamp. No
+  client-synthesized value is presented as a server measurement by this
+  change, and the substitution was not removed because it is load-bearing for
+  the client's own ordering.
+
+**Corrections made to this register during Gate 2.** E-23 was re-read and its
+Gate 0 reading was found to be wrong: the queued state is *not* hidden by the
+banner's visibility predicate, because the queued patch uses `phase:
+"sending"`. The real defect is E-26 — the banner's `statusText` fallback is
+unreachable dead code, so the banner can never display the canonical stage.
+E-23 has been rewritten accordingly.
+
+**Files changed:** the four authorized files above. 4 files changed, 211
+insertions, 5 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. The request lifecycle
+states defined in `chat-runtime-contract.md` and
+`request-state-machine.md` are unchanged, and the campaign surfaces them
+rather than redefining them.
+
+**Preserved invariants:** outcome and transcript integrity across observation
+loss and refresh are unchanged — no observation path was modified. Message and
+attempt identity are unchanged. No retry was inferred and no state was
+invented. Provider policy, account scoping, canonical tokens, and desktop
+behavior are unchanged.
+
+**Commit:** `c01b9d1af` — `fix(chat): name the canonical request stage on a
+phone`. Hash recorded in the Gate 2 checkpoint comment on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. The dispatch-timestamp and
+durable-latency instrumentation gap (E-24) remains open and externally owned
+by the runtime track.
+
+**Next atomic Task:** Gate 3 — mobile composer placement and keyboard-safe
+layout (`MOB-G3-TASK-1`). Scope is bounded by E-05 through E-10: the landing
+unit carries `transform: "translateY(-50%)"` on top of a flex stage that
+already centers it (E-05); the canonical keyboard-inset and safe-area seams
+exist and are measured correctly but are not plumbed to the composer, and the
+phone shell root is `position: fixed` with a viewport-derived height, so the
+composer rises with the keyboard (E-06); the composer is deliberately in
+normal document flow and that is asserted (E-07); no test asserts the landing
+vertical position or the composer bottom offset (E-08); and a second, dead
+legacy composer and several declared-but-unconsumed shell tokens exist
+(E-09, E-10). Gate 3 must not "fix" the composer by making it
+`position: fixed` — the correct seam is the existing shell token channel.
+
+### 12.4 Gate 3 — mobile composer placement and keyboard-safe layout
+
+**Task:** `MOB-G3-TASK-1` — landing composer posture and the active safe-area
+inset.
+**Lane:** standard.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* correct the landing composer posture and give the active
+  composer the canonical shell safe-area inset, using the existing shell
+  contract and without changing how the composer is positioned.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/chat/GuardianChat.tsx`
+  2. `frontend/src/features/chat/__tests__/GuardianChat.composer-posture.test.tsx` (new)
+- *Deliberately excluded:* `AppShell.tsx`, `mobileShellProfile.ts`,
+  `mobileBottomEdgeContract.ts`, `useViewportInsets.ts`, and the CSS layer.
+  None of them needed to change: the canonical contracts they hold were
+  already correct and already implemented — they were simply not reaching the
+  composer.
+
+**Behavior change.**
+
+- The landing prompt-first unit no longer carries `transform:
+  "translateY(-50%)"`. The stage's own flex alignment centres it, which is
+  what the code's comment already said was intended.
+- The active-thread composer positioner now applies
+  `mobileShellProfile.chat.composer.bottomSafeArea` as its bottom padding, so
+  the composer clears the home indicator instead of sitting flush against the
+  viewport bottom. The landing posture is excluded, because its composer is
+  centred and the viewport's bottom inset does not apply to it.
+
+**Why this is the truthful fix.** The transform was a stale calibration, not a
+design decision: `git show 93bb09a37` proves it was written for a
+`position: fixed` layout that the same commit replaced with flow positioning.
+The safe-area inset is an existing canonical token whose sibling consumer — the
+ChatView jump-to-latest overlay — already applies it. Both changes consume
+existing contracts; neither introduced a token, a layout mode, or a new
+positioning strategy.
+
+**Deliberately not changed.**
+
+- **The composer stays in normal document flow.** Making it `position: fixed`
+  would have been the easy fix and is forbidden by the contract asserted at
+  `GuardianChat.session-shortcuts.test.tsx:431`. It remains flow-positioned,
+  and the posture test asserts it.
+- **`--shell-keyboard-inset` was not consumed by the composer.** The phone
+  shell root is `position: fixed` with `height: var(--shell-viewport-height)`
+  — the `visualViewport` height — so the root's bottom edge is already the top
+  of the iOS keyboard and the flow-positioned composer already sits directly
+  above it. Adding the keyboard inset to the composer would double-count it.
+  The token remains an unconsumed seam and is recorded as such, not silently
+  wired up.
+- **The message lane's bottom padding** is governed by
+  `mobileBottomEdgeContract.ts` and already returns `0` on a phone with the
+  keyboard open, so the lane does not push the transcript up. It was left
+  alone.
+- **The dead legacy composer** (`frontend/src/components/chat/Composer.tsx`)
+  and the **unconsumed `mobileShellProfile.chat.composer.*` tokens** (E-09,
+  E-10) remain deferred hygiene (§10), not campaign work.
+
+**Files changed:** the two authorized files above. 2 files changed, 328
+insertions, 2 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. The canonical shell
+contract in `mobileShellProfile.ts` and `mobileBottomEdgeContract.ts` is
+unchanged; this gate makes the composer honor it.
+
+**Preserved invariants:** the composer remains in normal document flow and is
+never a fixed overlay; the landing unit is still not fixed-positioned and is
+still centred by its stage; the single-composer-surface rule is unchanged; the
+composer DOM node is reused across the landing and conversation postures, so
+draft, focus, and attachments are never reset by a posture change; FrameCard
+styling, the removed mobile Session rail, and desktop geometry are unchanged
+(the desktop profile declares a zero safe-area inset, so desktop is inert).
+
+**Commit:** `0854be7c4` — `fix(chat): correct the landing composer posture and
+the active safe-area inset`. Hash recorded in the Gate 3 checkpoint comment on
+Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`, plus source-history evidence
+for the transform's provenance. Not browser-emulated, not real device, not
+live runtime.
+
+**Outstanding blockers:** none introduced. External prerequisites in §9 are
+unchanged.
+
+**Next atomic Task:** Gate 4 — bounded onboarding pages, pagination, and copy
+revision (`MOB-G4-TASK-1`). Scope is bounded by E-01 through E-04: the
+`core_surfaces` step renders seven cards in a grid that collapses to one
+column on a phone inside a scrolling dialog (E-01, E-02); the body copy
+carries internal-contract language (E-03); and the account-state semantics
+that must not drift are enumerated in E-04. The fix is presentation-only —
+pagination, not schema — and the six semantic step keys, the account-owned
+progress record, the skip/resume/restart invariants, and the optional username
+semantics are preserved exactly. The stale baseline-limitation sentence in the
+onboarding contract (D-02) is corrected in the same scope.
+
+### 12.5 Gate 4 — bounded onboarding pages, pagination, and copy revision
+
+**Task:** `MOB-G4-TASK-1`.
+**Lane:** standard.
+**Outcome:** complete.
+
+**Atomic Task Spec as executed.**
+
+- *Objective:* make ordinary onboarding pages fit a bounded phone viewport
+  without nested scrolling, and replace internal contract language with
+  user-facing copy that keeps the privacy and capability truth.
+- *Authorized files (exact, as executed):*
+  1. `frontend/src/features/onboarding/onboardingContent.ts`
+  2. `frontend/src/features/onboarding/OnboardingWizard.tsx`
+  3. `frontend/src/features/onboarding/onboarding.css`
+  4. `frontend/src/features/onboarding/__tests__/Onboarding.test.tsx`
+  5. `docs/architecture/onboarding-and-tips-contract.md` (the D-02 correction)
+- *Deliberately excluded:* `onboardingTypes.ts`, `onboardingApi.ts`,
+  `OnboardingProvider.tsx`, the backend onboarding route, and every persistence
+  surface. No onboarding key, field, or schema was added or changed.
+
+**Behavior change.**
+
+- The `core_surfaces` step presents its seven surface cards in bounded pages
+  of two on a phone, with Previous/Next controls and a "Page N of M"
+  indicator. The desktop grid still shows every card on one page, so desktop
+  behavior is unchanged.
+- A card now carries the tip **summary**. The deeper explanatory **body**
+  stays in the shared Tips catalog, where it was already presented behind a
+  `<details>` disclosure. Nothing was deleted from the catalog: "Cards and
+  Tips share one catalog" (`onboarding-and-tips-contract.md:29`) still holds,
+  because there is still exactly one catalog, presented two ways.
+- Every `summary` and `body` string was rewritten to remove internal contract
+  language while keeping the required truths. The full
+  removed-language → replacement → preserved-truth mapping is in E-03.
+- The onboarding contract's baseline-limitation paragraph was corrected (D-02).
+
+**Why this is the truthful fix.** The overflow had a demonstrable structural
+cause — seven full-body cards in a one-column grid inside a scrolling dialog
+— and a bounded page of two cards is the largest page that fits the dialog's
+own declared `max-height` on a short phone. The copy change is bounded by the
+contract: the contract's own phrasings ("workspace/sidebar", the mobile
+drawer sentence) were kept verbatim so the contract's described surfaces are
+still described, and every step and tip title is unchanged.
+
+**A defect found and fixed during implementation.** The first implementation
+reset the page index in a `useEffect` keyed on `step`. React runs passive
+effects after the render that shows the step, so a page change that arrived
+between that render and the effect was silently undone — the click landed and
+the page snapped back. The reset is now **adjusted during render** (the
+React-documented pattern for resetting state when a prop changes), which
+orders the reset ahead of the render that shows the step and makes the race
+impossible. This was found by a failing test, not by inspection.
+
+**Deliberately not changed.**
+
+- **The six semantic step keys** (`onboardingTypes.ts`) and the account-owned
+  progress record are untouched. Pagination is component-local state: it adds
+  no request field, no persisted value, and no API surface, and a test asserts
+  that changing a page writes nothing and leaves `last_step_key` and `status`
+  unchanged.
+- **The username step** is unchanged: the form, the claim path, the
+  `requiredCapability` gating, and the "Skip username" affordance are as they
+  were. No username-edit route was invented.
+- **The capability labels on the cards** ("Private Preview" / "Unavailable in
+  this runtime/profile") are preserved, as the contract requires explanatory
+  cards to label unavailable messaging.
+- **The Tips catalog's structure** is unchanged; the Tips center still shows
+  title + summary and reveals the body on demand.
+
+**Files changed:** the five authorized files above. 5 files changed, 225
+insertions, 41 deletions.
+
+**ADR impact:** none. No ADR added, amended, or retired. ADR-079/ADR-080
+remain authoritative for the identity model; the copy now describes that model
+in plain language instead of contract terms.
+
+**Preserved invariants:** the six-step semantics, the account-owned progress
+record, skip/resume/restart behavior, the optional-username requirement, the
+"never requires a username to finish" rule, the "never derives username from
+email" rule, the Private Preview and same-node messaging posture, and the
+shared-cards-and-Tips single catalog are all unchanged. Desktop behavior is
+unchanged. No functional behavior depends on the D-02 correction.
+
+**Commit:** `bb9d79dc8` — `fix(onboarding): bound the surfaces step and remove
+contract language from copy`. Hash recorded in the Gate 4 checkpoint comment
+on Issue #888.
+
+**Evidence class:** `code-path` + `unit-test`. Not browser-emulated, not real
+device, not live runtime.
+
+**Outstanding blockers:** none introduced. External prerequisites in §9 are
+unchanged. D-02 is now resolved.
+
+**Next atomic Task:** Gate 5 — mobile regression proof and campaign closeout
+(`MOB-G5-TASK-1`). No product source is edited in this gate. It revalidates
+every campaign acceptance criterion against the committed implementation,
+separates proven outcomes from unresolved limitations, confirms the register's
+evidence links, reconciles every gate's status with Issue #888, and publishes
+the final closeout comment — including the four external prerequisites that
+remain open and the deferred work that is *not* admitted into this campaign.
+
+### 12.6 Gate 5 — mobile regression proof and campaign closeout
+
+**Task:** `MOB-G5-TASK-1`.
+**Lane:** docs-only.
+**Outcome:** complete.
+
+**Authorized files:** the two campaign documents. **No product source was
+edited in this gate.**
+
+#### Acceptance criteria reconciliation
+
+| # | Campaign acceptance criterion | Verdict | Evidence | Owner of the remainder |
+|---|---|---|---|---|
+| 1 | Provider selection is visible, accurate, and functional on phone | **Proven** (code-path + unit-test) | E-15, E-27; Gate 1: the mobile conversation surface now renders the provider/model route and can switch both. Verified by 8 new tests plus 37 affected-suite tests | — |
+| 2 | Explicit unavailable model targets cannot silently substitute | **Not proven here — externally owned** | E-18, E-19, D-01. The backend fails closed and is test-backed, but the release item at `00-current-state.md:74` is unchecked and the complete-Compose contradiction is unresolved | **Release track** |
+| 3 | Request status never presents observation loss as execution failure | **Proven** (code-path + unit-test) | E-21; the observation-loss message was already correct and was left unchanged; Gate 2 added no failure semantics | — |
+| 4 | Slow model startup is diagnosed using observable lifecycle evidence | **Partially proven** | Gate 2 made the canonical stages ("Queued…", "Warming model…", "Waiting for first token…") legible on a phone instead of a single "Working…". The **queue-wait interval is not instrumented** (E-24) and no root cause for slow first-token responses was diagnosed | **Runtime track** (dispatch timestamp) |
+| 5 | The active mobile composer remains keyboard-accessible and near the bottom of the usable viewport | **Proven for posture and safe area; keyboard path is code-path only** | E-05, E-06, E-07; Gate 3 corrected the landing double-lift and applied the canonical safe-area inset. The keyboard path was shown to be correct at the shell root by code path, **not** on a device | — |
+| 6 | Onboarding ordinarily fits bounded pages without nested scrolling | **Proven** (browser-emulated) | E-28: 757px overflow before, **zero** overflow after, on every step and every page at 390×844 | — |
+| 7 | Onboarding skip, resume, and username behavior remain intact | **Proven** (unit-test) | E-04; all 19 pre-existing onboarding tests pass unchanged; 5 new tests added | — |
+| 8 | Existing desktop and mobile shell behavior does not regress | **Proven** (unit-test + browser-emulated) | Full frontend suite: 2220 passed, 4 pre-existing failures only. Desktop onboarding: all seven cards, no pager, no overflow (E-28) | — |
+| 9 | Each implementation slice has scoped validation and a commit | **Proven** | Five implementation commits, one per gate, each with its own scoped validation (§11.1–§11.6) | — |
+| 10 | All unresolved limitations are explicitly documented | **Proven** | §9, §10, D-01…D-04, E-24, E-25, and the limits stated on every entry | — |
+| 11 | GitHub Issue #888 contains a checkpoint for every completed or blocked Gate | **Proven** | Six checkpoint comments, one per gate, plus a ticked checklist | — |
+| 12 | The Campaign register links the relevant commits, PRs, and proof | **Proven** | §12.1–§12.6 and the commit subjects/hashes | — |
+| 13 | The final Campaign status accurately reflects completed work and any outstanding external dependencies | **This section** | — | — |
+
+#### Proven outcomes
+
+- The mobile conversation composer **discloses the active provider/model
+  route** and can switch it (Gate 1).
+- The mobile banner **names the canonical request stage** instead of a single
+  "Working…", and shows the degraded/uncertainty detail (Gate 2).
+- The landing composer **no longer floats high**, and the active composer
+  **clears the home indicator** (Gate 3).
+- Onboarding **fits a bounded phone viewport** on every step, with
+  presentation-only pagination and user-facing copy (Gate 4).
+
+#### Unresolved limitations — not proven by this campaign
+
+1. **No real-device proof.** Nothing in this campaign was observed on a
+   physical phone. The strongest evidence is browser-emulated geometry
+   (E-28) plus code-path and unit-test proof.
+2. **No live-runtime proof.** No supported-Compose stack was available.
+3. **The chat surfaces were not browser-measured.** Mounting the real
+   `GuardianChat` needs the auth, API, and chat-session seams. The Gate 1–3
+   claims stand on code-path and unit-test evidence.
+4. **The queue-wait interval is still not instrumented** (E-24), and the
+   client can still synthesize a timestamp (E-25). The interface does not
+   present either as a server measurement.
+5. **The explicit-model release item remains open and externally owned**
+   (E-19, D-01). This campaign did **not** mark it complete and did **not**
+   duplicate the backend contract.
+6. **The pre-existing test failures remain pre-existing.** Three are stable
+   (`UnifiedDesktopCompositor` ×2, `GuardianMobileSidebarAppMenu`), and a
+   fourth, varying identity appears under full-suite load
+   (`GuardianChat turn lock lifecycle`, `ChatView loop guards`). Every one of
+   them passes in isolation, and the campaign's own tests were confirmed
+   meaningful by failing against the baseline source (§11.6).
+7. **ESLint and Prettier could not be run** in this environment.
+8. **One residual environment artifact.** A baseline worktree created for the
+   comparison could not be removed: the sandbox denied both `mavis-trash` and
+   any other deletion for
+   `/Volumes/Dev_SSD/Codexify-main/.worktrees/mob-baseline-check` (329 MB). It
+   is a plain checkout of `b2907f828` with no repository registration and no
+   effect on this campaign's worktree, but it is left on disk and should be
+   removed by an operator.
+
+#### Campaign stop condition
+
+The campaign's stopping condition is met: every in-scope gate is proven
+against the campaign acceptance criteria, and the scope that remains is
+blocked by external owners whose prerequisites are recorded and linked
+(§9). The campaign does not reopen for further improvements.
+
+**Release qualification is unchanged.** The release gate remains `HOLD` per
+`00-current-state.md`. Nothing in this campaign is a release-readiness claim.
+No deployment, merge, or release promotion was performed.
+
+**Publication.** After the gates closed, the branch was pushed and the pull
+request was opened **on explicit operator authorization**:
+
+- Branch: `feat/auto-20261023-5ef3356f` → `origin/feat/auto-20261023-5ef3356f`
+- Pull request: **#891** —
+  [`fix(mobile): calibrate route truth, request-stage legibility, composer posture, and onboarding bounds`](https://github.com/Resonant-Jones/Codexify/pull/891),
+  base `main`, 11 commits, 16 files, +2878 / −74.
+
+The PR is open and unmerged. It is not merged, and it is not a release
+promotion.
+
+**Deferred work — not admitted into this campaign:** see §10. The most
+notable items are the dead legacy composer, the unmounted `ProviderSelect`,
+the ADR-051/ADR-052 filename collision, the two absent explicit-model proof
+documents, and the dispatch-timestamp instrumentation.

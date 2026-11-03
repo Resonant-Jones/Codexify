@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/guardian/read_bounded_evidence.py"
@@ -222,8 +224,12 @@ def test_docs_and_existing_local_tools_remain_aligned() -> None:
     assert "bounded read artifacts" in contract
     assert "only through a separate generator implementation" in generator
     assert "scripts/guardian/read_bounded_evidence.py" in readme
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+
+    # The canonical current-state document owns release truth. The shared
+    # contract replaces two obsolete prose fragments with the document's
+    # actual release-boundary structure, so the protection survives rewording
+    # of the document while still failing when the boundary itself is removed.
+    assert_current_release_truth(current)
 
     for target in (
         "guardian-evidence-packets-validate",

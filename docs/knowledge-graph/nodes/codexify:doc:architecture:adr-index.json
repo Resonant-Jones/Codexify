@@ -8,20 +8,20 @@
     "ADR reading order",
     "ADR graph navigation"
   ],
-  "content_hash": "d718015e6c3ca3148b0c47af4efc0c25ceea6c8d4617460855e764b31713636f",
+  "content_hash": "48d3d60a9bf7cfc2c4e88e0122656521974baa433d6b2dbcb1c38c60d5314e23",
   "disposition": "accepted",
   "document_id": "codexify:doc:architecture:adr-index",
   "evidence_class": "documented-contract",
   "freshness": {
-    "reason": "ADR-089 index entry and governed ADR source were reverified at the integration commit; documentation metadata only, not runtime or release proof.",
-    "state": "current",
+    "reason": "ADR-105's review posture moved from Proposed to Accepted 2026-10-28 by Resonant Jones, and entry 105 records that acceptance, the accepted architecture, and the ordered runtime slices with the persistence foundation first. The index content hash was recomputed from the changed canonical source bytes; the prior verification commit and timestamp are retained unchanged because this change was not reverified against its governed sources. Documentation metadata only, not runtime or release proof.",
+    "state": "stale",
     "triggers": [
       "an ADR is added, removed, renumbered, or retitled",
       "an indexed ADR review posture changes",
       "the documented ADR graph or reading order changes"
     ],
     "verified_at": "2026-09-24T20:46:58Z",
-    "verified_commit": "84ffc5b938e964ae3e960f3a503836994776e3ca"
+    "verified_commit": "62f086ff367abeda37f58ad4ff8ad95df1f57454"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",

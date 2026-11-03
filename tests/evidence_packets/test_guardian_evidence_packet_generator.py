@@ -3,6 +3,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from tests.evidence_packets.release_truth_contract import assert_current_release_truth
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/guardian/generate_evidence_packet.py"
 INPUT = "docs/architecture/fixtures/guardian-evidence-bounded-read.local-tooling.v1.json"
@@ -82,5 +84,4 @@ def test_generator_docs_are_linked() -> None:
     for path in ("docs/architecture/guardian-evidence-packet-generator-contract.md", "docs/architecture/README.md"):
         assert "generate_evidence_packet.py" in (ROOT / path).read_text()
     current = (ROOT / "docs/architecture/00-current-state.md").read_text()
-    assert "Do not treat focused tests" in current
-    assert "public Beta support" in current
+    assert_current_release_truth(current)

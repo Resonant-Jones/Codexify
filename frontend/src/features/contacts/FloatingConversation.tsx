@@ -146,6 +146,40 @@ export default function FloatingConversation({
     state.markTranscriptLoaded
   );
 
+  /**
+   * The floating window owns the explicit mark-read mutation.
+   *
+   * Reading a Conversation here advances the caller's own recipient-local
+   * cursor, exactly like reading it in the Inbox does.  Without this, a
+   * Conversation that is only ever read in the floating window would stay
+   * unread forever.
+   *
+   * The watermark is the last message actually RENDERED, so a message that
+   * arrived after the transcript was fetched is never marked read.  A
+   * *minimized* pill is not a read: the recipient collapsed the window and
+   * may not have looked at it.
+   *
+   * The mutation goes through the People state owner's one shared path, so
+   * the Inbox and the floating window never post the same watermark twice,
+   * and the peer can never observe it.
+   */
+  useEffect(() => {
+    if (!conversationId) return;
+    if (state.floatingMode !== "open") return;
+    if (!state.loadedByConversationId[conversationId]) return;
+    const rendered = state.messagesByConversationId[conversationId] ?? [];
+    const watermark =
+      rendered.length > 0 ? rendered[rendered.length - 1].message_id : null;
+    if (watermark === null) return;
+    void state.markConversationRead(conversationId, watermark);
+  }, [
+    conversationId,
+    state.floatingMode,
+    state.loadedByConversationId,
+    state.markConversationRead,
+    state.messagesByConversationId,
+  ]);
+
   const handleSend = useCallback(async () => {
     if (!conversationId) return;
     const body = draft.trim();

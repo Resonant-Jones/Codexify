@@ -9,6 +9,7 @@ No raw DDL creation in application code.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -32,6 +34,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.metering.tokens import InferenceCostSource, InferenceUsageSource
 from guardian.account_observability.tokens import (
     ATTRIBUTION_CONFIDENCES,
     ATTRIBUTION_METHODS,
@@ -72,6 +75,7 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    ContinuationAuthorityProvenance,
     GUARDIAN_DELEGATION_APPROVAL_MODES,
     GUARDIAN_DELEGATION_APPROVAL_SOURCES,
     GUARDIAN_DELEGATION_APPROVAL_STATES,
@@ -152,6 +156,81 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'guest')", name="users_role_check"),
+    )
+
+
+
+class InferenceUsageEvent(Base):
+    """One immutable, content-free provider attempt accounted to an existing user."""
+
+    __tablename__ = "inference_usage_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    account_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_attempt_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128))
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    cached_input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    total_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    usage_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 9))
+    cost_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    price_snapshot: Mapped[dict[str, str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "provider_attempt_id", name="uq_inference_usage_account_attempt"),
+        CheckConstraint(
+            "usage_source IN ('provider_reported','partial','unavailable')",
+            name="inference_usage_source_check",
+        ),
+        CheckConstraint(
+            "cost_source IN ('rate_snapshot_estimate','unavailable')",
+            name="inference_cost_source_check",
+        ),
+        CheckConstraint(
+            "(estimated_cost_usd IS NULL AND cost_source = 'unavailable') OR "
+            "(estimated_cost_usd IS NOT NULL AND cost_source = 'rate_snapshot_estimate' "
+            "AND estimated_cost_usd >= 0)",
+            name="inference_cost_presence_check",
+        ),
+        CheckConstraint(
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="inference_input_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="inference_output_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "cached_input_tokens IS NULL OR cached_input_tokens >= 0",
+            name="inference_cached_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="inference_total_tokens_nonnegative",
+        ),
+        Index("ix_inference_usage_account_time", "account_id", "recorded_at"),
+        Index("ix_inference_usage_request", "request_id"),
     )
 
 
@@ -2382,6 +2461,52 @@ class DirectMessage(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class DirectMessageReadCursor(Base):
+    """Recipient-local read cursor for one direct Conversation.
+
+    The cursor records how far **this** profile has read a conversation.  It
+    is participant-local by construction: the row is keyed by the reading
+    profile, and the other participant can never observe it, advance it, or
+    derive anything from it.  It is not a read receipt, and it is not shared
+    relationship state.
+
+    Unread count is *derived* from the durable message store and this cursor;
+    the cursor stores no counts, no previews, and no message bodies.
+    """
+
+    __tablename__ = "direct_message_read_cursors"
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_message_conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("user_profiles.profile_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    last_read_message_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("direct_messages.id", ondelete="SET NULL"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_direct_message_read_cursors_profile",
+            "profile_id",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Delegations
 # =========================
@@ -4374,7 +4499,13 @@ class ProjectDocumentLink(Base):
 
 
 class UserSettings(Base):
-    """Durable user-global policy controls for identity modeling."""
+    """Durable user-global policy controls for identity modeling.
+
+    Also holds the account's explicit consent for automatic Personal Fact
+    collection.  ``automatic_memory_suggestions`` is intentionally separate
+    from ``memory_mode``: the latter is an identity-modeling depth control and
+    must never be reused as collection consent.
+    """
 
     __tablename__ = "user_settings"
 
@@ -4387,6 +4518,24 @@ class UserSettings(Base):
     )
     allow_sensitive_modeling: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Explicit account consent for automatic Personal Fact collection.
+    # `unset` is the default for every account, so a missing preference denies
+    # automatic collection (fail-closed).
+    automatic_memory_suggestions: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unset", server_default="unset"
+    )
+    consent_policy_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="1", server_default="1"
+    )
+    consent_recorded_by_user_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    consent_recorded_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    consent_updated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -4402,6 +4551,11 @@ class UserSettings(Base):
         CheckConstraint(
             "memory_mode IN ('none','light','deep')",
             name="user_settings_memory_mode_check",
+        ),
+        CheckConstraint(
+            "automatic_memory_suggestions IN "
+            "('unset','enabled','paused','declined')",
+            name="user_settings_automatic_memory_suggestions_check",
         ),
     )
 
@@ -6412,6 +6566,17 @@ class Campaign(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+#: The canonical Campaign Continuation Authority provenance vocabulary, as a
+#: CHECK-constraint SQL fragment. The strings are generated from
+#: ``guardian.protocol_tokens`` so ORM metadata stays in lockstep with the
+#: canonical token domain. The Alembic migration carries its own
+#: revision-local string snapshot so historical replay never depends on
+#: mutable application tokens.
+_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL = ", ".join(
+    f"'{provenance.value}'" for provenance in ContinuationAuthorityProvenance
+)
+
+
 class CampaignContinuationAuthorityRecord(Base):
     """Operator-approved, Campaign-scoped continuation authority record."""
 
@@ -6438,6 +6603,16 @@ class CampaignContinuationAuthorityRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # ADR-105: actor identity and approval/revocation provenance are distinct
+    # durable facts. The actor string alone cannot tell a canonical human
+    # administrator apart from a deployment principal that shares the same
+    # bytes, so the authority record carries this discriminator per action
+    # and consumers read it directly instead of inferring it.
+    #
+    # These columns are declared last so the ORM column order matches the
+    # physical order the Alembic migration produces when it appends them.
+    approval_provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    revocation_provenance: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         CheckConstraint(
@@ -6450,6 +6625,21 @@ class CampaignContinuationAuthorityRecord(Base):
             "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
             "AND revocation_reason IS NOT NULL)",
             name="campaign_continuation_authorities_revocation_check",
+        ),
+        CheckConstraint(
+            "approval_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL})",
+            name="campaign_continuation_authorities_approval_provenance_check",
+        ),
+        CheckConstraint(
+            # ``revocation_provenance IS NOT NULL`` is stated explicitly
+            # because a CHECK constraint only rejects a FALSE result: a NULL
+            # provenance would make the ``IN`` test NULL, and NULL passes.
+            "(revoked_at IS NULL AND revocation_provenance IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revocation_provenance IS NOT NULL "
+            f"AND revocation_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL}))",
+            name="campaign_continuation_authorities_revocation_provenance_check",
         ),
         Index(
             "uq_campaign_continuation_authorities_unrevoked_campaign",
@@ -7583,18 +7773,7 @@ class MemoryProvenance(Base):
 
 
 class MemoryRevision(Base):
-    """Append-only authored content history for canonical memory (UMS-05C9).
-
-    Frozen by migration ``c3d9f4e6a1b2`` and UMS contract §4.2. The parent
-    ``memory_records`` row retains current content authority; this relation
-    preserves the exact prior and resulting authored text for one transition,
-    so a direct content correction can be reconstructed.
-
-    Deliberately distinct from ``memory_provenance`` (source identity plus
-    non-authoritative receipt extensions -- audit evidence, not content
-    history) and ``personal_fact_revisions`` (the specialized Personal Facts
-    revision authority, untouched here).
-    """
+    """Authored content history; MemoryRecord retains current content authority."""
 
     __tablename__ = "memory_revisions"
 
@@ -7609,9 +7788,6 @@ class MemoryRevision(Base):
     )
 
     __table_args__ = (
-        # Revision account identity is bound to canonical-memory account
-        # identity. CASCADE ties revision lifetime to legitimate permanent
-        # erasure of the parent memory.
         ForeignKeyConstraint(
             ["memory_id", "user_id"],
             ["memory_records.memory_id", "memory_records.user_id"],
@@ -7619,17 +7795,12 @@ class MemoryRevision(Base):
             ondelete="CASCADE",
         ),
         PrimaryKeyConstraint("revision_id", name="pk_memory_revisions"),
-        # Per-memory ordering is explicit and duplicate sequence numbers are
-        # impossible. memory_id is globally unique (PK of memory_records), so
-        # this is strictly per-memory unique without weakening that.
         UniqueConstraint(
             "memory_id", "revision_number", name="uq_memory_revisions_memory_number"
         ),
         CheckConstraint(
             "revision_number >= 1", name="memory_revisions_number_check"
         ),
-        # Exact byte comparison: a row with identical prior and resulting text
-        # is not a semantic revision. No trimming, no collation.
         CheckConstraint(
             "old_text_content <> new_text_content",
             name="memory_revisions_change_check",
@@ -7641,18 +7812,7 @@ class MemoryRevision(Base):
 
 
 class MemoryReviewRevision(Base):
-    """Append-only review-state transition history (UMS-05C10A-P).
-
-    Frozen by migration ``a7c3e91d4b60``. Records *that* a typed review state
-    changed, without granting transition authority: no legal-transition graph
-    is encoded, and persistence capability is not mutation authorization.
-
-    Four truth surfaces stay strictly separate -- ``memory_records``
-    ``review_state`` (current review authority), ``memory_revisions`` (content
-    history only), ``memory_review_revisions`` (review-authority history), and
-    ``memory_provenance`` (intent / source / audit evidence, whose
-    ``extensions`` are explicitly non-authority).
-    """
+    """Independent review-state history, without granting transition authority."""
 
     __tablename__ = "memory_review_revisions"
 
@@ -7670,9 +7830,6 @@ class MemoryReviewRevision(Base):
     )
 
     __table_args__ = (
-        # Review-revision account identity is bound to canonical-memory
-        # account identity. CASCADE ties review-revision lifetime to
-        # legitimate permanent erasure of the parent memory.
         ForeignKeyConstraint(
             ["memory_id", "user_id"],
             ["memory_records.memory_id", "memory_records.user_id"],
@@ -7682,9 +7839,6 @@ class MemoryReviewRevision(Base):
         PrimaryKeyConstraint(
             "review_revision_id", name="pk_memory_review_revisions"
         ),
-        # Per-memory ordering is explicit and duplicate sequence numbers are
-        # impossible. This sequence is scoped to the review-history family
-        # and is NOT shared with content `memory_revisions`.
         UniqueConstraint(
             "memory_id",
             "revision_number",
@@ -7693,8 +7847,6 @@ class MemoryReviewRevision(Base):
         CheckConstraint(
             "revision_number >= 1", name="memory_review_revisions_number_check"
         ),
-        # Typed review vocabulary only. No source->target pair is privileged
-        # or forbidden: the legal transition graph is unresolved.
         CheckConstraint(
             "old_review_state IN ('pending', 'approved', 'rejected', 'disputed')",
             name="memory_review_revisions_old_state_check",
@@ -7718,17 +7870,7 @@ class MemoryReviewRevision(Base):
 
 
 class MemoryLifecycleRevision(Base):
-    """Append-only lifecycle-state transition history (UMS-05C10B-P).
-
-    Frozen by migration ``b8e2f4a6c901``. Preserves the pre-retirement
-    governed posture in ``old_lifecycle_state`` so a restore can return a
-    retired record to the posture it actually held; no parallel mutable
-    ``pre_retirement_state`` column is added.
-
-    The parent ``memory_records`` row retains present lifecycle authority. No
-    legal transition graph is encoded -- any unequal pair of valid lifecycle
-    tokens is accepted and no source-to-target combination is forbidden.
-    """
+    """Independent lifecycle history; the parent retains present-state authority."""
 
     __tablename__ = "memory_lifecycle_revisions"
 
@@ -7745,9 +7887,6 @@ class MemoryLifecycleRevision(Base):
     )
 
     __table_args__ = (
-        # Lifecycle-revision account identity is bound to canonical-memory
-        # account identity. CASCADE ties lifecycle history to legitimate
-        # permanent erasure of the parent memory.
         ForeignKeyConstraint(
             ["memory_id", "user_id"],
             ["memory_records.memory_id", "memory_records.user_id"],
@@ -7757,9 +7896,6 @@ class MemoryLifecycleRevision(Base):
         PrimaryKeyConstraint(
             "lifecycle_revision_id", name="pk_memory_lifecycle_revisions"
         ),
-        # Per-memory ordering is explicit and duplicate sequence numbers are
-        # impossible. This sequence is scoped to the lifecycle-history family
-        # and is NOT shared with content or review revision numbering.
         UniqueConstraint(
             "memory_id",
             "revision_number",
@@ -7768,8 +7904,6 @@ class MemoryLifecycleRevision(Base):
         CheckConstraint(
             "revision_number >= 1", name="memory_lifecycle_revisions_number_check"
         ),
-        # Typed canonical lifecycle vocabulary only. No source->target pair
-        # is privileged or forbidden.
         CheckConstraint(
             "old_lifecycle_state IN ('active', 'dormant', 'retired')",
             name="memory_lifecycle_revisions_old_state_check",
@@ -7789,20 +7923,7 @@ class MemoryLifecycleRevision(Base):
 
 
 class MemoryPurgeTombstone(Base):
-    """Minimum non-content suppression state surviving erasure (UMS-11).
-
-    Frozen by migration ``c7f4a9b2e6d1`` and UMS contract §12. This is *not*
-    an ordinary canonical memory family: it deliberately has no composite
-    foreign key to ``memory_records`` and stores no canonical ``memory_id``,
-    because the parent row is deleted by the purge that writes the tombstone.
-    Identity is carried by a versioned, domain-separated, non-reversible
-    digest instead, which makes an idempotent retry detectable after the
-    canonical row is gone while revealing nothing about the erased content.
-
-    ``suppress_reimport`` is stored but structurally cannot become false: the
-    CHECK constraint pins it true, and no model, Operator, importer, or
-    internal service may clear it.
-    """
+    """Minimum non-content suppression state that survives its memory's erasure."""
 
     __tablename__ = "memory_purge_tombstones"
 
@@ -7822,8 +7943,6 @@ class MemoryPurgeTombstone(Base):
     )
 
     __table_args__ = (
-        # Non-null account authority. CASCADE removes suppression when the
-        # owning account itself is legitimately erased.
         ForeignKeyConstraint(
             ["user_id"],
             ["users.id"],
@@ -7831,15 +7950,11 @@ class MemoryPurgeTombstone(Base):
             ondelete="CASCADE",
         ),
         PrimaryKeyConstraint("purge_receipt_id", name="pk_memory_purge_tombstones"),
-        # One suppression entry per erased record per account. This is what
-        # makes an idempotent retry provable without creating a second
-        # tombstone or a second receipt identity.
         UniqueConstraint(
             "user_id",
             "purged_record_fingerprint",
             name="uq_memory_purge_tombstones_account_record",
         ),
-        # Typed source vocabulary, revision-local and immutable.
         CheckConstraint(
             "source_system IS NULL OR source_system IN "
             "('codexify', 'openai', 'anthropic', 'future_registered')",
@@ -7850,15 +7965,10 @@ class MemoryPurgeTombstone(Base):
             "('chat', 'vault', 'importer', 'classifier', 'future_registered')",
             name="memory_purge_tombstones_source_entity_kind_check",
         ),
-        # The suppression posture cannot be relaxed. This is a structural
-        # guarantee, not a service convention.
         CheckConstraint(
             "suppress_reimport", name="memory_purge_tombstones_suppress_reimport_check"
         ),
         Index("ix_memory_purge_tombstones_user_id", "user_id"),
-        # Partial unique index: a given source atom may be suppressed at most
-        # once per account, while leaving the NULL case unconstrained so any
-        # number of direct/manual purges coexist.
         Index(
             "uq_memory_purge_tombstones_account_source_atom",
             "user_id",
@@ -7910,3 +8020,175 @@ class UserOnboardingState(Base):
         ),
         CheckConstraint("onboarding_version = 1", name="user_onboarding_version_check"),
     )
+
+
+# =========================
+# Saved Widgets
+# =========================
+
+
+SAVED_WIDGET_LIFECYCLE_ACTIVE = "active"
+SAVED_WIDGET_LIFECYCLE_ARCHIVED = "archived"
+SAVED_WIDGET_LIFECYCLE_DELETED = "deleted"
+SAVED_WIDGET_LIFECYCLE_VALUES = (
+    SAVED_WIDGET_LIFECYCLE_ACTIVE,
+    SAVED_WIDGET_LIFECYCLE_ARCHIVED,
+    SAVED_WIDGET_LIFECYCLE_DELETED,
+)
+SAVED_WIDGET_LIFECYCLE_VALUES_SQL = "','".join(SAVED_WIDGET_LIFECYCLE_VALUES)
+SAVED_WIDGET_LIFECYCLE_CHECK = (
+    "lifecycle_state IN ('" + SAVED_WIDGET_LIFECYCLE_VALUES_SQL + "')"
+)
+
+
+class SavedWidget(Base):
+    """Canonical account-owned Saved Widget record.
+
+    One widget has exactly one canonical, server-assigned identity and
+    exactly one account owner. Ownership is a property of the *widget*; it is
+    never a component of the revision key, and a Project or thread is never an
+    alternative ownership authority.
+
+    ``current_revision`` is a forward-only pointer into the widget's own
+    revision history. It is protected by a deferrable composite foreign key
+    so that the widget row and its first revision can be written in one
+    transaction without the database ever observing a pointer to a revision
+    that does not exist.
+    """
+
+    __tablename__ = "saved_widgets"
+
+    widget_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    current_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    owner: Mapped[User] = relationship("User")
+    revisions: Mapped[list[SavedWidgetRevision]] = relationship(
+        "SavedWidgetRevision",
+        back_populates="widget",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        # The widget/revision relationship is joined on the owning column only.
+        # The composite pointer and edit-base constraints are database
+        # invariants, not alternative relationship paths.
+        foreign_keys="SavedWidgetRevision.widget_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            SAVED_WIDGET_LIFECYCLE_CHECK, name="saved_widgets_lifecycle_state_check"
+        ),
+        CheckConstraint(
+            "current_revision > 0", name="saved_widgets_current_revision_check"
+        ),
+        # The pointer may only ever name a revision that exists. Deferred so
+        # that widget + revision 1 commit together, and checked at commit
+        # time so no intermediate state exposes a dangling pointer.
+        ForeignKeyConstraint(
+            ["widget_id", "current_revision"],
+            ["saved_widget_revisions.widget_id", "saved_widget_revisions.revision"],
+            name="fk_saved_widgets_current_revision",
+            deferrable=True,
+            initially="DEFERRED",
+            use_alter=True,
+        ),
+        Index("ix_saved_widgets_owner_user_id", "owner_user_id"),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+class SavedWidgetRevision(Base):
+    """Immutable Saved Widget revision snapshot.
+
+    Revision identity is ``(widget_id, revision)``. Two widgets owned by the
+    same account each number their own revisions from 1 without collision,
+    because ownership is a property of the widget and is not part of the key.
+
+    A revision is a *snapshot*, never a live join. The artifact, the
+    server-proven provenance, and the revision-creation context are denormalized
+    into the row at save time, because their referents cascade on source
+    deletion: deleting the source thread must not delete, alter, or
+    un-provenance a Saved Widget.
+    """
+
+    __tablename__ = "saved_widget_revisions"
+
+    widget_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("saved_widgets.widget_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    artifact_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    provenance_snapshot: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    creation_context: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+    )
+    edit_base_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    widget: Mapped[SavedWidget] = relationship(
+        "SavedWidget",
+        back_populates="revisions",
+        foreign_keys="SavedWidgetRevision.widget_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint("revision > 0", name="saved_widget_revisions_revision_check"),
+        # The edit base is null for an initial promotion and otherwise names a
+        # strictly earlier revision of this same widget.
+        CheckConstraint(
+            "edit_base_revision IS NULL OR "
+            "(edit_base_revision > 0 AND edit_base_revision < revision)",
+            name="saved_widget_revisions_edit_base_check",
+        ),
+        # The edit base must exist for this widget, not merely be a number.
+        ForeignKeyConstraint(
+            ["widget_id", "edit_base_revision"],
+            ["saved_widget_revisions.widget_id", "saved_widget_revisions.revision"],
+            name="fk_saved_widget_revisions_edit_base",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        Index(
+            "ix_saved_widget_revisions_widget_created_at",
+            "widget_id",
+            "created_at",
+        ),
+    )
+
+    __mapper_args__ = {"eager_defaults": True}

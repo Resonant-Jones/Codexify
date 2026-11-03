@@ -46,6 +46,12 @@ Scratchfile.md
 moondream.tar
 tts_out.wav
 test.jpg
+# Local scratch directory for session artifacts, proofs and throwaway scripts.
+# Never tracked; also excluded from the Docker build context.
+.scratch/
+.scratch.*
+# Local Docker buildx state (activity files, builder metadata).
+.buildx/
 test.txt
 dead_code_report.*
 Codexify_Schema_Review_For_Claude.pdf
@@ -78,7 +84,10 @@ build/
 
 # Lockfiles: keep only the intentional roots
 # (Root workspace lockfile is tracked; nested lockfiles are never tracked.)
-**/src/pnpm-lock.yaml
+**/pnpm-lock.yaml
+!/pnpm-lock.yaml
+# The retired frontend install root used this to pin its own lockfile location.
+frontend/.npmrc
 
 # TypeScript build info caches
 *.tsbuildinfo
@@ -103,6 +112,9 @@ __DISABLE_SQLITE__
 
 # Embedded repos; do not track
 /groq-code-cli/
+
+# Independent website repo: https://github.com/Resonant-Jones/Codexify.Space
+/Codexify.Space/
 
 # Publishing Portal — independent local/public-facing repo; must not be tracked
 # by the parent Codexify repo. The portal owns its own .git history.

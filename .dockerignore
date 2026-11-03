@@ -25,6 +25,20 @@ src/.vite
 # environment + secrets
 .env
 .env.local
+# All env variants are secrets (private-preview holds session/JWT keys and
+# preview allowlists). Never ship them into a build context.
+.env.*
+!.env.example
+!.env.template
+!.env.private-preview.example
+!.env.tester.example
+!.env.demo.example
+
+# Local scratch and session artifacts. These are not part of the image and
+# can be many gigabytes; including them inflates the build context and risks
+# uploading unrelated local state to the daemon.
+.scratch
+.scratch.*
 
 # git
 .git

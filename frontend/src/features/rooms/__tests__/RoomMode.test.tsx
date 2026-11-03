@@ -239,7 +239,13 @@ describe("RoomMode", () => {
     render(<RoomMode roomId="room-owner-1" onLeave={vi.fn()} />);
     const composer = await screen.findByTestId("composer-textarea");
     fireEvent.change(composer, { target: { value: "persist this once" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    // The Send control stays disabled until the draft is applied, so wait for
+    // it to become actionable instead of racing the draft state update.
+    const sendButton = await screen.findByRole("button", { name: "Send" });
+    await waitFor(() => {
+      expect(sendButton).toBeEnabled();
+    });
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith(
@@ -268,7 +274,12 @@ describe("RoomMode", () => {
     render(<RoomMode roomId="room-owner-1" onLeave={vi.fn()} />);
     const composer = await screen.findByTestId("composer-textarea");
     fireEvent.change(composer, { target: { value: "keep this draft" } });
+    // The Send control stays disabled until the draft is applied, so wait for
+    // it to become actionable instead of racing the draft state update.
     const send = screen.getByRole("button", { name: "Send" });
+    await waitFor(() => {
+      expect(send).toBeEnabled();
+    });
     fireEvent.click(send);
     fireEvent.click(send);
 

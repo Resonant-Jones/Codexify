@@ -6,6 +6,7 @@ type InferenceStatusBannerProps = {
   state: InferenceRequestState;
   onCancel?: () => void;
   onSwitchToFast?: () => void;
+  isPhoneShell?: boolean;
 };
 
 function isVisibleState(state: InferenceRequestState): boolean {
@@ -23,6 +24,7 @@ export function InferenceStatusBanner({
   state,
   onCancel,
   onSwitchToFast,
+  isPhoneShell = false,
 }: InferenceStatusBannerProps) {
   if (!isVisibleState(state)) {
     return null;
@@ -34,11 +36,18 @@ export function InferenceStatusBanner({
     state.phase === "streaming";
 
   const isPendingStop = state.isPendingCancel;
+  // The canonical lifecycle stage ("Queued…", "Warming model…",
+  // "Waiting for first token…", "Provider degraded…") is already computed by
+  // the request state machine. On a phone the banner is the request-state
+  // surface, so it names that stage instead of collapsing queue, model
+  // warmup, and first-token wait into a single "Working…".
+  const canonicalStageLabel = state.statusText?.trim() ?? "";
   const label = (() => {
     if (isPendingStop) return "Stopping…";
     if (state.phase === "failed") return "Reply failed";
     if (state.phase === "cancelled") return "Reply stopped";
     if (state.phase === "completed") return "Completed";
+    if (isPhoneShell && canonicalStageLabel) return canonicalStageLabel;
     if (state.phase === "sending") return "Working…";
     if (state.phase === "thinking") return "Thinking…";
     if (state.phase === "streaming") return "Replying…";
@@ -77,12 +86,17 @@ export function InferenceStatusBanner({
           <span className="truncate font-medium" style={{ color: "var(--text)" }}>
             {label}
           </span>
-          {detail ? (
+          {!isPhoneShell && detail ? (
             <span className="hidden truncate sm:inline" style={{ color: "var(--muted)" }}>
               {detail}
             </span>
           ) : null}
         </div>
+        {isPhoneShell && detail ? (
+          <div className="mt-0.5 text-[11px]" style={{ color: "var(--muted)" }}>
+            {detail}
+          </div>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-3 text-[11px]">
         {state.canCancel && onCancel ? (

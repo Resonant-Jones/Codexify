@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -261,6 +262,25 @@ def _fake_pgdb():
     return db, connection
 
 
+def _inserted_values(insert_sql: str, insert_params: tuple) -> dict[str, object]:
+    """Map an INSERT's parameter tuple onto its named columns.
+
+    Reading provenance from trailing parameter positions breaks every time a
+    column is added to the statement — `extra_meta` did exactly that on
+    2026-10-15. These assertions name the columns they care about instead, so
+    they keep proving the same invariant as the statement gains columns.
+    """
+    match = re.search(
+        r"insert into chat_messages\s*\((.*?)\)\s*values",
+        insert_sql,
+        re.IGNORECASE | re.DOTALL,
+    )
+    assert match is not None, insert_sql
+    columns = [column.strip() for column in match.group(1).split(",") if column.strip()]
+    assert len(columns) == len(insert_params), (columns, insert_params)
+    return dict(zip(columns, insert_params))
+
+
 def test_pgdb_persists_provenance_in_initial_insert_and_one_transaction():
     db, connection = _fake_pgdb()
 
@@ -277,7 +297,9 @@ def test_pgdb_persists_provenance_in_initial_insert_and_one_transaction():
     insert_sql, insert_params = connection.cursor_instance.executions[0]
     assert "hosted_room_participant_id" in insert_sql
     assert "sender_display_name_snapshot" in insert_sql
-    assert insert_params[-2:] == ("part-guest", "Jane Guest")
+    inserted = _inserted_values(insert_sql, insert_params)
+    assert inserted["hosted_room_participant_id"] == "part-guest"
+    assert inserted["sender_display_name_snapshot"] == "Jane Guest"
     assert not any(
         "update chat_messages" in query.lower()
         for query, _params in connection.cursor_instance.executions
@@ -289,8 +311,10 @@ def test_pgdb_legacy_positional_call_remains_valid():
     db, connection = _fake_pgdb()
 
     assert db.create_message(1, "user", "legacy", None, "owner-1") == 41
-    insert_params = connection.cursor_instance.executions[0][1]
-    assert insert_params[-2:] == (None, None)
+    insert_sql, insert_params = connection.cursor_instance.executions[0]
+    inserted = _inserted_values(insert_sql, insert_params)
+    assert inserted["hosted_room_participant_id"] is None
+    assert inserted["sender_display_name_snapshot"] is None
 
 
 @pytest.mark.parametrize(

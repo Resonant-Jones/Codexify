@@ -913,6 +913,9 @@ export function Composer({
   const providerLabel =
     selectedProviderLabel ?? providerOptions[0]?.label ?? "Provider";
   const modelLabel = selectedModelLabel ?? modelOptions[0]?.label ?? "Model";
+  // A phone must be able to see which route is selected. The route row is only
+  // meaningful when the authorized catalog actually offers a route.
+  const hasRouteOptions = providerOptions.length > 0 || modelOptions.length > 0;
   const hasImageAttachments = draftAttachments.some((att) => att.kind === "image");
   const hasVisionCapableModel = modelOptions.some((option) => {
     if (option.supportsChat === false || option.modelKind === "utility") {
@@ -1347,6 +1350,50 @@ export function Composer({
     </>
   );
 
+  /**
+   * Phone route disclosure.
+   *
+   * The compact mobile conversation surface is the one composer posture that
+   * showed no provider or model at all, so a phone user could not see which
+   * route was selected and could not switch provider mid-thread. Every other
+   * posture (desktop conversation, desktop landing, mobile landing) already
+   * renders these two controls. This renders the same pair for the mobile
+   * conversation surface, using the phone-shell bare trigger variant.
+   */
+  const renderMobileRouteRow = () => {
+    if (!hasRouteOptions) return null;
+    return (
+      <div
+        data-testid="composer-mobile-route-row"
+        className="flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
+      >
+        <ComposerSelectMenu
+          ariaLabel="Select provider"
+          menuLabel="Provider"
+          valueLabel={providerLabel}
+          options={providerOptions}
+          selectedValue={activeProviderId}
+          openSignal={providerOpenSignal}
+          isPhoneShell={compactMobile}
+          triggerVariant="bare"
+          disabled={draftControlsDisabled || providerOptions.length === 0}
+          onSelect={onProviderChange ?? (() => {})}
+        />
+        <ComposerSelectMenu
+          ariaLabel="Select model"
+          menuLabel="Model"
+          valueLabel={modelLabel}
+          options={modelOptions}
+          selectedValue={activeModelId}
+          isPhoneShell={compactMobile}
+          triggerVariant="bare"
+          disabled={draftControlsDisabled || modelOptions.length === 0}
+          onSelect={onModelChange ?? (() => {})}
+        />
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Status announcement */}
@@ -1512,31 +1559,34 @@ export function Composer({
           {isLandingPresentation ? (
             renderLandingControlRow()
           ) : compactMobile ? (
-            <div
-              data-testid="composer-control-row"
-              className={cn(
-                CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
-                "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
-              )}
-            >
+            <>
+              {renderMobileRouteRow()}
               <div
-                data-testid="composer-controls-strip"
-                className="flex shrink-0 items-center"
-              >
-                {renderComposerActionMenu()}
-              </div>
-              {renderComposerTextarea()}
-              <div
-                data-testid="composer-send-slot"
+                data-testid="composer-control-row"
                 className={cn(
-                  "flex shrink-0 items-center justify-center justify-self-end",
-                  "mr-[var(--composer-text-pad-x,14px)]",
-                  CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+                  CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
+                  "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
                 )}
               >
-                {renderSendButton()}
+                <div
+                  data-testid="composer-controls-strip"
+                  className="flex shrink-0 items-center"
+                >
+                  {renderComposerActionMenu({ showModelMenu: false })}
+                </div>
+                {renderComposerTextarea()}
+                <div
+                  data-testid="composer-send-slot"
+                  className={cn(
+                    "flex shrink-0 items-center justify-center justify-self-end",
+                    "mr-[var(--composer-text-pad-x,14px)]",
+                    CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS
+                  )}
+                >
+                  {renderSendButton()}
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <div
               data-testid="composer-control-row"

@@ -171,6 +171,23 @@ def test_attempt_capture_failure_preserves_result_and_one_model_call(monkeypatch
     assert service._PROVIDER_CAPTURE_REQUESTS == {}
 
 
+def test_metering_failure_preserves_completion_result(monkeypatch):
+    task = SimpleNamespace(origin="api:chat.complete", request_id="req-one")
+    result = SimpleNamespace(attempt_id="attempt-one", output="response")
+    dispatch = MagicMock(return_value=result)
+    monkeypatch.setattr(service, "_dispatch_completion_attempt", dispatch)
+    monkeypatch.setattr(service, "_provider_request_capture_observer", lambda *a, **k: None)
+
+    def fail_recording(*args, **kwargs):
+        raise RuntimeError("metering unavailable")
+
+    monkeypatch.setattr(service, "_record_observed_provider_usage", fail_recording)
+    assert service._execute_completion_attempt(
+        task=task, messages_for_llm=[], provider="local", model="m", bundle=None
+    ) is result
+    dispatch.assert_called_once()
+
+
 def test_dispatch_ceiling_is_explicit_and_preserves_complete_records(monkeypatch):
     monkeypatch.setattr(service, "PROVIDER_CAPTURE_MAX_DISPATCHES", 1)
     assert enable() and store()

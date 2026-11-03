@@ -121,6 +121,14 @@ def _fake_module(name: str) -> types.ModuleType:
 
 
 def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Capture the real helper modules before the stub replaces `psycopg`. They
+    # only parse connection metadata, so keeping the real implementations
+    # preserves their behavior while the connection surface stays stubbed.
+    real_psycopg = pytest.importorskip("psycopg")
+    real_waiting = pytest.importorskip("psycopg.waiting")
+    real_conninfo_utils = pytest.importorskip("psycopg._conninfo_utils")
+    real_conninfo = pytest.importorskip("psycopg.conninfo")
+
     psycopg_stub = _fake_module("psycopg")
     errors_stub = _fake_module("psycopg.errors")
     sql_stub = _fake_module("psycopg.sql")
@@ -135,6 +143,26 @@ def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     psycopg_stub.sql = sql_stub
     psycopg_stub.rows = rows_stub
     psycopg_stub.types = types_stub
+    # Modules imported inside the stubbed window still import these helpers at
+    # import time, so the stub has to expose them.
+    psycopg_stub.waiting = real_waiting
+    psycopg_stub._conninfo_utils = real_conninfo_utils
+    psycopg_stub.conninfo = real_conninfo
+    # Connection and cursor classes are subclassed at import time, and the
+    # exception types are referenced by `except` clauses. The stub keeps the
+    # real classes so subclassing and isinstance checks stay meaningful while
+    # the connection entry points remain unavailable.
+    for attribute in (
+        "Connection",
+        "AsyncConnection",
+        "Cursor",
+        "AsyncCursor",
+        "Error",
+        "OperationalError",
+        "InterfaceError",
+        "DatabaseError",
+    ):
+        setattr(psycopg_stub, attribute, getattr(real_psycopg, attribute))
 
     monkeypatch.setitem(sys.modules, "psycopg", psycopg_stub)
     monkeypatch.setitem(sys.modules, "psycopg.errors", errors_stub)
@@ -142,6 +170,9 @@ def _install_fake_psycopg(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "psycopg.rows", rows_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types", types_stub)
     monkeypatch.setitem(sys.modules, "psycopg.types.json", json_stub)
+    monkeypatch.setitem(sys.modules, "psycopg.waiting", real_waiting)
+    monkeypatch.setitem(sys.modules, "psycopg._conninfo_utils", real_conninfo_utils)
+    monkeypatch.setitem(sys.modules, "psycopg.conninfo", real_conninfo)
 
 
 def _snapshot_modules(
@@ -311,7 +342,12 @@ def import_store(
     monkeypatch.setattr(
         import_modules.chatgpt_migration,
         "_persist_temporal_metadata",
-        lambda *_args, **_kwargs: None,
+        # The production helper writes `extra_meta` with a raw UPDATE that
+        # the fake cursor cannot execute. Record it on the store instead, so
+        # the source ids that dedupe depends on are still durable.
+        lambda db, message_id, merged_meta, source_created_at: (
+            db.set_message_meta(message_id, merged_meta)
+        ),
     )
     monkeypatch.setattr(
         import_modules.chatgpt_migration,
@@ -725,7 +761,12 @@ def test_idempotent_reimport_does_not_duplicate(
     monkeypatch.setattr(
         import_modules.chatgpt_migration,
         "_persist_temporal_metadata",
-        lambda *_args, **_kwargs: None,
+        # The production helper writes `extra_meta` with a raw UPDATE that
+        # the fake cursor cannot execute. Record it on the store instead, so
+        # the source ids that dedupe depends on are still durable.
+        lambda db, message_id, merged_meta, source_created_at: (
+            db.set_message_meta(message_id, merged_meta)
+        ),
     )
     monkeypatch.setattr(
         import_modules.chatgpt_migration,
@@ -1243,7 +1284,12 @@ def test_idempotent_rerun_with_deferred_embeddings(
     monkeypatch.setattr(
         import_modules.chatgpt_migration,
         "_persist_temporal_metadata",
-        lambda *_args, **_kwargs: None,
+        # The production helper writes `extra_meta` with a raw UPDATE that
+        # the fake cursor cannot execute. Record it on the store instead, so
+        # the source ids that dedupe depends on are still durable.
+        lambda db, message_id, merged_meta, source_created_at: (
+            db.set_message_meta(message_id, merged_meta)
+        ),
     )
 
     find_thread_calls: list = []

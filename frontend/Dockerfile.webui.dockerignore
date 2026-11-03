@@ -1,0 +1,17 @@
+# Legacy webUI profile build from the repository root; do not include host data
+# or secrets. Mirrors frontend/Dockerfile.webui.workspace.dockerignore.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!frontend/
+!frontend/src/
+!frontend/src/**
+!frontend/Dockerfile.webui
+!frontend/Dockerfile.webui.dockerignore
+frontend/src/node_modules/
+frontend/src/dist/
+frontend/src/.vite/
+frontend/src/.cache/
+frontend/src/.env*
+frontend/src/**/*.log

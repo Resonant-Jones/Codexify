@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException
 
-from guardian.core.db import get_chat_completion_attempt_by_task_id, load_guardian_db_from_env
+from guardian.core.db import (
+    get_chat_completion_attempt_by_task_id,
+    load_guardian_db_from_env,
+)
 from guardian.core.dependencies import RequestUserScope
 from guardian.core.hosted_room_session import HostedRoomGuestPrincipal
 from guardian.core.thread_access import ThreadReadAccess, require_thread_read_access
@@ -52,3 +55,19 @@ def authorize_task_event_read(
         principal,
         thread_lookup=chatlog_db.get_chat_thread,
     )
+
+
+def cancel_account_task(
+    backend_task_id: str,
+    principal: RequestUserScope,
+    *,
+    chatlog_db: Any,
+    cancel_task: Callable[[str], Any],
+) -> None:
+    """Authorize an account's canonical task before requesting mutation.
+
+    The task-to-thread mapping and current thread owner are the authority.
+    The cancellation callback is reached only after that check succeeds.
+    """
+    authorize_task_event_read(backend_task_id, principal, chatlog_db=chatlog_db)
+    cancel_task(backend_task_id)

@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 from unittest.mock import Mock
 
+from guardian.core.db import ChatAttemptReconciliation
 from guardian.tasks.types import ChatCompletionTask
 from guardian.workers import chat_worker
 
@@ -44,14 +45,88 @@ def _build_task(
     return task
 
 
+def _durable_attempt_row(task: ChatCompletionTask) -> dict[str, Any]:
+    """The durable attempt the worker reads before any accepted work.
+
+    Identity is exact. A row whose request, task, thread or turn does not
+    match is not this worker's attempt, and the worker treats the attempt as
+    unconfirmed and fails closed.
+    """
+    return {
+        "request_id": task.request_id,
+        "backend_task_id": task.task_id,
+        "thread_id": task.thread_id,
+        "turn_id": chat_worker._extract_turn_id(task),
+        "completed_message_id": None,
+        "terminal_event_type": None,
+        "terminal_outcome": None,
+        "deadline_snapshot": None,
+    }
+
+
+def _install_durable_seams(
+    monkeypatch,
+    task: ChatCompletionTask,
+    *,
+    terminal_write_acknowledged: bool = True,
+    durable_terminal: ChatAttemptReconciliation | None = None,
+    observation_error: BaseException | None = None,
+) -> dict[str, list]:
+    """Install the durable-authority seams the worker now uses.
+
+    * `terminal_write_acknowledged` — whether the worker's own durable
+      terminal write was acknowledged. A newly generated terminal event may be
+      published only when it was.
+    * `durable_terminal` — an existing recorded outcome the worker may
+      project when its own write was rejected.
+    * `observation_error` — an uncertain durable read. No terminal outcome
+      may be inferred from it.
+
+    The recorded call log lets a test assert that the durable write, and not
+    the worker's local state, decided the outcome.
+    """
+    log: dict[str, list] = {"terminal_writes": [], "observations": [], "cas": []}
+
+    def _read(_db, backend_task_id):
+        log["observations"].append(backend_task_id)
+        return _durable_attempt_row(task)
+
+    def _record_terminal(
+        _db, *, request_id, backend_task_id, thread_id, turn_id, event_type, **_kwargs
+    ):
+        log["terminal_writes"].append(
+            (request_id, backend_task_id, thread_id, turn_id, event_type)
+        )
+        return terminal_write_acknowledged
+
+    def _observe(_db, *, request_id, backend_task_id, thread_id, turn_id, **_kwargs):
+        if observation_error is not None:
+            raise observation_error
+        return durable_terminal or ChatAttemptReconciliation(None, None, None, None)
+
+    def _release(thread_id, *, owner_task_id, lease_token):
+        log["cas"].append((thread_id, owner_task_id, lease_token))
+        return True
+
+    monkeypatch.setattr(chat_worker, "get_chat_completion_attempt_by_task_id", _read)
+    monkeypatch.setattr(
+        chat_worker, "record_chat_completion_attempt_terminal_event", _record_terminal
+    )
+    monkeypatch.setattr(
+        chat_worker, "observe_chat_completion_attempt_terminal", _observe
+    )
+    monkeypatch.setattr(chat_worker, "release_terminal_attempt_turn_lock", _release)
+    return log
+
+
 def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-meta-warning")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
     )
@@ -102,6 +177,7 @@ def test_metadata_persistence_failure_is_non_fatal(monkeypatch):
 def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-duplicate")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
 
     run_completion_calls = {"count": 0}
@@ -112,7 +188,6 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", _run_completion)
     monkeypatch.setattr(
         chat_worker,
@@ -142,11 +217,11 @@ def test_duplicate_turn_short_circuits_new_completion(monkeypatch):
 def test_duplicate_turn_does_not_complete_without_attempt_binding(monkeypatch):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-unbound-duplicate")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
     run_completion = Mock()
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
     monkeypatch.setattr(chat_worker, "run_chat_completion_task", run_completion)
     monkeypatch.setattr(
         chat_worker,
@@ -169,13 +244,13 @@ def test_duplicate_turn_does_not_complete_without_attempt_binding(monkeypatch):
     assert not any(event == "task.completed" for _, event, _ in published)
 
 
-def test_existing_assistant_message_completes_idempotently_and_releases_lock(
+def test_existing_assistant_message_completes_idempotently(
     monkeypatch,
 ):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-existing-assistant")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
-    released: list[tuple[int, str]] = []
     run_completion_calls = {"count": 0}
 
     def _run_completion(*_args, **_kwargs):
@@ -200,11 +275,6 @@ def test_existing_assistant_message_completes_idempotently_and_releases_lock(
     monkeypatch.setattr(
         chat_worker, "_record_chat_completion_attempt_link", lambda *_a: True
     )
-    monkeypatch.setattr(
-        chat_worker,
-        "release_turn_lock",
-        lambda thread_id, owner: released.append((thread_id, owner)) or True,
-    )
 
     chat_worker._run_chat_task(task)
 
@@ -219,16 +289,19 @@ def test_existing_assistant_message_completes_idempotently_and_releases_lock(
     assert "task.failed" not in event_types
     assert completed_payload["message_id"] == 1
     assert completed_payload["selection_source"] == "turn_id_dedupe"
-    assert released == [(task.thread_id, task.task_id)]
+    # The existing attempt is projected, not re-executed, and the durable
+    # attempt link is recorded with exact identity.
+    assert [event for _t, event, _p in published].count("task.completed") == 1
+    assert durable["terminal_writes"] == []
 
 
-def test_missing_assistant_message_marks_task_failed_and_releases_lock(
+def test_missing_assistant_message_marks_task_failed(
     monkeypatch,
 ):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-missing-assistant")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
-    released: list[tuple[int, str]] = []
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
@@ -250,22 +323,29 @@ def test_missing_assistant_message_marks_task_failed_and_releases_lock(
         "_find_assistant_message_id_by_turn_id",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(
-        chat_worker,
-        "release_turn_lock",
-        lambda thread_id, owner: released.append((thread_id, owner)) or True,
-    )
 
     chat_worker._run_chat_task(task)
 
     event_types = [event_type for _task_id, event_type, _payload in published]
     assert "task.failed" in event_types
-    assert released == [(task.thread_id, task.task_id)]
+    # The failure is published only after the durable terminal write is
+    # acknowledged, and that write carries the exact identity.
+    assert "task.failed" in event_types
+    assert durable["terminal_writes"] == [
+        (
+            task.request_id,
+            task.task_id,
+            task.thread_id,
+            chat_worker._extract_turn_id(task),
+            "task.failed",
+        )
+    ]
 
 
 def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
     _isolate_turn_anchor(monkeypatch)
     task = _build_task(task_id="task-summary")
+    durable = _install_durable_seams(monkeypatch, task)
     published: list[tuple[str, str, dict[str, Any]]] = []
     persisted_meta: list[dict[str, Any]] = []
 
@@ -279,7 +359,6 @@ def test_payload_summary_propagates_to_metadata_and_events(monkeypatch):
 
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "release_turn_lock", lambda *_args: True)
     monkeypatch.setattr(
         chat_worker, "_find_assistant_message_for_turn", lambda **_kwargs: None
     )
