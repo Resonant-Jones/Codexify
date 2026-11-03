@@ -2102,6 +2102,27 @@ removed with absence listings empty; loopback listener confirmed closed;
 scratch removed; tokens revoked). The catalog projection for the qualified
 provider is the next independently bounded task. Gate B remains open.
 
+#### Slice 6 observation (2026-11-03) — AeroLeads catalog projection
+
+The qualified provider is projected as exactly one canonical catalog entry,
+`aeroleads`. ADR-075 identity confirmation: category `web`, because the
+reviewed operation retrieves structured data about a Web resource (a
+LinkedIn profile URL) through a Web-provider surface — the existing
+`extract` meaning, advertised without `search`. It is not `knowledge`:
+AeroLeads is not an authenticated, user-scoped content repository, and
+`content_read` is not repurposed for lead enrichment. No category or
+capability token was added. Per ADR-071 B1 the custodian is not an entry:
+OpenConnector appears only as the entry's runtime binding
+(`guardian.connections.openconnector` /
+`OpenConnectorAdapter`). The entry is `partial` / `unavailable` with no
+setup route, no fields, no scopes, and no OAuth handler: the adapter and
+the internal-only read route exist, but user setup, durable bindings,
+connected accounts, successful real-provider retrieval, and hosted
+callability are unqualified, and the description and setup help say so.
+Full evidence:
+`docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-slice-6-catalog-projection-proof.md`.
+Gate B remains open.
+
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |

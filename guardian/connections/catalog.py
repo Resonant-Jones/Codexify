@@ -292,6 +292,55 @@ def _inference_api_entry(
     )
 
 
+def _aeroleads_gateway_entry() -> ConnectionCatalogEntry:
+    """Canonical AeroLeads identity, backed by the qualified adapter.
+
+    ADR-075 identity: category ``web``. The reviewed operation retrieves
+    structured data about a Web resource (a LinkedIn profile URL) through a
+    Web-provider surface, which is the existing ``extract`` meaning — so the
+    entry advertises ``extract`` only, never ``search``. It is not
+    ``knowledge``: AeroLeads is not an authenticated, user-scoped content
+    repository, and ``content_read`` must not be repurposed for lead
+    enrichment.
+
+    Per ADR-071 B1 the custodian (OpenConnector) is not an identity: it
+    appears only as this entry's runtime binding. The adapter and the
+    internal-only read route exist, but user setup, durable bindings, and
+    hosted callability are unqualified — hence ``partial`` / ``unavailable``
+    with no setup route, no fields, and no scopes.
+    """
+    return ConnectionCatalogEntry(
+        id="aeroleads",
+        display_name="AeroLeads",
+        category=ConnectionCategory.WEB.value,
+        description=(
+            "Read-only LinkedIn profile enrichment lookup through the "
+            "qualified OpenConnector adapter (one reviewed action). Results "
+            "remain external evidence; this connection does not sync, "
+            "ingest, persist, or write."
+        ),
+        auth_methods=(_API_KEY,),
+        capabilities=frozenset({_EXTRACT}),
+        implementation_state=_PARTIAL,
+        default_setup_state=_UNAVAILABLE,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.openconnector",
+            adapter=(
+                "guardian.connections.openconnector.adapter."
+                "OpenConnectorAdapter"
+            ),
+        ),
+        setup_help=(
+            "The reviewed read-only enrichment action exists and executes "
+            "only through the internal-only Guardian route. User credential "
+            "setup is not available: no setup flow, durable binding, or "
+            "connected account exists in Codexify, and no successful "
+            "real-provider retrieval is established. Provider results are "
+            "external evidence, not automatically persisted knowledge."
+        ),
+    )
+
+
 def _notion_knowledge_entry() -> ConnectionCatalogEntry:
     """The first implemented, read-only Knowledge connection.
 
@@ -585,6 +634,12 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
             ),
         ]
     )
+
+    # Gateway-backed qualified entry. Unlike the discovery-only Web entries
+    # above, a real adapter and internal-only read route exist — but user
+    # setup, durable bindings, and hosted callability are unqualified, so
+    # the entry stays partial/unavailable with no setup surface.
+    entries.append(_aeroleads_gateway_entry())
 
     # =========================== Knowledge =================================
     entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry()])

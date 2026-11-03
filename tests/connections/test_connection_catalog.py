@@ -54,10 +54,15 @@ WEB_IDS = {
     "exa",
     "parallel",
     "xai_grok",
+    "aeroleads",
 }
 
 SEARCH_EXTRACT_IDS = {"firecrawl", "tavily", "exa", "parallel"}
 SEARCH_ONLY_IDS = {"searxng", "brave", "ddgs", "xai_grok"}
+# AeroLeads is the one gateway-backed qualified web entry: its reviewed
+# behavior retrieves structured data about a Web resource (extract) and
+# performs no corpus search.
+EXTRACT_ONLY_IDS = {"aeroleads"}
 
 
 def test_catalog_ids_are_unique() -> None:
@@ -149,13 +154,23 @@ def test_web_capability_matrix_is_exact() -> None:
         caps = set(entry.capabilities)
         if entry.id in SEARCH_EXTRACT_IDS:
             assert caps == {"search", "extract"}, entry.id
+        elif entry.id in EXTRACT_ONLY_IDS:
+            assert caps == {"extract"}, entry.id
         else:
             assert caps == {"search"}, entry.id
+
+
+# Discovery-only web entries have no runtime behind them. AeroLeads is the
+# one qualified exception: a real adapter exists, so it is partial with a
+# bound adapter and its own setup help instead.
+QUALIFIED_WEB_IDS = {"aeroleads"}
 
 
 def test_web_providers_are_unimplemented_and_do_not_claim_runtime_effect() -> None:
     for entry in get_catalog():
         if entry.category != "web":
+            continue
+        if entry.id in QUALIFIED_WEB_IDS:
             continue
         assert entry.implementation_state == "unimplemented", entry.id
         assert entry.default_setup_state == "unavailable", entry.id
