@@ -14,10 +14,14 @@ An entry exists here because a human reviewed the action and confirmed it
 does not mutate provider state. Adding an entry is an explicit, reviewed code
 change — never a runtime configuration and never a discovery result.
 
-Scope of this slice: exactly one reviewed action. It is a **no-auth provider
-action**, so it is not evidence that the custodian's connection grants isolate
-tenants; grant isolation is proven separately, with credential-bearing
-synthetic connections, in the adapter tests.
+Reviewed actions: exactly two. ``hackernews.get_top_stories`` is a **no-auth
+provider action**, so it is not evidence that the custodian's connection
+grants isolate tenants. ``aeroleads.get_details_from_linkedin_url`` is the one
+reviewed **credential-bearing** action: upstream declares it
+``operationType: "read"`` and executes it as a provider-side ``GET`` lookup,
+so it cannot mutate remote state. Credential-bearing isolation is proven live
+for this action in Gate B Slice 5; no other credential-bearing action is
+reviewed.
 
 Two execution modes exist, and a reviewed action declares exactly one of them.
 
@@ -94,6 +98,16 @@ _APPROVED_ACTIONS: Mapping[str, ApprovedAction] = MappingProxyType(
             description="Hacker News top stories (no-auth provider action).",
             connection_selection=ConnectionSelection.NO_AUTH,
             credential_bearing=False,
+        ),
+        "aeroleads.get_details_from_linkedin_url": ApprovedAction(
+            action_id="aeroleads.get_details_from_linkedin_url",
+            provider="aeroleads",
+            description=(
+                "AeroLeads LinkedIn profile enrichment lookup "
+                "(credential-bearing read; provider-side GET only)."
+            ),
+            connection_selection=ConnectionSelection.EXPLICIT,
+            credential_bearing=True,
         ),
     }
 )

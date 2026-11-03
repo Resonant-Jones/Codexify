@@ -1035,3 +1035,50 @@ def test_no_auth_action_never_sends_a_connection_selector(
     assert CONNECTION_SELECTOR_HEADER not in request.headers
     assert request.headers["authorization"] == f"Bearer {_TOKEN_A}"
     assert json.loads(request.body.decode("utf-8")) == {"input": {}}
+
+
+def test_production_credentialed_action_names_the_connection_through_the_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reviewed aeroleads action executes with explicit selection.
+
+    This uses the production allowlist (no injected action): the one
+    credential-bearing review must cross with its connection named.
+    """
+
+    resolver = _SyntheticResolver(
+        (
+            _binding(
+                _ACCOUNT_A,
+                _CONNECTION_A,
+                provider="aeroleads",
+                token_ref=_TOKEN_REF_A,
+            ),
+        ),
+        {_TOKEN_REF_A: _TOKEN_A},
+    )
+    transport = _RecordingClient()
+    _install(
+        monkeypatch,
+        resolver=resolver,
+        client=transport,
+        authorizer=_GrantingAuthorizer(
+            _grant(
+                provider="aeroleads",
+                action_id="aeroleads.get_details_from_linkedin_url",
+            )
+        ),
+    )
+    client = _client(_build_app())
+
+    response = client.get(
+        "/api/guardian/connections/openconnector/actions/"
+        "aeroleads.get_details_from_linkedin_url",
+        headers=_headers(_ACCOUNT_A),
+    )
+
+    assert response.status_code == 200
+    assert transport.dispatch_count == 1
+    request = transport.requests[0]
+    assert request.headers[CONNECTION_SELECTOR_HEADER] == _CONNECTION_A
+    assert request.headers["authorization"] == f"Bearer {_TOKEN_A}"

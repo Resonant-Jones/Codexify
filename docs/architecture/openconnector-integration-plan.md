@@ -2069,6 +2069,40 @@ establishes Guardian adapter isolation, live transport interoperability through
 the adapter, or production account authority. The trial's own evidence is
 gateway-level and is not a Gate B proof receipt.
 
+#### Slice 5 observation (2026-11-03) — live credential-bearing isolation
+
+The reviewed no-auth crossing (recorded in
+`docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-live-crossing-proof.md`)
+cannot establish credential-bearing tenant isolation, so this slice qualified
+exactly one credential-bearing read action against the real pinned gateway:
+`aeroleads.get_details_from_linkedin_url`. Upstream declares it
+`operationType: "read"` (`src/providers/aeroleads/actions.ts`, pinned commit
+`d89dc9f24f5a057bb500272d7dbf333837c77c68`) and executes it as a
+provider-side `GET` lookup (`src/providers/aeroleads/executors.ts`); its
+credential class is `api_key` with format-only validation, so disposable fake
+credentials exercised the full grant machinery with no real provider account.
+
+Two synthetic accounts each received their own stored connection (distinct
+UUIDs), scoped token, binding, and single-connection grant. Through the
+existing Guardian route over real HTTP: each account's own-connection call
+was Guardian-authorized and gateway-accepted, then rejected by the provider
+for the fake credential (the expected, distinguishable shape); every
+cross-account, unknown-connection, empty-grant, revoked-binding, missing
+authority, and mid-flight revalidation case failed closed with zero
+unauthorized provider execution; the gateway independently refused a foreign
+token/connection pairing with `connection_not_allowed`, which also proves
+the live dispatches ran under grant-checked scoped bearers rather than a
+privileged credential. Live execution:
+`tests/connections/test_openconnector_credentialed_isolation.py`, 12 passed.
+Full evidence:
+`docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-credentialed-isolation-proof.md`.
+
+Caveats recorded in the receipt: final teardown (`docker compose down -v`
+plus absence checks) was approval-gated at commit time and must be recorded
+before the slice counts as fully closed; the catalog projection for the
+qualified provider is the next independently bounded task. Gate B remains
+open.
+
 | Aspect | Definition |
 | --- | --- |
 | **Prerequisites** | Gate A passed with recorded evidence. **The §4.7(a) ADR amendments accepted** (2026-11-02) — delegated credential-vault authority is settled, which is what allows Codexify to hold a gateway token; the accepted amendments remain the contract this gate implements. The §3.1 catalog decision and §3.4 route-posture plan reviewed. |
