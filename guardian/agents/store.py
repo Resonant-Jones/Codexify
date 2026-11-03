@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from guardian.agents.campaign_runner_store import (
@@ -120,6 +121,78 @@ def _is_terminal_agent_run_status(status: Any) -> bool:
         "canceled",
         "escalated",
     }
+
+
+# Internal persistence outcomes, matching the frozen coding-claim candidate.
+RUN_ACCEPTANCE_ACCEPTED = "accepted"
+RUN_ACCEPTANCE_REJECTED = "rejected"
+RUN_ACCEPTANCE_UNAVAILABLE = "unavailable"
+RUN_HEARTBEAT_RENEWED = "renewed"
+RUN_HEARTBEAT_NOT_ELIGIBLE = "not_eligible"
+RUN_HEARTBEAT_UNAVAILABLE = "unavailable"
+RUN_TERMINAL_ACCEPTED = "terminal_accepted"
+RUN_TERMINAL_REJECTED = "terminal_rejected"
+RUN_TERMINAL_ALREADY_TERMINAL = "terminal_already_terminal"
+RUN_TERMINAL_UNAVAILABLE = "terminal_unavailable"
+
+_CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH = 64
+
+
+def _valid_coding_claim_identity(worker_instance_id: str, claim_id: str) -> bool:
+    return all(
+        value and len(value) <= _CODING_WORKER_OWNERSHIP_ID_MAX_LENGTH
+        for value in (worker_instance_id, claim_id)
+    )
+
+
+def _coding_run_lineage_matches(
+    run: AgentRun,
+    deployment: AgentDeployment | None,
+    claimed: dict[str, Any] | None = None,
+) -> bool:
+    """Compare canonical lineage and every persisted identity assertion.
+
+    Spec/binding assertions may narrow canonical lineage, never replace it.
+    Missing task/attempt assertions on legacy deployments are not invented.
+    Worker and claim IDs deliberately do not participate in account identity.
+    """
+    if (
+        deployment is None
+        or run.deployment_id != deployment.id
+        or not run.account_origin_user_id
+        or run.thread_id is None
+        or not isinstance(deployment.spec_json, dict)
+    ):
+        return False
+    spec = deployment.spec_json
+    binding = spec.get("execution_binding", {})
+    if not isinstance(binding, dict):
+        return False
+    for name, keys, canonical in (
+        ("user_id", ("user_id",), (run.account_origin_user_id,)),
+        (
+            "thread_id",
+            ("thread_id", "source_thread_id"),
+            (run.thread_id, deployment.thread_id),
+        ),
+        ("source_message_id", ("source_message_id",), ()),
+        ("attempt_id", ("attempt_id",), ()),
+        ("coding_task_id", ("coding_task_id",), ()),
+    ):
+        values = [*canonical]
+        values.extend(source.get(key) for source in (spec, binding) for key in keys)
+        assertions = {
+            str(value).strip()
+            for value in values
+            if value is not None and str(value).strip()
+        }
+        if len(assertions) > 1:
+            return False
+        if claimed is not None and assertions:
+            value = claimed.get(name)
+            if value is None or str(value).strip() not in assertions:
+                return False
+    return True
 
 
 def _should_persist_coding_result_message(status: str) -> bool:
@@ -1093,6 +1166,232 @@ class AgentStore:
         if _is_terminal_agent_run_status(normalized_status):
             item["ended_at"] = now.isoformat()
         return True
+
+    def claim_run_for_acceptance(
+        self,
+        *,
+        run_id: str,
+        deployment_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        user_id: str | None = None,
+        thread_id: int | None = None,
+        source_message_id: int | None = None,
+        attempt_id: str | None = None,
+        coding_task_id: str | None = None,
+    ) -> str:
+        """Claim a queued canonical run before execution, using PostgreSQL.
+
+        The deployment and run locks keep lineage stable through the conditional
+        update. Only one queued-to-running transition can win. Ownership is
+        execution metadata, never a credential grant or retry authority.
+        """
+        if not self._has_db():
+            return RUN_ACCEPTANCE_UNAVAILABLE
+        worker = str(worker_instance_id or "").strip()
+        claim = str(claim_id or "").strip()
+        if not _valid_coding_claim_identity(worker, claim):
+            return RUN_ACCEPTANCE_REJECTED
+        try:
+            with self.db.get_session() as session:
+                if session.get_bind().dialect.name != "postgresql":
+                    return RUN_ACCEPTANCE_UNAVAILABLE
+                deployment = (
+                    session.query(AgentDeployment)
+                    .filter_by(deployment_id=str(deployment_id))
+                    .with_for_update()
+                    .one_or_none()
+                )
+                run = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(run_id))
+                    .with_for_update()
+                    .one_or_none()
+                )
+                if run is None or not _coding_run_lineage_matches(
+                    run,
+                    deployment,
+                    {
+                        "user_id": user_id,
+                        "thread_id": thread_id,
+                        "source_message_id": source_message_id,
+                        "attempt_id": attempt_id,
+                        "coding_task_id": coding_task_id,
+                    },
+                ):
+                    return RUN_ACCEPTANCE_REJECTED
+                updated = (
+                    session.query(AgentRun)
+                    .filter(
+                        AgentRun.id == run.id,
+                        AgentRun.deployment_id == deployment.id,
+                        AgentRun.status == "queued",
+                        AgentRun.coding_worker_instance_id.is_(None),
+                        AgentRun.coding_worker_claim_id.is_(None),
+                    )
+                    .update(
+                        {
+                            "status": "running",
+                            "started_at": func.coalesce(
+                                AgentRun.started_at, func.now()
+                            ),
+                            "coding_worker_instance_id": worker,
+                            "coding_worker_claim_id": claim,
+                            "coding_worker_last_heartbeat_at": func.now(),
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return (
+                    RUN_ACCEPTANCE_ACCEPTED if updated == 1 else RUN_ACCEPTANCE_REJECTED
+                )
+        except IntegrityError:
+            # Reusing another run's unique claim is refusal, not an outage.
+            return RUN_ACCEPTANCE_REJECTED
+        except Exception:
+            logger.exception("[agent-store] acceptance unavailable run_id=%s", run_id)
+            return RUN_ACCEPTANCE_UNAVAILABLE
+
+    def renew_coding_run_heartbeat(
+        self,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+    ) -> str:
+        """Record activity only for the current running owner and claim.
+
+        This conditional database-clock update grants no retry, reassignment,
+        result, account, or credential authority. It never refreshes started_at.
+        """
+        if not self._has_db():
+            return RUN_HEARTBEAT_UNAVAILABLE
+        worker = str(worker_instance_id or "").strip()
+        claim = str(claim_id or "").strip()
+        if not _valid_coding_claim_identity(worker, claim):
+            return RUN_HEARTBEAT_NOT_ELIGIBLE
+        try:
+            with self.db.get_session() as session:
+                if session.get_bind().dialect.name != "postgresql":
+                    return RUN_HEARTBEAT_UNAVAILABLE
+                updated = (
+                    session.query(AgentRun)
+                    .filter(
+                        AgentRun.run_id == str(run_id),
+                        AgentRun.status == "running",
+                        AgentRun.coding_worker_instance_id == worker,
+                        AgentRun.coding_worker_claim_id == claim,
+                    )
+                    .update(
+                        {"coding_worker_last_heartbeat_at": func.now()},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return (
+                    RUN_HEARTBEAT_RENEWED
+                    if updated == 1
+                    else RUN_HEARTBEAT_NOT_ELIGIBLE
+                )
+        except Exception:
+            logger.exception("[agent-store] heartbeat unavailable run_id=%s", run_id)
+            return RUN_HEARTBEAT_UNAVAILABLE
+
+    def claim_coding_run_terminal(
+        self,
+        *,
+        session: Any,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> str:
+        """Fence a terminal decision inside the caller's result transaction.
+
+        Never commits or rolls back the supplied session. The caller must abort
+        on unavailable persistence or failed result writes, and must produce no
+        result authority for any outcome other than terminal_accepted.
+        """
+        if not self._has_db() or session is None:
+            return RUN_TERMINAL_UNAVAILABLE
+        worker = str(worker_instance_id or "").strip()
+        claim = str(claim_id or "").strip()
+        # Do not let the legacy status normalizer turn unknown input into a
+        # failed terminal decision, or accept a nonterminal transition here.
+        if (
+            str(status or "").strip().lower()
+            not in {
+                "success",
+                "succeeded",
+                "completed",
+                "failed",
+                "canceled",
+                "cancelled",
+            }
+            or not run_id
+            or not _valid_coding_claim_identity(worker, claim)
+        ):
+            return RUN_TERMINAL_REJECTED
+        try:
+            if session.get_bind().dialect.name != "postgresql":
+                return RUN_TERMINAL_UNAVAILABLE
+            run = session.query(AgentRun).filter_by(run_id=str(run_id)).one_or_none()
+            if run is None:
+                return RUN_TERMINAL_REJECTED
+            # Match acceptance's deployment-before-run lock order. Refresh a
+            # caller's possibly cached run after acquiring the durable locks.
+            deployment = (
+                session.query(AgentDeployment)
+                .filter_by(id=run.deployment_id)
+                .populate_existing()
+                .with_for_update()
+                .one_or_none()
+            )
+            run = (
+                session.query(AgentRun)
+                .filter_by(run_id=str(run_id))
+                .populate_existing()
+                .with_for_update()
+                .one_or_none()
+            )
+            if run is None or not _coding_run_lineage_matches(run, deployment):
+                return RUN_TERMINAL_REJECTED
+            if (
+                run.coding_worker_instance_id != worker
+                or run.coding_worker_claim_id != claim
+            ):
+                return RUN_TERMINAL_REJECTED
+            if _is_terminal_agent_run_status(run.status):
+                return (
+                    RUN_TERMINAL_REJECTED
+                    if run.status == "escalated"
+                    else RUN_TERMINAL_ALREADY_TERMINAL
+                )
+            values: dict[str, Any] = {
+                "status": _normalize_agent_run_status(status),
+                "ended_at": func.now(),
+            }
+            if error is not None:
+                values["error"] = error
+            updated = (
+                session.query(AgentRun)
+                .filter(
+                    AgentRun.id == run.id,
+                    AgentRun.deployment_id == deployment.id,
+                    AgentRun.status == "running",
+                    AgentRun.coding_worker_instance_id == worker,
+                    AgentRun.coding_worker_claim_id == claim,
+                )
+                .update(values, synchronize_session="fetch")
+            )
+            return RUN_TERMINAL_ACCEPTED if updated == 1 else RUN_TERMINAL_REJECTED
+        except Exception:
+            logger.exception(
+                "[agent-store] terminal claim unavailable run_id=%s", run_id
+            )
+            return RUN_TERMINAL_UNAVAILABLE
 
     def create_step(
         self,
