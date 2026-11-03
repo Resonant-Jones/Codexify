@@ -910,6 +910,40 @@ class TestLauncherVerifiesTheMigratorOutcome:
         assert "full|minimal|migrator|verify)" in content
         assert 'if [ "$MODE" = "verify" ]; then' in content
 
+    def test_attached_mode_declares_that_it_is_not_verified(self):
+        """An attached run never reaches the outcome verification.
+
+        `docker compose up` streams logs until the stack stops, so the
+        migration result is not judged during normal attached operation.
+        The launcher must say so rather than let the run be read as a
+        verified one.
+        """
+
+        content = _launcher_content()
+        assert "attached mode" in content
+        assert "Use --detach for a" in content
+        assert "verified qualification run" in content
+
+    def test_attached_warning_is_guarded_by_the_detach_check(self):
+        """The warning must fire only when the run is actually attached."""
+
+        content = _launcher_content()
+        block = content.split("DETACH_ARGS=()", 1)[1].split('case "$MODE" in', 1)[0]
+        assert 'if [ "$DETACH" -eq 1 ]' in block
+        assert "else" in block
+        else_branch = block.split("else", 1)[1]
+        assert "attached mode" in else_branch
+        assert "--detach" in else_branch
+
+    def test_launcher_lists_untracked_paths_in_the_build_context(self):
+        """Untracked files enter the image the source tag does not describe."""
+
+        content = _launcher_content()
+        assert "UNTRACKED_LIST" in content
+        assert "untracked path(s) present in the build context" in content
+        assert "change the" in content
+        assert "source-specific tag does not describe" in content
+
 
 class TestMigratorVerificationDecisions:
     """The verification helper must fail closed in every ambiguous case."""

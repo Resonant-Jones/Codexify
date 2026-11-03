@@ -407,9 +407,15 @@ else
     echo -e "  ${GREEN}[OK]${NC} tracked tree is clean"
 fi
 
-UNTRACKED_COUNT="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | grep -c '^??' || true)"
+UNTRACKED_LIST="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | grep '^??' || true)"
+UNTRACKED_COUNT="$(printf '%s\n' "$UNTRACKED_LIST" | grep -c . || true)"
 if [ "${UNTRACKED_COUNT:-0}" -gt 0 ]; then
     echo -e "  ${YELLOW}[WARN]${NC} $UNTRACKED_COUNT untracked path(s) present in the build context"
+    echo "    Untracked files enter the Docker build context, so they change the"
+    echo "    image that the source-specific tag does not describe.  A release"
+    echo "    qualification must use a clean checkout with no untracked"
+    echo "    application files in the context:"
+    printf '%s\n' "$UNTRACKED_LIST" | sed 's/^/    /'
 fi
 
 ALEMBIC_PYTHON=""
@@ -721,6 +727,14 @@ echo "── Step 9: Start Docker Compose ──"
 DETACH_ARGS=()
 if [ "$DETACH" -eq 1 ]; then
     DETACH_ARGS=(-d)
+else
+    # Attached mode streams logs until the stack stops, so the run never
+    # reaches the migration-outcome verification below.  Say so, rather
+    # than letting an attached run be read as a verified one.
+    echo -e "  ${YELLOW}[WARN]${NC} attached mode: 'docker compose up' streams logs until the stack stops"
+    echo "    The migration outcome is verified only after Compose exits, which an"
+    echo "    attached run does not reach in normal operation.  Use --detach for a"
+    echo "    verified qualification run."
 fi
 
 case "$MODE" in
