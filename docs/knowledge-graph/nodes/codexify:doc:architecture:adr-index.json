@@ -21,7 +21,7 @@
       "the documented ADR graph or reading order changes"
     ],
     "verified_at": "2026-09-24T20:46:58Z",
-    "verified_commit": "644a2bcafe293b1e82668faea4caee602e21b161"
+    "verified_commit": "74fd8f4899eadae94e2b1e2acec4d05582d44d2d"
   },
   "governing_adr_posture": "not_applicable",
   "kind": "runtime_map",
