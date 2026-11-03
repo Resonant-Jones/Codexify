@@ -96,6 +96,71 @@ do not contain and must not fabricate Persona Profile state. Required-file,
 family, count, and checksum validation is selected by schema version and remains
 fail-closed.
 
+### Canonical Project ownership in the default export
+
+`projects.user_id` is the durable owner of a canonical Project (ADR-081). The
+default archive version is `account-export.v3`, and its canonical bundle reader
+is `guardian/core/pgdb.py::fetch_account_export_bundle_for_user`.
+
+The default bundle path selects candidate Projects by reachability from
+account-owned rows — an owned thread, document, or asset may name a Project.
+Every such candidate is selected **with** its canonical `projects.user_id`, and
+the export refuses explicitly when a reachable candidate is not owned by the
+authenticated exporting account. The refusal is a content-free
+`account_export_project_ownership_mismatch`; the export fails rather than
+shipping foreign Project metadata or silently producing an incomplete
+relationship graph. Reachability never grants ownership, and a missing owner is
+not a defaultable value.
+
+Ownership is never manufactured from a thread's owner, an archive manifest, the
+export filename, a caller-supplied user id, a Project's placement, or a
+fallback local account. The authenticated account is the export scope authority,
+and `projects.user_id` is the only source of a Project's owner.
+
+The canonical-memory export path selects Projects through `projects.user_id` at
+query time. That is its established behavior and is unchanged here; only the
+default path's selection is corrected. The two paths therefore differ in how
+they treat a reachable foreign-owned candidate, and the difference is
+deliberate: the default path refuses the export explicitly, while the
+canonical-memory path keeps its existing selection semantics. Neither path
+exports foreign Project metadata.
+
+**Proof.** Against disposable PostgreSQL, the production export builder with no
+schema-version override produces an `account-export.v3` archive whose
+`entities/projects.json` carries `user_id` for every exported Project, and that
+archive restores into a clean canonical target with Project ownership, thread
+membership, and message identity, ordering, and timestamps intact; a repeated
+restore is idempotent. A default export of an unmarked legacy conversation and
+of a canonically imported conversation both restore, and imported provenance is
+preserved verbatim. The export does not cross accounts: another account's
+Projects, threads, and messages are absent from the archive, and a reachable
+Project owned by another account fails the export instead of being exported.
+
+**Regression.** Two full backend runs were compared under the same
+infrastructure, dependency versions, and exclusions: the baseline with the
+correction reverted, and the corrected tree. Both report 18 failed, 3 errored,
+and 108 skipped. The failing and erroring id sets differ by exactly one id in
+each direction, and neither id exercises the export path: one is a document
+worker shutdown race and the other is a PostgreSQL DNS-handshake deadline race.
+Both pass standalone, so neither is attributable to this correction. The
+collected count rises by 18 — the 14 new round-trip tests, the 2 new
+owner-column tests, and the 2 new export-route tests — and every one of them
+passes.
+
+**Historical ownerless archives.** Older `account-export.v3` archives generated
+before this correction carry no `projects.user_id`. They are not silently
+repaired: an archive's manifest and an authenticated uploader are not proof of
+the original canonical Project owner, so the canonical restore continues to
+refuse them explicitly. Historical repair requires a separately authorized
+compatibility policy.
+
+**Native-origin-bearing archives.** The trusted-custody refusal from ADR-016
+still applies to the corrected default archive: a default export that contains
+a genuine `extra_meta.message_origin` assertion remains ineligible for the
+generic restore. The export correction does not strip, reinterpret, or reissue
+that assertion, and it does not relax restore admission. Proof-preserving
+native-origin export custody remains a deferred requirement.
+
 ### UMS canonical schema versions (UMS-04 → UMS-05C10A-P)
 
 Each addition of a canonical UMS entity family introduces a new, immutable
@@ -246,7 +311,7 @@ All IDs, metadata, and relationships in the following families must be explicit 
 
 | Family | Must export |
 | --- | --- |
-| Projects | Stable project IDs, project metadata, memberships, project-level timestamps, tags/flags, and provenance. |
+| Projects | Stable project IDs, the canonical owning account (`projects.user_id`), project metadata, memberships, project-level timestamps, tags/flags, and provenance. |
 | Chat threads | Stable thread IDs, owning project membership, thread metadata, ordering context, timestamps, tags/flags, and provenance. |
 | Chat messages | Stable message IDs, thread ID, explicit ordering index, parent or child references where applicable, content, author/role metadata, edit or deletion metadata when restore-relevant, timestamps, and provenance. |
 | Uploaded documents | Stable document IDs, binary hash or binary reference, filename or title, MIME type, size, storage locator when needed, links to threads and projects, timestamps, tags/flags, and provenance. |

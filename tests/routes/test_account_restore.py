@@ -49,6 +49,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
         "projects": [
             {
                 "id": 10,
+                "user_id": USER_ID,
                 "name": "Project Alpha",
                 "description": "Primary workspace",
                 "icon": "A",
@@ -1415,6 +1416,7 @@ def test_account_restore_preserves_origin_system_round_trip(
         "projects": [
             {
                 "id": 10,
+                "user_id": USER_ID,
                 "name": "Project Alpha",
                 "description": "Primary workspace",
                 "icon": "A",
@@ -1757,3 +1759,9 @@ def test_account_metadata_restore_still_accepts_unmarked_and_imported(
     body = response.json()
     assert body["ok"] is True
     assert "chat_messages" in restore_db.calls
+
+
+# The canonical Project-ownership refusal is owned by the canonical PostgreSQL
+# restore adapter, not by this route's store double. It is proven end to end
+# against disposable PostgreSQL with a production-built archive in
+# ``tests/services/test_account_export_v3_project_owner_roundtrip.py``.

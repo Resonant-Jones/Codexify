@@ -282,3 +282,66 @@ def test_restore_fails_closed_for_mismatched_chat_message_owner(
 
     owner = _read_owner(target_url, "chat_messages", "id", MESSAGE_ID)
     assert owner is None, f"tampered chat_message row leaked into target: {owner!r}"
+
+
+def test_production_bundle_projects_carries_source_user_id(
+    source_target_databases,
+):
+    """The default bundle path carries the canonical Project owner.
+
+    The default account-export artifact is ``account-export.v3``, and its
+    bundle reader is the path the production exporter uses. A reachable
+    Project must carry its canonical owner, because the canonical restore
+    reads that owner as required persisted state.
+    """
+    source_url, _ = source_target_databases
+    pgdb = PgDB(source_url)
+    bundle = pgdb.fetch_account_export_bundle_for_user(SOURCE_ACCOUNT)
+    projects = bundle.get("projects") or []
+    assert len(projects) == 1
+    row = projects[0]
+    assert row["id"] == PROJECT_ID
+    assert row.get("user_id") == SOURCE_ACCOUNT
+
+
+def test_production_bundle_rejects_a_foreign_owned_project(
+    source_target_databases,
+):
+    """A reachable Project owned by another account fails the export.
+
+    Reachability never grants ownership. The export refuses explicitly
+    instead of exporting foreign Project metadata or silently producing an
+    incomplete relationship graph.
+    """
+    source_url, _ = source_target_databases
+    with psycopg.connect(source_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES (%s, %s, 'not-a-real-hash', 'guest')",
+                (OTHER_ACCOUNT, OTHER_ACCOUNT),
+            )
+            cur.execute(
+                "INSERT INTO projects (id, user_id, name) VALUES (%s, %s, %s)",
+                (91002, OTHER_ACCOUNT, "Foreign Project"),
+            )
+            cur.execute(
+                "INSERT INTO chat_threads (id, user_id, title, project_id) "
+                "VALUES (%s, %s, %s, %s)",
+                (92002, SOURCE_ACCOUNT, "Cross-account Thread", 91002),
+            )
+        conn.commit()
+
+    pgdb = PgDB(source_url)
+    with pytest.raises(RuntimeError) as excinfo:
+        pgdb.fetch_account_export_bundle_for_user(SOURCE_ACCOUNT)
+
+    message = str(excinfo.value).lower()
+    assert "ownership" in message or "scope" in message
+
+    with psycopg.connect(source_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM chat_threads WHERE id = %s", (92002,)
+            )
+        conn.commit()

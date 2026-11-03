@@ -5241,6 +5241,23 @@ def _append_unique(values: list[Any], row_values: list[Any]) -> list[Any]:
     return values
 
 
+def _require_canonical_project_ownership(
+    rows: list[dict[str, Any]], *, owner: str
+) -> None:
+    """Refuse an export whose reachable Projects are not owned by the account.
+
+    A candidate Project reached through an owned thread, document, or asset
+    must belong to the exporting account. Reachability never grants
+    ownership, and a missing owner is not a defaultable value: both cases fail
+    the export explicitly instead of exporting foreign Project metadata or
+    silently producing an incomplete relationship graph.
+    """
+    expected = str(owner or "").strip()
+    for row in rows:
+        if str(row.get("user_id") or "").strip() != expected:
+            raise RuntimeError("account_export_project_ownership_mismatch")
+
+
 def fetch_account_export_bundle_for_user(
     user_id: str,
     *,
@@ -5754,10 +5771,21 @@ def fetch_account_export_bundle_for_user(
                     ],
                 )
 
-            bundles["projects"] = (
-                _export_rows(
-                    cur,
-                    (
+            # Canonical Project ownership is required persisted state
+            # (ADR-081) and the canonical restore reads it explicitly. The
+            # default bundle path selected candidate Projects by reachability
+            # alone, which both dropped the owner column and could reach a
+            # Project owned by another account. Select the canonical owner
+            # here and refuse the export when a reachable candidate is not
+            # owned by the exporting account, rather than exporting foreign
+            # Project metadata or silently producing an incomplete graph.
+            project_scope = [
+                project_id for project_id in project_ids if project_id is not None
+            ]
+            if include_unified_memory:
+                bundles["projects"] = (
+                    _export_rows(
+                        cur,
                         """
                         SELECT
                             id, user_id, name, description, icon,
@@ -5766,39 +5794,32 @@ def fetch_account_export_bundle_for_user(
                         WHERE user_id = %s
                           AND id = ANY(%s)
                         ORDER BY id ASC
+                        """,
+                        (user_id, project_scope),
+                    )
+                    if project_scope
+                    else []
+                )
+            else:
+                bundles["projects"] = (
+                    _export_rows(
+                        cur,
                         """
-                        if include_unified_memory
-                        else """
                         SELECT
-                            id, name, description, icon,
+                            id, user_id, name, description, icon,
                             identity_depth, created_at, updated_at
                         FROM projects
                         WHERE id = ANY(%s)
                         ORDER BY id ASC
-                        """
-                    ),
-                    (
-                        (
-                            user_id,
-                            [
-                                project_id
-                                for project_id in project_ids
-                                if project_id is not None
-                            ],
-                        )
-                        if include_unified_memory
-                        else (
-                            [
-                                project_id
-                                for project_id in project_ids
-                                if project_id is not None
-                            ],
-                        )
-                    ),
+                        """,
+                        (project_scope,),
+                    )
+                    if project_scope
+                    else []
                 )
-                if project_ids
-                else []
-            )
+                _require_canonical_project_ownership(
+                    bundles["projects"], owner=user_id
+                )
 
             return bundles
     finally:

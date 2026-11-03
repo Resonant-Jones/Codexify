@@ -1498,7 +1498,7 @@ def _build_manifest(
             "Metadata restore is supported; bundled blob write-back remains deferred.",
             "Resolvable document, image, and media bytes are bundled as canonical blob files; unresolved rows are retained with export.blob.status='unresolved'.",
             "Generated documents are exported from stored UTF-8 content because the current schema stores the document body in the database rather than a separate binary file.",
-            "Projects are exported by reachability from user-owned rows because project ownership is not stored directly on the projects table.",
+            "Projects are exported through projects.user_id: every reachable Project is selected with its canonical owner, and the export refuses a reachable candidate owned by another account.",
         ]
 
     return {
