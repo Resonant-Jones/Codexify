@@ -1603,3 +1603,157 @@ def test_account_restore_unsupported_declared_origin_system_fails_closed(
     # The real restore must NOT have proceeded to the underlying
     # INSERT path for an unsupported declared value.
     assert captured == {}
+
+
+# ── Untrusted native-origin claims are refused at restore admission ──────────
+
+#: The exact shape a trusted writer emits. An archive carrying this is
+#: indistinguishable from a genuine Codexify assertion and must still be
+#: refused, because the archive cannot prove issuance.
+_LEGITIMATE_SHAPED_CLAIM = {
+    "version": 1,
+    "origin_system": "codexify",
+    "asserted_at": "2026-11-01T22:00:00+00:00",
+}
+
+
+def _archive_with_origin_claim(
+    rows: dict[str, list[dict[str, object]]],
+    claim: object,
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> bytes:
+    """Build an authentic archive whose chat_messages carry a claim.
+
+    The manifest and payload digests are produced by the production exporter,
+    so the archive is valid in every respect except the one the restore
+    boundary must refuse.
+    """
+    modified = deepcopy(rows)
+    message = dict(modified["chat_messages"][0])
+    extra_meta = dict(message.get("extra_meta") or {})
+    extra_meta["message_origin"] = claim
+    message["extra_meta"] = extra_meta
+    modified["chat_messages"][0] = message
+
+    base_path = tmp_path / "storage"
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(base_path))
+    monkeypatch.setenv("STORAGE_URL_PREFIX", "/media")
+    _write_blob(base_path, "documents/brief.pdf", b"brief-pdf-bytes")
+    _write_blob(base_path, "images/uploaded.png", b"uploaded-image-bytes")
+    _write_blob(
+        base_path, "generated_images/generated.png", b"generated-image-bytes"
+    )
+
+    export_db, _export_calls = _build_export_db(modified)
+    archive_path = build_account_export_zip(
+        export_db,
+        SimpleNamespace(id=USER_ID),
+    )
+    try:
+        return _zip_bytes_from_archive(archive_path)
+    finally:
+        if os.path.exists(archive_path):
+            os.unlink(archive_path)
+
+
+def test_account_metadata_restore_refuses_a_native_origin_claim(
+    client: TestClient,
+    rows: dict[str, list[dict[str, object]]],
+    restore_db: FakeAccountRestoreDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An authenticated upload cannot install native-origin evidence."""
+    archive_bytes = _archive_with_origin_claim(
+        rows,
+        _LEGITIMATE_SHAPED_CLAIM,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+
+    response = _post_archive(client, archive_bytes)
+
+    assert response.status_code == 400, response.text
+    body = response.json()
+    assert body["ok"] is False
+    assert body["validated"] is False
+    assert body["error"]["code"] == "native_origin_claim_untrusted"
+    # The refusal happens before any entity family is written.
+    assert restore_db.calls == []
+
+
+def test_account_metadata_restore_refusal_is_content_free(
+    client: TestClient,
+    rows: dict[str, list[dict[str, object]]],
+    restore_db: FakeAccountRestoreDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The rejection does not echo message content or imported identifiers."""
+    archive_bytes = _archive_with_origin_claim(
+        rows,
+        _LEGITIMATE_SHAPED_CLAIM,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+
+    response = _post_archive(client, archive_bytes)
+
+    assert response.status_code == 400, response.text
+    serialized = json.dumps(response.json())
+
+    assert "Hello" not in serialized
+    assert "source-1" not in serialized
+    assert restore_db.calls == []
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        pytest.param(None, id="null-member"),
+        pytest.param("not-an-object", id="malformed-member"),
+        pytest.param(
+            {"version": 99, "origin_system": "codexify", "asserted_at": "x"},
+            id="unsupported-version",
+        ),
+    ],
+)
+def test_account_metadata_restore_fails_closed_on_any_claim_shape(
+    client: TestClient,
+    rows: dict[str, list[dict[str, object]]],
+    restore_db: FakeAccountRestoreDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    claim: object,
+):
+    """Malformed and unsupported claims fail closed rather than being ignored."""
+    archive_bytes = _archive_with_origin_claim(
+        rows,
+        claim,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+
+    response = _post_archive(client, archive_bytes)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "native_origin_claim_untrusted"
+    assert restore_db.calls == []
+
+
+def test_account_metadata_restore_still_accepts_unmarked_and_imported(
+    client: TestClient,
+    archive_package,
+    restore_db: FakeAccountRestoreDB,
+):
+    """Archives without a native-origin claim keep restoring as before."""
+    archive_bytes, _manifest, _export_calls = archive_package
+
+    response = _post_archive(client, archive_bytes)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ok"] is True
+    assert "chat_messages" in restore_db.calls

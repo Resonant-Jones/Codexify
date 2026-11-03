@@ -247,7 +247,7 @@ is a distinct type that untrusted data cannot produce.
 | Route `POST /{thread_id}/messages` and `POST /messages` | Client `metadata` cannot establish the member. |
 | Route and worker enrichment merges | The canonical statement subtracts the reserved member from the *incoming* payload, so an enrichment can neither create it, replace a stored one, nor remove a stored one. |
 | Importer metadata writes | Unchanged. The importer preserves its established `origin`, profile, timestamps, source IDs, and lineage, and never writes the reserved member. |
-| Restore | Unchanged. Arbitrary uploaded assertion JSON is still not proof; restore trust-custody remains a required follow-up. |
+| Restore | **Refused, not preserved.** The generic restore now refuses an archive whose messages carry the reserved member; see [section 3.13](#313-restore-admission-refuses-untrusted-native-origin-claims-2026-11-02). |
 
 The enrichment statement is the one canonical merge, shared by the route and
 the worker:
@@ -286,7 +286,11 @@ coverage receipts remain required follow-ups for finding #3, as described in
 - Extend the coverage receipt with content-free per-message origin exclusion
   counts, separate from thread exclusions.
 - Extend restore with trust-custody validation so an uploaded archive cannot
-  present itself as a trusted native export.
+  present itself as a trusted native export. The generic upload path now
+  refuses an archive carrying the reserved member
+  ([section 3.13](#313-restore-admission-refuses-untrusted-native-origin-claims-2026-11-02));
+  what remains is a separately accepted proof-preserving custody mechanism
+  that can *authorize* preservation of a genuine native assertion.
 - Guard the remaining direct-ORM write paths (`hosted_room_messages`,
   `agents/store.py`, `core_loop_proof.py`) and the chat embedding worker's
   full-column metadata replacement.
@@ -320,7 +324,10 @@ coverage receipts remain required follow-ups for finding #3, as described in
   recall, even if likely native. Future restore must preserve historical
   origin and proof custody across local-ID remapping, not stamp restored data
   as native. Arbitrary uploaded assertion JSON is not proof. No backfill or
-  retrospective rewrite is authorized here.
+  retrospective rewrite is authorized here. The generic upload path refuses an
+  archive carrying the reserved member rather than admitting it; a
+  proof-preserving custody path that can authorize its preservation is a
+  separate, still-open requirement.
 
 Origin classification never grants recall permission; the request grant cannot
 override origin exclusion. Imported human inspection and ADR-016's separately
@@ -382,7 +389,7 @@ stay unknown:
 | Proof helpers (`core_loop_proof.py`) | Not stamped. |
 | Ordinary-chat messages posted with a non-`user` role | Not stamped. Role is client-controlled, and a posted assistant turn is not native interaction creation in this slice. |
 | External import (`backend/rag/chatgpt_migration.py`) | Never stamped. Its `origin`, profile, timestamps, source IDs, raw metadata, and lineage are preserved unchanged. |
-| Restore (`PgDB.restore_account_export_chat_messages`) | Never stamped and never re-stamped. It preserves the original evidence verbatim, including the original `asserted_at`. |
+| Restore (`PgDB.restore_account_export_chat_messages`) | Never stamped and never re-stamped — and now never *admitted* with the member present. The generic restore refuses such an archive before any write; see [section 3.13](#313-restore-admission-refuses-untrusted-native-origin-claims-2026-11-02). |
 
 **Degradation is honest, not silent.** A store that does not implement the
 trusted seam cannot uphold the creation-bound guard, so its records stay
@@ -397,10 +404,12 @@ over `_PostgresGuardianDB`) implements the seam.
 - Legacy rows are not backfilled, relabeled, or reconciled. A row without
   positive origin evidence remains unknown, and an old row whose
   `message_origin` happens to match the writer's shape is still not proof.
-- Restore trust-custody is unchanged. An uploaded archive can still carry
-  assertion-shaped JSON; that is not proof, and restore remains a required
-  follow-up.
-- A restored record's original `asserted_at` is preserved, never reissued.
+- Restore trust-custody is now enforced on the generic upload path: an archive
+  carrying the reserved member is refused rather than admitted, stripped, or
+  reissued. See
+  [section 3.13](#313-restore-admission-refuses-untrusted-native-origin-claims-2026-11-02).
+- A restored record is never given native provenance, and an archive that
+  claims it is refused before any write.
 
 **Finding #3 is still open.** This slice establishes evidence for *new* native
 user messages. It does not establish that every historical native message is
@@ -499,6 +508,95 @@ messages, source labels, or content-free per-message coverage receipts.
 advertised only when a request-scoped `HistoryRecallGrant` is present.
 Assistant-origin qualification advertises nothing and grants no recall
 permission, memory authority, identity change, or instruction authority.
+
+### 3.13 Restore admission refuses untrusted native-origin claims (2026-11-02)
+
+The generic account-restore path cannot admit an archive-provided
+native-origin claim as native-origin authority.
+
+**The boundary.** ADR-016 reserves `extra_meta.message_origin` for the
+protected canonical creation operation. That member is creation evidence, not
+restored bytes. An authenticated account owner may submit an archive of
+historical conversation content, and that permission covers ownership of the
+restored records, archive integrity, and schema validity. It does not extend to
+historical message-origin evidence or to the trusted custody of native-origin
+assertions.
+
+**No trusted proof-preserving restore path exists.** The archive manifest
+carries a self-authored checksum over its own members and is bound to the
+uploading account. Neither can independently authenticate the original creation
+evidence of an exact message: neither carries a signature or attestation over
+that evidence, and the canonical message id in the archive is chosen by the
+archive. No signing service, attestation format, or trusted export-custody
+mechanism exists, and none is introduced by this change.
+
+**The behavior.** `AccountRestoreService._parse_and_validate_archive` detects
+the reserved member on every `chat_messages` payload row and refuses the
+archive with `native_origin_claim_untrusted`, before the restore transaction
+begins writing any entity family.
+
+| Condition | Result |
+| --- | --- |
+| Reserved member present, correct shape, identical to a trusted writer's output | Refused |
+| Reserved member present but null, malformed, or an unsupported version | Refused |
+| Reserved member contradicting the canonical origin vocabulary | Refused |
+| Archive manifest valid and the account authenticated | Still refused — neither buys authority |
+| Target message already exists and the restore would otherwise skip it | Still refused — the check runs on the archive payload, before any database interaction |
+| Archive version | Every supported version that carries `chat_messages`: `account-export.v1` through `account-export.v8` |
+
+The refusal is explicit rather than a silent downgrade. The claim is not
+stripped, because stripping it would make the restore appear lossless while
+discarding provenance the archive claimed to carry. The error is intelligible
+and content-free: it exposes no message content and no imported source
+identifier.
+
+**A rejected archive mutates nothing.** Projects, threads, chat messages,
+message metadata, media and document relationships, other restored entity
+families, and existing memory and persona records are all left unchanged, and
+no partial restore of the permitted rows precedes the refusal.
+
+**Legacy and imported restores are unaffected.** Archives without the reserved
+member continue through the existing validation and restore processing with
+their accepted semantics: unmarked legacy conversation messages, existing
+ChatGPT and Claude imported provenance, source ids and import lineage, original
+authorship, historical event and creation timestamps, account and Project
+ownership requirements, canonical message/thread relationships, and the existing
+conflict and idempotency behavior. Restore preserves bytes; it does not create
+origin evidence. A restored message is never classified as native, and restore
+never mints an assertion, reissues one, or rewrites incoming imported
+provenance as `codexify`.
+
+**The temporary limitation.** A current account export that contains genuine
+native-origin assertions — an export taken after the trusted native
+user-message and accepted assistant-completion writers exist — **cannot be
+restored through the generic upload path**. That is the intended consequence of
+refusing unverified origin claims. Full proof-preserving native-message
+portability requires a separately accepted trusted export-custody mechanism,
+which this slice does not create. The limitation is recorded in
+`docs/architecture/account-export-restore-contract.md`, together with a
+separate, pre-existing exporter/adapter mismatch: the current *default* export
+version (`account-export.v3`) omits the explicit `projects.user_id` that the
+canonical restore requires, so it is not restorable on its own terms. The
+restorable versions (`account-export.v4` and later) carry that ownership
+column, and the refusal above is asserted for every version the restore
+accepts, from `account-export.v1` through `account-export.v8`.
+
+**Scope of the assistant witness.** Account export and restore do not carry
+canonical completion-attempt rows, so an archive cannot inject the attempt
+lineage ADR-016's narrower historical assistant witness depends on. The restore
+also never overwrites an existing canonical row: an archive row that conflicts
+with persisted state fails closed rather than replacing it. The residual case
+is that a restored message may reuse a canonical message id that a deleted
+completion attempt still names. A message id matching an existing completion id
+is not proof of shared origin, so any future witness reader must establish the
+message's own creation evidence rather than rely on the id match. That
+reader-side obligation stays open under finding #3.
+
+**Finding #3 is still open.** This slice prevents one untrusted way of
+manufacturing native-origin evidence. It does not implement per-message origin
+classification, reader-side exclusion, source labels, or content-free
+per-message coverage receipts, and it does not change the recall reader, the
+ADR-084 grant resolver, the Command Bus, or ordinary-chat advertisement.
 
 ## 4. Surfaces
 
@@ -939,6 +1037,8 @@ semantic that SQLite does not reproduce.
 | `tests/core/test_message_origin_custody.py` | 45 passed — the shared rule's contract; the canonical `PgDB.create_message` insert refusing client-supplied origin; identical-looking JSON accepted only from trusted authority; canonical imported metadata left intact; unrelated metadata untouched; failed insert writing no row; the canonical enrichment statement preserving a stored assertion, refusing replacement, refusing removal, and refusing creation; legacy rows staying unknown; imported lineage surviving enrichment; **the trusted native-creation method stamping a backend-authored, zoned assertion; the generic writer staying a non-authority; the importer module never referencing the trusted seam; a failed native insert leaving no row; a replayed write preserving the original assertion; two native creations remaining independent; the ADR-016 fixtures P01, P05, P06, N01, N03, N04, and N05 driven against the runtime; restore preserving the original evidence without adding native origin** |
 | `tests/routes/test_message_origin_custody.py` | 25 passed — the real `POST /api/chat/{thread_id}/messages` and `POST /api/chat/messages` routes refusing client-supplied origin; ordinary message creation unchanged; unrelated client metadata still persisted; the route's real enrichment helper preserving, refusing to replace, and refusing to remove an existing assertion; legacy and imported rows unchanged; **both ordinary user-message entry paths receiving a backend-authored assertion; the assertion proven to come from the insert rather than the later merge; a forged `asserted_at` ignored; a non-`user` role left unstamped; conflicting source lineage refused with no message and no thread written; quoted external material in the content still accepted; a cross-account thread denied with no message created; the message route minting no recall grant; ordinary chat still not advertising history search** |
 | `tests/workers/test_native_assistant_origin.py` | 23 passed — the accepted assistant-completion writer: a bound completion receiving a backend-authored, zoned assertion; a forged native-looking payload and a forged `asserted_at` ignored; conflicting imported-source lineage withheld so the record is never relabeled native; the generic writer remaining a non-authority; a message without a durable attempt staying unproven; the attempt bound to this exact message; a mismatched attempt identity, an unrelated attempt, and an attempt naming no assistant in its thread all refused; **a failed insert and a failed attempt binding each rolling back the message together with its assertion; a duplicate completion and a repeated retry preserving the original message and the original `asserted_at`; a failed and a cancelled attempt producing no proven row; generic metadata enrichment unable to alter the stored assertion; existing user-message stamping still working; the production store exposing the trusted writer, so the worker's atomic branch is the one that stamps; the ADR-016 fixtures P02 and P04 driven against the runtime; ordinary chat still not advertising history search** |
+| `tests/services/test_account_restore_message_origin.py` | 16 passed — restore admission against disposable PostgreSQL, using the production exporter and the production restore entrypoint: **an authentic export carrying a native-origin claim refused; every shape of the claim (legitimate-shaped, null, malformed, unsupported-version, contradictory, partial) refused; the refusal applied to every supported archive version from `account-export.v1` through `account-export.v8`; a refused archive leaving the target's messages, threads, and projects untouched; a mixed archive of valid legacy rows plus one forged claim refused rather than partially restored; a claim on an already-existing target message still refused, with the pre-existing row untouched; a foreign-account archive still refused by the ownership check; unmarked legacy and ChatGPT- and Claude-imported messages still restoring with their lineage preserved verbatim and no restored row promoted to native; the ADR-016 imported-assistant fixture not relabeled native; ordinary chat still not advertising history search** |
+| `tests/routes/test_account_restore.py` | 17 passed — the authenticated upload surface: **an archive carrying a native-origin claim refused with `native_origin_claim_untrusted` and no entity family written; the refusal content-free, exposing no message content and no imported source identifier; every malformed and unsupported claim shape failing closed; archives without a claim still restoring as before** |
 
 Both files require `TEST_DATABASE_URL` and fail closed without it, matching the
 repository's established disposable-PostgreSQL convention. The PostgreSQL
@@ -1115,6 +1215,43 @@ suites that need infrastructure this environment does not provide:
 - The imported archive path was confirmed to remain human-only; no
   imported-archive model exposure exists to test.
 
+### Restore-admission full backend suite, against a same-session baseline
+
+The full suite was run twice in the same session on the same host, with the
+same command, the same environment, the same disposable PostgreSQL 16
+instance, and the same exclusions. The baseline differed only in that
+`guardian/services/account_restore.py` was reverted to the starting commit
+(`b7ab34a7a`) and the tests that exercise the new restore-admission behavior
+were deselected, so both runs covered the same pre-existing test set.
+
+| Run | Failed | Errors |
+| --- | --- | --- |
+| Baseline (starting commit `b7ab34a7a`, this change not applied) | 17 | 3 |
+| With this change | 17 | 3 |
+
+**The failing and erroring id sets are identical.** Zero new failing ids, zero
+new erroring ids, and no baseline id disappeared from the run. The comparison
+is made on the exact test ids with the `FAILED `/`ERROR ` prefix stripped from
+both sides; without that normalization the baseline ids never match and every
+baseline id appears "new".
+
+The 20 ids that fail in both runs are the environment-driven set documented
+above: the MCP SDK gap, the tests that create their own disposable PostgreSQL
+container, the faiss-backed embedding status, the ops local-service checks, and
+the voice-worker unbound-completion errors.
+
+The affected export and restore suites were also run directly against the
+disposable PostgreSQL instance and pass: the sixteen
+`tests/services/test_account_export_*.py`, `tests/services/test_account_restore_*.py`,
+and `tests/routes/test_account_export.py` suites, the
+`tests/services/test_account_export_restore_unified_memory_roundtrip.py`
+integration round trip, `tests/routes/test_account_restore.py`, and the new
+`tests/services/test_account_restore_message_origin.py` suite.
+
+**The pre-existing local-node ordering flake** is unchanged by this work and
+is not repaired here; it is analyzed in
+[the full-suite section above](#full-backend-suite-against-a-baseline).
+
 ## 15. File map
 
 | File | Role |
@@ -1130,6 +1267,8 @@ suites that need infrastructure this environment does not provide:
 | `tests/core/test_message_origin_custody.py` | The custody rule, the shared producer, the trusted native-creation seam, and the canonical Postgres write and merge behavior, against disposable PostgreSQL |
 | `tests/routes/test_message_origin_custody.py` | The ordinary-chat HTTP routes, the trusted native stamping, the lineage refusal, and the route enrichment helper, against disposable PostgreSQL |
 | `tests/workers/test_native_assistant_origin.py` | The accepted assistant-completion writer: the native assertion, its attempt binding, retry, failure, cancellation, rollback, and fallback behaviour, against disposable PostgreSQL |
+| `guardian/services/account_restore.py` | The generic restore admission boundary that refuses an archive-provided native-origin claim before any write |
+| `tests/services/test_account_restore_message_origin.py` | Restore admission against the production exporter and restore entrypoint, across every supported archive version, against disposable PostgreSQL |
 
 ## 16. Remaining review findings and runtime limitations
 
@@ -1141,16 +1280,17 @@ open, and none of them is repaired here:
 | --- | --- |
 | #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
 | #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
-| #3 — Message-level imported provenance filtering | **Open; partially addressed.** The write-side boundary is now enforced *and* productive: no ordinary-chat creation or enrichment path can establish, replace, or remove a native-origin assertion, and the ordinary authenticated user message now receives a backend-authored assertion at its canonical insert. The reader-side per-message origin classification, exclusion, and content-free per-message coverage receipts remain unimplemented, so an imported message inside a native thread still reaches the model. Thread checks and request grants do not close this defect. |
+| #3 — Message-level imported provenance filtering | **Open; partially addressed.** The write-side boundary is now enforced *and* productive: no ordinary-chat creation or enrichment path can establish, replace, or remove a native-origin assertion; the ordinary authenticated user message and the accepted assistant completion each receive a backend-authored assertion at their canonical insert; and the generic account restore refuses an archive that presents itself as carrying native-origin evidence. The reader-side per-message origin classification, exclusion, and content-free per-message coverage receipts remain unimplemented, so an imported message inside a native thread still reaches the model. Thread checks and request grants do not close this defect. |
 | #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
 | #5 — 500-thread coverage truncation | **Open.** Not repaired. |
 
 Dependency-ordered follow-on work: #3 message-level imported provenance
 exclusion — the remaining writer/custody coverage (worker completion service,
-voice, Hosted Room, agent-result, proof, restore), then per-message reader
-filtering and coverage receipts — followed by #1 PostgreSQL session
-compatibility, #5 retrieval coverage and truncation, then #2 ordinary-chat
-advertisement and final activation.
+voice, Hosted Room, agent-result, proof) and a separately accepted
+proof-preserving restore custody path, then per-message reader filtering and
+coverage receipts — followed by #1 PostgreSQL session compatibility, #5
+retrieval coverage and truncation, then #2 ordinary-chat advertisement and
+final activation.
 
 **Known documentation drift.** The `implementationStatus` string in
 `docs/architecture/fixtures/history-recall-intent.v1.json` still says that no
