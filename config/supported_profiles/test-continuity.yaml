@@ -32,6 +32,7 @@ route_posture:
     - documents
     - media
     - personal_facts
+    - saved_widgets
     - migration
     - embeddings
     - obsidian

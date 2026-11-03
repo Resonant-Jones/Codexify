@@ -55,9 +55,24 @@ export function ConversationMinimap({
 }: ConversationMinimapProps) {
   const [previewEntryId, setPreviewEntryId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  /**
+   * The rail is one composite widget: a single mark is in the tab order and
+   * the arrow keys move between them. A dense history would otherwise put
+   * dozens of marks in the tab order and make the preview unreachable.
+   */
+  const [activeMarkIndex, setActiveMarkIndex] = useState(0);
+  /** Requests that focus moves into the open preview. */
+  const [focusDestinationIndex, setFocusDestinationIndex] = useState<
+    number | null
+  >(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerTypeRef = useRef<string>("mouse");
   const markRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const destinationRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  /** The mark the current preview was opened from. */
+  const originMarkRef = useRef<HTMLButtonElement | null>(null);
+  /** Suppresses the focus handler that would immediately reopen a preview. */
+  const suppressFocusOpenRef = useRef(false);
 
   const sectionsById = useMemo(() => {
     const map = new Map<string, ConversationSection>();
@@ -109,6 +124,31 @@ export function ConversationMinimap({
     [clearCloseTimer]
   );
 
+  /**
+   * Move focus into the open preview so a keyboard user can act on the exact
+   * destination without tabbing through the remaining rail marks, which would
+   * replace the preview on the way.
+   */
+  useEffect(() => {
+    if (focusDestinationIndex === null) return;
+    const node = destinationRefs.current[focusDestinationIndex];
+    if (!node) return;
+    setFocusDestinationIndex(null);
+    node.focus();
+  }, [focusDestinationIndex, previewEntry]);
+
+  /**
+   * Return focus to the mark the preview was opened from. The mark's own focus
+   * handler would otherwise reopen the preview immediately.
+   */
+  const handlePreviewEscape = useCallback(() => {
+    const origin = originMarkRef.current;
+    closePreview();
+    if (!origin) return;
+    suppressFocusOpenRef.current = true;
+    origin.focus();
+  }, [closePreview]);
+
   // A thread switch must never leave the previous thread's preview visible.
   useEffect(() => {
     closePreview();
@@ -159,16 +199,28 @@ export function ConversationMinimap({
   );
 
   const handleMarkActivate = useCallback(
-    (entry: ConversationNavigationEntry) => {
+    (
+      entry: ConversationNavigationEntry,
+      options?: { keyboard?: boolean; mark?: HTMLButtonElement | null }
+    ) => {
       // A range entry cannot resolve to one destination, so it always opens
       // the preview and lets the reader choose the exact turn.
       if (entry.kind === "range") {
         openPreview(entry);
+        if (options?.keyboard) setFocusDestinationIndex(0);
         return;
       }
 
       const sectionId = entry.sectionIds[0];
       if (!sectionId) return;
+
+      if (options?.keyboard) {
+        // A keyboard activation enters the preview so the exact destination can
+        // be chosen and committed with the same explicit action a pointer uses.
+        openPreview(entry);
+        setFocusDestinationIndex(0);
+        return;
+      }
 
       if (isTouchInteraction()) {
         // Touch opens the preview. A separate "Go to turn" action commits.
@@ -203,6 +255,17 @@ export function ConversationMinimap({
         return;
       }
 
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const entry = entries[index];
+        if (!entry) return;
+        handleMarkActivate(entry, {
+          keyboard: true,
+          mark: markRefs.current[index] ?? null,
+        });
+        return;
+      }
+
       if (event.key === "ArrowDown" || event.key === "ArrowRight") {
         event.preventDefault();
         const next = markRefs.current[index + 1];
@@ -230,7 +293,7 @@ export function ConversationMinimap({
         if (last) last.focus();
       }
     },
-    [closePreview]
+    [closePreview, entries, handleMarkActivate]
   );
 
   const previewSectionsById = useMemo(() => {
@@ -294,11 +357,20 @@ export function ConversationMinimap({
                     : entry.label
                 }
                 aria-expanded={isPreviewed}
+                tabIndex={index === activeMarkIndex ? 0 : -1}
                 onPointerDown={(event) => {
                   pointerTypeRef.current = event.pointerType || "mouse";
                 }}
                 onMouseEnter={() => openPreview(entry)}
-                onFocus={() => openPreview(entry)}
+                onFocus={() => {
+                  setActiveMarkIndex(index);
+                  originMarkRef.current = markRefs.current[index] ?? null;
+                  if (suppressFocusOpenRef.current) {
+                    suppressFocusOpenRef.current = false;
+                    return;
+                  }
+                  openPreview(entry);
+                }}
                 onClick={() => handleMarkActivate(entry)}
                 onKeyDown={(event) => handleRailKeyDown(event, index)}
               >
@@ -343,7 +415,7 @@ export function ConversationMinimap({
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.stopPropagation();
-              closePreview();
+              handlePreviewEscape();
             }
           }}
         >
@@ -360,7 +432,7 @@ export function ConversationMinimap({
           </div>
 
           <ul className={styles.previewList}>
-            {previewEntry.sectionIds.map((sectionId) => {
+            {previewEntry.sectionIds.map((sectionId, destinationIndex) => {
               const section = previewSectionsById.get(sectionId);
               if (!section) return null;
               const turnNumber = previewEntry.startIndex + 1 +
@@ -368,6 +440,9 @@ export function ConversationMinimap({
               return (
                 <li key={sectionId}>
                   <button
+                    ref={(node) => {
+                      destinationRefs.current[destinationIndex] = node;
+                    }}
                     type="button"
                     className={styles.previewItem}
                     data-testid="conversation-minimap-destination"

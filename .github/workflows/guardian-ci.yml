@@ -76,7 +76,12 @@ jobs:
           ci="${{ steps.filter.outputs.ci }}"
           shared="${{ steps.filter.outputs.shared }}"
 
-          if [ "$backend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A manual dispatch is an explicit request to verify. Force the
+            # backend path so that dispatching on a documentation-only commit
+            # cannot report a successful no-op in place of execution.
+            echo "run_backend=true" >> "$GITHUB_OUTPUT"
+          elif [ "$backend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
             echo "run_backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_backend=false" >> "$GITHUB_OUTPUT"

@@ -444,6 +444,50 @@ describe("ChatView conversation minimap", () => {
     expect(marks[0]).toHaveAttribute("data-active", "false");
   });
 
+  it("keeps following the latest turn when a tall reply is appended", async () => {
+    const initial = [
+      buildMessage(1, "user"),
+      buildMessage(2, "assistant"),
+    ];
+    const { rerender } = renderChatView(initial);
+
+    await flushFrames();
+
+    const scrollIntoView = Element.prototype.scrollIntoView as ReturnType<
+      typeof vi.fn
+    >;
+    scrollIntoView.mockClear();
+
+    // The reader is sitting at the latest turn.
+    scrollToPosition(contentHeight - viewportHeight);
+
+    // A tall reply arrives. The transcript grows, but the reader never
+    // navigated away, so the transcript must keep following the latest turn.
+    contentHeight += 800;
+    const next = [
+      ...initial,
+      buildMessage(3, "user"),
+      buildMessage(4, "assistant"),
+    ];
+    primeAnchorOffsets(next);
+    rerender(
+      <ChatView
+        threadId={7}
+        guardianName="Guardian"
+        messages={next}
+        loading={false}
+        error={null}
+        hasMore={false}
+        completionState={idleCompletion}
+        endCompletion={vi.fn()}
+      />
+    );
+
+    await flushFrames();
+
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
   it("does not pull the reader down when a new message arrives", async () => {
     const { rerender } = renderChatView(threeTurns.slice(0, 4));
 

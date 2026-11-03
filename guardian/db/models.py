@@ -9,6 +9,7 @@ No raw DDL creation in application code.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -32,6 +34,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from guardian.metering.tokens import InferenceCostSource, InferenceUsageSource
 from guardian.account_observability.tokens import (
     ATTRIBUTION_CONFIDENCES,
     ATTRIBUTION_METHODS,
@@ -72,6 +75,7 @@ from guardian.protocol_tokens import (
     CAMPAIGN_EXECUTION_ATTEMPT_STATUSES,
     CAMPAIGN_GOAL_STATUSES,
     CAMPAIGN_STATUSES,
+    ContinuationAuthorityProvenance,
     GUARDIAN_DELEGATION_APPROVAL_MODES,
     GUARDIAN_DELEGATION_APPROVAL_SOURCES,
     GUARDIAN_DELEGATION_APPROVAL_STATES,
@@ -152,6 +156,81 @@ class User(Base):
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'guest')", name="users_role_check"),
+    )
+
+
+
+class InferenceUsageEvent(Base):
+    """One immutable, content-free provider attempt accounted to an existing user."""
+
+    __tablename__ = "inference_usage_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    account_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL")
+    )
+    request_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_attempt_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_request_id: Mapped[str | None] = mapped_column(String(128))
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    cached_input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    total_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    usage_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 9))
+    cost_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    price_snapshot: Mapped[dict[str, str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "provider_attempt_id", name="uq_inference_usage_account_attempt"),
+        CheckConstraint(
+            "usage_source IN ('provider_reported','partial','unavailable')",
+            name="inference_usage_source_check",
+        ),
+        CheckConstraint(
+            "cost_source IN ('rate_snapshot_estimate','unavailable')",
+            name="inference_cost_source_check",
+        ),
+        CheckConstraint(
+            "(estimated_cost_usd IS NULL AND cost_source = 'unavailable') OR "
+            "(estimated_cost_usd IS NOT NULL AND cost_source = 'rate_snapshot_estimate' "
+            "AND estimated_cost_usd >= 0)",
+            name="inference_cost_presence_check",
+        ),
+        CheckConstraint(
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="inference_input_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="inference_output_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "cached_input_tokens IS NULL OR cached_input_tokens >= 0",
+            name="inference_cached_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="inference_total_tokens_nonnegative",
+        ),
+        Index("ix_inference_usage_account_time", "account_id", "recorded_at"),
+        Index("ix_inference_usage_request", "request_id"),
     )
 
 
@@ -5634,6 +5713,27 @@ class AgentRun(Base):
     rollback_reason: Mapped[str | None] = mapped_column(Text)
     worktree_id: Mapped[str | None] = mapped_column(String(128))
     worktree_path: Mapped[str | None] = mapped_column(Text)
+    #: The coding-worker instance that accepted this run's execution.
+    #:
+    #: This is *executor* metadata. It is not an account, principal, or
+    #: credential identity, and a persisted owner is not proof that the worker
+    #: is still alive -- it records that this instance took the claim, not
+    #: that it still holds it. Ownership is paired with the claim id below.
+    coding_worker_instance_id: Mapped[str | None] = mapped_column(String(64))
+    #: The unique ownership claim made when this run was accepted.
+    #:
+    #: A claim id is durable correlation material for future fencing. It is not
+    #: retry authority and it is not a liveness signal.
+    coding_worker_claim_id: Mapped[str | None] = mapped_column(String(64))
+    #: The last durable liveness observation recorded by the owning worker.
+    #:
+    #: This is subordinate execution *evidence*, never authorization. It says
+    #: the recorded owner recently reported activity for this run. It does not
+    #: grant execution, retry, or recovery authority, and an absent or stale
+    #: heartbeat is not proof that the worker died.
+    coding_worker_last_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True)
+    )
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
@@ -5653,6 +5753,22 @@ class AgentRun(Base):
         CheckConstraint(
             "rollback_mode IN ('auto', 'manual')",
             name="agent_runs_rollback_mode_check",
+        ),
+        CheckConstraint(
+            "(coding_worker_instance_id IS NULL AND coding_worker_claim_id IS NULL) OR "
+            "(coding_worker_instance_id IS NOT NULL AND "
+            "coding_worker_claim_id IS NOT NULL)",
+            name="agent_runs_coding_worker_ownership_check",
+        ),
+        CheckConstraint(
+            "coding_worker_last_heartbeat_at IS NULL OR "
+            "(coding_worker_instance_id IS NOT NULL AND "
+            "coding_worker_claim_id IS NOT NULL)",
+            name="agent_runs_coding_worker_heartbeat_ownership_check",
+        ),
+        UniqueConstraint(
+            "coding_worker_claim_id",
+            name="uq_agent_runs_coding_worker_claim_id",
         ),
     )
     __mapper_args__ = {"eager_defaults": True}
@@ -6450,6 +6566,17 @@ class Campaign(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+#: The canonical Campaign Continuation Authority provenance vocabulary, as a
+#: CHECK-constraint SQL fragment. The strings are generated from
+#: ``guardian.protocol_tokens`` so ORM metadata stays in lockstep with the
+#: canonical token domain. The Alembic migration carries its own
+#: revision-local string snapshot so historical replay never depends on
+#: mutable application tokens.
+_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL = ", ".join(
+    f"'{provenance.value}'" for provenance in ContinuationAuthorityProvenance
+)
+
+
 class CampaignContinuationAuthorityRecord(Base):
     """Operator-approved, Campaign-scoped continuation authority record."""
 
@@ -6476,6 +6603,16 @@ class CampaignContinuationAuthorityRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )
+    # ADR-105: actor identity and approval/revocation provenance are distinct
+    # durable facts. The actor string alone cannot tell a canonical human
+    # administrator apart from a deployment principal that shares the same
+    # bytes, so the authority record carries this discriminator per action
+    # and consumers read it directly instead of inferring it.
+    #
+    # These columns are declared last so the ORM column order matches the
+    # physical order the Alembic migration produces when it appends them.
+    approval_provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    revocation_provenance: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         CheckConstraint(
@@ -6488,6 +6625,21 @@ class CampaignContinuationAuthorityRecord(Base):
             "(revoked_at IS NOT NULL AND revoked_by_actor_id IS NOT NULL "
             "AND revocation_reason IS NOT NULL)",
             name="campaign_continuation_authorities_revocation_check",
+        ),
+        CheckConstraint(
+            "approval_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL})",
+            name="campaign_continuation_authorities_approval_provenance_check",
+        ),
+        CheckConstraint(
+            # ``revocation_provenance IS NOT NULL`` is stated explicitly
+            # because a CHECK constraint only rejects a FALSE result: a NULL
+            # provenance would make the ``IN`` test NULL, and NULL passes.
+            "(revoked_at IS NULL AND revocation_provenance IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revocation_provenance IS NOT NULL "
+            f"AND revocation_provenance IN "
+            f"({_CONTINUATION_AUTHORITY_PROVENANCE_VALUES_SQL}))",
+            name="campaign_continuation_authorities_revocation_provenance_check",
         ),
         Index(
             "uq_campaign_continuation_authorities_unrevoked_campaign",
