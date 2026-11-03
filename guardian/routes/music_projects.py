@@ -760,6 +760,11 @@ def register_artifacts(
         with db.get_session() as session:
             session.add(asset)
             session.flush()
+            # The session is a plain SQLAlchemy Session: closing it rolls
+            # back anything uncommitted, so the row has to be committed
+            # here or it never existed. The flush alone would let this
+            # function report a registration that did not happen.
+            session.commit()
 
         registered.append(
             {

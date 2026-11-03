@@ -335,6 +335,67 @@ def test_a_compose_without_a_project_is_refused(music_client):
     assert response.status_code == 422
 
 
+def test_a_registration_that_does_not_commit_is_not_a_registration(
+    monkeypatch, tmp_path
+):
+    """The row has to survive the session closing.
+
+    ``get_session()`` hands back a plain SQLAlchemy ``Session``, and
+    closing one rolls back anything uncommitted. A registration that
+    flushes but never commits reports success and leaves nothing behind
+    -- which is the worst shape a bug can have: it looks like it worked.
+    """
+    from guardian.routes import music_projects
+
+    calls = []
+
+    class _Session:
+        def add(self, _asset):
+            calls.append("add")
+
+        def flush(self):
+            calls.append("flush")
+
+        def commit(self):
+            calls.append("commit")
+
+    class _Db:
+        def get_session(self):
+            return _SessionContext(_Session())
+
+    class _SessionContext:
+        def __init__(self, session):
+            self._session = session
+
+        def __enter__(self):
+            return self._session
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(music_projects, "_media_db", lambda: _Db())
+
+    artifact = tmp_path / "mix.wav"
+    artifact.write_bytes(b"RIFF....WAVEfmt ")
+
+    registered = music_projects.register_artifacts(
+        [
+            {
+                "path": str(artifact),
+                "media_kind": "audio",
+                "mime_type": "audio/wav",
+                "provenance": "generated",
+                "bytes": artifact.stat().st_size,
+            }
+        ],
+        project_id=1,
+        user_id="local",
+    )
+
+    assert len(registered) == 1
+    assert "commit" in calls, calls
+
+
 def test_a_finished_job_registers_its_files(monkeypatch, music_client):
     """The service made the files; the host decides what they are called.
 
