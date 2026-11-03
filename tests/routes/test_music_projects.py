@@ -214,7 +214,7 @@ def captured_calls(monkeypatch):
 def test_compose_sends_the_canonical_envelope(captured_calls, music_client):
     from guardian.routes import music_projects
 
-    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad", "project_id": 1})
 
     assert response.status_code == 200, response.text
     assert len(captured_calls) == 1
@@ -231,7 +231,7 @@ def test_compose_is_asynchronous_by_default(captured_calls, music_client):
     """A compose takes about 107 seconds; blocking on it hangs the turn."""
     from guardian.routes import music_projects
 
-    music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    music_client.post("/api/music/compose", json={"brief": "a warm pad", "project_id": 1})
 
     envelope = captured_calls[0]["envelope"]
     assert envelope["input"]["mode"] == "async"
@@ -241,7 +241,7 @@ def test_compose_can_be_forced_synchronous(captured_calls, music_client):
     from guardian.routes import music_projects
 
     music_client.post(
-        "/api/music/compose", json={"brief": "a warm pad", "sync": True}
+        "/api/music/compose", json={"brief": "a warm pad", "sync": True, "project_id": 1}
     )
 
     envelope = captured_calls[0]["envelope"]
@@ -260,7 +260,7 @@ def test_an_unreachable_service_is_a_503_not_a_500(monkeypatch, music_client):
 
     monkeypatch.setattr(music_projects.requests, "post", _boom)
 
-    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad", "project_id": 1})
 
     assert response.status_code == 503
     assert "unreachable" in response.json()["detail"].lower()
@@ -276,7 +276,7 @@ def test_a_malformed_service_response_is_rejected(monkeypatch, music_client):
         lambda *_a, **_k: _FakeResponse({"output": {"ok": True}}),
     )
 
-    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad", "project_id": 1})
 
     assert response.status_code == 502
 
@@ -296,10 +296,118 @@ def test_a_service_error_is_surfaced(monkeypatch, music_client):
         ),
     )
 
-    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad", "project_id": 1})
 
     assert response.status_code == 502
     assert "no such patch" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# The work belongs to a project
+# --------------------------------------------------------------------------
+
+
+def test_the_envelope_carries_the_project_and_thread(captured_calls, music_client):
+    """The service cannot know what it produced belongs to.
+
+    It is told, in the envelope, and it carries the answer back on the
+    job so the host can attribute the files to the project and thread
+    that asked for them.
+    """
+    music_client.post(
+        "/api/music/compose",
+        json={"brief": "a warm pad", "project_id": 17, "thread_id": 42},
+    )
+
+    context = captured_calls[0]["envelope"]["context"]
+    assert context["project_id"] == "17"
+    assert context["thread_id"] == "42"
+
+
+def test_a_compose_without_a_project_is_refused(music_client):
+    """A session with nowhere to live is not a session.
+
+    The produced files are registered against a project, so a compose
+    that names none would produce files the host cannot attribute.
+    """
+    response = music_client.post("/api/music/compose", json={"brief": "a warm pad"})
+
+    assert response.status_code == 422
+
+
+def test_a_finished_job_registers_its_files(monkeypatch, music_client):
+    """The service made the files; the host decides what they are called.
+
+    So the host registers them itself, against the project the job was
+    started for.
+    """
+    from guardian.routes import music_projects
+
+    registered = {}
+
+    def _register(artifacts, *, project_id, thread_id=None, user_id=None):
+        registered["artifacts"] = artifacts
+        registered["project_id"] = project_id
+        registered["thread_id"] = thread_id
+        return [{"id": "asset-1"}]
+
+    monkeypatch.setattr(music_projects, "register_artifacts", _register)
+
+    monkeypatch.setattr(
+        music_projects.requests,
+        "post",
+        lambda *_a, **_k: _FakeResponse(
+            {
+                "ok": True,
+                "output": {
+                    "job_id": "job-1",
+                    "status": "succeeded",
+                    "context": {"project_id": "17", "thread_id": "42"},
+                    "output": {"artifacts": [{"path": "/out/mix.wav"}]},
+                },
+                "error": None,
+            }
+        ),
+    )
+
+    response = music_client.get("/api/music/jobs/job-1")
+
+    assert response.status_code == 200
+    assert registered["project_id"] == 17
+    assert registered["thread_id"] == 42
+    assert registered["artifacts"] == [{"path": "/out/mix.wav"}]
+
+
+def test_a_failed_registration_does_not_fail_the_job(monkeypatch, music_client):
+    """The Artist's music exists whether or not a row was written."""
+    from guardian.routes import music_projects
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("the media table is unhappy")
+
+    monkeypatch.setattr(music_projects, "register_artifacts", _boom)
+
+    monkeypatch.setattr(
+        music_projects.requests,
+        "post",
+        lambda *_a, **_k: _FakeResponse(
+            {
+                "ok": True,
+                "output": {
+                    "job_id": "job-2",
+                    "status": "succeeded",
+                    "context": {"project_id": "17"},
+                    "output": {"artifacts": [{"path": "/out/mix.wav"}]},
+                },
+                "error": None,
+            }
+        ),
+    )
+
+    response = music_client.get("/api/music/jobs/job-2")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "succeeded"
 
 
 # --------------------------------------------------------------------------

@@ -290,6 +290,12 @@ services:
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
       - ./models:/models
+      # The Producer's output, mounted at the same path the service writes
+      # it. The backend registers the produced files as MediaAsset rows,
+      # and it does that by reading them -- so it has to be able to see
+      # them. Same host directory, same container path: the paths the
+      # service reports are the paths the host reads.
+      - "${CODEXIFY_AGENTDAW_OUTPUT_DIR:-./agentdaw_output}:/app/agentdaw_output"
     environment:
       <<: [*postgres_env, *local_llm]
       LANG: C.UTF-8
@@ -1021,7 +1027,7 @@ services:
     # Built from the Agent-DAW repository at a tagged release. Point
     # CODEXIFY_AGENTDAW_BUILD_CONTEXT at a local checkout for development.
     build:
-      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.0}"
+      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.1}"
       dockerfile: Dockerfile
     working_dir: /app
     environment:

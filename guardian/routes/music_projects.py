@@ -187,6 +187,21 @@ class ComposeRequest(BaseModel):
         ...,
         description="The artist's description, in plain words. Not DSP parameters.",
     )
+    project_id: int = Field(
+        ...,
+        description=(
+            "The Music Project this session belongs to. The produced files "
+            "are registered against it, so a session with nowhere to live "
+            "is not a session."
+        ),
+    )
+    thread_id: int | None = Field(
+        default=None,
+        description=(
+            "The thread the work happens in, when there is one. The files "
+            "are namespaced under it, so a thread's music stays findable."
+        ),
+    )
     library: str | None = Field(
         default=None, description="Path to the approved patch library JSON."
     )
@@ -224,6 +239,14 @@ class RenderRequest(BaseModel):
     """A full render of a spec."""
 
     spec: Dict[str, Any] = Field(..., description="The session spec.")
+    project_id: int = Field(
+        ...,
+        description="The Music Project the rendered files belong to.",
+    )
+    thread_id: int | None = Field(
+        default=None,
+        description="The thread the work happens in, when there is one.",
+    )
     out_dir: str | None = None
 
 
@@ -264,6 +287,26 @@ class MusicProjectState(BaseModel):
 # --------------------------------------------------------------------------
 
 
+def _music_context(
+    project_id: int,
+    thread_id: int | None,
+    scope: Any,
+) -> Dict[str, Any]:
+    """What the work belongs to, in the envelope the service understands.
+
+    The service cannot interpret any of this -- it does not know the
+    host's data model -- but it carries it back on the job, which is how
+    the host learns which project the finished files belong to.
+    """
+    context: Dict[str, Any] = {"project_id": str(project_id)}
+    if thread_id is not None:
+        context["thread_id"] = str(thread_id)
+    user_id = getattr(scope, "user_id", None)
+    if user_id:
+        context["user_id"] = str(user_id)
+    return context
+
+
 @router.post(
     "/compose",
     summary="Produce a music session from an artist's description",
@@ -275,7 +318,10 @@ class MusicProjectState(BaseModel):
         "GET /api/music/jobs/{job_id} for the result."
     ),
 )
-def compose(req: ComposeRequest) -> Dict[str, Any]:
+def compose(
+    req: ComposeRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "brief": req.brief,
         "library": req.library,
@@ -289,7 +335,14 @@ def compose(req: ComposeRequest) -> Dict[str, Any]:
     # A synchronous compose outlives the HTTP timeout below, so it gets
     # its own, generous one.
     timeout = 600 if req.sync else 30
-    return _invoke("compose", payload, timeout=timeout)
+    context = _music_context(req.project_id, req.thread_id, request_user_scope)
+    output = _invoke("compose", payload, context=context, timeout=timeout)
+    if req.sync:
+        # A synchronous compose returns the files itself, so this is where
+        # they are registered. The asynchronous one registers when the job
+        # is polled.
+        _register_artifacts_from(output, context, request_user_scope)
+    return output
 
 
 @router.post(
@@ -324,8 +377,18 @@ def preview(req: PreviewRequest) -> Dict[str, Any]:
     "/render",
     summary="Render a spec to stems, MIDI, a mix and a project",
 )
-def render(req: RenderRequest) -> Dict[str, Any]:
-    return _invoke("render", {"spec": req.spec, "out_dir": req.out_dir})
+def render(
+    req: RenderRequest,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
+    context = _music_context(req.project_id, req.thread_id, request_user_scope)
+    output = _invoke(
+        "render",
+        {"spec": req.spec, "out_dir": req.out_dir},
+        context=context,
+    )
+    _register_artifacts_from(output, context, request_user_scope)
+    return output
 
 
 @router.get(
@@ -371,8 +434,86 @@ def approve(req: ApproveRequest) -> Dict[str, Any]:
         "the result. The status is one of running, succeeded or failed."
     ),
 )
-def job_status(job_id: str) -> Dict[str, Any]:
-    return _invoke("job_status", {"job_id": job_id})
+def job_status(
+    job_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+) -> Dict[str, Any]:
+    result = _invoke("job_status", {"job_id": job_id})
+    _register_finished_artifacts(result, request_user_scope)
+    return result
+
+
+def _register_finished_artifacts(
+    result: Dict[str, Any],
+    scope: Any,
+) -> None:
+    """Register the files a finished job produced."""
+    if not isinstance(result, dict) or result.get("status") != "succeeded":
+        return
+    _register_artifacts_from(
+        result.get("output") or {},
+        result.get("context") or {},
+        scope,
+    )
+
+
+def _register_artifacts_from(
+    output: Dict[str, Any],
+    context: Dict[str, Any],
+    scope: Any,
+) -> None:
+    """Turn the produced files into the host's own asset rows.
+
+    The service produced the files; the host owns how they are named and
+    stored, so the registration happens here and not there. The job
+    carries the context it was started with, which is how the files are
+    attributed to the project and thread that asked for them.
+
+    A failure to register is logged and swallowed: the Artist's music
+    exists either way, and a job that succeeded must not be reported as
+    failed because a row could not be written.
+    """
+    artifacts = (output or {}).get("artifacts") or []
+    if not artifacts:
+        return
+
+    raw_project_id = (context or {}).get("project_id")
+    if not raw_project_id:
+        logger.warning(
+            "[music_projects] files were produced without a project; they "
+            "will not be registered"
+        )
+        return
+
+    try:
+        project_id = int(raw_project_id)
+    except (TypeError, ValueError):
+        logger.warning("[music_projects] work carried a non-numeric project id")
+        return
+
+    thread_id = None
+    raw_thread_id = (context or {}).get("thread_id")
+    if raw_thread_id:
+        try:
+            thread_id = int(raw_thread_id)
+        except (TypeError, ValueError):
+            thread_id = None
+
+    user_id = getattr(scope, "user_id", None)
+    try:
+        registered = register_artifacts(
+            artifacts,
+            project_id=project_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        logger.info(
+            "[music_projects] registered %d artifact(s) against project %s",
+            len(registered),
+            project_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[music_projects] failed to register artifacts: %s", exc)
 
 
 # --------------------------------------------------------------------------
