@@ -389,8 +389,8 @@ Wrapper presence is not execution readiness. Before starting the Redis
 consumer, the worker checks Node, the Guardian wrapper, the pinned Pi SDK
 artifacts, a usable Git CLI, and non-executing adapter initialization. Startup
 does not resolve provider/model identity or inspect credential state. Guardian
-authorizes those for each invocation. Before each attempt, the worker requests
-a sealed, attempt-bound credential lease; the initial account-scoped
+authorizes those for each invocation. Before each attempt, the worker requests a sealed,
+attempt-bound credential lease; the initial account-scoped
 implementation accepts encrypted account credentials or service-owned
 credentials covered by explicit Guardian policy. Operator-owned credentials are
 not an account fallback. The Pi process receives any required plaintext only
