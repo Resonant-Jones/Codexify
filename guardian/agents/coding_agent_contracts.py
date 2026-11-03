@@ -105,6 +105,30 @@ class CodingAgentPermissionPolicy:
 
 @dataclass(frozen=True)
 class CodingAgentTaskEnvelope:
+    """The coding intake envelope for both intake branches.
+
+    The ordinary (non-delegated) branch carries its own execution-binding
+    identity, so provider, model, and credential reference are required
+    fields there: a body that omits them is structurally incomplete and is
+    rejected by request validation before account, lineage, or credential
+    authority is consulted.
+
+    The authorized branch names an approved delegation intent, and the
+    intent's persisted run link owns the attempt identity. There those three
+    fields are optional *proposals* rather than grants, and the attempt
+    identity fields are optional assertions.
+
+    The two shapes are distinguished by ``delegation_intent_id``, so a single
+    body model validates both without a union: the request either names an
+    intent, or it carries its own binding identity.
+
+    The fields stay REQUIRED in the published schema on both paths, so the
+    documented request shape and the enforced request shape cannot drift
+    apart. What the authorized path changes is their VALUE, not their
+    presence: an empty string asserts no selection and lets Guardian resolve
+    the effective binding from the account's own durable posture.
+    """
+
     coding_task_id: str
     thread_id: str
     source_message_id: str
@@ -117,14 +141,16 @@ class CodingAgentTaskEnvelope:
     context_summary: str | None
     permission_policy: CodingAgentPermissionPolicy
     # Provider, model, and credential are *proposals*, not grants of execution
-    # authority. An empty value means "Guardian resolves this from the
-    # account's own durable posture"; a non-empty value is a selection
-    # constraint that Guardian must be able to authorize exactly, or the
-    # request is refused. Guardian never substitutes a different provider,
-    # model, harness, or funding route for one the request did not ask for.
-    provider_id: str = ""
-    model_id: str = ""
-    credential_ref: str = ""
+    # authority. On the legacy path they are the request's own
+    # execution-binding identity and must be non-empty. On the authorized path
+    # an empty value means "Guardian resolves this from the account's own
+    # durable posture"; a non-empty value is a selection constraint that
+    # Guardian must be able to authorize exactly, or the request is refused.
+    # Guardian never substitutes a different provider, model, harness, or
+    # funding route for one the request did not ask for.
+    provider_id: str
+    model_id: str
+    credential_ref: str
     harness_selection_mode: Literal["default", "explicit", "auto"] = "default"
     campaign_id: str | None = None
     work_order_id: str | None = None

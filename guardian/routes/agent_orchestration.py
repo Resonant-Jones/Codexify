@@ -18,6 +18,7 @@ from fastapi import (
     Query,
     Request,
 )
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -110,6 +111,23 @@ def _authenticated_account_user(current_user: Any) -> str:
     if not resolved or resolved.startswith("Depends("):
         raise HTTPException(status_code=401, detail="account_identity_missing")
     return resolved
+
+
+async def _raw_request_body(request: Request | None) -> dict[str, Any]:
+    """Return the request body as a mapping, for a validation rejection.
+
+    The body has already been consumed by request validation, so it is read
+    from the request's cached JSON when available. A body that cannot be
+    recovered is reported as an empty mapping rather than failing the
+    rejection itself.
+    """
+    if request is None:
+        return {}
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
 
 
 def _resolved_request_user(
@@ -646,7 +664,7 @@ async def execute_coding_task(
     Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
     requested adapter kind.
 
-    When the envelope names an approved delegation intent, the request is
+    When the body names an approved delegation intent, the request is
     admitted through the Guardian delegation service: the account comes from
     the authenticated account session, the intent must already be approved,
     and the persisted run link the intent owns is what gets dispatched. That
@@ -658,6 +676,14 @@ async def execute_coding_task(
     and a proposal that differs from it is refused before the binding is
     persisted and before anything is enqueued.
 
+    The two intake branches are distinguished by the body's own shape. A body
+    that names a delegation intent is an authorized dispatch request, whose
+    provider, model, and credential reference are optional proposals. A body
+    that names none is the legacy self-authorizing intake, whose provider,
+    model, and credential reference remain required - an incomplete legacy
+    body is rejected before account, lineage, or credential authority is
+    consulted, and the rejection names the missing fields.
+
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/coding for progress.
     """
     delegation_intent_id = str(envelope.delegation_intent_id or "").strip()
@@ -667,6 +693,33 @@ async def execute_coding_task(
             request,
             delegation_intent_id,
         )
+
+    # The legacy intake branch is self-authorizing: it must carry its own
+    # execution-binding identity. The authorized branch does not - it names an
+    # approved intent whose persisted run link owns the authorization - so it
+    # may carry empty proposals there.
+    if not delegation_intent_id:
+        missing_binding_identity = [
+            name
+            for name, value in (
+                ("provider_id", envelope.provider_id),
+                ("model_id", envelope.model_id),
+                ("credential_ref", envelope.credential_ref),
+            )
+            if not str(value or "").strip()
+        ]
+        if missing_binding_identity:
+            raise RequestValidationError(
+                [
+                    {
+                        "type": "missing",
+                        "loc": ("body", name),
+                        "msg": "Field required",
+                        "input": await _raw_request_body(request),
+                    }
+                    for name in missing_binding_identity
+                ]
+            ) from None
 
     resolved_user_id = _resolved_request_user(current_user, envelope.user_id)
     execution_binding = _build_execution_binding(

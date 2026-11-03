@@ -363,6 +363,16 @@ def _intake_payload(
             "allowed_paths": [],
             "max_runtime_seconds": 120,
         },
+        # The binding identity fields stay REQUIRED in the published request
+        # schema - the documented shape and the enforced shape may not drift
+        # apart. On the authorized path an empty value asserts no selection:
+        # Guardian resolves the effective binding from the account's own
+        # durable posture. A non-empty value is a selection constraint that
+        # Guardian must be able to authorize exactly, or the request is
+        # refused.
+        "provider_id": "",
+        "model_id": "",
+        "credential_ref": "",
         "delegation_intent_id": intent_id,
     }
     payload.update(overrides)
