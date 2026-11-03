@@ -2102,6 +2102,22 @@ removed with absence listings empty; loopback listener confirmed closed;
 scratch removed; tokens revoked). The catalog projection for the qualified
 provider is the next independently bounded task. Gate B remains open.
 
+#### Gate B disposition (2026-11-03) — CLOSED
+
+A bounded acceptance revalidation reconciled all eleven original mandatory
+criteria (frozen at `31f9dde56`) against the accumulated implementation and
+evidence: 9 unconditional PASS, 2 PASS with named limitations (event-content
+observability; the disclosed trial logging history), 0 FAIL / INCOMPLETE /
+CONFLICT. Durable stores, authenticated-retrieval success, hosted
+callability, and release were confirmed out of scope by the baseline's own
+assignments (Gate C, Gate D, separate review) — not deferred by assertion.
+Full matrix and reasoning:
+`docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-acceptance-revalidation.md`.
+Closure does not authorize production deployment or public release; the
+release gate stays HOLD, and the branch stays local-only under the existing
+disclosure boundary. Next: Gate C (durable bindings, lifecycle, isolation
+re-run against durable stores) under separate authorization.
+
 #### Slice 6 observation (2026-11-03) — AeroLeads catalog projection
 
 The qualified provider is projected as exactly one canonical catalog entry,
