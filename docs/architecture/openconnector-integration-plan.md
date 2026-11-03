@@ -2097,11 +2097,10 @@ privileged credential. Live execution:
 Full evidence:
 `docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-credentialed-isolation-proof.md`.
 
-Caveats recorded in the receipt: final teardown (`docker compose down -v`
-plus absence checks) was approval-gated at commit time and must be recorded
-before the slice counts as fully closed; the catalog projection for the
-qualified provider is the next independently bounded task. Gate B remains
-open.
+Teardown was verified after the run (container, volume, and network
+removed with absence listings empty; loopback listener confirmed closed;
+scratch removed; tokens revoked). The catalog projection for the qualified
+provider is the next independently bounded task. Gate B remains open.
 
 | Aspect | Definition |
 | --- | --- |

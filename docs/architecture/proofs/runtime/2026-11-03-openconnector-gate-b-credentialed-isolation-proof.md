@@ -13,14 +13,12 @@ Plan: [`docs/architecture/openconnector-integration-plan.md`](../openconnector-i
 
 ## Verdict
 
-**PASS on all isolation criteria (1–10, 12); criterion 11 (verified
-teardown) PENDING.** Two distinct Guardian accounts each used only their
-own credential-bearing OpenConnector connection through the existing
-Guardian execution path, and every cross-account, empty-grant, revoked,
-unknown, and revalidation case failed closed with zero unauthorized
-provider execution. Final teardown (`docker compose down -v` plus absence
-checks) was approval-gated at commit time — see §6 — and must be recorded
-before this slice counts as fully closed.
+**PASS** — all twelve acceptance criteria verified. Two distinct Guardian
+accounts each used only their own credential-bearing OpenConnector
+connection through the existing Guardian execution path; every
+cross-account, empty-grant, revoked, unknown, and revalidation case failed
+closed with zero unauthorized provider execution; and teardown was verified
+(see §6).
 
 ## 1. Reviewed credential-bearing action (requirement 1)
 
@@ -146,19 +144,20 @@ contains digests, ids, names, statuses, codes, and shapes only.
 - Temporary secret files and scratch (`/private/tmp/gate-b-isolation/`)
   removed and verified absent.
 - Trial connections: no per-connection deletion endpoint exists in the
-  pinned source's route table, so removal rides on destroying the encrypted
-  volume (below).
-- **PENDING at commit time (approval-gated): container
-  `codexify-openconnector-gateb5`, volume
-  `codexify_openconnector_gateb5_data`, network
-  `codexify_openconnector_gateb`, and the `127.0.0.1:12775` listener.**
-  Docker control required a human approval that was unavailable when the
-  session's approval prompts became disabled, so `docker compose down -v`
-  and the absence re-verification could not run. Containment in the interim:
-  loopback-only listener, revoked tokens, fake-only credentials in the
-  gateway's encrypted store, no production data of any kind. The follow-up
-  teardown (`docker compose down -v`, absence checks) must be recorded
-  before criterion 11 counts as verified.
+  pinned source's route table (verified against
+  `src/server/api/connection-routes.ts` and `runtime-api.ts`), so removal
+  rode on destroying the encrypted volume below. No connection, credential,
+  or token survives outside the destroyed volume.
+- Teardown verified after the qualification run (the compose file was
+  already removed with the scratch, so equivalent direct removals were
+  used): container `codexify-openconnector-gateb5` removed; volume
+  `codexify_openconnector_gateb5_data` removed; network
+  `codexify_openconnector_gateb5` removed; filtered
+  `docker ps -a` / `docker volume ls` / `docker network ls` listings all
+  empty for the trial names; `curl http://127.0.0.1:12775/health` →
+  connection refused (listener closed). An initial `docker network rm`
+  attempt used a mistyped name (`gateb` for `gateb5`) and was corrected;
+  the final absence listings confirm the correct names are gone.
 - No Codexify resource was created, modified, or deleted at any point.
 
 ## 7. Validation performed
