@@ -58,7 +58,11 @@ from guardian.conversation_origin import (
 from guardian.context.retrieval_router_policy import source_mode_boundary_label
 from guardian.core import event_bus
 from guardian.core.auth_dependencies import get_current_user_id  # noqa: F401
-from guardian.core.db import list_chat_completion_attempts_for_thread
+from guardian.core.db import (
+    MERGE_MESSAGE_METADATA_SQL,
+    find_conflicting_source_lineage,
+    list_chat_completion_attempts_for_thread,
+)
 from guardian.core.chat_postgres_deadline import postgres_operation_scope
 from guardian.core.candidate_trace_store import (
     get_latest_candidate_trace as _get_latest_candidate_trace,
@@ -89,6 +93,21 @@ from guardian.core.dependencies import (
     get_account_user_scope as get_request_user_scope,
     get_single_user_id,
     require_service_capability,
+)
+from guardian.core import dependencies as _core_dependencies
+from guardian.core.account_history_recall import (
+    MAX_DATE_BOUND_CHARACTERS,
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+    AccountHistoryRecallAccessDenied,
+    AccountHistoryRecallUnavailable,
+    InvalidAccountHistoryRecallRequest,
+    parse_recall_bound,
+    search_account_history,
+)
+from guardian.core.auth import (
+    reject_mixed_principal_credentials,
+    resolve_account_session_subject,
 )
 from guardian.core.db import get_chat_completion_attempt_by_task_id
 from guardian.core.thread_access import require_thread_read_access
@@ -1107,6 +1126,85 @@ def _automatic_collection_consent_granted(owner: str) -> bool:
     return True
 
 
+def _reject_conflicting_source_lineage(metadata: dict[str, Any] | None) -> None:
+    """Refuse ordinary message metadata that asserts imported source lineage.
+
+    The ordinary-chat message contract has no importer. A client that submits
+    importer-origin fields or external source lineage alongside its own message
+    is making a conflicting source claim, not supplying ordinary metadata. The
+    request is refused so those contents are never laundered into a canonical
+    record that would later read as positive imported evidence.
+
+    This is a request-boundary guard on *metadata*. A user quoting external
+    material in the *content* of a newly authored native message is not thereby
+    importing an external conversation record, and is not refused here.
+    """
+    conflicting = find_conflicting_source_lineage(metadata)
+    if not conflicting:
+        return
+    logger.warning(
+        "[chat.messages] rejected conflicting source lineage metadata keys=%s",
+        ",".join(conflicting),
+    )
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "ok": False,
+            "error": "conflicting_source_lineage",
+            "message": (
+                "Message metadata may not assert imported source lineage"
+            ),
+            "keys": conflicting,
+        },
+    )
+
+
+def _create_native_user_message(
+    *,
+    thread_id: int,
+    role: str,
+    content: str,
+    extra_meta: dict[str, Any] | None = None,
+) -> int:
+    """Create the canonical message row at the trusted native-creation seam.
+
+    An ordinary authenticated *user* message is a native interaction creation.
+    The guarded writer stamps the reserved origin assertion in the same
+    statement as the message row, so a failed insert cannot leave an apparently
+    proven orphan and a replayed enrichment cannot mint a second assertion.
+
+    The generic ``create_message`` helper is deliberately not treated as native
+    creation: the external importer calls that helper too, so an imported
+    record must never receive native provenance. The trusted seam is therefore
+    a separate, backend-owned operation that every ordinary user-message entry
+    path converges on.
+
+    A store that does not implement the trusted seam cannot uphold the
+    creation-bound guard, so its records stay **unproven** rather than blocked
+    — the disposition ADR-016 requires for a writer that cannot uphold the
+    guard. That degradation is logged loudly, because a store without the seam
+    produces messages that will never be recall-eligible.
+
+    Other roles posted through this route are not native interaction creation
+    in this slice. They stay unqualified rather than inheriting a proof they
+    never earned.
+    """
+    if role == "user":
+        creator = getattr(chatlog_db, "create_native_user_message", None)
+        if callable(creator):
+            return creator(
+                thread_id=thread_id,
+                role=role,
+                content=content,
+                extra_meta=extra_meta or None,
+            )
+        logger.error(
+            "[chat.messages] store lacks the trusted native creation seam; "
+            "the message is created without native-origin proof"
+        )
+    return chatlog_db.create_message(thread_id, role, content)
+
+
 def _persist_message_to_thread(
     *,
     thread_id: int,
@@ -1115,6 +1213,10 @@ def _persist_message_to_thread(
     owner: str,
     message_metadata: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    # Refuse a conflicting source claim before anything is written, so a
+    # rejected request leaves no message, no thread, and no metadata behind.
+    _reject_conflicting_source_lineage(message_metadata)
+
     # Normalize content: flatten structured arrays for DB, preserve original for worker
     db_content, original_content = _normalize_message_content_for_persistence(
         content
@@ -1182,7 +1284,23 @@ def _persist_message_to_thread(
         )
 
     try:
-        mid = chatlog_db.create_message(thread_id, role, db_content)
+        # This is the trusted native creation boundary: an authenticated
+        # ordinary-chat user message is created through the guarded canonical
+        # insert, which writes the reserved origin assertion in the same
+        # statement as the message row. The generic `create_message` helper is
+        # deliberately not used here, because the external importer calls that
+        # helper too and an imported record must never receive native
+        # provenance.
+        #
+        # Client-supplied metadata is untrusted. Any reserved origin member in
+        # it is discarded by the guarded writer, and the backend authors its own
+        # assertion with a backend-generated timestamp.
+        mid = _create_native_user_message(
+            thread_id=thread_id,
+            role=role,
+            content=db_content,
+            extra_meta=merged_meta or None,
+        )
     except Exception as exc:
         logger.exception(
             "[chat] create_message failed thread_id=%s: %s", thread_id, exc
@@ -1904,13 +2022,12 @@ def _persist_message_extra_meta(
     try:
         with connect() as conn:
             with conn.cursor() as cur:
+                # The reserved message-origin member is subtracted from the
+                # incoming payload: this enrichment path must not establish,
+                # replace, or remove that member, and it must not remove the
+                # stored one either.
                 cur.execute(
-                    """
-                    UPDATE chat_messages
-                    SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
-                    WHERE thread_id = %s
-                      AND id = %s
-                    """,
+                    MERGE_MESSAGE_METADATA_SQL,
                     (json.dumps(extra_meta), thread_id, message_id),
                 )
     except Exception:
@@ -2624,6 +2741,11 @@ def chat_post_message_create_on_send(
     created_thread = False
     created_thread_id: Optional[int] = None
     thread_record: Optional[Dict[str, Any]] = None
+
+    # The same client metadata feeds both the new thread and its first message
+    # here, so the conflicting-lineage refusal runs at the request boundary: a
+    # native thread must never be created carrying imported-source claims.
+    _reject_conflicting_source_lineage(body.metadata)
 
     if requested_thread_id is None:
         requested_title = (
@@ -5790,3 +5912,172 @@ async def receive_provider_request_capture(
         byte_size=byte_size,
     )
     return JSONResponse({"stored": stored}, headers={"Cache-Control": "no-store"})
+
+
+# ============================================================================
+# Account-scoped historical recall (read-only)
+# ============================================================================
+#
+# One bounded capability: retrieve the authenticated account's own historical
+# conversation evidence, inside one canonical Project, for an explicit recall
+# request. See ``docs/architecture/account-history-recall-contract.md``.
+#
+# The account identity is derived from authenticated authority only. It is
+# never read from a query parameter, a request header, a model-visible tool
+# argument, or historical message content.
+
+
+def _history_recall_principal(request: Request) -> RequestUserScope:
+    """Bind the recall account to authenticated authority only.
+
+    A caller-supplied ``X-User-Id`` header never establishes the principal.
+    A static operator key binds to the configured local account; it is never
+    authority to inspect another account. Missing or ambiguous ownership
+    fails closed instead of falling back to a default account.
+    """
+    authorization = request.headers.get("Authorization")
+    cookie = request.cookies.get("gc_session")
+    key = request.headers.get("X-API-Key")
+    remote = (
+        _core_dependencies.is_private_preview()
+        or _core_dependencies._auth_mode() == "remote"
+    )
+    reject_mixed_principal_credentials(
+        request,
+        enabled=True,
+        authorization=authorization,
+        gc_session=cookie,
+        operator_key_values=(key,) if remote else (),
+    )
+    if "codexify_hosted_room_session" in request.cookies:
+        raise HTTPException(
+            status_code=401, detail="Account authentication required"
+        )
+    subjects = []
+    if cookie:
+        subjects.append(resolve_account_session_subject(cookie))
+    if authorization:
+        if not authorization.lower().startswith("bearer "):
+            raise HTTPException(
+                status_code=401, detail="Account authentication required"
+            )
+        # A configured static key is only the existing local-user credential.
+        # Every other session selector needs exact account purpose.
+        if remote or not _core_dependencies._valid_local_api_key_candidate(
+            None, authorization
+        ):
+            subjects.append(
+                resolve_account_session_subject(authorization[7:].strip())
+            )
+    if len(set(subjects)) > 1:
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    if (
+        not remote
+        and subjects
+        and _core_dependencies._valid_local_api_key_candidate(key, authorization)
+    ):
+        # A local static key and an account session name different credential
+        # contexts. Do not let header precedence silently select the local user.
+        raise HTTPException(
+            status_code=400, detail="Conflicting authentication contexts"
+        )
+    _core_dependencies.require_account_session(
+        credential=_core_dependencies.verify_account_session(
+            request, key, authorization, cookie
+        )
+    )
+    scope = _core_dependencies.get_request_user_scope(
+        request=request,
+        x_user_id=None,
+        authorization=authorization,
+        gc_session=cookie,
+    )
+    scope = _core_dependencies.get_account_user_scope(
+        _account_gate=None, request_user_scope=scope
+    )
+    if not scope.user_id or (
+        scope.account_id and scope.account_id != scope.user_id
+    ):
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    if subjects and (scope.subject_id or scope.user_id) != subjects[0]:
+        # A fallback to the configured local user cannot impersonate a signed
+        # account subject.
+        raise HTTPException(status_code=401, detail="Account session mismatch")
+    # Static-key local authentication binds to get_single_user_id(), never to
+    # X-User-Id, DEBUG, LOCAL_DEV or a client-supplied account field.
+    if scope.account_id is None:
+        scope = _core_dependencies.RequestUserScope(
+            user_id=scope.user_id,
+            account_id=scope.user_id,
+            subject_id=scope.subject_id,
+            multi_user_enabled=scope.multi_user_enabled,
+        )
+    return scope
+
+
+@api_chat_router.get(
+    "/projects/{project_id}/history/search",
+    operation_id="history.search",
+)
+def api_chat_search_account_history(
+    project_id: int,
+    q: str = Query(..., min_length=1, max_length=MAX_QUERY_CHARACTERS),
+    start: Optional[str] = Query(
+        default=None, max_length=MAX_DATE_BOUND_CHARACTERS
+    ),
+    end: Optional[str] = Query(
+        default=None, max_length=MAX_DATE_BOUND_CHARACTERS
+    ),
+    limit: int = Query(
+        default=MAX_RETURNED_MATCHES, ge=1, le=MAX_RETURNED_MATCHES
+    ),
+    principal: RequestUserScope = Depends(_history_recall_principal),
+):
+    """Search the authenticated account's native conversation history.
+
+    Read-only. The Project is the only scope the caller may name; the
+    account, the thread scope, and every record-read check are resolved
+    server-side. The operation never writes, promotes, approves, activates,
+    or summarizes anything.
+    """
+    try:
+        start_at = parse_recall_bound(start, is_end=False)
+        end_at = parse_recall_bound(end, is_end=True)
+    except InvalidAccountHistoryRecallRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    database = getattr(_core_dependencies, "chatlog_db", None)
+    get_session = getattr(database, "get_session", None)
+    if not callable(get_session):
+        raise HTTPException(
+            status_code=503, detail="Canonical history read unavailable"
+        )
+
+    try:
+        with get_session() as session:
+            recall = search_account_history(
+                session,
+                principal=principal,
+                project_id=project_id,
+                query=q,
+                start_at=start_at,
+                end_at=end_at,
+                result_limit=limit,
+            )
+    except InvalidAccountHistoryRecallRequest as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except AccountHistoryRecallAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+    except AccountHistoryRecallUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error(
+            "[chat.history] account history recall failed", exc_info=True
+        )
+        raise HTTPException(
+            status_code=503, detail="Canonical history read unavailable"
+        ) from None
+
+    return {"ok": True, **recall.to_payload()}

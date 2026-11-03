@@ -64,6 +64,7 @@ from guardian.core.config import (
 from guardian.core.db import (
     ChatAttemptReconciliation,
     GuardianDB,
+    MERGE_MESSAGE_METADATA_SQL,
     get_chat_completion_attempt_by_task_id,
     load_guardian_db_from_env,
     observe_chat_completion_attempt_terminal,
@@ -291,13 +292,7 @@ def _persist_turn_id_metadata(*, thread_id: int, message_id: int, turn_id: str) 
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            """
-            UPDATE chat_messages
-            SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || %s::jsonb
-            WHERE thread_id = %s
-              AND id = %s
-            RETURNING id
-            """,
+            MERGE_MESSAGE_METADATA_SQL,
             (json.dumps({"turn_id": turn_id}), thread_id, message_id),
         )
         row = cur.fetchone()
@@ -2496,6 +2491,10 @@ def _run_chat_completion_task_compat(
                 dependencies.chatlog_db,
                 "create_assistant_message_for_completion_attempt",
             )
+            # This is the trusted canonical assistant creation boundary. It
+            # binds the assistant to its exact durable attempt and mints the
+            # reserved native-origin assertion in the same transaction, so the
+            # assertion is written by the insert that creates the message.
             message_id, completion_attempt_linked = atomic_persist(
                 thread_id=task.thread_id,
                 content=assistant_text,
@@ -2516,6 +2515,10 @@ def _run_chat_completion_task_compat(
             )
             result["_durable_completion_linked"] = completion_attempt_linked
             metadata_persisted_atomically = True
+        # Fallback adapters insert the message first and enrich it afterwards.
+        # That later merge is not creation proof, and the protected enrichment
+        # statement cannot create the reserved origin member, so these records
+        # stay unproven rather than being stamped as native after the fact.
         elif hosted_room_context is None:
             message_id = dependencies.chatlog_db.create_message(
                 task.thread_id,

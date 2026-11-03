@@ -39,6 +39,13 @@ from guardian.db.models import (
 from guardian.services.openai_account_import import AccountImportError
 
 from .chat_db import ChatDB, validate_message_provenance
+from guardian.core.db import (
+    MERGE_MESSAGE_METADATA_SQL,
+    apply_native_origin_assertion,
+    build_native_origin_assertion,
+    find_conflicting_source_lineage,
+    strip_reserved_origin,
+)
 from .chat_postgres_deadline import (
     AcceptedDeadlineQueuePool,
     accepted_postgres_queries_active,
@@ -1511,6 +1518,43 @@ class PgDB(ChatDB):
                 return row[0]
 
     # ---- messages helpers -------------------------------------------------
+    def create_native_user_message(
+        self,
+        thread_id: int,
+        role: str,
+        content: str,
+        created_at: str | None = None,
+        user_id: str | None = None,
+        *,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
+        extra_meta: dict[str, Any] | None = None,
+        asserted_at: datetime | None = None,
+    ) -> int:
+        """Create a canonical native user message and stamp its origin atomically.
+
+        This is the *trusted native creation* boundary. It is deliberately a
+        separate method from :meth:`create_message` so that the importer, which
+        calls the generic helper, can never receive native provenance by
+        accident. The reserved assertion is written in the same statement as
+        the message row, so a failed insert leaves no apparently proven orphan.
+
+        The timestamp is backend-generated and timezone-aware; the caller never
+        supplies the assertion's contents.
+        """
+        assertion = build_native_origin_assertion(asserted_at=asserted_at)
+        return self.create_message(
+            thread_id,
+            role,
+            content,
+            created_at=created_at,
+            user_id=user_id,
+            hosted_room_participant_id=hosted_room_participant_id,
+            sender_display_name_snapshot=sender_display_name_snapshot,
+            extra_meta=extra_meta,
+            native_origin=assertion,
+        )
+
     def create_message(
         self,
         thread_id: int,
@@ -1522,12 +1566,19 @@ class PgDB(ChatDB):
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
         extra_meta: dict[str, Any] | None = None,
+        native_origin: Any | None = None,
     ) -> int:
         """Insert a message row and return its id.
 
         `extra_meta` is written in the same statement as the message, so a caller
         never has to follow up with a separate best-effort update that a crash
         or failed write could leave unapplied.
+
+        `extra_meta` is untrusted here: the reserved message-origin member is
+        stripped before the insert, so client input, model output, tool output,
+        and imported payloads cannot establish a native-origin assertion
+        through this path. Only `native_origin` may set that member, and only
+        trusted backend code can construct one.
         """
         validate_message_provenance(
             hosted_room_participant_id,
@@ -1539,9 +1590,10 @@ class PgDB(ChatDB):
             str(user_id or (thread or {}).get("user_id") or _default_user_id()).strip()
             or _default_user_id()
         )
+        protected_extra_meta = apply_native_origin_assertion(extra_meta, native_origin)
         serialized_extra_meta = (
-            json.dumps(extra_meta)
-            if isinstance(extra_meta, dict) and extra_meta
+            json.dumps(protected_extra_meta)
+            if protected_extra_meta
             # chat_messages.extra_meta is NOT NULL with a `'{}'` server default;
             # naming the column explicitly bypasses that default, so restate it.
             else "{}"
@@ -1630,6 +1682,21 @@ class PgDB(ChatDB):
         `extra_meta` is written with the message inside the same transaction as
         the attempt binding, so accepted chat turns never depend on a later
         best-effort update that an interruption could leave unapplied.
+
+        `extra_meta` is untrusted here: the reserved message-origin member is
+        stripped before the insert.
+
+        This operation is the trusted canonical assistant creation boundary. It
+        mints the reserved native-origin assertion itself, and mints it only
+        for a completion this transaction binds to its exact durable attempt.
+        The binding is the creation proof: role, a supplied attempt id, a
+        provider payload, and a native containing thread are each insufficient
+        on their own.
+
+        The assertion is written by the same INSERT that creates the message,
+        so a failed insert leaves neither a message nor a provenance claim, and
+        a duplicate delivery returns the original message with its original
+        assertion untouched.
         """
         with self.conversation_transaction():
             with self._connect() as conn:
@@ -1676,6 +1743,27 @@ class PgDB(ChatDB):
                         "Completion attempt already has a failure or cancellation outcome"
                     )
 
+            # The attempt exists, its identity matches, and it carries no
+            # failure or cancellation outcome, so this transaction is about to
+            # establish the exact attempt-to-message binding. That binding is
+            # what makes the message a native assistant completion.
+            #
+            # Conflicting imported-source lineage in the supplied metadata
+            # wins over a native claim: such a record keeps its own import
+            # evidence and is never relabeled native.
+            native_origin = None
+            if attempt is not None:
+                conflicting = find_conflicting_source_lineage(extra_meta)
+                if conflicting:
+                    logger.warning(
+                        "[chat.completion] assistant native origin withheld; "
+                        "message metadata carries conflicting source lineage "
+                        "keys=%s",
+                        ",".join(conflicting),
+                    )
+                else:
+                    native_origin = build_native_origin_assertion()
+
             message_id = self.create_message(
                 thread_id,
                 "assistant",
@@ -1683,6 +1771,7 @@ class PgDB(ChatDB):
                 hosted_room_participant_id=hosted_room_participant_id,
                 sender_display_name_snapshot=sender_display_name_snapshot,
                 extra_meta=extra_meta,
+                native_origin=native_origin,
             )
             if attempt is None:
                 return message_id, False
@@ -5152,6 +5241,23 @@ def _append_unique(values: list[Any], row_values: list[Any]) -> list[Any]:
     return values
 
 
+def _require_canonical_project_ownership(
+    rows: list[dict[str, Any]], *, owner: str
+) -> None:
+    """Refuse an export whose reachable Projects are not owned by the account.
+
+    A candidate Project reached through an owned thread, document, or asset
+    must belong to the exporting account. Reachability never grants
+    ownership, and a missing owner is not a defaultable value: both cases fail
+    the export explicitly instead of exporting foreign Project metadata or
+    silently producing an incomplete relationship graph.
+    """
+    expected = str(owner or "").strip()
+    for row in rows:
+        if str(row.get("user_id") or "").strip() != expected:
+            raise RuntimeError("account_export_project_ownership_mismatch")
+
+
 def fetch_account_export_bundle_for_user(
     user_id: str,
     *,
@@ -5665,10 +5771,21 @@ def fetch_account_export_bundle_for_user(
                     ],
                 )
 
-            bundles["projects"] = (
-                _export_rows(
-                    cur,
-                    (
+            # Canonical Project ownership is required persisted state
+            # (ADR-081) and the canonical restore reads it explicitly. The
+            # default bundle path selected candidate Projects by reachability
+            # alone, which both dropped the owner column and could reach a
+            # Project owned by another account. Select the canonical owner
+            # here and refuse the export when a reachable candidate is not
+            # owned by the exporting account, rather than exporting foreign
+            # Project metadata or silently producing an incomplete graph.
+            project_scope = [
+                project_id for project_id in project_ids if project_id is not None
+            ]
+            if include_unified_memory:
+                bundles["projects"] = (
+                    _export_rows(
+                        cur,
                         """
                         SELECT
                             id, user_id, name, description, icon,
@@ -5677,39 +5794,32 @@ def fetch_account_export_bundle_for_user(
                         WHERE user_id = %s
                           AND id = ANY(%s)
                         ORDER BY id ASC
+                        """,
+                        (user_id, project_scope),
+                    )
+                    if project_scope
+                    else []
+                )
+            else:
+                bundles["projects"] = (
+                    _export_rows(
+                        cur,
                         """
-                        if include_unified_memory
-                        else """
                         SELECT
-                            id, name, description, icon,
+                            id, user_id, name, description, icon,
                             identity_depth, created_at, updated_at
                         FROM projects
                         WHERE id = ANY(%s)
                         ORDER BY id ASC
-                        """
-                    ),
-                    (
-                        (
-                            user_id,
-                            [
-                                project_id
-                                for project_id in project_ids
-                                if project_id is not None
-                            ],
-                        )
-                        if include_unified_memory
-                        else (
-                            [
-                                project_id
-                                for project_id in project_ids
-                                if project_id is not None
-                            ],
-                        )
-                    ),
+                        """,
+                        (project_scope,),
+                    )
+                    if project_scope
+                    else []
                 )
-                if project_ids
-                else []
-            )
+                _require_canonical_project_ownership(
+                    bundles["projects"], owner=user_id
+                )
 
             return bundles
     finally:

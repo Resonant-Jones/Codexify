@@ -101,6 +101,46 @@ thread has zero counts and an empty excerpt tuple; a failed metadata or database
 read never becomes a successful empty corpus. No partial content is returned on
 an authority, integrity or database error.
 
+## Message-origin authority alignment (2026-11-01)
+
+[ADR-016's authoritative chat message origin clarification](adr/016-continuity-governance-surface-contract.md#authoritative-chat-message-origin-clarification-2026-11-01)
+is the single source-eligibility authority for native, imported, unknown, and
+conflicting messages. This inspection contract projects that rule; its current
+import reader does not become a native-origin classifier by subtraction.
+
+- Positive imported proof remains the existing importer-specific metadata and
+  coherent lineage described below. Preserve provider identity, source IDs,
+  source/thread relationships, import timestamps, raw role/payload, and temporal
+  uncertainty even if a record moves to a native thread or Project.
+- Future native proof belongs to a protected canonical backend creation
+  assertion in the existing `extra_meta.message_origin` subobject, or the
+  narrowly scoped exact-message historical assistant witness in ADR-016. It
+  is not inferred from ownership, message role, empty metadata, thread origin,
+  a request grant, or a client-supplied origin string. No current native
+  stamping, mutation guards, or ordinary recall filtering is asserted here.
+- A native-looking assertion conflicting with import evidence, contradictory
+  account/source lineage, or an unsupported metadata shape cannot be silently
+  normalized to native. The existing imported-reader error/omission behavior
+  remains unchanged by this documentation task.
+- An `unproven_import_records` count is deliberately uncertain: it can include
+  native additions and incomplete legacy imports. It is **not** positive
+  evidence that omitted records are native. Keep these records intact; no
+  relabeling, repair, or backfill is authorized.
+- Restore preserves established historical source and proof custody, not the
+  identity of the latest inserting process. It cannot promote unmarked legacy
+  records or arbitrary uploaded metadata into native truth. Canonical-ID
+  remapping must not change provider source IDs or reuse an unrelated
+  completion witness.
+- Human inspection rights remain distinct from ordinary model-visible native
+  recall eligibility. An imported classification is not itself model-exposure
+  permission; ADR-016's separate Chronicle authorizations are unchanged.
+
+The [documentation-only fixtures](fixtures/history-message-provenance.v1.json)
+record the normative distinctions, including native-thread/imported-message
+and restore cases. They do not implement these future guards, alter this
+reader, authorize new origin vocabulary in the runtime registry, or qualify
+PostgreSQL/live-worker behavior.
+
 ## Imported provenance and temporal truth
 
 Thread origin alone never classifies a message. The reader admits a message only

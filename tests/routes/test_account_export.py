@@ -60,6 +60,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
         "projects": [
             {
                 "id": 10,
+                "user_id": USER_ID,
                 "name": "Project Alpha",
                 "description": "Primary workspace",
                 "icon": "A",
@@ -69,6 +70,7 @@ def _build_rows() -> dict[str, list[dict[str, object]]]:
             },
             {
                 "id": 20,
+                "user_id": USER_ID,
                 "name": "Project Beta",
                 "description": "Secondary workspace",
                 "icon": "B",
@@ -675,3 +677,62 @@ def test_account_export_zip_returns_truthful_manifest(
             "reason": "blob could not be resolved from current storage",
         }
     ]
+
+
+def test_account_export_zip_carries_the_canonical_project_owner(
+    client: TestClient,
+    fake_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exported Project payload carries the canonical owner.
+
+    The bundle reader supplies ``projects.user_id``; the export must ship it
+    rather than dropping it, because the canonical restore reads that owner as
+    required persisted state.
+    """
+    db, _calls = fake_db
+    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", None)
+    monkeypatch.setattr(api_exports, "_resolve_account_export_pgdb", lambda: db)
+
+    response = client.get(
+        "/exports/account.zip",
+        headers={
+            "X-API-Key": os.environ["GUARDIAN_API_KEY"],
+            "X-Guardian-Identity": USER_ID,
+        },
+    )
+
+    assert response.status_code == 200
+    archive = _read_archive(response.content)
+    projects = _load_json(archive, "entities/projects.json")
+
+    assert [row["id"] for row in projects] == [10, 20]
+    assert all(row["user_id"] == USER_ID for row in projects)
+
+
+def test_account_export_zip_refuses_a_foreign_owned_project(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reachable Project owned by another account fails the export.
+
+    Reachability never grants ownership. The export refuses explicitly instead
+    of serving an archive that silently omits foreign Project metadata.
+    """
+    def _foreign(_user_id: str):
+        raise RuntimeError("account_export_project_ownership_mismatch")
+
+    db = SimpleNamespace(fetch_account_export_bundle_for_user=_foreign)
+    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", None)
+    monkeypatch.setattr(api_exports, "_resolve_account_export_pgdb", lambda: db)
+
+    response = client.get(
+        "/exports/account.zip",
+        headers={
+            "X-API-Key": os.environ["GUARDIAN_API_KEY"],
+            "X-Guardian-Identity": USER_ID,
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to build account export"

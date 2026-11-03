@@ -12,6 +12,15 @@ from fastapi import FastAPI
 
 from guardian.command_bus.manifest import build_manifest
 from guardian.core import chat_completion_service
+from guardian.core.account_history_recall import (
+    GRANT_EXCLUSIONS,
+    MAX_DATE_BOUND_CHARACTERS,
+    MAX_QUERY_CHARACTERS as HISTORY_MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
+    MODEL_EXPOSED_ORIGIN_SYSTEM,
+    RECALL_PURPOSE,
+    HistoryRecallGrant,
+)
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.repository_chat_capability import (
     RepositoryChatCapabilityContext,
@@ -34,12 +43,14 @@ from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
-from guardian.routes import health, projects
+from guardian.routes import chat, health, projects
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
 from guardian.tools.chat_exposure import (
     HEALTH_COMMAND_ID,
+    HISTORY_SEARCH_COMMAND_ID,
     REPOSITORY_SEARCH_COMMAND_ID,
+    history_search_is_advertised,
     resolve_ordinary_chat_tools,
 )
 
@@ -491,6 +502,174 @@ def test_repository_search_stays_provider_qualified() -> None:
                 provider_vendor=vendor,
                 manifest_commands=commands,
                 repository_search_eligible=True,
+            )
+            is None
+        )
+
+
+def _history_manifest_app() -> FastAPI:
+    app = _command_bus_app()
+    app.include_router(chat.api_chat_router)
+    return app
+
+
+def _history_manifest_commands() -> list[Any]:
+    return build_manifest(_history_manifest_app()).commands
+
+
+def _history_grant(
+    *,
+    account_id: str = "account-a",
+    request_id: str = "request-1",
+    turn_id: str = "turn-1",
+    project_id: int = 42,
+    source_message_id: int = 7,
+) -> HistoryRecallGrant:
+    """Return one request-scoped recall grant."""
+
+    return HistoryRecallGrant(
+        account_id=account_id,
+        request_id=request_id,
+        turn_id=turn_id,
+        source_message_id=source_message_id,
+        project_id=project_id,
+        source_family=MODEL_EXPOSED_ORIGIN_SYSTEM,
+        purpose=RECALL_PURPOSE,
+        permitted_query_terms=("memory", "architecture"),
+        window_start=None,
+        window_end=None,
+        exclusions=GRANT_EXCLUSIONS,
+        issued_at="2026-11-01T12:00:00+00:00",
+        expires_at=None,
+    )
+
+
+def test_history_search_manifest_projection_is_exact_and_authority_free() -> None:
+    commands = _history_manifest_commands()
+    history_command = next(
+        command
+        for command in commands
+        if command.command_id == HISTORY_SEARCH_COMMAND_ID
+    )
+
+    assert history_command.method == "GET"
+    assert (
+        history_command.path_template
+        == "/api/chat/projects/{project_id}/history/search"
+    )
+    assert history_command.operation_id == "history.search"
+    assert history_command.effect == "read"
+    assert history_command.risk == "read_only"
+    assert history_command.idempotency == "safe"
+    assert history_command.approval_mode == "none"
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [
+        HEALTH_COMMAND_ID,
+        HISTORY_SEARCH_COMMAND_ID,
+    ]
+    projection = tools[1]
+    assert projection["input_schema"] == {
+        "type": "object",
+        "properties": {
+            "q": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": HISTORY_MAX_QUERY_CHARACTERS,
+            },
+            "start": {
+                "type": "string",
+                "maxLength": MAX_DATE_BOUND_CHARACTERS,
+            },
+            "end": {
+                "type": "string",
+                "maxLength": MAX_DATE_BOUND_CHARACTERS,
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": HISTORY_MAX_RETURNED_MATCHES,
+            },
+        },
+        "required": ["q"],
+        "additionalProperties": False,
+    }
+    # The model-visible surface carries no account, Project, or transport
+    # authority field. The description may state who resolves the account.
+    schema_text = json.dumps(projection["input_schema"], sort_keys=True)
+    for forbidden in (
+        "project_id",
+        "projectId",
+        "path_params",
+        "account_id",
+        "user_id",
+        "account",
+        "headers",
+        "body",
+        "sql",
+        "query_text",
+    ):
+        assert forbidden not in schema_text
+    assert "Guardian selects the Project and resolves the account" in (
+        projection["description"]
+    )
+
+
+def test_history_search_is_not_advertised_without_a_grant() -> None:
+    """Eligibility is not authority: no grant means no advertised command."""
+
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_recall_grant=None,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
+
+
+def test_unsafe_history_manifest_is_suppressed_without_disabling_health() -> None:
+    commands = _history_manifest_commands()
+    history_command = next(
+        command
+        for command in commands
+        if command.command_id == HISTORY_SEARCH_COMMAND_ID
+    )
+    unsafe_history_command = history_command.model_copy(
+        update={"risk": "mutating", "effect": "write"}
+    )
+
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=[_health_command(), unsafe_history_command],
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+
+
+def test_history_search_stays_provider_qualified() -> None:
+    commands = _history_manifest_commands()
+    for provider, vendor in (("openai", None), ("groq", None), ("local", "other")):
+        assert (
+            resolve_ordinary_chat_tools(
+                provider=provider,
+                model="model",
+                provider_vendor=vendor,
+                manifest_commands=commands,
+                history_recall_grant=_history_grant(),
             )
             is None
         )
@@ -1531,3 +1710,169 @@ def test_ineligible_whooshd_keeps_the_ordinary_streaming_path(
     assert task.tools is None
     assert streams == [True]
     assert result["assistant_text"] == "ordinary local answer"
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped authorization gate
+# ---------------------------------------------------------------------------
+
+
+def test_a_grant_advertises_the_history_command() -> None:
+    """A live request-scoped grant is what authorizes the advertisement."""
+
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    assert history_search_is_advertised(tools)
+
+
+@pytest.mark.parametrize(
+    "grant",
+    [
+        None,
+        "not-a-grant",
+        0,
+        {},
+        [],
+    ],
+)
+def test_a_missing_or_malformed_grant_never_advertises_history(grant: Any) -> None:
+    """Only a real grant object authorizes the history command."""
+
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_recall_grant=grant,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
+
+
+def test_the_history_command_is_not_advertised_by_default() -> None:
+    """The default ordinary-chat subset stays health-only."""
+
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
+
+
+def test_a_grant_cannot_make_the_history_command_survive_an_unsafe_manifest() -> None:
+    """Authorization never overrides the manifest safety projection."""
+
+    commands = _history_manifest_commands()
+    history_command = next(
+        command
+        for command in commands
+        if command.command_id == HISTORY_SEARCH_COMMAND_ID
+    )
+    unsafe_history_command = history_command.model_copy(
+        update={"approval_mode": "confirm"}
+    )
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=[_health_command(), unsafe_history_command],
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    assert not history_search_is_advertised(tools)
+
+
+def test_a_grant_does_not_leak_authority_into_the_model_projection() -> None:
+    """The advertised projection carries no account, request, or Project."""
+
+    commands = _history_manifest_commands()
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=commands,
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    rendered = json.dumps(tools, sort_keys=True)
+    for forbidden in (
+        "account-a",
+        "request-1",
+        "turn-1",
+        "permitted_query_terms",
+        "grant",
+        "42",
+    ):
+        assert forbidden not in rendered
+
+
+def test_ordinary_chat_history_advertisement_stays_inactive_with_a_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ordinary-chat path must not advertise the history command yet.
+
+    Review finding #2 is a separate repair. Until it lands, the grant is
+    resolved but not forwarded into the exposure resolver, so the command stays
+    invisible to the model on the ordinary-chat path.
+    """
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_command_bus_app",
+        lambda: _history_manifest_app(),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_manifest",
+        lambda _app: build_manifest(_history_manifest_app()),
+    )
+
+    tools = chat_completion_service._resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(),
+        history_recall_grant=_history_grant(),
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
+
+
+def test_ordinary_chat_history_advertisement_stays_inactive_without_a_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a grant the ordinary-chat path is unchanged."""
+
+    monkeypatch.setattr(
+        chat_completion_service,
+        "_command_bus_app",
+        lambda: _history_manifest_app(),
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "build_manifest",
+        lambda _app: build_manifest(_history_manifest_app()),
+    )
+
+    tools = chat_completion_service._resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(),
+    )
+    assert tools is not None
+    assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
+    assert not history_search_is_advertised(tools)
