@@ -191,6 +191,221 @@ Reset controls must include at least:
 
 Reset actions must be explicit and user-legible. They must not silently alter canonical history or provenance.
 
+## Authoritative Chat Message Origin Clarification (2026-11-01)
+
+This accepted clarification governs **message-level source eligibility**, not
+recall permission. ADR-084 still owns request-scoped recall authorization;
+ADR-005, ADR-081, and existing thread/message read authority remain independent
+requirements. It authorizes no runtime activation, migration, backfill, importer
+rewrite, restore change, or historical relabeling. The rules below are a target
+contract for subsequent implementation, **not a claim that writers or readers
+already enforce them**.
+
+### Origin, ownership, authorship, and placement are different facts
+
+A message's account owner, authored role, containing thread, current Project,
+and historical source system answer different questions. None substitutes for
+another. A native user post may contain a quotation from elsewhere: the native
+record is the new user-authored interaction, not proof that quoted content was
+originally authored in Codexify. Conversely, copying, importing, moving, or
+restoring an existing external conversation record is not native creation.
+A native Project/thread, a trusted backend process performing an insert, or a
+valid recall grant cannot launder such a record into native evidence.
+
+### One creation authority; existing storage, not a new subsystem
+
+**Positive native proof is a message-associated origin assertion assigned by
+the trusted canonical backend at the creation of that native interaction,
+atomically with the message insert.** The authority is the canonical creation
+boundary, not the assertion's text. The ordinary route, assistant completion
+worker, and other permitted native entry points must converge on that same
+rule; they are not independent provenance authorities.
+
+Use the existing `ChatMessage.extra_meta` JSON object. Reserve the following
+subobject for future protected backend writes (illustrative shape, not an
+already-supported client field):
+
+```json
+{
+  "message_origin": {
+    "version": 1,
+    "origin_system": "codexify",
+    "asserted_at": "2026-11-01T22:00:00+00:00"
+  }
+}
+```
+
+`version` identifies this metadata shape; `origin_system` reuses the existing
+conversation-origin value `codexify` **with message-level semantics**: original
+native interaction creation, not current storage or the latest inserting
+process. `asserted_at` is the backend's zoned creation-time assertion timestamp,
+not a replacement for `event_at` or `created_at`. Association with this exact
+canonical message row supplies the message binding; do not embed a local
+message/thread/Project ID in the assertion and later mistake it for authority.
+These member names are the reserved metadata contract, not new values in the
+canonical protocol-token registry. No provenance database, graph, or
+cryptographic attestation infrastructure is introduced.
+
+Storage feasibility is **code-path evidence**, not present enforcement:
+`PgDB.create_message` can insert `extra_meta` with a message in one SQL statement;
+`create_assistant_message_for_completion_attempt` writes it inside the attempt
+transaction. The `guardian/core/db.py` adapter also accepts metadata. Account
+export/restore carries the JSON and remaps canonical relationship IDs without
+needing a second origin store. Thus existing storage can represent the rule.
+However, current writers do **not** universally stamp native origin, and generic
+metadata updates do **not** yet protect this reserved subobject.
+
+A later implementation must enforce all of these prerequisites before trusting
+this shape:
+
+- Reject model/client attempts to supply, replace, remove, or merge the reserved
+  subobject, including ordinary message metadata, tools, persona instructions,
+  attachments, imported raw metadata, and restore payloads without trusted
+  provenance custody. A client-authenticated content submission is not a
+  client-authoritative origin assertion.
+- The backend alone selects native creation versus import/copy/restore. Calling
+  a generic insert helper does not by itself select native origin. In
+  particular, the importer uses that helper too; **do not native-stamp every
+  call to `create_message` by default**.
+- Write the assertion in the native insert transaction, not in a later
+  best-effort metadata update. Retries must preserve the original assertion and
+  message identity; failed writes must not leave apparently proven records.
+- Make the source-origin assertion immutable for that record. Protect it from
+  generic JSON replacement/merge, message edit, copy, import, restore collision,
+  and maintenance paths. Unrelated mutable metadata may still change.
+- A row bearing this string before the protected writer boundary is established,
+  an arbitrary metadata claim, or an unsupported version is **not** native
+  proof. No timestamp cutoff, `trusted: true` flag, empty metadata, or reader
+  default may manufacture writer authority.
+
+If a canonical writer or mutation path cannot uphold those guards, its records
+remain unproven for native recall until that path is repaired. This is the
+remaining implementation prerequisite, not a reason to introduce another store.
+
+### Writer coverage and existing historical lineage
+
+| Creation path | Required origin behavior; current evidence boundary |
+| --- | --- |
+| Ordinary user message, including structured/multimodal content | Assert native interaction creation at the authenticated canonical insert; preserve role and owner semantics. `routes/chat.py::_persist_message_to_thread` currently creates the row before a generic metadata merge, so that later merge is not creation proof. |
+| Native assistant response | Use the same guarded native creation rule, never model-supplied origin. Role `assistant` alone proves nothing. |
+| Accepted worker assistant completion | Stamp in `PgDB.create_assistant_message_for_completion_attempt` and its adapter transaction, alongside the existing exact attempt-to-message binding. Preserve retry/deduplication and terminal semantics. |
+| Voice user/assistant | `workers/voice_worker.py` writes the transcript through `create_message` without metadata and calls the completion **service** directly. The service uses `create_chat_message_with_metadata`; this does not inherit the queue worker's exact attempt-binding guarantee. Both need the same guarded creation rule. |
+| Hosted Room human messages | `core/hosted_room_messages.py::create_human_room_message` directly inserts `ChatMessage` with participant attribution and an empty-metadata value. Preserve participant/authored-role semantics, and guard this direct insert too; account owner and human author are distinct. |
+| Agent coding results and proof helpers | `agents/store.py::_store_source_thread_result` constructs `ChatMessage(kind="coding_result")`; `core/core_loop_proof.py` creates a user row and a synthetic assistant proof-status row without origin metadata. Origin cannot be inferred from assistant role or provider output. |
+| Internal tool/evidence/proof messages | Native creation may be established, but origin does not make internal evidence recallable. Preserve kind exclusions; synthetic proof/status rows require an explicit content-eligibility decision, not automatic inclusion because an existing kind happens to default to `chat`. In-memory tool-result prompt dictionaries are not themselves canonical message inserts. |
+| Separate message domains | `messaging/service.py` writes `DirectMessage`, not `ChatMessage`; `chat/chat.py` writes a separate SQLite `messages` table with no active caller found in this inspection. Neither establishes origin for canonical history. |
+| External import, copy/move, or restore | Preserve original evidence. A native writer processing an existing record must not mint fresh native authority for it. |
+
+The queued worker's active compatibility implementation uses the atomic
+assistant/attempt helper when available, but fallback adapters insert first and
+enrich metadata later. Route and worker enrichment both use shallow JSONB
+concatenation (`existing || payload`), which overwrites a colliding top-level
+key. Protecting only the initial writer is therefore insufficient: those
+mutation/fallback paths and raw ORM inserts must be included in the future
+origin guard inventory. Existing payload/request correlation metadata is not
+itself an origin assertion.
+
+For **certain existing assistant records only**, persisted server-owned accepted
+completion lineage can independently prove native generation: the same-account,
+same-thread canonical attempt must identify **this exact** `completed_message_id`
+and coherent request/turn/backend-task identity with persisted acceptance and
+successful assistant binding. In the **existing** attempt representation this
+means a non-null `accepted_at`, the exact `completed_message_id`, and no
+failure/cancellation `terminal_event_type` (null); success is not a fabricated
+`terminal_event_type="COMPLETED"` value. The account is checked via canonical
+thread/message ownership, not an invented account column on the attempt.
+A provisional row, provider response, unrelated attempt, or an ID
+copied into message metadata is insufficient. The existing saved-widget
+provenance path in `guardian/core/db.py::read_saved_widget_source_provenance` and
+its eligibility validation demonstrate that narrower witness. This is not a
+universal message-origin reader and does not prove an associated user message's
+origin. Imported, restored-unverified, or contradictory lineage still fails
+closed. No retrospective native claim is made for ordinary unmarked user rows.
+
+### Classification, conflicts, and legacy uncertainty
+
+The following four labels are **documentation-only fixture vocabulary**, not new
+canonical runtime tokens or a second authority system:
+
+| Classification | Required evidence | Ordinary native historical recall |
+| --- | --- | --- |
+| `native` | Guarded creation assertion for this message, or the exact trusted assistant witness above; no contradictory import evidence | Eligible for source screening only; all other permissions/exclusions still apply |
+| `imported` | Existing positive provider import evidence and coherent canonical import lineage | Excluded; native placement and recall permission do not change origin |
+| `unknown` | No adequate positive proof; incomplete import/native claim; unsupported/malformed metadata; unverified restore custody | Excluded, without guessing |
+| `conflicting` | Incompatible native/import claims, or contradictory account/source-message/source-thread/creation linkage | Excluded, without selecting a convenient winner |
+
+Preserve the importer's current `extra_meta.origin` values (`chatgpt_import` and
+`claude_import`), matching `canonical_filter_profile`, zoned `imported_at`,
+`source_message_id`, `source_thread_id`, `source_created_at`, raw-provider role
+and payload, and existing import/thread lineage and timestamp uncertainty.
+`era` and `embedding_status` are auxiliary fields, not independent proof.
+Do not replace this provider-specific evidence with a boolean. Positive import
+evidence wins over **placement**, not over a contradictory positive native
+claim: the latter combination is a conflict and cannot be exposed as native.
+Partial import indicators also prevent a native classification until the
+contradiction/uncertainty is resolved under a separately authorized process.
+
+Missing import markers are never positive native evidence. An unmarked legacy
+row, even one whose author or owner recalls creating it, remains `unknown` unless
+an existing durable, exact-message trusted witness independently proves origin.
+Keep it intact; no deletion, relabeling, automatic backfill, or inference from
+message text is authorized. Human record-inspection rights are separate from
+model exposure. The imported inspection reader's existing `unproven_import_records`
+means precisely that it cannot distinguish native additions from incomplete
+legacy imports; it must not be reinterpreted as a native count.
+
+### Restore and portability
+
+Origin is the historical source, not the latest insertion process. The account
+export/restore contract remains authoritative for portability and semantic
+equivalence; an origin-bearing archive must preserve its proof, not gain new
+native status during restore.
+
+| Restored input | Required disposition |
+| --- | --- |
+| Proven native record with preserved trusted origin custody | Preserve the original assertion/witness and original assertion timestamp; do not stamp the restore as new native creation |
+| Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage; keep it excluded from ordinary native recall |
+| Legacy record lacking proof | Preserve unknown origin, raw metadata, role, and temporal uncertainty; no default native assertion |
+| Contradictory provenance | Fail closed for native exposure; report conflict without leaking content. A proof-preserving restore may reject contradictory proof-bearing input under its existing fail-closed validation boundary; it must never silently repair it |
+| Canonical IDs remapped | Remap canonical relationships under the restore contract, retain provider source IDs and origin semantics, and revalidate exact-message witness linkage rather than trusting a coincidentally equal old ID |
+
+Archive hashes, successful owner authentication, and a valid manifest establish
+integrity/account authority, **not by themselves the historical truth of a
+self-authored native claim**. Arbitrary uploaded `message_origin` JSON or restored
+attempt rows cannot recreate trusted creation authority. A later proof-bearing
+restore must establish preserved custody from an already trusted canonical export
+and validate exact-record lineage. If it cannot do so, it must refuse admission
+of the purported trusted assertion rather than silently promoting or stripping
+it. Ordinary legacy restore can preserve records as unknown without inventing
+proof. The current restore implementation is not claimed to enforce these new
+reserved-field guards, and this clarification changes neither the archive
+format nor restore code. Trust-custody handling and negative restore tests are
+runtime prerequisites, not authorization for a new signing service.
+
+### Per-message recall and coverage consequences
+
+Future ordinary historical recall must establish origin **for each candidate
+message**, before any excerpt or source attribution becomes model-visible.
+A mixed-origin native thread may contribute only independently proven native
+conversation messages that also pass account, Project, thread, content, kind,
+and ADR-084 request-grant checks. Only then may a result say `codexify`.
+
+Using existing bounded coverage-receipt conventions, report content-free counts
+of imported, unknown, and conflicting candidate-message exclusions, separately
+from thread exclusions. Do not expose excluded text, raw import metadata,
+provider source identifiers, or historical instructions through receipts/errors.
+Do not imply complete coverage when provenance exclusions, scan budgets, or
+other omissions exist. This does not repair the separate 500-thread truncation
+finding. Native origin grants no recall permission, memory approval, identity
+change, Chronicle generation, or instruction authority.
+
+The [message provenance fixtures](../fixtures/history-message-provenance.v1.json)
+separate stored evidence, the trusted evidence source, classification, and
+conditional recall eligibility. They are documentation-only expectations, not
+runtime tests or evidence that origin stamping/filtering has shipped. Historical
+recall finding #3 remains open until the guarded writers, restore/mutation
+boundaries, per-message reader, labels, and coverage tests implement this rule.
+
 ## Boundary Doctrine
 
 The Continuity Governance Surface obeys the following boundary rules:

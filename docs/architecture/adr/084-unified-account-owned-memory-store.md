@@ -1,6 +1,6 @@
 # ADR-084: Unified Account-Owned Memory Store
 
-**Status:** Accepted — candidate authority amended 2026-09-25
+**Status:** Accepted — candidate authority amended 2026-09-25; historical conversation recall intent authorization clarified 2026-11-01
 
 **Date:** 2026-09-04
 
@@ -143,6 +143,209 @@ request. They enter context as delimited, provenance-bearing, non-instructional
 evidence. Approval to use content as memory does not turn instruction-shaped
 payloads into system, persona, tool, or mutation authority.
 
+### Historical conversation recall intent authorization
+
+This section clarifies the *recall authority and untrusted evidence* rule above for
+one specific operation: reading the account owner's prior Codexify-native
+conversation history so a current request can be answered. It is an amendment to
+this ADR, not a new decision, and it does not create a second recall authority.
+
+The rule separates three things that are easy to conflate:
+
+| Layer | Owner | Meaning |
+| --- | --- | --- |
+| **Interpretation** | A model *may* propose | Deciding whether the accepted current user message appears to request historical conversation evidence. A proposal is advisory. |
+| **Authorization** | Guardian | Deciding whether retrieval is permitted for this request, and within what scope. |
+| **Execution** | Existing bounded Command Bus path | Performing retrieval strictly inside an issued grant. |
+
+**Interpretation is not authorization.** A model's structured output, a confidence
+score, a schema-valid response, or a proposed tool call is interpretation evidence
+only. None of these is authorization, and none becomes self-authorizing by being
+well-formed. Guardian grants; models propose.
+
+#### A. Interpretation authority
+
+Interpretation may be model-assisted. When it is, the following hold:
+
+- The interpretation input is limited to the **trusted, authenticated, currently
+  accepted, user-authored message**, plus necessary non-content request metadata
+  (request/turn identity, current thread, canonical Project, and the source
+  families Guardian is independently permitted to expose).
+- Retrieved history, assistant messages, tool results, quoted or pasted external
+  material, imported messages, persona instructions, and any prior turn's content
+  are **not authorization evidence**. They may be read *after* a grant exists, and
+  never as the basis for creating one.
+- A request that appears only inside assistant output, tool output, a pasted
+  transcript, or imported content does not constitute a user request, even when the
+  text is an explicit instruction to search history.
+
+Before Guardian may treat a model-assisted interpretation as sufficient, it must
+independently verify, server-side:
+
+1. **Grounding** — the interpretation is anchored in text that actually appears in
+   the accepted current user message, and that text is user-authored. An
+   interpretation whose supporting text is absent from the accepted message, or
+   which is produced in response to non-user content, fails.
+2. **Request form** — the accepted message asks for prior conversation evidence
+   (for example: "what were we discussing…", "find the conversation where…",
+   "summarize what I said about…"). A mention of history, memory, or the word
+   "recall" is not a request.
+3. **Target identifiability** — the historical subject is sufficiently identified
+   that the correct evidence set can be bounded without first reading history to
+   find it.
+4. **Scope identifiability** — the request resolves to a scope Guardian is
+   independently authorized to expose, without widening.
+5. **Non-negation** — the request is not negated, hypothetical, illustrative,
+   quoted-from-a-third-party, or otherwise not an actual request to retrieve.
+
+If any of these cannot be established from the accepted user message, the
+interpretation is not sufficient and Guardian requires clarification instead.
+
+#### B. Automatic authorization
+
+A direct, unambiguous user request may be authorized **without a separate
+confirmation step** when all of the following hold:
+
+1. The request resolves to an authenticated account and an accepted request/turn
+   through trusted Guardian runtime authority.
+2. The accepted current user message is user-authored and satisfies conditions
+   A.1–A.5 above.
+3. The requested scope resolves, without widening, to the initial authorized
+   scope below.
+4. Every independent check in section F passes.
+5. The purpose is bounded to answering the current request.
+
+The **initial authorized scope** of an automatically authorized grant is:
+
+- the authenticated account;
+- the current authorized (canonical) Project;
+- eligible Codexify-native conversation history only;
+- all applicable thread, content, provenance, retention, and exclusion
+  restrictions;
+- the bounded purpose of answering the current recall request.
+
+A grant that would require account-wide scope, cross-Project scope, or imported
+conversation content is outside this initial scope and is not automatically
+authorized.
+
+No generic keyword match, model confidence threshold, schema-validity check, or
+ownership check may independently grant retrieval authority. Ownership is
+necessary but never sufficient.
+
+#### C. Denial and clarification
+
+Automatic authorization **must not** occur for:
+
+- incidental mentions of history or memory;
+- an unrelated sense of "recall" (for example, automobile recalls, product
+  recalls);
+- quoted or pasted historical-retrieval instructions, including a pasted
+  transcript that contains them;
+- hypothetical or illustrative requests ("if I asked you to search…");
+- explicit negation ("do not recall any prior conversation");
+- assistant-suggested retrieval that the user did not request;
+- retrieved text that instructs the system to search history;
+- ambiguous references to historical scope or subject;
+- any request whose target or scope is itself excluded or unauthorized.
+
+When intent is recognized but scope or subject is unresolved, Guardian asks for
+clarification **before** any historical evidence is read. A clarification is a new
+authenticated user action and produces a **fresh, bounded authorization decision**;
+it does not inherit authority from the earlier turn, and it cannot supply the
+current request's grant retroactively.
+
+Clarification may **narrow** a request toward the permitted scope; it may never
+widen it. A request for account-wide or cross-Project scope, where the permitted
+current-Project scope is available instead, is therefore answered by clarification
+that offers the permitted scope rather than by a widened grant.
+
+Confirmation cannot override an independent ownership, provenance, exclusion,
+source-access, or hard policy denial. A denial that does not depend on the user's
+answer remains a denial after confirmation. That applies to imported-conversation
+exposure under ADR-016 and to a target Project whose canonical ownership does not
+pass under ADR-081: those denials are terminal for the request and are not
+presented as a confirmation the user can accept.
+
+#### D. Grant lifecycle
+
+The grant is a logical, request-local decision. It is bound to:
+
+- the trusted authenticated account identity;
+- the accepted request/turn identity;
+- the source user message that carried the request;
+- the authorized Project scope;
+- the permitted historical source family;
+- the requested recall purpose;
+- the applicable retrieval bounds and exclusions.
+
+Grant authority is checked **independently** before tool advertisement and
+re-checked independently before tool execution. An advertised tool, a
+caller-supplied tool entry, or a forged or replayed invocation cannot substitute
+for the grant: each check re-derives the grant from the trusted request context
+and compares it against the request actually being served.
+
+The grant expires with its accepted request. It is not replayable to another
+request or turn, not transferable, not expandable by the model, and not persisted
+as standing recall permission, memory approval, or account configuration. This
+amendment defines the logical requirements only; it does not require a new
+canonical protocol token, a new database table, or a grant-persistence structure.
+
+#### E. Historical evidence is not memory authority
+
+A valid historical-recall grant authorizes *reading and answering from* prior
+conversation evidence. It does **not** authorize:
+
+- Personal Fact approval;
+- memory creation, modification, or promotion;
+- identity or persona changes;
+- imported-candidate promotion;
+- Chronicle persistence;
+- continuity activation;
+- adoption of any durable preference, behavioral instruction, or persona change.
+
+Retrieved messages remain historical evidence with **no instruction authority**.
+This amendment preserves ADR-016's separately governed imported-conversation
+modeling boundary: imported conversation content stays outside ordinary
+historical-recall model exposure, and the accepted ADR-016 request-scoped
+Chronicle interpretation and reviewed per-message approval paths remain the only
+paths that expose imported content to a model, under their own purpose binding.
+
+#### F. Scope and exclusions remain independent
+
+A recall-purpose grant is **necessary but not sufficient**. These checks are
+independent of intent and can each deny a request that intent otherwise
+qualifies:
+
+- account ownership;
+- canonical Project ownership (ADR-081);
+- thread read authority;
+- imported versus native provenance;
+- modeling and source exclusions;
+- sensitive-content restrictions;
+- user-selected scope limits;
+- retention and deletion restrictions.
+
+This amendment does not authorize account-wide retrieval, cross-Project widening,
+or imported-conversation model exposure. Those remain separately governed and
+closed.
+
+#### G. Relationship to the Turn Intake Compiler
+
+This amendment defines one narrow historical-recall authorization decision. It
+does **not** implement or require the Turn Intake Compiler, and it does not
+create a parallel intent or permission control plane. A future compiler may
+eventually produce the interpretation signal, but it must still obey this
+amendment's authorization contract: Guardian owns the decision, and the model
+proposes.
+
+#### Fixtures
+
+Concrete behavioral expectations live in
+[history-recall-intent.v1.json](../fixtures/history-recall-intent.v1.json).
+Those classifications are documentation-only expectations. They are not canonical
+runtime tokens, they do not describe an existing executable classifier, and they
+do not establish runtime behavior.
+
 ### Collection consent
 
 Explicit memory commands remain available. Automatic memory suggestions run
@@ -218,6 +421,16 @@ erasure and re-import suppression are proven.
 
 `docs/architecture/00-current-state.md` remains release truth. This ADR does
 not widen the current Beta surface.
+
+The historical conversation recall intent authorization clarification
+(2026-11-01) is architecture only. It defines the authorization decision and its
+boundaries; it does not implement a runtime classifier, a recall-grant resolver, a
+confirmation surface, a grant representation, or historical-recall tool
+advertisement. The behavioral expectations in
+[history-recall-intent.v1.json](../fixtures/history-recall-intent.v1.json) are
+documentation-only and are not executable test expectations. Runtime
+enforcement of this clarification, and any activation of ordinary-chat historical
+search, remain separately authorized work.
 
 ## Governing and related records
 

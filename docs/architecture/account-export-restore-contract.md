@@ -96,6 +96,71 @@ do not contain and must not fabricate Persona Profile state. Required-file,
 family, count, and checksum validation is selected by schema version and remains
 fail-closed.
 
+### Canonical Project ownership in the default export
+
+`projects.user_id` is the durable owner of a canonical Project (ADR-081). The
+default archive version is `account-export.v3`, and its canonical bundle reader
+is `guardian/core/pgdb.py::fetch_account_export_bundle_for_user`.
+
+The default bundle path selects candidate Projects by reachability from
+account-owned rows — an owned thread, document, or asset may name a Project.
+Every such candidate is selected **with** its canonical `projects.user_id`, and
+the export refuses explicitly when a reachable candidate is not owned by the
+authenticated exporting account. The refusal is a content-free
+`account_export_project_ownership_mismatch`; the export fails rather than
+shipping foreign Project metadata or silently producing an incomplete
+relationship graph. Reachability never grants ownership, and a missing owner is
+not a defaultable value.
+
+Ownership is never manufactured from a thread's owner, an archive manifest, the
+export filename, a caller-supplied user id, a Project's placement, or a
+fallback local account. The authenticated account is the export scope authority,
+and `projects.user_id` is the only source of a Project's owner.
+
+The canonical-memory export path selects Projects through `projects.user_id` at
+query time. That is its established behavior and is unchanged here; only the
+default path's selection is corrected. The two paths therefore differ in how
+they treat a reachable foreign-owned candidate, and the difference is
+deliberate: the default path refuses the export explicitly, while the
+canonical-memory path keeps its existing selection semantics. Neither path
+exports foreign Project metadata.
+
+**Proof.** Against disposable PostgreSQL, the production export builder with no
+schema-version override produces an `account-export.v3` archive whose
+`entities/projects.json` carries `user_id` for every exported Project, and that
+archive restores into a clean canonical target with Project ownership, thread
+membership, and message identity, ordering, and timestamps intact; a repeated
+restore is idempotent. A default export of an unmarked legacy conversation and
+of a canonically imported conversation both restore, and imported provenance is
+preserved verbatim. The export does not cross accounts: another account's
+Projects, threads, and messages are absent from the archive, and a reachable
+Project owned by another account fails the export instead of being exported.
+
+**Regression.** Two full backend runs were compared under the same
+infrastructure, dependency versions, and exclusions: the baseline with the
+correction reverted, and the corrected tree. Both report 18 failed, 3 errored,
+and 108 skipped. The failing and erroring id sets differ by exactly one id in
+each direction, and neither id exercises the export path: one is a document
+worker shutdown race and the other is a PostgreSQL DNS-handshake deadline race.
+Both pass standalone, so neither is attributable to this correction. The
+collected count rises by 18 — the 14 new round-trip tests, the 2 new
+owner-column tests, and the 2 new export-route tests — and every one of them
+passes.
+
+**Historical ownerless archives.** Older `account-export.v3` archives generated
+before this correction carry no `projects.user_id`. They are not silently
+repaired: an archive's manifest and an authenticated uploader are not proof of
+the original canonical Project owner, so the canonical restore continues to
+refuse them explicitly. Historical repair requires a separately authorized
+compatibility policy.
+
+**Native-origin-bearing archives.** The trusted-custody refusal from ADR-016
+still applies to the corrected default archive: a default export that contains
+a genuine `extra_meta.message_origin` assertion remains ineligible for the
+generic restore. The export correction does not strip, reinterpret, or reissue
+that assertion, and it does not relax restore admission. Proof-preserving
+native-origin export custody remains a deferred requirement.
+
 ### UMS canonical schema versions (UMS-04 → UMS-05C10A-P)
 
 Each addition of a canonical UMS entity family introduces a new, immutable
@@ -246,7 +311,7 @@ All IDs, metadata, and relationships in the following families must be explicit 
 
 | Family | Must export |
 | --- | --- |
-| Projects | Stable project IDs, project metadata, memberships, project-level timestamps, tags/flags, and provenance. |
+| Projects | Stable project IDs, the canonical owning account (`projects.user_id`), project metadata, memberships, project-level timestamps, tags/flags, and provenance. |
 | Chat threads | Stable thread IDs, owning project membership, thread metadata, ordering context, timestamps, tags/flags, and provenance. |
 | Chat messages | Stable message IDs, thread ID, explicit ordering index, parent or child references where applicable, content, author/role metadata, edit or deletion metadata when restore-relevant, timestamps, and provenance. |
 | Uploaded documents | Stable document IDs, binary hash or binary reference, filename or title, MIME type, size, storage locator when needed, links to threads and projects, timestamps, tags/flags, and provenance. |
@@ -316,6 +381,95 @@ Filter surfaces, audit surfaces, and export/restore surfaces must use `origin_sy
 Imported-source product metadata (`import_source`, `import_profile`, `source_thread_id`, source-message identifiers, raw import envelopes) remains subordinate provenance for audit and backward compatibility. It must not be used as the authoritative conversation-origin filter after this invariant is established.
 
 Legacy product names (`chatgpt`, `claude`, `gpt`, `open_ai`, `anthropic_claude`) are recognized only at the migration / import-compatibility boundary. They are mapped onto the canonical bounded registry by the deterministic rule: ChatGPT/OpenAI tokens become `openai`; Claude/Anthropic tokens become `anthropic`; any thread without explicit historical import provenance becomes `codexify`. Free-form strings are never canonical values; unknown external systems must fail closed rather than being silently mapped.
+
+### Message-Origin Assertions in Restore
+
+ADR-016 reserves the `extra_meta.message_origin` member of a canonical
+`chat_messages` row for the protected canonical creation operation. That
+member is **creation evidence**, not restored bytes.
+
+Creating a native conversation message and restoring a historical record are
+different operations. An authenticated account owner may submit an archive of
+historical conversation content, and that permission covers ownership of the
+restored records, archive integrity, and schema validity. It does **not** extend
+to historical message-origin evidence or to the trusted custody of native-origin
+assertions. Account authentication, archive integrity, and an internally
+consistent set of source ids are not proof that an uploaded assertion was ever
+issued by Codexify's protected creation path.
+
+**There is no accepted, executable, proof-preserving export custody mechanism.**
+The archive manifest carries a self-authored checksum over its own members, and
+the archive is bound to the uploading account. Neither can independently
+authenticate the original creation evidence of an exact message, because
+neither carries a signature or attestation over that evidence, and the
+canonical message identity in the archive is chosen by the archive. No signing
+service, attestation format, or trusted export-custody mechanism exists in this
+contract, and none is introduced here.
+
+**The generic restore therefore fails closed.** An archive whose
+`chat_messages` rows carry the reserved member is refused at restore admission,
+before the restore transaction begins writing any entity family:
+
+- The refusal applies to **every supported archive version** that carries
+  `chat_messages` — `account-export.v1` through `account-export.v8`.
+- The member is detected by **presence, never by shape**. A null, malformed,
+  unsupported-version, or contradictory claim is still a claim, and each one
+  fails closed.
+- A correctly formed assertion that is byte-for-byte identical to a trusted
+  writer's output is still refused. Shape, plausibility, and a valid manifest
+  do not buy authority.
+- The refusal applies even when the target message already exists and the
+  restore would otherwise skip it, because the check runs on the archive
+  payload, before any database interaction.
+- The refusal is explicit. The claim is **not** silently stripped: stripping it
+  would make the restore appear lossless while discarding provenance the
+  archive claimed to carry. The archive is refused with an intelligible,
+  content-free validation result (`native_origin_claim_untrusted`), and the
+  error exposes no message content and no imported source identifier.
+
+**This is a deliberate, temporary limitation.** A current account export that
+contains genuine native-origin assertions — that is, an export taken after the
+trusted native user-message and accepted assistant-completion writers exist —
+**cannot be restored through the generic upload path**. That is the intended
+consequence of refusing unverified origin claims, not a defect to be worked
+around. Full proof-preserving native-message portability requires a separately
+accepted trusted export-custody mechanism, which is out of scope here.
+
+**A separate, pre-existing exporter/adapter mismatch.** Independently of this
+rule, the current *default* export version (`account-export.v3`) is not itself
+restorable: its `projects` payload omits the explicit `user_id` that the
+canonical restore requires as persisted ownership state, so the restore refuses
+it with `projects row {index} is missing user_id`. The restorable archive
+versions carry the explicit ownership columns — `account-export.v4` and later —
+and that is the version the production export/restore round trip uses. This
+mismatch predates the origin rule, is not caused by it, and is not repaired
+here. It does mean the refusal above is exercised against archive versions the
+restore accepts but cannot otherwise complete, which is why the refusal is
+asserted for every version from `account-export.v1` through
+`account-export.v8` independently of whether that version would otherwise
+restore.
+
+**Legacy and imported restores are unaffected.** An archive whose messages
+carry no native-origin claim continues through the existing validation and
+restore processing unchanged. Unmarked legacy conversation messages, existing
+ChatGPT and Claude imported provenance, source ids, import lineage, original
+authorship, historical event and creation timestamps, account and Project
+ownership requirements, canonical message/thread relationships, and the
+existing conflict and idempotency behavior all keep their accepted semantics.
+Restore preserves bytes; it does not create origin evidence. A restored message
+is never classified as native, and restore never mints an assertion, reissues
+one, or rewrites incoming imported provenance as `codexify`.
+
+**Scope of the assistant witness.** Account export and restore do not carry
+canonical completion-attempt rows, so an archive cannot inject the attempt
+lineage that ADR-016's narrower historical assistant witness depends on. The
+restore also never overwrites an existing canonical row: an archive row that
+conflicts with existing persisted state fails closed rather than replacing it.
+The residual case is that a restored message may reuse a canonical message id
+that a deleted completion attempt still names; a message id matching an
+existing completion id is not proof of shared origin, and any future witness
+reader must establish the message's own creation evidence rather than rely on
+the id match. That reader-side obligation remains open under finding #3.
 
 ## Relationship and Lineage Contract
 

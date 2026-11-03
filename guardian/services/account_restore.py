@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from guardian.cognition.system_profiles.manifest import PersonaProfileManifest
+from guardian.core.db import RESERVED_MESSAGE_ORIGIN_KEY
 from guardian.extensions.tokens import (
     EXTENSION_INSTALL_BINDING_SCOPES,
     EXTENSION_INSTALL_BINDING_STATUSES,
@@ -397,6 +398,34 @@ class AccountRestoreConflictError(AccountRestoreError):
     validated = True
 
 
+def _carries_reserved_origin_member(extra_meta: Any) -> bool:
+    """Return whether a restored message metadata value carries the member.
+
+    The member is detected by *presence*, never by shape. A null, malformed,
+    or unsupported-version claim is still a claim, and every one of them must
+    fail closed rather than be silently accepted, silently stripped, or
+    reissued. Only the exact top-level member is reserved; nested objects are
+    ordinary payload content and are never read as an origin assertion.
+    """
+    if isinstance(extra_meta, dict):
+        return RESERVED_MESSAGE_ORIGIN_KEY in extra_meta
+    if isinstance(extra_meta, str):
+        # Some archives serialize the JSONB column as a JSON string.
+        text = extra_meta.strip()
+        if not text:
+            return False
+        try:
+            decoded = json.loads(text)
+        except Exception:
+            # An undecodable value is not a readable origin claim. The
+            # canonical write rejects it as invalid JSONB, so restore still
+            # fails closed rather than admitting a claim.
+            return False
+        if isinstance(decoded, dict):
+            return RESERVED_MESSAGE_ORIGIN_KEY in decoded
+    return False
+
+
 class AccountRestoreService:
     def __init__(self, db: Any):
         self.db = db
@@ -659,6 +688,11 @@ class AccountRestoreService:
                         expected=expected,
                     )
 
+                self._validate_message_origin_claims(
+                    manifest=manifest,
+                    payload_rows=payload_rows,
+                )
+
                 self._validate_relationships(
                     manifest=manifest,
                     payload_rows=payload_rows,
@@ -706,6 +740,48 @@ class AccountRestoreService:
                     "actual_sha256": sha256,
                     "expected_size_bytes": expected_size,
                     "actual_size_bytes": size_bytes,
+                },
+            )
+
+    def _validate_message_origin_claims(
+        self,
+        *,
+        manifest: dict[str, Any],
+        payload_rows: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        """Refuse archive-provided native-origin assertions.
+
+        ADR-016 reserves the ``extra_meta.message_origin`` member for the
+        protected canonical creation operation. A generic account restore is
+        not that operation. An authenticated owner may submit an archive of
+        historical conversation content, but that permission is not authority
+        over provenance: a valid ZIP, a self-authored checksum, a valid
+        manifest, and an internally consistent set of source ids cannot prove
+        that an uploaded assertion was ever issued by Codexify's protected
+        creation path.
+
+        No accepted, executable, proof-preserving export custody mechanism
+        exists yet, so the generic restore fails closed instead of accepting,
+        silently stripping, or reissuing the claim. Silently stripping it would
+        make the restore appear lossless while discarding provenance the
+        archive claimed to carry.
+
+        The check runs during archive validation, before the restore transaction
+        begins writing any entity family, so a refused archive leaves the
+        account untouched. It applies to every supported archive schema
+        version, because every supported version carries ``chat_messages``.
+        """
+        for index, row in enumerate(payload_rows.get("chat_messages", [])):
+            if not _carries_reserved_origin_member(row.get("extra_meta")):
+                continue
+            raise self._validation_error(
+                "native_origin_claim_untrusted",
+                "Archive messages may not carry a native-origin assertion",
+                manifest=manifest,
+                details={
+                    "family": "chat_messages",
+                    "row_index": index,
+                    "message_id": row.get("id"),
                 },
             )
 

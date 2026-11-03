@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from guardian.conversation_origin import ConversationOriginSystem
 from guardian.core.chat_db import validate_message_provenance
 from guardian.core.default_project import resolve_project_id_or_default
 from guardian.core.project_lifecycle import (
@@ -57,6 +58,198 @@ class ChatToolCheckpointError(ValueError):
     """The accepted request cannot safely use the proposed tool decision."""
 
 
+# ---------------------------------------------------------------------------
+# Reserved message-origin provenance custody
+# ---------------------------------------------------------------------------
+# ADR-016 makes message source provenance a *creation-bound* assertion: only the
+# trusted canonical backend may record that a message was natively created in
+# Codexify. Client input, user-authored content, model output, tool output, and
+# generic metadata merges are untrusted and can never establish, replace,
+# remove, or modify that member.
+#
+# The trust decision depends on backend creation authority, not on the
+# appearance of the JSON. A caller that submits JSON shaped like the accepted
+# assertion gains nothing, because the assertion is only ever written by the
+# trusted creation path and never read back as proof on its own.
+#
+# This module holds the one shared rule that every canonical ordinary-chat
+# write and enrichment path applies. Both Postgres adapters import it from here
+# (``guardian.core.pgdb`` and this module), so the rule cannot drift between
+# them.
+
+#: The reserved ``extra_meta`` member that records canonical source origin.
+RESERVED_MESSAGE_ORIGIN_KEY = "message_origin"
+
+#: Version of the reserved assertion shape written by trusted creation.
+RESERVED_MESSAGE_ORIGIN_VERSION = 1
+
+#: The canonical origin value for a message created natively in Codexify.
+#: It reuses the existing conversation-origin vocabulary with message-level
+#: semantics: original native interaction creation.
+NATIVE_ORIGIN_SYSTEM = ConversationOriginSystem.CODEXIFY.value
+
+#: Metadata keys that assert external source lineage.
+#:
+#: The ordinary-chat message contract has no importer. A client that submits
+#: these keys alongside its own native message is making a conflicting source
+#: claim, not supplying ordinary metadata, and the request is refused rather
+#: than having those contents laundered into a canonical native record.
+IMPORT_LINEAGE_METADATA_KEYS = frozenset(
+    {
+        "canonical_filter_profile",
+        "era",
+        "imported_at",
+        "origin",
+        "raw_message",
+        "raw_role",
+        "source_created_at",
+        "source_message_id",
+        "source_role_raw",
+        "source_thread_id",
+        "turn_index",
+    }
+)
+
+
+def find_conflicting_source_lineage(metadata: Any) -> list[str]:
+    """Return the imported-source lineage keys present in ``metadata``."""
+    if not isinstance(metadata, dict):
+        return []
+    return sorted(
+        key for key in metadata if key in IMPORT_LINEAGE_METADATA_KEYS
+    )
+
+
+def strip_reserved_origin(metadata: Any) -> Dict[str, Any]:
+    """Return ``metadata`` without the reserved origin member.
+
+    Untrusted payloads may legitimately carry any ordinary metadata key, so
+    only the reserved member is removed and unrelated metadata keeps working
+    unchanged. Only the exact top-level member is reserved; nested objects are
+    ordinary payload content and are never read as an origin assertion.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key != RESERVED_MESSAGE_ORIGIN_KEY
+    }
+
+
+def contains_reserved_origin(metadata: Any) -> bool:
+    """Return whether ``metadata`` carries the reserved origin member."""
+    if not isinstance(metadata, dict):
+        return False
+    return RESERVED_MESSAGE_ORIGIN_KEY in metadata
+
+
+@dataclass(frozen=True)
+class NativeOriginAssertion:
+    """Backend-owned native-origin assertion for one canonical message.
+
+    The *type* is the trust decision, not the JSON. A client request body, a
+    model response, or a tool result is always plain data and can never become
+    an instance of this class, so it cannot establish a native-origin
+    assertion no matter how closely its shape matches. Only backend code that
+    deliberately constructs one can do that.
+    """
+
+    origin_system: str
+    asserted_at: str
+    version: int = RESERVED_MESSAGE_ORIGIN_VERSION
+
+    def as_metadata(self) -> Dict[str, Any]:
+        return {
+            RESERVED_MESSAGE_ORIGIN_KEY: {
+                "version": self.version,
+                "origin_system": self.origin_system,
+                "asserted_at": self.asserted_at,
+            }
+        }
+
+
+def apply_native_origin_assertion(
+    metadata: Any,
+    assertion: "NativeOriginAssertion | None",
+) -> Dict[str, Any]:
+    """Return metadata with the reserved member set only from trusted authority.
+
+    Any reserved member already present in ``metadata`` came from an untrusted
+    source and is discarded. When a trusted ``assertion`` is supplied it is the
+    only value that may occupy the reserved member.
+    """
+    protected = strip_reserved_origin(metadata)
+    if assertion is None:
+        return protected
+    protected.update(assertion.as_metadata())
+    return protected
+
+
+def build_native_origin_assertion(
+    *,
+    asserted_at: datetime | None = None,
+) -> NativeOriginAssertion:
+    """Construct the trusted native-origin assertion for a new native message.
+
+    The timestamp is backend-generated and timezone-aware. It is never taken
+    from client input, so a caller cannot control when its own message is
+    asserted.
+
+    This is the single backend-owned producer for native creation. It is
+    deliberately *not* invoked by the generic ``create_message`` helper: the
+    importer calls that helper too, and an imported record must never receive
+    native provenance. Only the trusted creation operations call it — the
+    ordinary authenticated user-message path and the accepted assistant
+    completion path.
+    """
+    moment = asserted_at or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return NativeOriginAssertion(
+        origin_system=NATIVE_ORIGIN_SYSTEM,
+        asserted_at=moment.astimezone(timezone.utc).isoformat(),
+    )
+
+
+def merge_protected_message_metadata(
+    stored_extra_meta: Any,
+    incoming_extra_meta: Any,
+) -> Dict[str, Any]:
+    """Merge untrusted metadata over stored metadata without losing provenance.
+
+    This mirrors the shallow JSONB concatenation the canonical enrichment
+    paths already use and repairs its one dangerous property: a colliding
+    top-level key in the incoming payload replaces the stored value. The
+    reserved origin member is therefore taken only from stored metadata.
+    """
+    merged = dict(stored_extra_meta) if isinstance(stored_extra_meta, dict) else {}
+    for key, value in (incoming_extra_meta or {}).items():
+        if key == RESERVED_MESSAGE_ORIGIN_KEY:
+            continue
+        merged[key] = value
+    return merged
+
+
+#: Canonical enrichment statement that merges untrusted metadata while keeping
+#: any stored reserved origin assertion authoritative.
+#:
+#: ``COALESCE(extra_meta, '{}'::jsonb) || payload`` is the shallow
+#: concatenation the canonical update paths already use. Subtracting the
+#: reserved member from the *incoming* payload means an untrusted payload can
+#: neither create that member nor replace the stored one, and the stored one is
+#: never removed.
+MERGE_MESSAGE_METADATA_SQL = """
+    UPDATE chat_messages
+    SET extra_meta = COALESCE(extra_meta, '{}'::jsonb) || (
+        %s::jsonb - 'message_origin'
+    )
+    WHERE thread_id = %s
+      AND id = %s
+    RETURNING id
+"""
+
+
 def create_chat_message_with_metadata(
     chatlog_db: Any,
     thread_id: int,
@@ -64,12 +257,21 @@ def create_chat_message_with_metadata(
     content: str,
     *,
     extra_meta: dict[str, Any],
+    native_origin: "NativeOriginAssertion | None" = None,
 ) -> int:
-    """Persist a chat message and its bounded metadata in one DB transaction."""
+    """Persist a chat message and its bounded metadata in one DB transaction.
+
+    ``extra_meta`` is treated as untrusted: the reserved message-origin member
+    is stripped before the row is written, so client input, model output, and
+    tool output cannot establish a native-origin assertion through this path.
+    Only ``native_origin`` may set that member, and only trusted backend code
+    can construct one.
+    """
+    protected_extra_meta = apply_native_origin_assertion(extra_meta, native_origin)
     sa_session = getattr(chatlog_db, "_sa_session", None)
     if not callable(sa_session):
         return chatlog_db.create_message(
-            thread_id, role, content, extra_meta=extra_meta
+            thread_id, role, content, extra_meta=protected_extra_meta
         )
 
     with sa_session() as session:
@@ -84,7 +286,7 @@ def create_chat_message_with_metadata(
             content=content,
             kind="chat",
             event_at=now,
-            extra_meta=dict(extra_meta),
+            extra_meta=dict(protected_extra_meta),
         )
         session.add(message)
         thread.updated_at = now
@@ -102,7 +304,7 @@ def create_chat_message_with_metadata(
             session.rollback()
             return int(
                 chatlog_db.create_message(
-                    thread_id, role, content, extra_meta=dict(extra_meta)
+                    thread_id, role, content, extra_meta=dict(protected_extra_meta)
                 )
             )
         return int(message_id)
@@ -1216,6 +1418,45 @@ class _PostgresGuardianDB:
     # Chat Messages
     # =================================================================
 
+    def create_native_user_message(
+        self,
+        thread_id: int,
+        role: str,
+        content: str,
+        *,
+        kind: str = "chat",
+        event_at: Optional[datetime] = None,
+        extra_meta: Optional[dict] = None,
+        user_id: str | None = None,
+        hosted_room_participant_id: str | None = None,
+        sender_display_name_snapshot: str | None = None,
+        asserted_at: Optional[datetime] = None,
+    ) -> int:
+        """Create a canonical native user message and stamp its origin atomically.
+
+        This is the *trusted native creation* boundary. It is deliberately a
+        separate method from :meth:`create_message` so that the importer, which
+        calls the generic helper, can never receive native provenance by
+        accident. The reserved assertion is written in the same transaction as
+        the message row, so a failed insert leaves no apparently proven orphan.
+
+        The timestamp is backend-generated and timezone-aware; the caller never
+        supplies the assertion's contents.
+        """
+        assertion = build_native_origin_assertion(asserted_at=asserted_at)
+        return self.create_message(
+            thread_id,
+            role,
+            content,
+            kind=kind,
+            event_at=event_at,
+            extra_meta=extra_meta,
+            user_id=user_id,
+            hosted_room_participant_id=hosted_room_participant_id,
+            sender_display_name_snapshot=sender_display_name_snapshot,
+            native_origin=assertion,
+        )
+
     def create_message(
         self,
         thread_id: int,
@@ -1228,8 +1469,14 @@ class _PostgresGuardianDB:
         user_id: str | None = None,
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
+        native_origin: "NativeOriginAssertion | None" = None,
     ) -> int:
-        """Create a new message in a thread."""
+        """Create a new message in a thread.
+
+        ``extra_meta`` is untrusted here: the reserved message-origin member is
+        stripped before the row is written. Only ``native_origin`` may set that
+        member, and only trusted backend code can construct one.
+        """
         validate_message_provenance(
             hosted_room_participant_id,
             sender_display_name_snapshot,
@@ -1252,7 +1499,7 @@ class _PostgresGuardianDB:
                 content=content,
                 kind=kind,
                 event_at=event_at or datetime.now(timezone.utc),
-                extra_meta=extra_meta or {},
+                extra_meta=apply_native_origin_assertion(extra_meta, native_origin),
                 hosted_room_participant_id=hosted_room_participant_id,
                 sender_display_name_snapshot=sender_display_name_snapshot,
             )

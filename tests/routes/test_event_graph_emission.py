@@ -35,6 +35,7 @@ def test_chat_post_message_emits_thread_update_event(monkeypatch):
     mock_db.ensure_project.return_value = None
     mock_db.ensure_chat_thread.return_value = None
     mock_db.create_message.return_value = 55
+    mock_db.create_native_user_message.return_value = 55
     mock_db.write_audit_log.return_value = None
     mock_db.get_chat_thread.return_value = {"id": 1, "title": "Existing"}
 

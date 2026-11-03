@@ -104,7 +104,9 @@ from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
 from guardian.tools.chat_exposure import (
+    HISTORY_SEARCH_COMMAND_ID,
     REPOSITORY_SEARCH_COMMAND_ID,
+    history_search_is_advertised,
     repository_search_is_advertised,
     resolve_ordinary_chat_tools,
 )
@@ -131,6 +133,23 @@ from guardian.core.config import (
     LLMConfigError,
     get_settings,
     validate_llm_config,
+)
+from guardian.core.account_history_recall import (
+    MAX_DATE_BOUND_CHARACTERS as HISTORY_MAX_DATE_BOUND_CHARACTERS,
+    MAX_QUERY_CHARACTERS as HISTORY_MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
+    HistoryRecallAuthorization,
+    HistoryRecallCapabilityContext,
+    HistoryRecallGrant,
+    bound_history_recall_query,
+    bound_history_recall_window,
+    history_recall_grant_is_live,
+    history_recall_grants_equivalent,
+    normalize_recall_limit,
+    normalize_recall_query,
+    parse_recall_bound,
+    resolve_account_history_recall_capability,
+    resolve_history_recall_authorization,
 )
 from guardian.core.llm_catalog import first_enabled_provider
 from guardian.core.repository_chat_capability import (
@@ -6299,14 +6318,150 @@ def _repository_search_blocked_error(
     )
 
 
+def _history_recall_local_transport_eligible(
+    task: ChatCompletionTask,
+) -> bool:
+    """Allow queued account-history recall only in the accepted local posture.
+
+    The recall account is bound to the trusted account of the accepted chat
+    request. That binding is only unambiguous in the local, single-account
+    posture where the transport can carry the configured account identity.
+    Multi-user and remote deployments fail closed rather than guess.
+    """
+
+    if not _is_ordinary_repository_chat_task(task):
+        return False
+    try:
+        if dependencies.is_private_preview():
+            return False
+        if dependencies._auth_mode() != "local":
+            return False
+        if dependencies._multi_user_mode_enabled():
+            return False
+        if str(task.user_id or "") != dependencies.get_single_user_id():
+            return False
+    except Exception:
+        return False
+    return _repository_search_local_api_key() is not None
+
+
+def _hydrate_history_search_arguments(
+    raw_arguments: Any,
+    *,
+    project_id: int,
+    grant: HistoryRecallGrant | None = None,
+) -> InvokeArguments:
+    """Validate model recall intent and inject only Guardian-derived authority.
+
+    Account identity is never accepted here. The Project comes from the
+    authenticated runtime context, and the model may only express retrieval
+    intent: search text, an optional date window, and a bounded count.
+
+    When a request-scoped grant is supplied, the model's formulation is also
+    bounded by that grant. The search text must stay inside the grant's topic
+    and the window inside the grant's temporal bounds, so a model-generated
+    query cannot widen the authorized evidence set.
+    """
+
+    if (
+        not isinstance(project_id, int)
+        or isinstance(project_id, bool)
+        or project_id <= 0
+        or not isinstance(raw_arguments, Mapping)
+    ):
+        raise ValueError("history_search_arguments_invalid")
+    arguments = dict(raw_arguments)
+    if set(arguments) - {"q", "start", "end", "limit"}:
+        raise ValueError("history_search_arguments_invalid")
+    try:
+        query = normalize_recall_query(arguments.get("q"))
+    except Exception:
+        raise ValueError("history_search_arguments_invalid") from None
+    raw_limit = arguments.get("limit", HISTORY_MAX_RETURNED_MATCHES)
+    try:
+        limit = normalize_recall_limit(raw_limit)
+    except Exception:
+        raise ValueError("history_search_arguments_invalid") from None
+    raw_start = arguments.get("start")
+    raw_end = arguments.get("end")
+    if raw_start is not None and not isinstance(raw_start, str):
+        raise ValueError("history_search_arguments_invalid")
+    if raw_end is not None and not isinstance(raw_end, str):
+        raise ValueError("history_search_arguments_invalid")
+    if isinstance(raw_start, str) and (
+        len(raw_start) > HISTORY_MAX_DATE_BOUND_CHARACTERS
+    ):
+        raise ValueError("history_search_arguments_invalid")
+    if isinstance(raw_end, str) and (
+        len(raw_end) > HISTORY_MAX_DATE_BOUND_CHARACTERS
+    ):
+        raise ValueError("history_search_arguments_invalid")
+    try:
+        start_at = parse_recall_bound(raw_start, is_end=False)
+        end_at = parse_recall_bound(raw_end, is_end=True)
+    except Exception:
+        raise ValueError("history_search_arguments_invalid") from None
+    if start_at is not None and end_at is not None and start_at > end_at:
+        raise ValueError("history_search_arguments_invalid")
+    if grant is not None:
+        try:
+            query = bound_history_recall_query(grant, query)
+            bounded_start, bounded_end = bound_history_recall_window(
+                grant,
+                window_start=raw_start,
+                window_end=raw_end,
+            )
+        except Exception:
+            raise ValueError("history_search_arguments_invalid") from None
+        raw_start = bounded_start
+        raw_end = bounded_end
+    query_params: dict[str, Any] = {"q": query, "limit": limit}
+    if raw_start:
+        query_params["start"] = raw_start
+    if raw_end:
+        query_params["end"] = raw_end
+    return InvokeArguments(
+        path_params={"project_id": project_id},
+        query=query_params,
+        headers={},
+        body=None,
+    )
+
+
+def _history_search_blocked_error(
+    *,
+    task: ChatCompletionTask,
+    tool_turn_id: str,
+) -> ToolLoopExecutionError:
+    return ToolLoopExecutionError(
+        ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+        metadata=_tool_loop_identity_fields(
+            task=task,
+            tool_turn_id=tool_turn_id,
+            tool_turn_state=ToolTurnState.FAILED.value,
+            loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            command_run_id=None,
+        )
+        | {"command_id": HISTORY_SEARCH_COMMAND_ID},
+    )
+
+
 def _resolve_ordinary_chat_tools(
     *,
     provider: str,
     model: str,
     settings: Any,
     repository_search_eligible: bool = False,
+    history_recall_grant: HistoryRecallGrant | None = None,
 ) -> list[dict[str, Any]] | None:
-    """Resolve the Stage 2I subset after the effective target is known."""
+    """Resolve the Stage 2I subset after the effective target is known.
+
+    HISTORY-GATE: ``history_recall_grant`` is deliberately not forwarded to
+    ``resolve_ordinary_chat_tools`` yet. Ordinary-chat history advertisement
+    stays inactive until review finding #2 is repaired, so the command remains
+    invisible to the model on this path even when a grant exists. The
+    authorization gate itself is enforced and test-proven independently.
+    """
 
     normalized_provider = str(provider or "").strip().lower()
     provider_vendor = str(
@@ -6354,6 +6509,64 @@ def _resolve_ordinary_chat_tools(
     )
 
 
+def _history_recall_authorization_for_task(
+    task: ChatCompletionTask,
+    *,
+    retrieval_proposed: bool = False,
+) -> HistoryRecallAuthorization | None:
+    """Resolve the request-scoped recall authorization for an accepted request.
+
+    The decision is derived from the trusted request identity, the canonical
+    Project, and the accepted user message. It never reads historical
+    evidence, and it never accepts a caller-supplied account as an override.
+    """
+
+    authorization = resolve_history_recall_authorization(
+        getattr(dependencies, "chatlog_db", None),
+        authenticated_account_id=str(getattr(task, "user_id", "") or ""),
+        request_id=_completion_request_id(task),
+        turn_id=str(getattr(task, "turn_id", "") or ""),
+        thread_id=getattr(task, "thread_id", None),
+        source_message_id=_extract_latest_turn_message_id(task),
+        expires_at=_accepted_request_expiry(task),
+        retrieval_proposed=retrieval_proposed,
+    )
+    return authorization
+
+
+def _resolve_history_recall_grant(
+    task: ChatCompletionTask,
+) -> HistoryRecallGrant | None:
+    """Return the grant for one accepted request, or nothing."""
+
+    authorization = _history_recall_authorization_for_task(task)
+    if authorization is None or not authorization.is_grant:
+        return None
+    return authorization.grant
+
+
+def _accepted_request_expiry(task: ChatCompletionTask) -> str | None:
+    """Return the accepted request's own end bound, when the runtime knows it.
+
+    The grant must not outlive the accepted request, so the accepted task's
+    terminal deadline is the expiry the grant carries.
+    """
+
+    try:
+        deadline = accepted_chat_deadline_for_task(task)
+    except Exception:
+        return None
+    if deadline is None:
+        return None
+    terminal = getattr(deadline, "terminal_deadline_at", None)
+    if terminal is None:
+        return None
+    try:
+        return str(terminal.isoformat())
+    except Exception:
+        return None
+
+
 def _prepare_chat_tool_exposure(
     task: ChatCompletionTask,
     *,
@@ -6365,6 +6578,8 @@ def _prepare_chat_tool_exposure(
 
     automatic_tool_exposure = task.tools is None
     repository_context: RepositoryChatCapabilityContext | None = None
+    history_context: HistoryRecallCapabilityContext | None = None
+    history_grant: HistoryRecallGrant | None = None
     if automatic_tool_exposure:
         if _repository_search_local_transport_eligible(task):
             repository_context = resolve_repository_chat_capability(
@@ -6372,17 +6587,29 @@ def _prepare_chat_tool_exposure(
                 authenticated_account_id=task.user_id,
                 thread_id=task.thread_id,
             )
+        if _history_recall_local_transport_eligible(task):
+            history_context = resolve_account_history_recall_capability(
+                getattr(dependencies, "chatlog_db", None),
+                authenticated_account_id=task.user_id,
+                thread_id=task.thread_id,
+            )
+            # Ownership is eligibility, not authority. The request-scoped
+            # authorization decision is derived separately from the accepted
+            # user message, and only that decision can mint a grant.
+            history_grant = _resolve_history_recall_grant(task)
         task.tools = _resolve_ordinary_chat_tools(
             provider=provider,
             model=model,
             settings=settings,
             repository_search_eligible=repository_context is not None,
+            history_recall_grant=history_grant,
         )
     else:
         supplied_tools = task.tools
         if isinstance(supplied_tools, list) and any(
             isinstance(tool, dict)
-            and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+            and tool.get("command_id")
+            in {REPOSITORY_SEARCH_COMMAND_ID, HISTORY_SEARCH_COMMAND_ID}
             for tool in supplied_tools
         ):
             task.tools = [
@@ -6390,7 +6617,8 @@ def _prepare_chat_tool_exposure(
                 for tool in supplied_tools
                 if not (
                     isinstance(tool, dict)
-                    and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+                    and tool.get("command_id")
+                    in {REPOSITORY_SEARCH_COMMAND_ID, HISTORY_SEARCH_COMMAND_ID}
                 )
             ]
     evidence = _build_tool_exposure_evidence(
@@ -6402,6 +6630,11 @@ def _prepare_chat_tool_exposure(
         and repository_search_is_advertised(task.tools)
     ):
         evidence["_repository_chat_context"] = repository_context
+    if history_context is not None and history_search_is_advertised(task.tools):
+        evidence["_history_recall_context"] = history_context
+    if history_grant is not None and history_search_is_advertised(task.tools):
+        # A grant that was never advertised is never usable at execution.
+        evidence["_history_recall_grant"] = history_grant
     return evidence
 
 
@@ -6759,6 +6992,114 @@ def _execute_bounded_tool_turn_completion(
         local_api_key = _repository_search_local_api_key()
         if local_api_key is None:
             raise _repository_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        actor = ActorSpec(
+            kind="system",
+            id=request_id or tool_turn_id,
+            session_id=tool_turn_id,
+            delegated_by=task.user_id,
+        )
+        auth_subject = task.user_id
+        inbound_headers = {"X-API-Key": local_api_key}
+
+    if command_id == HISTORY_SEARCH_COMMAND_ID:
+        # The recall account is the trusted account of the accepted chat
+        # request. The model never selects it, and the Project scope is
+        # re-resolved from that same account before the query runs.
+        advertised_context = tool_exposure.get("_history_recall_context")
+        if not isinstance(advertised_context, HistoryRecallCapabilityContext):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        if not _history_recall_local_transport_eligible(task):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        current_context = resolve_account_history_recall_capability(
+            getattr(dependencies, "chatlog_db", None),
+            authenticated_account_id=task.user_id,
+            thread_id=task.thread_id,
+        )
+        if (
+            current_context is None
+            or current_context.project_id != advertised_context.project_id
+        ):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        # The advertised grant is only a claim. Authorization is re-derived
+        # here from the trusted request context and compared against the grant
+        # that was actually advertised, so a forged, replayed, or stale grant
+        # cannot reach the Command Bus.
+        advertised_grant = tool_exposure.get("_history_recall_grant")
+        if not isinstance(advertised_grant, HistoryRecallGrant):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        current_authorization = _history_recall_authorization_for_task(
+            task,
+            retrieval_proposed=True,
+        )
+        current_grant = (
+            current_authorization.grant
+            if current_authorization is not None
+            and current_authorization.is_grant
+            else None
+        )
+        if current_grant is None:
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        if not history_recall_grant_is_live(
+            advertised_grant,
+            account_id=str(getattr(task, "user_id", "") or ""),
+            request_id=_completion_request_id(task),
+            turn_id=str(getattr(task, "turn_id", "") or ""),
+            source_message_id=_extract_latest_turn_message_id(task),
+            project_id=current_grant.project_id,
+        ):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        if not history_recall_grant_is_live(
+            current_grant,
+            account_id=str(getattr(task, "user_id", "") or ""),
+            request_id=_completion_request_id(task),
+            turn_id=str(getattr(task, "turn_id", "") or ""),
+            source_message_id=_extract_latest_turn_message_id(task),
+            project_id=current_grant.project_id,
+        ):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        if not history_recall_grants_equivalent(advertised_grant, current_grant):
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        try:
+            arguments = _hydrate_history_search_arguments(
+                normalized_first_output.arguments,
+                project_id=current_grant.project_id,
+                grant=current_grant,
+            )
+        except ValueError as exc:
+            raise _history_search_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            ) from exc
+        local_api_key = _repository_search_local_api_key()
+        if local_api_key is None:
+            raise _history_search_blocked_error(
                 task=task,
                 tool_turn_id=tool_turn_id,
             )

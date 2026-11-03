@@ -81,6 +81,9 @@ def mock_db():
     }
 
     mock.create_message.return_value = 1
+    # The ordinary user-message path creates through the trusted native
+    # creation seam, which stamps the reserved origin assertion at insert.
+    mock.create_native_user_message.return_value = 1
     mock.list_messages.return_value = [
         {
             "id": 1,
