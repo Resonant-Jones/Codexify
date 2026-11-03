@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -71,6 +72,7 @@ from guardian.db.models import (
     Base,
     ChatMessage,
     ChatThread,
+    CodingExecutionCredential,
     GuardianDelegationIntent,
     Project,
     RepositoryBinding,
@@ -1362,3 +1364,264 @@ def test_concurrent_unnamed_admissions_create_no_execution_at_all(
     assert intents_after == intents_before
     assert len(_runs(db)) == runs_before
     assert _drain() == []
+
+
+# ---------------------------------------------------------------------------
+# 17 — cancellation and dispatch contend on one row
+# ---------------------------------------------------------------------------
+
+
+def test_a_cancellation_that_commits_before_the_commitment_refuses_the_dispatch(
+    db: _TestDB,
+    client: TestClient,
+    authorized: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancellation that commits during the dispatch refuses it.
+
+    The dispatch reads the intent's approval state, then resolves the
+    binding, writes it, and only then queues the task. A cancellation can
+    commit in that window. Reading the intent in one transaction, closing
+    it, and acting on the closed read afterwards let a cancelled intent
+    still reach the queue.
+    """
+    seeded = authorized["seeded"]
+    intent = authorized["intent"]
+    original = GuardianDelegationService._authorize_intent_for_dispatch
+
+    def authorize_then_cancel(self, **kwargs: Any) -> Any:
+        # The pre-check passes, and then a cancellation commits before the
+        # dispatch reaches its commitment.
+        result = original(self, **kwargs)
+        self.cancel_intent(str(intent["intent_id"]))
+        return result
+
+    monkeypatch.setattr(
+        GuardianDelegationService,
+        "_authorize_intent_for_dispatch",
+        authorize_then_cancel,
+    )
+
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=_intake_payload(seeded=seeded, intent_id=intent["intent_id"]),
+        headers=_headers(authorized["token"]),
+    )
+
+    # The dispatch is refused, not raced.
+    assert response.status_code == 409, response.text
+    assert response.json() == {
+        "detail": "guardian_delegation_intent_not_dispatchable"
+    }
+    # Nothing reached the queue: a cancelled intent authorizes no execution.
+    assert _drain() == []
+
+    with db.get_session() as session:
+        row = (
+            session.query(GuardianDelegationIntent)
+            .filter_by(intent_id=intent["intent_id"])
+            .one()
+        )
+        # The cancellation is the more specific fact and is not erased by a
+        # dispatch that lost the race against it.
+        assert row.intent_status == "cancelled"
+
+
+def test_a_cancellation_committed_after_the_pre_check_still_refuses_the_dispatch(
+    db: _TestDB,
+    client: TestClient,
+    authorized: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is taken from the intent's committed state at commitment.
+
+    This is the same race as the case above, reached from the other side:
+    the cancellation commits after the dispatch's pre-check has already
+    read the intent, and the dispatch's commitment-time check sees it.
+    """
+    seeded = authorized["seeded"]
+    intent = authorized["intent"]
+    original = GuardianDelegationService._lock_intent_for_dispatch_commitment
+
+    def cancel_before_lock(self, **kwargs: Any) -> Any:
+        # The cancellation commits while the dispatch is between its
+        # pre-check and its commitment.
+        self.cancel_intent(str(intent["intent_id"]))
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(
+        GuardianDelegationService,
+        "_lock_intent_for_dispatch_commitment",
+        cancel_before_lock,
+    )
+
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=_intake_payload(seeded=seeded, intent_id=intent["intent_id"]),
+        headers=_headers(authorized["token"]),
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json() == {
+        "detail": "guardian_delegation_intent_not_dispatchable"
+    }
+    assert _drain() == []
+
+
+# ---------------------------------------------------------------------------
+# 18 — the newest usable credential is the one that is selected
+# ---------------------------------------------------------------------------
+
+
+def _seed_revoked_newest_credential(
+    db: _TestDB,
+    *,
+    user_id: str,
+) -> tuple[str, str]:
+    """Seed an older usable credential and a newer revoked one."""
+    older_ref = _seed_credential(db, user_id=user_id)
+    newer_ref = _seed_credential(db, user_id=user_id)
+    with db.get_session() as session:
+        older = (
+            session.query(CodingExecutionCredential)
+            .filter_by(credential_ref=older_ref)
+            .one()
+        )
+        newer = (
+            session.query(CodingExecutionCredential)
+            .filter_by(credential_ref=newer_ref)
+            .one()
+        )
+        # The registration order is what decides which credential is newest,
+        # so it is pinned rather than left to the clock.
+        older.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        newer.created_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        newer.status = "revoked"
+        newer.encrypted_secret = None
+        session.commit()
+    return older_ref, newer_ref
+
+
+def test_a_revoked_newest_credential_does_not_shadow_an_older_usable_one(
+    db: _TestDB,
+    client: TestClient,
+    git_workspace: Path,
+) -> None:
+    """Guardian selects the newest credential the authority will actually use.
+
+    Discovery is not authorization. The newest account credential can be
+    revoked or expired, and selecting it before the credential authority
+    had ruled on it meant the request failed on that row and never reached
+    the older, still-usable credential the account also owns.
+    """
+    seeded = _seed_account(db)
+    _seed_repository_binding(
+        db, project_id=seeded["project_id"], root=git_workspace
+    )
+    older_ref, newer_ref = _seed_revoked_newest_credential(
+        db, user_id=seeded["user_id"]
+    )
+    intent = _approved_intent(db, seeded)
+
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=_intake_payload(seeded=seeded, intent_id=intent["intent_id"]),
+        headers=_headers(_issue_session(ACCOUNT_A)),
+    )
+
+    assert response.status_code == 200, response.text
+    queued = _drain()
+    assert len(queued) == 1
+
+    # The revoked credential was never selected.
+    assert queued[0]["execution_binding"]["credential_ref"] == older_ref
+    assert queued[0]["execution_binding"]["credential_ref"] != newer_ref
+
+    # The persisted binding names the same credential, so the durable spec
+    # and the queued task describe one attempt.
+    spec = _deployment_spec(db, _deployment_id_for_intent(db, intent))
+    assert spec["execution_binding"]["credential_ref"] == older_ref
+
+
+# ---------------------------------------------------------------------------
+# 19 — a refusal is a client error that keeps its own reason code
+# ---------------------------------------------------------------------------
+
+
+def test_a_refused_binding_is_a_client_error_with_its_own_reason_code(
+    db: _TestDB,
+    client: TestClient,
+    authorized: dict[str, Any],
+) -> None:
+    """A deterministic refusal is reported as 4xx, not as a 503 outage.
+
+    Reporting every binding refusal as ``503 guardian_delegation_dispatch_failed``
+    told the client that the service was unavailable and invited an
+    unbounded retry of a request that could never succeed, while throwing
+    away the reason code that says what has to be corrected.
+    """
+    seeded = authorized["seeded"]
+    intent = authorized["intent"]
+
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=_intake_payload(
+            seeded=seeded,
+            intent_id=intent["intent_id"],
+            provider_id="anthropic",
+        ),
+        headers=_headers(authorized["token"]),
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json() == {
+        "detail": "guardian_binding_provider_constraint_unsatisfied"
+    }
+    assert _drain() == []
+
+
+# ---------------------------------------------------------------------------
+# 20 — the receipt describes what was dispatched
+# ---------------------------------------------------------------------------
+
+
+def test_the_dispatch_receipt_reports_the_effective_narrowed_posture(
+    db: _TestDB,
+    client: TestClient,
+    authorized: dict[str, Any],
+) -> None:
+    """The receipt's posture is the posture the attempt was dispatched with.
+
+    The receipt reports what the authority granted. The task is dispatched
+    with the posture the caller narrowed that grant to. A consumer reading
+    the receipt - an operator console, an audit trail - must not record
+    capabilities the attempt does not have.
+    """
+    seeded = authorized["seeded"]
+    intent = authorized["intent"]
+
+    response = client.post(
+        "/api/agents/coding/execute",
+        json=_intake_payload(
+            seeded=seeded,
+            intent_id=intent["intent_id"],
+            permission_policy={
+                "allow_shell": False,
+                "allow_network": False,
+                "allow_write": True,
+                "allowed_paths": [],
+                "max_runtime_seconds": 45,
+            },
+        ),
+        headers=_headers(authorized["token"]),
+    )
+    assert response.status_code == 200, response.text
+
+    queued = _drain()
+    assert len(queued) == 1
+    dispatched_policy = queued[0]["permission_policy"]
+
+    receipt_policy = response.json()["permission_posture"]["permission_policy"]
+    assert receipt_policy == dispatched_policy
+    assert receipt_policy["max_runtime_seconds"] == 45
+    assert receipt_policy["allow_shell"] is False

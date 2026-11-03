@@ -56,6 +56,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+import os
 from typing import Any
 
 
@@ -92,10 +93,20 @@ GUARDIAN_DISPATCH_TERMINAL_STATES = frozenset(
 #: The production cadence of the coding worker's claim-scoped heartbeat, in
 #: seconds. It mirrors
 #: ``guardian.workers.coding_worker.CODING_RUN_HEARTBEAT_INTERVAL_SECONDS``,
-#: which reads the same environment override. The value is restated here
-#: rather than imported so that ``guardian.core`` never depends on a worker
-#: module; the contract asserts that the two agree.
-CODING_RUN_HEARTBEAT_INTERVAL_SECONDS = 15
+#: which reads the same environment override. The override is read here too
+#: rather than the value being restated, so that ``guardian.core`` never
+#: depends on a worker module while still deriving its horizon from the
+#: cadence the worker actually implements. The contract asserts that the two
+#: agree.
+#:
+#: Restating a literal here is what made the horizon below dishonest: raising
+#: the worker's cadence left this module deriving its horizon from a cadence
+#: the worker no longer used, so a healthy run could be classified
+#: ``stale_uncertain`` — and become eligible for operator quarantine — before
+#: its next scheduled heartbeat.
+CODING_RUN_HEARTBEAT_INTERVAL_SECONDS = float(
+    os.getenv("CODING_RUN_HEARTBEAT_INTERVAL_SECONDS", "15")
+)
 
 #: The observational staleness horizon for one coding run's liveness
 #: evidence: ``max(60, 3 * production_heartbeat_interval_seconds)``.

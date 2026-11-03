@@ -431,6 +431,79 @@ class GuardianDelegationDispatchError(GuardianDelegationError):
         super().__init__(status_code=503, detail=detail)
 
 
+class GuardianDelegationRefusalError(GuardianDelegationDispatchError):
+    """A dispatch the authority refused, rather than one that failed.
+
+    A refusal is a decision about a request: the credential the account
+    named is not usable, the provider does not match the one Guardian
+    resolved, the approved plan does not cover the work. It is not a service
+    outage, and it must not be reported as one — a 503 tells the client the
+    service is down and invites an unbounded retry of a request that can
+    never succeed, and it discards the stable reason code that says what has
+    to be corrected.
+
+    It remains a ``GuardianDelegationDispatchError``, so every existing
+    caller that catches a dispatch failure keeps catching it, and it carries
+    the refusal's own reason code as its detail.
+    """
+
+    def __init__(self, detail: str, *, status_code: int = 422) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+
+
+#: HTTP status for each stable execution-binding refusal code.
+#:
+#: A binding refusal is a decision, not an outage. Reporting every one of
+#: them as ``503 guardian_delegation_dispatch_failed`` told the client that
+#: the service was unavailable and invited an unbounded retry of a request
+#: that could never succeed, and it threw away the stable reason code that
+#: says what has to be corrected. The distinction that matters is between a
+#: refusal the caller can act on (4xx) and an authority store that genuinely
+#: could not be reached (503).
+#:
+#: The code is the authority's own stable vocabulary. It is safe to return:
+#: it names a condition and never carries credential material.
+BINDING_REFUSAL_STATUS: dict[str, int] = {
+    # The account cannot use this credential, provider, or model.
+    "guardian_binding_credential_unauthorized": 403,
+    "guardian_binding_credential_provider_mismatch": 403,
+    "guardian_binding_no_account_credential": 403,
+    # The caller's proposal conflicts with what Guardian resolved.
+    "guardian_binding_provider_constraint_unsatisfied": 409,
+    "guardian_binding_model_constraint_unsatisfied": 409,
+    "guardian_binding_credential_selection_ambiguous": 409,
+    # A trusted input was missing, ambiguous, or malformed.
+    "guardian_binding_account_missing": 422,
+    "guardian_binding_thread_missing": 422,
+    "guardian_binding_source_message_missing": 422,
+    "guardian_binding_coding_task_missing": 422,
+    "guardian_binding_attempt_missing": 422,
+    "guardian_binding_credential_missing": 422,
+    "guardian_binding_provider_missing": 422,
+    "guardian_binding_model_missing": 422,
+    "guardian_binding_attempt_limit_invalid": 422,
+    "guardian_binding_reasoning_effort_invalid": 422,
+    "guardian_binding_reasoning_effort_unsupported": 422,
+    "guardian_binding_invalid": 422,
+    # The authority store could not be reached, or Guardian's own runtime
+    # configuration cannot resolve a model for the account's provider.
+    # These are the only refusals that are genuinely transient.
+    "guardian_binding_credential_authority_unavailable": 503,
+    "guardian_binding_model_unresolved": 503,
+}
+
+
+def _binding_refusal_status(code: str) -> int:
+    """Map one stable binding-refusal code onto its HTTP status.
+
+    An unknown code is treated as a caller-correctable refusal (422) rather
+    than as an outage: refusing is the safe default, because a 503 invites a
+    retry that a deterministic refusal will never satisfy.
+    """
+    return BINDING_REFUSAL_STATUS.get(str(code or "").strip(), 422)
+
+
 @dataclass
 class GuardianDelegationService:
     """Persist selected-turn delegation intents and link them to AgentRuns."""
@@ -1703,6 +1776,7 @@ class GuardianDelegationService:
         provider_id_constraint: str | None = None,
         model_id_constraint: str | None = None,
         requested_permission_policy: dict[str, Any] | None = None,
+        serialize_with_intent_lock: bool = False,
     ) -> dict[str, Any]:
         """Dispatch one delegated coding task under the four-layer contract.
 
@@ -1779,7 +1853,17 @@ class GuardianDelegationService:
                 repo_root=repo_root,
             )
         except GuardianExecutionBindingError as exc:
-            raise GuardianDelegationDispatchError() from exc
+            # A binding refusal is the authority's decision about a request,
+            # not a failure of the service. It keeps its own stable reason
+            # code so the caller can see what has to be corrected, and it is
+            # reported as a client error unless the reason code says the
+            # authority store itself was unreachable. The original binding
+            # error stays the cause, so the credential authority's own
+            # refusal reason survives alongside it.
+            raise GuardianDelegationRefusalError(
+                str(exc.code),
+                status_code=_binding_refusal_status(exc.code),
+            ) from exc
         permission_policy = self._narrow_permission_posture(
             posture.get("permission_policy"),
             requested_permission_policy,
@@ -1831,18 +1915,58 @@ class GuardianDelegationService:
         # than at dequeue.
         CodingExecutionTask.from_dict(task_payload)
 
-        try:
-            task_id = enqueue_coding_execution(task_payload)
-        except Exception as exc:  # pragma: no cover - defensive branch
-            # A queue failure is a dispatch failure. The intent axis records
-            # it; the acceptance axis is untouched.
-            raise GuardianDelegationDispatchError() from exc
+        def _enqueue() -> str:
+            try:
+                return enqueue_coding_execution(task_payload)
+            except Exception as exc:  # pragma: no cover - defensive branch
+                # A queue failure is a dispatch failure. The intent axis records
+                # it; the acceptance axis is untouched.
+                raise GuardianDelegationDispatchError() from exc
+
+        if serialize_with_intent_lock:
+            # The commitment happens under the intent's own row lock.
+            #
+            # Cancellation and dispatch now contend on one row: the
+            # cancellation path locks the intent FOR UPDATE before it writes
+            # `cancelled`. A cancellation that commits before this lock is
+            # taken is therefore visible to the re-check below and refuses
+            # the dispatch, and a cancellation that arrives while the lock
+            # is held waits until the commitment is durable. The dispatch's
+            # authority is asserted against the intent's committed state at
+            # the moment the task is queued, rather than against a state that
+            # was read earlier and then acted on after its transaction
+            # closed.
+            #
+            # The binding was already persisted before this point, so a
+            # refusal here leaves a durable, inspectable attempt that was
+            # never queued. That is the same lossy shape the deployment-lock
+            # fence already has: the attempt is bound, the task is absent,
+            # and a later replay is refused rather than re-queued.
+            with db.get_session() as session:
+                self._lock_intent_for_dispatch_commitment(
+                    session=session,
+                    intent_id=intent_id,
+                    thread_id=thread_id,
+                    source_message_id=source_message_id,
+                    project_id=project_id,
+                )
+                task_id = _enqueue()
+                session.commit()
+        else:
+            task_id = _enqueue()
 
         dispatched = mark_dispatched(record, task_id=task_id)
+        # The receipt reports the posture that was actually dispatched, not
+        # the posture that was authorized before the caller's narrowing was
+        # applied. A consumer reading this receipt — an operator console, an
+        # audit trail — must not record capabilities the attempt does not
+        # have.
+        receipt_posture = dict(posture)
+        receipt_posture["permission_policy"] = permission_policy
         return {
             "dispatch": dispatched.to_dict(),
             "execution_binding_id": str(binding.get("binding_id") or ""),
-            "permission_posture": dict(posture),
+            "permission_posture": receipt_posture,
             "task_id": task_id,
         }
 
@@ -2105,6 +2229,10 @@ class GuardianDelegationService:
                 provider_id_constraint=proposed_provider_id,
                 model_id_constraint=proposed_model_id,
                 requested_permission_policy=requested_permission_policy,
+                # The authorized path queues its task under the intent's own
+                # row lock, so a cancellation that commits first refuses the
+                # dispatch instead of racing it.
+                serialize_with_intent_lock=True,
             )
         except GuardianDelegationError as exc:
             detail = str(getattr(exc, "detail", "") or "dispatch_failed")
@@ -2194,8 +2322,118 @@ class GuardianDelegationService:
             )
             if row is None:  # pragma: no cover - defensive branch
                 return
+            if str(row.intent_status or "").strip() in {
+                GuardianDelegationIntentStatus.CANCELLED.value,
+                GuardianDelegationIntentStatus.SUPERSEDED.value,
+            }:
+                # A cancellation that committed first is the more specific
+                # fact, and it is not erased by a dispatch that lost the race
+                # against it. The intent stays cancelled; only the linked run
+                # is closed with the reason.
+                session.commit()
+                return
             row.intent_status = GuardianDelegationIntentStatus.FAILED.value
             session.commit()
+
+    def _assert_intent_is_dispatch_authority(
+        self,
+        *,
+        row: GuardianDelegationIntent,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+    ) -> None:
+        """Assert that one intent row is still an authority for a dispatch.
+
+        An approval decision is not a dispatch event, and a cancelled or
+        superseded intent is not an authority at all. The intent must already
+        be approved and already carry its persisted run link.
+
+        These checks live in one place so that the unlocked pre-check and the
+        locked re-check taken at the moment of commitment cannot drift apart.
+        The locked re-check is the authoritative one; the pre-check exists only
+        to fail fast before any work is done.
+        """
+        if int(row.thread_id) != int(thread_id):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_thread_mismatch",
+                status_code=409,
+            )
+        if int(row.source_message_id) != int(source_message_id):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_source_message_mismatch",
+                status_code=409,
+            )
+        if (
+            project_id is not None
+            and row.project_id is not None
+            and int(row.project_id) != int(project_id)
+        ):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_project_mismatch",
+                status_code=409,
+            )
+        if (
+            str(row.approval_state or "").strip()
+            != GuardianDelegationApprovalState.APPROVED.value
+        ):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_approved",
+                status_code=409,
+            )
+        if str(row.intent_status or "").strip() in {
+            GuardianDelegationIntentStatus.CANCELLED.value,
+            GuardianDelegationIntentStatus.SUPERSEDED.value,
+            GuardianDelegationIntentStatus.FAILED.value,
+        }:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_dispatchable",
+                status_code=409,
+            )
+        if not str(row.run_id or "").strip():
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_linked",
+                status_code=409,
+            )
+
+    def _lock_intent_for_dispatch_commitment(
+        self,
+        *,
+        session: Any,
+        intent_id: str,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+    ) -> None:
+        """Lock the intent row and re-assert it is still a dispatch authority.
+
+        Cancellation and dispatch contend on this row. The cancellation path
+        locks the intent ``FOR UPDATE`` before it writes ``cancelled``, so a
+        cancellation that commits before this lock is taken is visible here and
+        refuses the dispatch, and a cancellation that arrives while the lock
+        is held waits until the dispatch commitment is durable.
+
+        The lock is therefore what makes "the intent was an authority when we
+        queued this task" a statement about the intent's committed state at the
+        moment of the commitment, rather than about a state that was read
+        earlier and then acted on after the transaction closed.
+        """
+        row = (
+            session.query(GuardianDelegationIntent)
+            .with_for_update()
+            .filter_by(intent_id=intent_id)
+            .one_or_none()
+        )
+        if row is None:
+            raise GuardianDelegationNotFoundError(
+                "guardian_delegation_intent_not_found"
+            )
+        self._assert_intent_is_dispatch_authority(
+            row=row,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+            project_id=project_id,
+        )
 
     def _authorize_intent_for_dispatch(
         self,
@@ -2210,6 +2448,11 @@ class GuardianDelegationService:
         An approval decision is not a dispatch event, and a cancelled or
         superseded intent is not an authority at all. The intent must already
         be approved and already carry its persisted run link.
+
+        This read is a pre-check. It is deliberately unlocked, because it runs
+        before any work is done and its job is to fail fast. The authoritative
+        check is the locked re-check taken at the moment the task is queued;
+        see :meth:`_lock_intent_for_dispatch_commitment`.
         """
         db = self._require_db()
         with db.get_session() as session:
@@ -2222,47 +2465,12 @@ class GuardianDelegationService:
                 raise GuardianDelegationNotFoundError(
                     "guardian_delegation_intent_not_found"
                 )
-            if int(row.thread_id) != int(thread_id):
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_thread_mismatch",
-                    status_code=409,
-                )
-            if int(row.source_message_id) != int(source_message_id):
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_source_message_mismatch",
-                    status_code=409,
-                )
-            if (
-                project_id is not None
-                and row.project_id is not None
-                and int(row.project_id) != int(project_id)
-            ):
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_project_mismatch",
-                    status_code=409,
-                )
-            if (
-                str(row.approval_state or "").strip()
-                != GuardianDelegationApprovalState.APPROVED.value
-            ):
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_not_approved",
-                    status_code=409,
-                )
-            if str(row.intent_status or "").strip() in {
-                GuardianDelegationIntentStatus.CANCELLED.value,
-                GuardianDelegationIntentStatus.SUPERSEDED.value,
-                GuardianDelegationIntentStatus.FAILED.value,
-            }:
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_not_dispatchable",
-                    status_code=409,
-                )
-            if not str(row.run_id or "").strip():
-                raise GuardianDelegationValidationError(
-                    "guardian_delegation_intent_not_linked",
-                    status_code=409,
-                )
+            self._assert_intent_is_dispatch_authority(
+                row=row,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+            )
             return (
                 str(row.intent_id),
                 str(row.run_id),
@@ -2331,9 +2539,18 @@ class GuardianDelegationService:
                     )
         elif credentials:
             # Prefer the most recently registered account credential that the
-            # account is allowed to use. `list_account_credentials` already
-            # returns account-scoped credentials newest-first.
-            selected = credentials[0]
+            # account is allowed to use. `list_account_credentials` returns
+            # every account-scoped credential newest-first, including revoked
+            # and expired ones, so the candidates are filtered through the
+            # credential authority before one is chosen. Selecting the newest
+            # row first would let a revoked key shadow every older valid key:
+            # the request would select the revoked row, fail, and never reach
+            # the next candidate.
+            selected = self._select_newest_usable_account_credential(
+                db=db,
+                user_id=user_id,
+                credentials=credentials,
+            )
         else:
             # The account owns no credential of its own. A service-owned
             # credential may still serve this account, but only where the
@@ -2386,6 +2603,81 @@ class GuardianDelegationService:
                 provider_id=provider_id,
                 model_id=model_id,
             ),
+        )
+
+    def _select_newest_usable_account_credential(
+        self,
+        *,
+        db: Any,
+        user_id: str,
+        credentials: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Select the newest account credential the credential authority will use.
+
+        Discovery is not authorization. The credential authority decides
+        whether a credential may serve this account, this provider, and this
+        model; it also decides whether the credential is active, unexpired,
+        unrevoked, and covered by its recorded policy. So the candidates are
+        offered to that authority in order and the first one it authorizes is
+        the one selected. No policy decision is re-implemented here.
+
+        Raises when no candidate is usable: a candidate whose provider has no
+        resolvable model is a runtime configuration gap and is reported as
+        such, while a candidate the authority refused is an account
+        authorization failure.
+        """
+        from guardian.agents.execution_credentials import (
+            CredentialAuthorityError,
+            authorize_credential_selection,
+        )
+
+        model_unresolved = False
+        first_refusal: str | None = None
+        for credential in credentials:
+            credential_ref = str(credential.get("credential_ref") or "").strip()
+            provider_id = str(credential.get("provider_id") or "").strip()
+            if not credential_ref or not provider_id:
+                if first_refusal is None:
+                    first_refusal = "credential_reference_missing"
+                continue
+            model_id = self._resolve_account_model_id(provider_id)
+            if not model_id:
+                # Guardian's own runtime configuration cannot resolve a model
+                # for this provider. Another candidate may still resolve one,
+                # so this one is skipped rather than fatal.
+                model_unresolved = True
+                continue
+            try:
+                authorize_credential_selection(
+                    db,
+                    credential_ref=credential_ref,
+                    account_id=user_id,
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+            except CredentialAuthorityError as exc:
+                # This candidate is revoked, expired, mismatched, or outside
+                # its recorded policy. The next candidate is tried, and the
+                # reason the *newest* candidate was refused is the one
+                # reported if none of them is usable.
+                if first_refusal is None:
+                    first_refusal = str(exc.code)
+                continue
+            return credential
+        if first_refusal is not None:
+            # The reason code is the credential authority's own, exactly as
+            # the binding authority reports it, so a caller can tell a
+            # revoked key from an expired one.
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_unauthorized", first_refusal
+            )
+        if model_unresolved:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+        raise GuardianExecutionBindingError(
+            "guardian_binding_credential_unauthorized",
+            "credential_reference_missing",
         )
 
     def _select_service_credential(
