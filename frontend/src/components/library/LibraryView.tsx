@@ -179,6 +179,28 @@ export default function LibraryView({
     };
   }, [filter, refreshVersion, scope.kind, scope.projectId, scope.threadId]);
 
+  /**
+   * Re-read the authorized projection when the account-import adapter
+   * publishes a committed media batch.
+   *
+   * `cfy:gallery:refresh` is an **invalidation signal**: it says the image
+   * projection may be stale. It is not evidence that ingestion succeeded, and
+   * it is not evidence that any record belongs to the active account — the
+   * projection re-reads only what the authenticated scope already allows.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onGalleryRefresh = () => {
+      // Only the filters that surface images are invalidated by a gallery
+      // refresh. Documents and Widgets must not re-query for a gallery event.
+      if (filter !== "images" && filter !== "all") return;
+      requestRefresh();
+    };
+    window.addEventListener("cfy:gallery:refresh", onGalleryRefresh);
+    return () =>
+      window.removeEventListener("cfy:gallery:refresh", onGalleryRefresh);
+  }, [filter, requestRefresh]);
+
   const resources = projection?.resources ?? [];
   const images = useMemo(
     () =>

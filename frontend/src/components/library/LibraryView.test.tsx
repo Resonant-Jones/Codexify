@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import LibraryView from "@/components/library/LibraryView";
+import { dispatchAccountImportRefresh } from "@/hooks/useLiveEvents";
+import type { LiveEvent } from "@/lib/events/types";
 import type { LibraryResourceProjection } from "@/components/library/libraryResourceProjection";
 
 const buildProjection = vi.fn();
@@ -268,5 +270,165 @@ describe("LibraryView", () => {
         "generated_image:gen-1|none"
       )
     );
+  });
+});
+
+describe("LibraryView gallery refresh event", () => {
+  beforeEach(() => {
+    buildProjection.mockReset();
+    buildProjection.mockImplementation(
+      ({ filter }: { filter: LibraryResourceProjection["filter"] }) =>
+        Promise.resolve(projection(filter))
+    );
+  });
+
+  const renderLibrary = (filter: LibraryResourceProjection["filter"]) =>
+    render(
+      <LibraryView
+        scope={scope}
+        extColors={extColors}
+        filter={filter}
+        onFilterChange={vi.fn()}
+      />
+    );
+
+  const dispatchGalleryRefresh = () => {
+    window.dispatchEvent(
+      new CustomEvent("cfy:gallery:refresh", {
+        detail: { source: "openai-account-import", job_id: "job-1" },
+      })
+    );
+  };
+
+  it("re-queries the projection when the Images filter is active", async () => {
+    renderLibrary("images");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(2));
+  });
+
+  it("re-queries the projection when the All filter is active", async () => {
+    renderLibrary("all");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(2));
+  });
+
+  it("causes exactly one additional projection invocation per event", async () => {
+    renderLibrary("images");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(2));
+
+    dispatchGalleryRefresh();
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(3));
+    expect(buildProjection).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves the filter and the exact scope on the refresh", async () => {
+    renderLibrary("images");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(2));
+    expect(buildProjection).toHaveBeenLastCalledWith({
+      filter: "images",
+      scope,
+    });
+  });
+
+  it("shows the updated authoritative projection results after a refresh", async () => {
+    renderLibrary("images");
+    await waitFor(() =>
+      expect(screen.getByTestId("gallery-grid-identities")).toHaveTextContent(
+        "uploaded_image:img-1|img-1"
+      )
+    );
+
+    // The authoritative source now reports a different record.
+    buildProjection.mockImplementation(
+      ({ filter }: { filter: LibraryResourceProjection["filter"] }) =>
+        Promise.resolve(
+          filter === "images"
+            ? {
+                ...projection(filter),
+                resources: [
+                  {
+                    ...image,
+                    presentationKey: "uploaded_image:img-2",
+                    sourceId: "img-2",
+                    title: "two.png",
+                    filename: "two.png",
+                    srcUrl: "/media/images/two.png",
+                  },
+                ],
+              }
+            : projection(filter)
+        )
+    );
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("gallery-grid-identities")).toHaveTextContent(
+        "uploaded_image:img-2|img-2"
+      )
+    );
+  });
+
+  it("does not re-query for a Gallery event on Documents or Widgets", async () => {
+    renderLibrary("documents");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() => expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument());
+    expect(buildProjection).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    buildProjection.mockClear();
+    renderLibrary("widgets");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchGalleryRefresh();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("library-widgets-unavailable")).toBeInTheDocument()
+    );
+    expect(buildProjection).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes the listener on unmount so no request follows", async () => {
+    const { unmount } = renderLibrary("images");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    unmount();
+    dispatchGalleryRefresh();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(buildProjection).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes from the real account-import producer after a committed media batch", async () => {
+    renderLibrary("images");
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(1));
+
+    dispatchAccountImportRefresh({
+      id: "event-media-library",
+      type: "account_import.batch_committed",
+      data: { job_id: "job-library", status: "running", batch_kind: "media" },
+    } as LiveEvent);
+
+    await waitFor(() => expect(buildProjection).toHaveBeenCalledTimes(2));
+    expect(buildProjection).toHaveBeenLastCalledWith({
+      filter: "images",
+      scope,
+    });
   });
 });
