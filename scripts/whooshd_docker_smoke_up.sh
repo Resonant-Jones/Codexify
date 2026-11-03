@@ -19,10 +19,17 @@
 #   * The image that runs the migration owns the migrations.  The
 #     launcher only proves that image and the checkout agree.
 #
+# It never declares a migration successful on the strength of a
+# container's exit code alone.  A migration is confirmed only when the
+# intended migrator container is identified unambiguously, has reached an
+# exited terminal state with exit code zero, and the project's own
+# database reports exactly the expected Alembic head.
+#
 # Usage:
 #   bash scripts/whooshd_docker_smoke_up.sh
 #   bash scripts/whooshd_docker_smoke_up.sh minimal   # db redis migrator backend worker-chat only
 #   bash scripts/whooshd_docker_smoke_up.sh migrator  # db redis migrator only
+#   bash scripts/whooshd_docker_smoke_up.sh verify    # judge an existing project's migration only
 #   bash scripts/whooshd_docker_smoke_up.sh minimal --detach
 #   bash scripts/whooshd_docker_smoke_up.sh minimal --project codexify_qual
 #   bash scripts/whooshd_docker_smoke_up.sh migrator --image <image-ref>
@@ -31,11 +38,15 @@
 #   full      every service in the merged Compose config
 #   minimal   db redis migrator backend worker-chat
 #   migrator  db redis migrator (migration-only qualification)
+#   verify    judge an already-started project's migration outcome;
+#             starts nothing and modifies nothing
 #
 # Options:
 #   --project NAME        Compose project identity for every operation
 #   --image REF           use an existing image instead of building one
-#                         (the image is still parity-checked)
+#                         (the image is still parity-checked, but a
+#                         supplied reference proves migration-head parity
+#                         only — never full source equivalence)
 #   --teardown            project-scoped `compose down --remove-orphans`
 #                         before starting (never runs by default)
 #   --allow-dirty-source  proceed with a modified tracked tree
@@ -52,8 +63,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-cd "$REPO_ROOT"
-
 COMPOSE_BASE="-f docker-compose.yml"
 COMPOSE_SMOKE="-f docker-compose.whooshd-smoke.yml"
 COMPOSE_FILES="$COMPOSE_BASE $COMPOSE_SMOKE"
@@ -65,6 +74,185 @@ NC='\033[0m' # No Color
 
 # Compose projects this launcher must never target.
 PROTECTED_PROJECT_PREFIX="codexify_private_preview"
+
+# ── Migrator outcome verification ──
+#
+# This is the single place where the launcher decides whether a migration
+# succeeded.  It fails closed: anything it cannot positively observe is a
+# failure, never a success.
+#
+#   $1  Compose project identity
+#   $2  the Alembic head the source revision established
+#   $3  the Compose file arguments
+#
+# Returns 0 only when all three of the following hold:
+#   * exactly one migrator container exists for this project and service
+#   * that container reached an exited terminal state with exit code 0
+#   * the project's own database reports exactly one alembic_version row
+#     and that row equals the expected head
+verify_migration_outcome() {
+    local project="$1"
+    local expected_head="$2"
+    local compose_files="$3"
+
+    local timeout="${MIGRATOR_TIMEOUT:-900}"
+    local deadline
+    local compose_ids label_ids all_ids count
+    local migrator_id owned_project owned_service
+    local state exit_code
+    local db_ids db_label_ids all_db_ids db_count
+    local db_id db_owned_project db_owned_service
+    local db_rows db_rc row_count observed
+
+    echo ""
+    echo "── Identify the migrator container ──"
+
+    # `docker compose ps` without --all omits containers that have already
+    # exited, and the migrator is a one-shot container.  Both the Compose
+    # listing and a label-scoped Docker listing are used, so a completed
+    # migrator is always found while a container belonging to another
+    # project is never selected.
+    compose_ids="$(docker compose -p "$project" $compose_files ps --all -q migrator 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)"
+    label_ids="$(docker ps --no-trunc --all \
+        --filter "label=com.docker.compose.project=$project" \
+        --filter "label=com.docker.compose.service=migrator" \
+        --format '{{.ID}}' 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)"
+    all_ids="$({ printf '%s\n' "$compose_ids"; printf '%s\n' "$label_ids"; } | sed '/^[[:space:]]*$/d' | sort -u)"
+
+    count="$(printf '%s\n' "$all_ids" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+    if [ "${count:-0}" -eq 0 ]; then
+        echo -e "  ${RED}[FAIL]${NC} no migrator container was found for project '$project'"
+        echo "    A migration cannot be confirmed without observing the migrator."
+        return 1
+    fi
+    if [ "$count" -gt 1 ]; then
+        echo -e "  ${RED}[FAIL]${NC} the migrator for project '$project' is ambiguous ($count containers)"
+        printf '%s\n' "$all_ids" | sed 's/^/    /'
+        return 1
+    fi
+    migrator_id="$(printf '%s\n' "$all_ids" | head -1)"
+
+    # Ownership is confirmed before the container's state is inspected.
+    owned_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$migrator_id" 2>/dev/null || true)"
+    owned_service="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' "$migrator_id" 2>/dev/null || true)"
+    if [ "$owned_project" != "$project" ] || [ "$owned_service" != "migrator" ]; then
+        echo -e "  ${RED}[FAIL]${NC} container '$migrator_id' is not this project's migrator"
+        echo "    expected: project='$project' service='migrator'"
+        echo "    observed: project='${owned_project:-<none>}' service='${owned_service:-<none>}'"
+        return 1
+    fi
+    echo "  Migrator container: $migrator_id (project '$project', service 'migrator')"
+
+    echo ""
+    echo "── Verify the migrator's terminal result ──"
+
+    deadline=$(( $(date +%s) + timeout ))
+    while :; do
+        state="$(docker inspect -f '{{.State.Status}}' "$migrator_id" 2>/dev/null || true)"
+        if [ -z "$state" ]; then
+            echo -e "  ${RED}[FAIL]${NC} could not inspect the state of the migrator container"
+            return 1
+        fi
+        if [ "$state" = "exited" ]; then
+            break
+        fi
+        if [ "$state" = "dead" ]; then
+            echo -e "  ${RED}[FAIL]${NC} the migrator container reached a dead state"
+            docker logs "$migrator_id" 2>&1 | tail -30 || true
+            return 1
+        fi
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo -e "  ${RED}[FAIL]${NC} the migrator did not finish within ${timeout}s"
+            return 1
+        fi
+        sleep 2
+    done
+
+    exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$migrator_id" 2>/dev/null || true)"
+    if [ -z "$exit_code" ]; then
+        echo -e "  ${RED}[FAIL]${NC} could not read the migrator's exit status"
+        return 1
+    fi
+    echo "  Migrator exit code: $exit_code"
+    if [ "$exit_code" != "0" ]; then
+        echo -e "  ${RED}[FAIL]${NC} the migrator failed; the migration did not complete"
+        docker logs "$migrator_id" 2>&1 | tail -30 || true
+        return 1
+    fi
+
+    echo ""
+    echo "── Verify the qualification database revision ──"
+
+    # The database is resolved the same way: project-scoped, label-verified.
+    # The Private Preview database is never addressed.
+    db_ids="$(docker compose -p "$project" $compose_files ps --all -q db 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)"
+    db_label_ids="$(docker ps --no-trunc --all \
+        --filter "label=com.docker.compose.project=$project" \
+        --filter "label=com.docker.compose.service=db" \
+        --format '{{.ID}}' 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)"
+    all_db_ids="$({ printf '%s\n' "$db_ids"; printf '%s\n' "$db_label_ids"; } | sed '/^[[:space:]]*$/d' | sort -u)"
+
+    db_count="$(printf '%s\n' "$all_db_ids" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+    if [ "${db_count:-0}" -eq 0 ]; then
+        echo -e "  ${RED}[FAIL]${NC} no database container was found for project '$project'"
+        return 1
+    fi
+    if [ "$db_count" -gt 1 ]; then
+        echo -e "  ${RED}[FAIL]${NC} the database for project '$project' is ambiguous ($db_count containers)"
+        printf '%s\n' "$all_db_ids" | sed 's/^/    /'
+        return 1
+    fi
+    db_id="$(printf '%s\n' "$all_db_ids" | head -1)"
+
+    db_owned_project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$db_id" 2>/dev/null || true)"
+    db_owned_service="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' "$db_id" 2>/dev/null || true)"
+    if [ "$db_owned_project" != "$project" ] || [ "$db_owned_service" != "db" ]; then
+        echo -e "  ${RED}[FAIL]${NC} container '$db_id' is not this project's database"
+        echo "    expected: project='$project' service='db'"
+        echo "    observed: project='${db_owned_project:-<none>}' service='${db_owned_service:-<none>}'"
+        return 1
+    fi
+    echo "  Database container: $db_id"
+
+    db_rows="$(docker exec "$db_id" sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select version_num from alembic_version"' 2>/dev/null)" && db_rc=0 || db_rc=$?
+    if [ "$db_rc" -ne 0 ]; then
+        echo -e "  ${RED}[FAIL]${NC} could not read alembic_version from the project's database (psql exit $db_rc)"
+        docker exec "$db_id" sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select 1"' 2>&1 | tail -5 | sed 's/^/    /' || true
+        return 1
+    fi
+
+    row_count="$(printf '%s\n' "$db_rows" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+    if [ "${row_count:-0}" -eq 0 ]; then
+        echo -e "  ${RED}[FAIL]${NC} the qualification database reports no alembic_version row"
+        return 1
+    fi
+    if [ "$row_count" -gt 1 ]; then
+        echo -e "  ${RED}[FAIL]${NC} the qualification database reports $row_count alembic_version rows; the revision is ambiguous"
+        printf '%s\n' "$db_rows" | sed 's/^/    /'
+        return 1
+    fi
+
+    observed="$(printf '%s\n' "$db_rows" | sed '/^[[:space:]]*$/d' | head -1 | tr -d '[:space:]')"
+    if [ "$observed" != "$expected_head" ]; then
+        echo -e "  ${RED}[FAIL]${NC} the database revision does not match the expected migration head"
+        echo "    expected head: $expected_head"
+        echo "    observed head: $observed"
+        return 1
+    fi
+
+    echo "  Database revision: $observed"
+    echo -e "  ${GREEN}[OK]${NC} the migration is confirmed: the migrator exited 0 and the database reports $observed"
+    return 0
+}
+
+# Sourcing this file defines the helpers above and returns without
+# launching anything.  The contract tests use this to exercise the
+# verification decisions directly, without Docker.
+if [ "${WHOOSHD_SMOKE_LIB_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+cd "$REPO_ROOT"
 
 echo "═══════════════════════════════════════════════════════"
 echo "  Codexify + Whoosh'd Docker Smoke Path"
@@ -88,12 +276,12 @@ DO_TEARDOWN=0
 ALLOW_DIRTY_SOURCE=0
 
 usage() {
-    sed -n '1,60p' "$0"
+    sed -n '1,58p' "$0"
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        full|minimal|migrator)
+        full|minimal|migrator|verify)
             MODE="$1"
             ;;
         --detach|-d)
@@ -129,7 +317,7 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             echo -e "${RED}[FAIL] unknown argument: $1${NC}"
-            echo "Usage: bash scripts/whooshd_docker_smoke_up.sh [full|minimal|migrator] [--detach] [--project NAME] [--image REF] [--teardown] [--allow-dirty-source]"
+            echo "Usage: bash scripts/whooshd_docker_smoke_up.sh [full|minimal|migrator|verify] [--detach] [--project NAME] [--image REF] [--teardown] [--allow-dirty-source]"
             exit 1
             ;;
     esac
@@ -253,6 +441,25 @@ SOURCE_HEAD="$(printf '%s\n' "$SOURCE_HEADS" | head -1)"
 echo "  Source Alembic head: $SOURCE_HEAD"
 echo -e "  ${GREEN}[OK]${NC} source revision and single migration head established"
 
+# ── Verify mode: judge an already-started project's migration outcome ──
+# This mode starts nothing and modifies nothing.  It exists so a migration
+# outcome can be re-judged against the current source head without
+# rebuilding an image or recreating containers.
+if [ "$MODE" = "verify" ]; then
+    echo ""
+    echo "── Verify mode: judging an existing project's migration outcome ──"
+    echo "  Project:   $PROJECT"
+    echo "  Expected:  $SOURCE_HEAD"
+    if verify_migration_outcome "$PROJECT" "$SOURCE_HEAD" "$COMPOSE_FILES"; then
+        echo ""
+        echo "  Source revision: $SOURCE_SHA"
+        echo "  Source head:     $SOURCE_HEAD"
+        echo ""
+        exit 0
+    fi
+    exit 1
+fi
+
 # ── Step 3: Resolve the migration image ──
 echo ""
 echo "── Step 3: Resolve the migration image ──"
@@ -260,6 +467,7 @@ echo "── Step 3: Resolve the migration image ──"
 if [ -z "$IMAGE_REF" ]; then
     IMAGE_TAG="codexify-backend-runtime:src-${SOURCE_SHA:0:12}"
     IMAGE_REF="$IMAGE_TAG"
+    IMAGE_PROVENANCE="built-from-this-checkout"
     echo "  Building $IMAGE_TAG from this checkout"
     echo "    context:   $REPO_ROOT"
     echo "    dockerfile: backend/Dockerfile (target: runtime)"
@@ -268,7 +476,12 @@ if [ -z "$IMAGE_REF" ]; then
     fi
     echo -e "  ${GREEN}[OK]${NC} built $IMAGE_TAG"
 else
+    IMAGE_PROVENANCE="supplied-reference"
     echo "  Using supplied image reference: $IMAGE_REF"
+    echo -e "  ${YELLOW}[WARN]${NC} a supplied image reference is a diagnostic path"
+    echo "    It proves migration-head parity only.  It does not prove that the"
+    echo "    image was built from this checkout, so it does not establish source"
+    echo "    equivalence for the running services."
 fi
 
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_REF" 2>/dev/null || true)"
@@ -322,7 +535,12 @@ if [ "$IMAGE_HEAD" != "$SOURCE_HEAD" ]; then
     exit 1
 fi
 
-echo -e "  ${GREEN}[OK]${NC} image and source agree on Alembic head $SOURCE_HEAD"
+if [ "$IMAGE_PROVENANCE" = "supplied-reference" ]; then
+    echo -e "  ${YELLOW}[WARN]${NC} the supplied image's migration head matches the source head ($SOURCE_HEAD)"
+    echo "    Migration-head parity only; this does not establish source equivalence."
+else
+    echo -e "  ${GREEN}[OK]${NC} image and source agree on Alembic head $SOURCE_HEAD"
+fi
 
 # The image owns the migrations.  Every service that runs application code
 # must use this exact image so the schema and the application come from the
@@ -519,41 +737,22 @@ case "$MODE" in
         ;;
 esac
 
-# ── Step 10: The migrator's exit status is the migration result ──
+# ── Step 10: Confirm the migration outcome ──
+# The migrator's exit code alone is not proof.  The outcome is confirmed
+# only when the migrator container is identified, has exited zero, and the
+# project's own database reports the expected revision.
 echo ""
 echo "── Step 10: Confirm migration outcome ──"
 
-MIGRATOR_CONTAINER="$(docker compose -p "$PROJECT" $COMPOSE_FILES ps -q migrator 2>/dev/null || true)"
-if [ -z "$MIGRATOR_CONTAINER" ]; then
-    echo "  No migrator container was created; nothing to confirm"
-    exit 0
-fi
-
-MIGRATOR_TIMEOUT="${MIGRATOR_TIMEOUT:-900}"
-DEADLINE=$(( $(date +%s) + MIGRATOR_TIMEOUT ))
-while :; do
-    MIGRATOR_STATE="$(docker inspect -f '{{.State.Status}}' "$MIGRATOR_CONTAINER" 2>/dev/null || echo unknown)"
-    if [ "$MIGRATOR_STATE" = "exited" ] || [ "$MIGRATOR_STATE" = "dead" ]; then
-        break
-    fi
-    if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-        echo -e "  ${RED}[FAIL]${NC} migrator did not finish within ${MIGRATOR_TIMEOUT}s"
-        exit 1
-    fi
-    sleep 2
-done
-
-MIGRATOR_EXIT_CODE="$(docker inspect -f '{{.State.ExitCode}}' "$MIGRATOR_CONTAINER" 2>/dev/null || echo 1)"
-echo "  Migrator container: $MIGRATOR_CONTAINER (exit code $MIGRATOR_EXIT_CODE)"
-if [ "$MIGRATOR_EXIT_CODE" != "0" ]; then
-    echo -e "  ${RED}[FAIL]${NC} the migrator failed; the migration did not complete"
-    docker logs "$MIGRATOR_CONTAINER" 2>&1 | tail -30 || true
+if verify_migration_outcome "$PROJECT" "$SOURCE_HEAD" "$COMPOSE_FILES"; then
+    :
+else
     exit 1
 fi
 
-echo -e "  ${GREEN}[OK]${NC} the migrator completed successfully"
 echo ""
 echo "  Source revision: $SOURCE_SHA"
 echo "  Source head:     $SOURCE_HEAD"
 echo "  Image:           $IMAGE_REF ($IMAGE_ID)"
+echo "  Image provenance: $IMAGE_PROVENANCE"
 echo ""
