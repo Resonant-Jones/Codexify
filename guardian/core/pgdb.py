@@ -42,7 +42,8 @@ from .chat_db import ChatDB, validate_message_provenance
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
     apply_native_origin_assertion,
-    build_native_user_origin_assertion,
+    build_native_origin_assertion,
+    find_conflicting_source_lineage,
     strip_reserved_origin,
 )
 from .chat_postgres_deadline import (
@@ -1541,7 +1542,7 @@ class PgDB(ChatDB):
         The timestamp is backend-generated and timezone-aware; the caller never
         supplies the assertion's contents.
         """
-        assertion = build_native_user_origin_assertion(asserted_at=asserted_at)
+        assertion = build_native_origin_assertion(asserted_at=asserted_at)
         return self.create_message(
             thread_id,
             role,
@@ -1675,7 +1676,6 @@ class PgDB(ChatDB):
         hosted_room_participant_id: str | None = None,
         sender_display_name_snapshot: str | None = None,
         extra_meta: dict[str, Any] | None = None,
-        native_origin: Any | None = None,
     ) -> tuple[int, bool]:
         """Persist a successful assistant and bind it to its attempt atomically.
 
@@ -1684,8 +1684,19 @@ class PgDB(ChatDB):
         best-effort update that an interruption could leave unapplied.
 
         `extra_meta` is untrusted here: the reserved message-origin member is
-        stripped before the insert. Only `native_origin` may set that member,
-        and only trusted backend code can construct one.
+        stripped before the insert.
+
+        This operation is the trusted canonical assistant creation boundary. It
+        mints the reserved native-origin assertion itself, and mints it only
+        for a completion this transaction binds to its exact durable attempt.
+        The binding is the creation proof: role, a supplied attempt id, a
+        provider payload, and a native containing thread are each insufficient
+        on their own.
+
+        The assertion is written by the same INSERT that creates the message,
+        so a failed insert leaves neither a message nor a provenance claim, and
+        a duplicate delivery returns the original message with its original
+        assertion untouched.
         """
         with self.conversation_transaction():
             with self._connect() as conn:
@@ -1731,6 +1742,27 @@ class PgDB(ChatDB):
                     raise ValueError(
                         "Completion attempt already has a failure or cancellation outcome"
                     )
+
+            # The attempt exists, its identity matches, and it carries no
+            # failure or cancellation outcome, so this transaction is about to
+            # establish the exact attempt-to-message binding. That binding is
+            # what makes the message a native assistant completion.
+            #
+            # Conflicting imported-source lineage in the supplied metadata
+            # wins over a native claim: such a record keeps its own import
+            # evidence and is never relabeled native.
+            native_origin = None
+            if attempt is not None:
+                conflicting = find_conflicting_source_lineage(extra_meta)
+                if conflicting:
+                    logger.warning(
+                        "[chat.completion] assistant native origin withheld; "
+                        "message metadata carries conflicting source lineage "
+                        "keys=%s",
+                        ",".join(conflicting),
+                    )
+                else:
+                    native_origin = build_native_origin_assertion()
 
             message_id = self.create_message(
                 thread_id,

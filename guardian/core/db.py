@@ -186,20 +186,22 @@ def apply_native_origin_assertion(
     return protected
 
 
-def build_native_user_origin_assertion(
+def build_native_origin_assertion(
     *,
     asserted_at: datetime | None = None,
 ) -> NativeOriginAssertion:
-    """Construct the trusted native-origin assertion for a new native user message.
+    """Construct the trusted native-origin assertion for a new native message.
 
     The timestamp is backend-generated and timezone-aware. It is never taken
     from client input, so a caller cannot control when its own message is
     asserted.
 
-    This is the backend-owned producer for the ordinary authenticated
-    user-message creation path. It is deliberately *not* invoked by the generic
-    ``create_message`` helper: the importer calls that helper too, and an
-    imported record must never receive native provenance.
+    This is the single backend-owned producer for native creation. It is
+    deliberately *not* invoked by the generic ``create_message`` helper: the
+    importer calls that helper too, and an imported record must never receive
+    native provenance. Only the trusted creation operations call it — the
+    ordinary authenticated user-message path and the accepted assistant
+    completion path.
     """
     moment = asserted_at or datetime.now(timezone.utc)
     if moment.tzinfo is None:
@@ -1441,7 +1443,7 @@ class _PostgresGuardianDB:
         The timestamp is backend-generated and timezone-aware; the caller never
         supplies the assertion's contents.
         """
-        assertion = build_native_user_origin_assertion(asserted_at=asserted_at)
+        assertion = build_native_origin_assertion(asserted_at=asserted_at)
         return self.create_message(
             thread_id,
             role,

@@ -34,7 +34,7 @@ from guardian.core.db import (
     RESERVED_MESSAGE_ORIGIN_VERSION,
     NativeOriginAssertion,
     apply_native_origin_assertion,
-    build_native_user_origin_assertion,
+    build_native_origin_assertion,
     contains_reserved_origin,
     find_conflicting_source_lineage,
     merge_protected_message_metadata,
@@ -756,7 +756,7 @@ def test_two_native_creations_are_two_independent_assertions(db):
 
 def test_the_builder_refuses_a_naive_timestamp():
     """A naive timestamp is normalized rather than stored without a zone."""
-    assertion = build_native_user_origin_assertion(
+    assertion = build_native_origin_assertion(
         asserted_at=datetime(2026, 11, 1, 22, 0, 0)
     )
 
@@ -927,3 +927,52 @@ def test_restore_preserves_the_original_evidence_and_adds_no_native_origin(db):
     ]
     assert RESERVED_MESSAGE_ORIGIN_KEY not in restored_imported
     assert restored_native[RESERVED_MESSAGE_ORIGIN_KEY] == native_assertion
+
+
+# ---------------------------------------------------------------------------
+# One producer, one canonical representation
+# ---------------------------------------------------------------------------
+
+
+def test_one_producer_serves_both_trusted_native_writers(db):
+    """The user and assistant writers share one canonical representation."""
+    from guardian.core.db import build_native_origin_assertion
+
+    user_message = db.create_native_user_message(10, "user", "hello", user_id=ACCOUNT)
+    assertion = build_native_origin_assertion()
+
+    assert set(assertion.as_metadata()) == {RESERVED_MESSAGE_ORIGIN_KEY}
+    assert set(assertion.as_metadata()[RESERVED_MESSAGE_ORIGIN_KEY]) == {
+        "version",
+        "origin_system",
+        "asserted_at",
+    }
+    assert assertion.origin_system == ORIGIN_SYSTEM
+    assert _stored_extra_meta(db, user_message)[RESERVED_MESSAGE_ORIGIN_KEY][
+        "origin_system"
+    ] == assertion.origin_system
+
+
+def test_the_producer_is_backend_owned_and_cannot_be_forged(db):
+    """The trust decision is the type, not the JSON it renders."""
+    from guardian.core.db import NativeOriginAssertion, build_native_origin_assertion
+
+    assertion = build_native_origin_assertion()
+
+    assert isinstance(assertion, NativeOriginAssertion)
+    # An untrusted payload is a plain dict. It renders the same shape and
+    # still carries no authority.
+    forged = {RESERVED_MESSAGE_ORIGIN_KEY: assertion.as_metadata()[RESERVED_MESSAGE_ORIGIN_KEY]}
+
+    assert isinstance(forged, dict)
+    assert not isinstance(forged, NativeOriginAssertion)
+
+    message_id = db.create_message(
+        10,
+        "user",
+        "hello",
+        user_id=ACCOUNT,
+        extra_meta=forged,
+    )
+
+    assert RESERVED_MESSAGE_ORIGIN_KEY not in _stored_extra_meta(db, message_id)
