@@ -332,11 +332,15 @@ configuration was changed to achieve it.
 
 - **Host volume capacity.** Building the proof image grew the Docker data image
   on `/Volumes/Dev_SSD` by roughly 8 GB; the file is sparse and does not shrink
-  when the image tag is deleted, so the host went from 9.3 GiB to about 1.3 GiB
-  free at 100% capacity. The proof image was removed, and both proof projects
-  were torn down, but reclaiming the underlying allocation would require a
-  global BuildKit prune or a Docker Desktop disk trim, neither of which this
-  task is authorized to perform. **This is disclosed, not repaired.**
+  when the image tag is deleted, so the host went from 9.3 GiB free at task
+  start to 1.5 GiB at the proof preflight and under 1 GiB after the proof
+  (100% capacity). The proof image was removed, both proof projects were torn
+  down, and the BuildKit cache retains the build's layers, but reclaiming the
+  underlying allocation would require a global BuildKit prune or a Docker
+  Desktop disk trim, neither of which this task is authorized to perform.
+  **This is disclosed, not repaired**, and it is an operator action: the Docker
+  data image is shared with the live Private Preview lane, which this task
+  verified as unchanged.
 - **A second executor holds an unpushed branch** at
   `/Users/chriscastillo/.codex/worktrees/3164/Codexify-main`
   (`codex/stock-compose-migration-source`, `e50f5756e`) based on the same base
