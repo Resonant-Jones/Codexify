@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from guardian.db.models import (
     AgentDeployment,
+    AgentEscalation,
     AgentEvent,
     AgentRun,
     AgentRunArtifact,
@@ -20,9 +21,11 @@ from guardian.db.models import (
     ChatThread,
     GeneratedDocument,
     GuardianDelegationIntent,
+    Project,
     ProjectDocumentLink,
     UploadedDocument,
 )
+from guardian.core.guardian_execution_binding import GuardianExecutionBindingError
 from guardian.protocol_tokens import (
     ACCEPTANCE_STATUSES,
     AcceptanceStatus,
@@ -48,6 +51,28 @@ def _new_external_id(prefix: str) -> str:
 def _stable_hash(payload: dict[str, Any]) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _path_is_within_scope(candidate: str, scope: str) -> bool:
+    """Return whether a requested path stays inside an authorized scope.
+
+    The scope token "." is the bound repository root: a relative path under
+    that root is within scope, while an absolute path or an upward escape is
+    not. A concrete scope authorizes that path and everything beneath it.
+    A path outside the authorized scope is a widening, and it is refused.
+    """
+    candidate_path = str(candidate or "").strip()
+    scope_path = str(scope or "").strip()
+    if not candidate_path or not scope_path:
+        return False
+    if candidate_path == scope_path:
+        return True
+    if scope_path == ".":
+        if os.path.isabs(candidate_path):
+            return False
+        normalized = os.path.normpath(candidate_path)
+        return not (normalized == ".." or normalized.startswith(".."))
+    return candidate_path.startswith(scope_path.rstrip("/") + "/")
 
 
 def _hash_text(value: str) -> str:
@@ -406,6 +431,79 @@ class GuardianDelegationDispatchError(GuardianDelegationError):
         super().__init__(status_code=503, detail=detail)
 
 
+class GuardianDelegationRefusalError(GuardianDelegationDispatchError):
+    """A dispatch the authority refused, rather than one that failed.
+
+    A refusal is a decision about a request: the credential the account
+    named is not usable, the provider does not match the one Guardian
+    resolved, the approved plan does not cover the work. It is not a service
+    outage, and it must not be reported as one — a 503 tells the client the
+    service is down and invites an unbounded retry of a request that can
+    never succeed, and it discards the stable reason code that says what has
+    to be corrected.
+
+    It remains a ``GuardianDelegationDispatchError``, so every existing
+    caller that catches a dispatch failure keeps catching it, and it carries
+    the refusal's own reason code as its detail.
+    """
+
+    def __init__(self, detail: str, *, status_code: int = 422) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+
+
+#: HTTP status for each stable execution-binding refusal code.
+#:
+#: A binding refusal is a decision, not an outage. Reporting every one of
+#: them as ``503 guardian_delegation_dispatch_failed`` told the client that
+#: the service was unavailable and invited an unbounded retry of a request
+#: that could never succeed, and it threw away the stable reason code that
+#: says what has to be corrected. The distinction that matters is between a
+#: refusal the caller can act on (4xx) and an authority store that genuinely
+#: could not be reached (503).
+#:
+#: The code is the authority's own stable vocabulary. It is safe to return:
+#: it names a condition and never carries credential material.
+BINDING_REFUSAL_STATUS: dict[str, int] = {
+    # The account cannot use this credential, provider, or model.
+    "guardian_binding_credential_unauthorized": 403,
+    "guardian_binding_credential_provider_mismatch": 403,
+    "guardian_binding_no_account_credential": 403,
+    # The caller's proposal conflicts with what Guardian resolved.
+    "guardian_binding_provider_constraint_unsatisfied": 409,
+    "guardian_binding_model_constraint_unsatisfied": 409,
+    "guardian_binding_credential_selection_ambiguous": 409,
+    # A trusted input was missing, ambiguous, or malformed.
+    "guardian_binding_account_missing": 422,
+    "guardian_binding_thread_missing": 422,
+    "guardian_binding_source_message_missing": 422,
+    "guardian_binding_coding_task_missing": 422,
+    "guardian_binding_attempt_missing": 422,
+    "guardian_binding_credential_missing": 422,
+    "guardian_binding_provider_missing": 422,
+    "guardian_binding_model_missing": 422,
+    "guardian_binding_attempt_limit_invalid": 422,
+    "guardian_binding_reasoning_effort_invalid": 422,
+    "guardian_binding_reasoning_effort_unsupported": 422,
+    "guardian_binding_invalid": 422,
+    # The authority store could not be reached, or Guardian's own runtime
+    # configuration cannot resolve a model for the account's provider.
+    # These are the only refusals that are genuinely transient.
+    "guardian_binding_credential_authority_unavailable": 503,
+    "guardian_binding_model_unresolved": 503,
+}
+
+
+def _binding_refusal_status(code: str) -> int:
+    """Map one stable binding-refusal code onto its HTTP status.
+
+    An unknown code is treated as a caller-correctable refusal (422) rather
+    than as an outage: refusing is the safe default, because a 503 invites a
+    retry that a deterministic refusal will never satisfy.
+    """
+    return BINDING_REFUSAL_STATUS.get(str(code or "").strip(), 422)
+
+
 @dataclass
 class GuardianDelegationService:
     """Persist selected-turn delegation intents and link them to AgentRuns."""
@@ -552,11 +650,15 @@ class GuardianDelegationService:
                     .first()
                 )
                 if row is not None:
+                    # A dispatch failure is an execution fact and belongs on
+                    # the intent axis. The acceptance axis records request
+                    # admission plus task-created visibility only, so it keeps
+                    # the admission value it already carries. Leaving run_id
+                    # unset keeps the run-status projection at `not_enqueued`,
+                    # and visibility_status stays `not_posted` because the
+                    # user was never shown a start event.
                     row.intent_status = (
                         GuardianDelegationIntentStatus.FAILED.value
-                    )
-                    row.acceptance_status = (
-                        AcceptanceStatus.ACCEPTED_DEGRADED.value
                     )
                     session.commit()
             raise GuardianDelegationDispatchError() from exc
@@ -676,10 +778,11 @@ class GuardianDelegationService:
                     context_basis=list(row.context_basis or []),
                 )
             except Exception as exc:  # pragma: no cover - defensive branch
+                # A dispatch failure is an execution fact and belongs on the
+                # intent axis; the acceptance axis keeps its admission value.
+                # run_id stays unset, so the run-status projection remains
+                # `not_enqueued`, and visibility_status stays `not_posted`.
                 row.intent_status = GuardianDelegationIntentStatus.FAILED.value
-                row.acceptance_status = (
-                    AcceptanceStatus.ACCEPTED_DEGRADED.value
-                )
                 session.commit()
                 raise GuardianDelegationDispatchError() from exc
 
@@ -697,6 +800,254 @@ class GuardianDelegationService:
                 row,
                 run_status=self.project_run_status(run.get("status")),
             )
+
+    def quarantine_uncertain_coding_run(
+        self,
+        *,
+        run_id: str,
+        operator_api_key: str | None = None,
+        operator_session_token: str | None = None,
+        operator_session_cookie: str | None = None,
+        expected_worker_instance_id: str,
+        expected_claim_id: str,
+        expected_account_user_id: str | None = None,
+        reason: str,
+        reason_code: str = "guardian_dispatch_liveness_unproven",
+        severity: str = "hard",
+    ) -> dict[str, Any]:
+        """Record an operator-authorized uncertain-outcome quarantine.
+
+        This is the **trusted invocation boundary** for the disposition. The
+        operator's authority is *verified* here, from presented credential
+        material, using the established Guardian operator authority
+        (``require_operator_auth``). A caller-supplied boolean is not
+        accepted, and neither possession of a run id nor knowledge of a claim
+        is authority: the operator actor is derived from the verification, and
+        it is distinct from the account owner, the worker instance, the
+        execution claim, and the credential owner.
+
+        The liveness classification is **evidence for the review**, not the
+        authorization. The sequence is:
+
+            canonical liveness evidence
+                -> operator reviews the uncertainty
+                -> Guardian verifies the operator authority
+                -> Guardian re-evaluates the existing quarantine contract
+                -> guarded PostgreSQL disposition
+
+        The disposition itself is atomic: the run's transition to
+        ``escalated`` and the open escalation record that explains it commit
+        together, or not at all. It grants no retry, requeue, credential,
+        binding, or ownership authority, and it does not activate any startup
+        reconciliation.
+        """
+        # The service must have a durable store before it can disposition
+        # anything.
+        self._require_db()
+        operator_actor = self._authenticate_operator(
+            operator_api_key=operator_api_key,
+            operator_session_token=operator_session_token,
+            operator_session_cookie=operator_session_cookie,
+        )
+
+        account_user_id = str(expected_account_user_id or "").strip()
+        if not account_user_id:
+            # The account is canonical, never client-supplied: read it from the
+            # run row so the store's cross-account check still runs against the
+            # authoritative value inside the transaction.
+            account_user_id = self._canonical_account_user_id(str(run_id))
+
+        snapshot = self.agent_store.get_coding_run_liveness_snapshot(
+            str(run_id),
+        )
+
+        from guardian.core.guardian_dispatch import (
+            CODING_RUN_LIVENESS_STALE_AFTER_SECONDS,
+            CodingRunLivenessEvidence,
+            classify_coding_run_liveness,
+        )
+
+        verdict = None
+        if snapshot is not None:
+            verdict = classify_coding_run_liveness(snapshot)
+            already_disposed = str(snapshot.get("status") or "") == "escalated"
+            if (
+                not already_disposed
+                and verdict.evidence
+                != CodingRunLivenessEvidence.STALE_UNCERTAIN.value
+            ):
+                # The evidence does not show an unresolved execution. A live
+                # worker, a terminal run, and a record with no usable evidence
+                # are all refused here: none of them is an abandoned-run
+                # recovery candidate. An already-escalated run is *not*
+                # refused -- the disposition may simply be the same one
+                # requested again, and only the durable state can say.
+                raise GuardianDelegationValidationError(
+                    "guardian_quarantine_evidence_not_uncertain",
+                    status_code=409,
+                )
+
+        evidence = {
+            "liveness_evidence": (
+                verdict.evidence if verdict is not None else None
+            ),
+            "liveness_verdict": verdict.state if verdict is not None else None,
+            "liveness_reason_code": (
+                verdict.reason_code if verdict is not None else None
+            ),
+            "last_heartbeat_at": (
+                verdict.last_heartbeat_at.isoformat()
+                if verdict is not None and verdict.last_heartbeat_at is not None
+                else None
+            ),
+            "observed_at": (
+                verdict.observed_at.isoformat()
+                if verdict is not None and verdict.observed_at is not None
+                else None
+            ),
+            "heartbeat_age_seconds": (
+                verdict.heartbeat_age_seconds if verdict is not None else None
+            ),
+            "stale_after_seconds": (
+                verdict.stale_after_seconds
+                if verdict is not None
+                else CODING_RUN_LIVENESS_STALE_AFTER_SECONDS
+            ),
+            "operator_decision_provenance": {
+                "source": "guardian_delegation_service",
+                "decision": "quarantine_uncertain_coding_run",
+                "verified_operator_actor": operator_actor,
+                "authority_source": "guardian_operator_auth",
+            },
+        }
+
+        receipt = self.agent_store.quarantine_coding_run_as_uncertain(
+            run_id=str(run_id),
+            expected_worker_instance_id=str(expected_worker_instance_id),
+            expected_claim_id=str(expected_claim_id),
+            expected_account_user_id=account_user_id,
+            operator_actor=operator_actor,
+            reason=str(reason),
+            reason_code=str(reason_code),
+            severity=str(severity),
+            evidence=evidence,
+            operator_decision_provenance=evidence[
+                "operator_decision_provenance"
+            ],
+        )
+        receipt["recorded_at"] = self._escalation_recorded_at(
+            receipt.get("escalation_id")
+        )
+
+        outcome = str(receipt.get("outcome") or "")
+        if outcome == "rejected":
+            reason = str(receipt.get("reason_code") or "guardian_quarantine_rejected")
+            if reason == "guardian_quarantine_run_not_found":
+                raise GuardianDelegationNotFoundError(reason)
+            raise GuardianDelegationValidationError(reason, status_code=409)
+        if outcome == "conflict":
+            raise GuardianDelegationError(
+                status_code=409,
+                detail=str(
+                    receipt.get("reason_code") or "guardian_quarantine_conflict"
+                ),
+            )
+        if outcome == "unavailable":
+            raise GuardianDelegationError(
+                status_code=503,
+                detail=str(
+                    receipt.get("reason_code")
+                    or "guardian_quarantine_persistence_unavailable"
+                ),
+            )
+        return receipt
+
+    def _authenticate_operator(
+        self,
+        *,
+        operator_api_key: str | None,
+        operator_session_token: str | None,
+        operator_session_cookie: str | None = None,
+    ) -> str:
+        """Verify operator authority and return the verified actor.
+
+        The established Guardian operator authority is used as-is: a configured
+        Guardian API key, or a current-format signed token carrying the
+        operator purpose. Account and guest credentials are rejected before
+        the API-key fallback, so they are never reinterpreted as operator
+        material.
+
+        The returned actor is a *derived* identity. A caller cannot supply it.
+        """
+        from fastapi import HTTPException
+
+        from guardian.core.dependencies import require_operator_auth
+
+        authorization = (
+            f"Bearer {str(operator_session_token).strip()}"
+            if str(operator_session_token or "").strip()
+            else None
+        )
+        try:
+            return str(
+                require_operator_auth(
+                    x_api_key=(
+                        str(operator_api_key).strip()
+                        if str(operator_api_key or "").strip()
+                        else None
+                    ),
+                    authorization=authorization,
+                    gc_session=(
+                        str(operator_session_cookie).strip()
+                        if str(operator_session_cookie or "").strip()
+                        else None
+                    ),
+                    request=None,
+                )
+            )
+        except HTTPException as exc:
+            raise GuardianDelegationError(
+                status_code=401,
+                detail="guardian_operator_authorization_required",
+            ) from exc
+
+    def _canonical_account_user_id(self, run_id: str) -> str:
+        """The account that owns a run, read from the canonical row.
+
+        The account is never taken from the request. When a caller does not
+        state one, the canonical value is used so the store's cross-account
+        check still runs against the authoritative account inside the
+        transaction.
+        """
+        try:
+            with self._require_db().get_session() as session:
+                row = (
+                    session.query(AgentRun)
+                    .filter_by(run_id=str(run_id))
+                    .first()
+                )
+                if row is None:
+                    return ""
+                return str(row.account_origin_user_id or "")
+        except Exception:
+            return ""
+
+    def _escalation_recorded_at(self, escalation_id: Any) -> str | None:
+        """When the escalation record was committed, in the database clock."""
+        if escalation_id is None:
+            return None
+        try:
+            with self._require_db().get_session() as session:
+                row = (
+                    session.query(AgentEscalation)
+                    .filter_by(id=escalation_id)
+                    .first()
+                )
+                if row is None or row.created_at is None:
+                    return None
+                return row.created_at.isoformat()
+        except Exception:
+            return None
 
     def cancel_intent(self, intent_id: str) -> dict[str, Any]:
         db = self._require_db()
@@ -1407,6 +1758,1218 @@ class GuardianDelegationService:
         except Exception:  # pragma: no cover - defensive branch
             return False
 
+    def dispatch_delegated_task(
+        self,
+        *,
+        intent_id: str,
+        deployment_id: str,
+        run_id: str,
+        attempt_id: str,
+        coding_task_id: str,
+        instructions: str,
+        repo_root: str | None,
+        thread_id: int,
+        source_message_id: int,
+        user_id: str,
+        project_id: int | None,
+        credential_ref_constraint: str | None = None,
+        provider_id_constraint: str | None = None,
+        model_id_constraint: str | None = None,
+        requested_permission_policy: dict[str, Any] | None = None,
+        serialize_with_intent_lock: bool = False,
+    ) -> dict[str, Any]:
+        """Dispatch one delegated coding task under the four-layer contract.
+
+        The order is deliberate and is the whole point of the contract:
+
+        1. Mint the execution binding from trusted account context (Slice 2).
+        2. Resolve the enforceable permission posture (Slice 4).
+        3. Persist the binding into the deployment spec, so the
+           credential-lease authority and the coding worker read the same
+           authorization.
+        4. Assert the attempt is authorized and fully specified.
+        5. Enqueue exactly one coding-execution task whose binding is
+           byte-identical to the persisted one.
+
+        The binding is persisted *before* the enqueue, so a crash between the
+        two leaves a durable, inspectable attempt rather than an orphaned
+        task. Nothing here claims exactly-once execution: the queue is
+        at-most-once, attempt execution is unguaranteed, and execution
+        effects are not idempotent. See
+        ``guardian/core/guardian_dispatch.py``.
+
+        The optional constraint arguments narrow what Guardian resolves; they
+        never widen it. A requested permission that the authorized posture
+        does not grant is refused rather than quietly downgraded, so a
+        requested writable operation can never execute as a silent read-only
+        success.
+        """
+        from guardian.core.guardian_dispatch import (
+            GuardianDispatchError,
+            assert_dispatch_ready,
+            build_dispatch_record,
+            mark_dispatched,
+        )
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+        )
+        from guardian.queue.redis_queue import enqueue_coding_execution
+        from guardian.tasks.types import CodingExecutionTask
+
+        db = self._require_db()
+        record = build_dispatch_record(
+            intent_id=intent_id,
+            deployment_id=deployment_id,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            coding_task_id=coding_task_id,
+        )
+
+        # Authorization failures are dispatch failures. They are surfaced as
+        # such so the intent axis records them; the acceptance axis is never
+        # touched by an execution fact.
+        try:
+            binding = self._resolve_execution_binding(
+                db=db,
+                intent_id=intent_id,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+                user_id=user_id,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                credential_ref_constraint=credential_ref_constraint,
+                provider_id_constraint=provider_id_constraint,
+                model_id_constraint=model_id_constraint,
+            )
+            posture = self._resolve_permission_posture(
+                db=db,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+                user_id=user_id,
+                provider_id=str(binding.get("provider_id") or ""),
+                model_id=str(binding.get("model_id") or ""),
+                repo_root=repo_root,
+            )
+        except GuardianExecutionBindingError as exc:
+            # A binding refusal is the authority's decision about a request,
+            # not a failure of the service. It keeps its own stable reason
+            # code so the caller can see what has to be corrected, and it is
+            # reported as a client error unless the reason code says the
+            # authority store itself was unreachable. The original binding
+            # error stays the cause, so the credential authority's own
+            # refusal reason survives alongside it.
+            raise GuardianDelegationRefusalError(
+                str(exc.code),
+                status_code=_binding_refusal_status(exc.code),
+            ) from exc
+        permission_policy = self._narrow_permission_posture(
+            posture.get("permission_policy"),
+            requested_permission_policy,
+        )
+
+        # Persist the binding before anything is queued. The credential-lease
+        # authority re-reads it from the deployment spec, and the coding
+        # worker requires the task payload binding to equal the persisted one
+        # byte-for-byte. The effective task content is persisted in the same
+        # write so the durable spec and the queued task describe one attempt.
+        self.persist_execution_binding(
+            deployment_id=deployment_id,
+            execution_binding=binding,
+            instructions=instructions,
+        )
+
+        try:
+            assert_dispatch_ready(
+                record,
+                execution_binding=binding,
+                permission_policy=permission_policy,
+            )
+        except GuardianDispatchError as exc:
+            raise GuardianDelegationDispatchError() from exc
+
+        task_payload = {
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "instructions": instructions,
+            "cwd": repo_root,
+            "repo_root": repo_root,
+            "timeout_seconds": permission_policy.get("max_runtime_seconds", 300),
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "thread_id": int(thread_id) if thread_id else None,
+            "source_message_id": int(source_message_id)
+            if source_message_id
+            else None,
+            "source_thread_id": int(thread_id) if thread_id else None,
+            "user_id": user_id,
+            "project_id": binding.get("project_id"),
+            "execution_binding": binding,
+            "permission_policy": permission_policy,
+            "origin": "guardian_delegation_intent",
+        }
+
+        # The task payload must round-trip through the task contract without
+        # dropping a required field, so a malformed payload fails here rather
+        # than at dequeue.
+        CodingExecutionTask.from_dict(task_payload)
+
+        def _enqueue() -> str:
+            try:
+                return enqueue_coding_execution(task_payload)
+            except Exception as exc:  # pragma: no cover - defensive branch
+                # A queue failure is a dispatch failure. The intent axis records
+                # it; the acceptance axis is untouched.
+                raise GuardianDelegationDispatchError() from exc
+
+        if serialize_with_intent_lock:
+            # The commitment happens under the intent's own row lock.
+            #
+            # Cancellation and dispatch now contend on one row: the
+            # cancellation path locks the intent FOR UPDATE before it writes
+            # `cancelled`. A cancellation that commits before this lock is
+            # taken is therefore visible to the re-check below and refuses
+            # the dispatch, and a cancellation that arrives while the lock
+            # is held waits until the commitment is durable. The dispatch's
+            # authority is asserted against the intent's committed state at
+            # the moment the task is queued, rather than against a state that
+            # was read earlier and then acted on after its transaction
+            # closed.
+            #
+            # The binding was already persisted before this point, so a
+            # refusal here leaves a durable, inspectable attempt that was
+            # never queued. That is the same lossy shape the deployment-lock
+            # fence already has: the attempt is bound, the task is absent,
+            # and a later replay is refused rather than re-queued.
+            with db.get_session() as session:
+                self._lock_intent_for_dispatch_commitment(
+                    session=session,
+                    intent_id=intent_id,
+                    thread_id=thread_id,
+                    source_message_id=source_message_id,
+                    project_id=project_id,
+                )
+                task_id = _enqueue()
+                session.commit()
+        else:
+            task_id = _enqueue()
+
+        dispatched = mark_dispatched(record, task_id=task_id)
+        # The receipt reports the posture that was actually dispatched, not
+        # the posture that was authorized before the caller's narrowing was
+        # applied. A consumer reading this receipt — an operator console, an
+        # audit trail — must not record capabilities the attempt does not
+        # have.
+        receipt_posture = dict(posture)
+        receipt_posture["permission_policy"] = permission_policy
+        return {
+            "dispatch": dispatched.to_dict(),
+            "execution_binding_id": str(binding.get("binding_id") or ""),
+            "permission_posture": receipt_posture,
+            "task_id": task_id,
+        }
+
+    def dispatch_authorized_coding_request(
+        self,
+        *,
+        account_id: str,
+        thread_id: int,
+        source_message_id: int,
+        intent_id: str | None = None,
+        project_id: int | None = None,
+        instructions: str | None = None,
+        requested_permission_policy: dict[str, Any] | None = None,
+        requested_repo_root: str | None = None,
+        proposed_provider_id: str | None = None,
+        proposed_model_id: str | None = None,
+        proposed_credential_ref: str | None = None,
+        proposed_coding_task_id: str | None = None,
+        proposed_attempt_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Admit one account-authorized coding request and dispatch it once.
+
+        This is the canonical admission path for an explicitly submitted
+        coding request. It resolves one canonical account, one authorized
+        source turn, one approved delegation intent, one repository and
+        execution scope, one Guardian-authorized execution binding, and one
+        correlated AgentRun — and it submits at most one coding task for
+        that admitted attempt.
+
+        It is not a second execution producer. The AgentRun, the deployment,
+        the attempt identity, and the queue submission all come from the
+        delegation service's existing persisted run link; this method
+        authorizes and dispatches that lineage rather than minting a parallel
+        one.
+
+        The named intent must already exist and already be approved. It is
+        never created here: an implicit intent would mint a fresh lineage on
+        every duplicate request, and a duplicate request must never produce
+        independent execution authority.
+
+        The executed instructions are bound to the approved plan. The
+        ``instructions`` argument is a *proposal* that must match the
+        approved plan's own instructions; a proposal that differs is refused,
+        because the approval authorizes the approved work and nothing else.
+
+        The caller-supplied provider, model, credential, permissions, and
+        repository root are *proposals*. They may narrow what Guardian
+        resolves, they never widen it, and a proposal that Guardian cannot
+        authorize is refused before anything is enqueued.
+        """
+        db = self._require_db()
+        canonical_account = str(account_id or "").strip()
+        if not canonical_account:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_account_missing",
+                status_code=401,
+            )
+
+        try:
+            thread_key = int(thread_id)
+            message_key = int(source_message_id)
+        except (TypeError, ValueError):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_lineage_invalid",
+                status_code=422,
+            ) from None
+
+        with db.get_session() as session:
+            thread = (
+                session.query(ChatThread).filter_by(id=thread_key).one_or_none()
+            )
+            if thread is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_thread_missing"
+                )
+            # The thread's durable owner is the account authority. The
+            # request never supplies it.
+            if str(thread.user_id or "").strip() != canonical_account:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_thread_account_mismatch",
+                    status_code=403,
+                )
+            message = (
+                session.query(ChatMessage)
+                .filter_by(id=message_key)
+                .one_or_none()
+            )
+            if message is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_source_message_missing"
+                )
+            if int(message.thread_id or 0) != thread_key:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_source_message_thread_mismatch",
+                    status_code=409,
+                )
+            if str(message.role or "").strip().lower() != "user":
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_source_message_not_user_authored",
+                    status_code=409,
+                )
+            if str(message.user_id or "").strip() != canonical_account:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_source_message_account_mismatch",
+                    status_code=403,
+                )
+
+            resolved_project_id = self._resolve_project_id(
+                requested_project_id=project_id,
+                thread_project_id=thread.project_id,
+            )
+            if resolved_project_id is not None:
+                project = (
+                    session.query(Project)
+                    .filter_by(id=int(resolved_project_id))
+                    .one_or_none()
+                )
+                if project is None or str(project.user_id or "").strip() != (
+                    canonical_account
+                ):
+                    raise GuardianDelegationValidationError(
+                        "guardian_delegation_project_account_mismatch",
+                        status_code=403,
+                    )
+
+        requested_intent_id = str(intent_id or "").strip()
+        if not requested_intent_id:
+            # A dispatch names the intent it dispatches. Admitting an implicit
+            # intent here would mint a fresh lineage on every duplicate
+            # request, which is exactly the duplicate execution authority the
+            # admission path exists to prevent. Intent creation and approval
+            # are separate, explicit steps that precede the dispatch.
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_required",
+                status_code=422,
+            )
+        effective_intent_id, run_id, effective_project_id = (
+            self._authorize_intent_for_dispatch(
+                intent_id=requested_intent_id,
+                thread_id=thread_key,
+                source_message_id=message_key,
+                project_id=resolved_project_id,
+            )
+        )
+
+        run = self.agent_store.get_run(run_id)
+        if run is None:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_run_missing",
+                status_code=409,
+            )
+        deployment_id = str(run.get("deployment_id") or "")
+        deployment = self.agent_store.get_deployment(deployment_id)
+        if deployment is None:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_deployment_missing",
+                status_code=409,
+            )
+        deployment_spec = dict(deployment.get("spec_json") or {})
+        ownership = dict(deployment_spec.get("guardian_delegation") or {})
+        if str(ownership.get("intent_id") or "").strip() != effective_intent_id:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_deployment_intent_mismatch",
+                status_code=409,
+            )
+        coding_task_id = str(deployment_spec.get("coding_task_id") or "").strip()
+        attempt_id = str(deployment_spec.get("attempt_id") or "").strip()
+        if not coding_task_id or not attempt_id:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_run_link_incomplete",
+                status_code=409,
+            )
+        # The persisted run link owns the attempt identity. A caller that
+        # names a different one is refused rather than silently redirected.
+        proposed_task_id = str(proposed_coding_task_id or "").strip()
+        if proposed_task_id and proposed_task_id != coding_task_id:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_coding_task_identity_mismatch",
+                status_code=409,
+            )
+        proposed_attempt = str(proposed_attempt_id or "").strip()
+        if proposed_attempt and proposed_attempt != attempt_id:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_attempt_identity_mismatch",
+                status_code=409,
+            )
+
+        # The repository binding is the durable project-to-working-tree
+        # authority (ADR-065). Without one there is no authorizable
+        # workspace, so the request fails closed before anything is queued.
+        authorized_repo_root = self._resolve_project_repo_root(
+            db=db,
+            project_id=(
+                int(effective_project_id)
+                if effective_project_id is not None
+                else None
+            ),
+            user_id=canonical_account,
+        )
+        if not authorized_repo_root:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_repository_binding_unavailable",
+                status_code=403,
+            )
+        requested_root = str(requested_repo_root or "").strip()
+        if requested_root and requested_root != authorized_repo_root:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_repository_binding_mismatch",
+                status_code=403,
+            )
+
+        # The executed instructions are bound to the approved plan.
+        #
+        # The approval is what authorizes the execution, and only the
+        # approved plan carries it. A request may therefore not substitute
+        # different work under an intent that was approved for something
+        # else: the effective instructions are the ones the intent's plan
+        # was approved with, and a proposal that differs is refused before
+        # the binding is persisted and before anything is enqueued.
+        #
+        # An empty proposal asserts nothing and simply dispatches the
+        # approved plan.
+        approved_instructions = str(
+            deployment_spec.get("instructions") or ""
+        ).strip()
+        proposed_instructions = str(instructions or "").strip()
+        if (
+            proposed_instructions
+            and proposed_instructions != approved_instructions
+        ):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_instructions_not_bound_to_approved_plan",
+                status_code=409,
+            )
+        effective_instructions = approved_instructions
+        if not effective_instructions:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_approved_plan_instructions_missing",
+                status_code=409,
+            )
+
+        try:
+            dispatch = self.dispatch_delegated_task(
+                intent_id=effective_intent_id,
+                deployment_id=deployment_id,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                coding_task_id=coding_task_id,
+                instructions=effective_instructions,
+                repo_root=authorized_repo_root,
+                thread_id=thread_key,
+                source_message_id=message_key,
+                user_id=canonical_account,
+                project_id=(
+                    int(effective_project_id)
+                    if effective_project_id is not None
+                    else None
+                ),
+                credential_ref_constraint=proposed_credential_ref,
+                provider_id_constraint=proposed_provider_id,
+                model_id_constraint=proposed_model_id,
+                requested_permission_policy=requested_permission_policy,
+                # The authorized path queues its task under the intent's own
+                # row lock, so a cancellation that commits first refuses the
+                # dispatch instead of racing it.
+                serialize_with_intent_lock=True,
+            )
+        except GuardianDelegationError as exc:
+            detail = str(getattr(exc, "detail", "") or "dispatch_failed")
+            # A refusal that happens *before* the attempt is authorized
+            # consumed nothing: no binding was persisted, nothing was
+            # queued, and the intent stays dispatchable so a corrected
+            # request may be admitted against it.
+            #
+            # A failure of an *authorized* attempt is an execution fact. The
+            # intent axis owns the execution outcome (the delegation
+            # contract, "Axis Ownership of Facts"), so the intent is marked
+            # `failed` and the linked run is closed as terminal with the
+            # reason. `acceptance_status` is untouched: the request was
+            # admitted, and admitting it did not fail.
+            #
+            # A duplicate admission is not a failure of the attempt — that
+            # attempt was already dispatched successfully — so it leaves the
+            # intent and the run alone.
+            if (
+                detail
+                != "guardian_delegation_execution_binding_already_established"
+                and self._attempt_was_authorized(deployment_id)
+            ):
+                self._record_dispatch_failure(
+                    intent_id=effective_intent_id,
+                    run_id=run_id,
+                    detail=detail,
+                )
+            raise
+
+        return {
+            "intent_id": effective_intent_id,
+            "run_id": run_id,
+            "deployment_id": deployment_id,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "account_id": canonical_account,
+            "thread_id": thread_key,
+            "source_message_id": message_key,
+            "project_id": effective_project_id,
+            "repo_root": authorized_repo_root,
+            "task_id": dispatch.get("task_id"),
+            "execution_binding_id": dispatch.get("execution_binding_id"),
+            "permission_posture": dispatch.get("permission_posture"),
+            "dispatch": dispatch.get("dispatch"),
+        }
+
+    def _attempt_was_authorized(self, deployment_id: str) -> bool:
+        """Whether this attempt already carries a persisted authorization.
+
+        The execution binding is the durable record of authorization: it is
+        written before the enqueue, so its presence means the attempt was
+        authorized, and its absence means the request never got that far.
+        """
+        deployment = self.agent_store.get_deployment(deployment_id)
+        if deployment is None:
+            return False
+        spec = dict(deployment.get("spec_json") or {})
+        existing = spec.get("execution_binding")
+        return isinstance(existing, dict) and bool(existing)
+
+    def _record_dispatch_failure(
+        self,
+        *,
+        intent_id: str,
+        run_id: str,
+        detail: str,
+    ) -> None:
+        """Record one dispatch failure on the axes that own it.
+
+        The intent axis owns the execution outcome, so the intent is marked
+        ``failed`` and the linked run is closed as terminal with the reason.
+        The acceptance axis is untouched: the request was admitted, and
+        admitting it did not fail.
+        """
+        self.agent_store.update_run_status(
+            run_id=run_id,
+            status="failed",
+            error=detail,
+        )
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(GuardianDelegationIntent)
+                .filter_by(intent_id=intent_id)
+                .one_or_none()
+            )
+            if row is None:  # pragma: no cover - defensive branch
+                return
+            if str(row.intent_status or "").strip() in {
+                GuardianDelegationIntentStatus.CANCELLED.value,
+                GuardianDelegationIntentStatus.SUPERSEDED.value,
+            }:
+                # A cancellation that committed first is the more specific
+                # fact, and it is not erased by a dispatch that lost the race
+                # against it. The intent stays cancelled; only the linked run
+                # is closed with the reason.
+                session.commit()
+                return
+            row.intent_status = GuardianDelegationIntentStatus.FAILED.value
+            session.commit()
+
+    def _assert_intent_is_dispatch_authority(
+        self,
+        *,
+        row: GuardianDelegationIntent,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+    ) -> None:
+        """Assert that one intent row is still an authority for a dispatch.
+
+        An approval decision is not a dispatch event, and a cancelled or
+        superseded intent is not an authority at all. The intent must already
+        be approved and already carry its persisted run link.
+
+        These checks live in one place so that the unlocked pre-check and the
+        locked re-check taken at the moment of commitment cannot drift apart.
+        The locked re-check is the authoritative one; the pre-check exists only
+        to fail fast before any work is done.
+        """
+        if int(row.thread_id) != int(thread_id):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_thread_mismatch",
+                status_code=409,
+            )
+        if int(row.source_message_id) != int(source_message_id):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_source_message_mismatch",
+                status_code=409,
+            )
+        if (
+            project_id is not None
+            and row.project_id is not None
+            and int(row.project_id) != int(project_id)
+        ):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_project_mismatch",
+                status_code=409,
+            )
+        if (
+            str(row.approval_state or "").strip()
+            != GuardianDelegationApprovalState.APPROVED.value
+        ):
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_approved",
+                status_code=409,
+            )
+        if str(row.intent_status or "").strip() in {
+            GuardianDelegationIntentStatus.CANCELLED.value,
+            GuardianDelegationIntentStatus.SUPERSEDED.value,
+            GuardianDelegationIntentStatus.FAILED.value,
+        }:
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_dispatchable",
+                status_code=409,
+            )
+        if not str(row.run_id or "").strip():
+            raise GuardianDelegationValidationError(
+                "guardian_delegation_intent_not_linked",
+                status_code=409,
+            )
+
+    def _lock_intent_for_dispatch_commitment(
+        self,
+        *,
+        session: Any,
+        intent_id: str,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+    ) -> None:
+        """Lock the intent row and re-assert it is still a dispatch authority.
+
+        Cancellation and dispatch contend on this row. The cancellation path
+        locks the intent ``FOR UPDATE`` before it writes ``cancelled``, so a
+        cancellation that commits before this lock is taken is visible here and
+        refuses the dispatch, and a cancellation that arrives while the lock
+        is held waits until the dispatch commitment is durable.
+
+        The lock is therefore what makes "the intent was an authority when we
+        queued this task" a statement about the intent's committed state at the
+        moment of the commitment, rather than about a state that was read
+        earlier and then acted on after the transaction closed.
+        """
+        row = (
+            session.query(GuardianDelegationIntent)
+            .with_for_update()
+            .filter_by(intent_id=intent_id)
+            .one_or_none()
+        )
+        if row is None:
+            raise GuardianDelegationNotFoundError(
+                "guardian_delegation_intent_not_found"
+            )
+        self._assert_intent_is_dispatch_authority(
+            row=row,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+            project_id=project_id,
+        )
+
+    def _authorize_intent_for_dispatch(
+        self,
+        *,
+        intent_id: str,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+    ) -> tuple[str, str, int | None]:
+        """Validate one delegation intent as the authority for a dispatch.
+
+        An approval decision is not a dispatch event, and a cancelled or
+        superseded intent is not an authority at all. The intent must already
+        be approved and already carry its persisted run link.
+
+        This read is a pre-check. It is deliberately unlocked, because it runs
+        before any work is done and its job is to fail fast. The authoritative
+        check is the locked re-check taken at the moment the task is queued;
+        see :meth:`_lock_intent_for_dispatch_commitment`.
+        """
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(GuardianDelegationIntent)
+                .filter_by(intent_id=intent_id)
+                .one_or_none()
+            )
+            if row is None:
+                raise GuardianDelegationNotFoundError(
+                    "guardian_delegation_intent_not_found"
+                )
+            self._assert_intent_is_dispatch_authority(
+                row=row,
+                thread_id=thread_id,
+                source_message_id=source_message_id,
+                project_id=project_id,
+            )
+            return (
+                str(row.intent_id),
+                str(row.run_id),
+                int(row.project_id) if row.project_id is not None else None,
+            )
+
+    def _resolve_execution_binding(
+        self,
+        *,
+        db: Any,
+        intent_id: str,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+        user_id: str,
+        coding_task_id: str,
+        attempt_id: str,
+        credential_ref_constraint: str | None = None,
+        provider_id_constraint: str | None = None,
+        model_id_constraint: str | None = None,
+    ) -> dict[str, Any]:
+        """Mint the Guardian-owned execution binding for one delegated task.
+
+        The provider, model, and credential are resolved from the account's
+        own durable state — never from the request. A caller proposal may
+        narrow the result but can never widen it. See
+        ``guardian/core/guardian_execution_binding.py``.
+
+        A proposal is a *constraint*, not a grant: it selects a narrower
+        candidate where one exists, and it is refused where the effective
+        selection would differ. Nothing here falls back to an arbitrary
+        credential when a constrained selection cannot be authorized.
+        """
+        from guardian.agents.execution_credentials import list_account_credentials
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+            GuardianExecutionBindingRequest,
+            resolve_guardian_execution_binding,
+        )
+
+        requested_credential_ref = str(credential_ref_constraint or "").strip()
+        credentials = list_account_credentials(db, account_id=user_id)
+        if requested_credential_ref:
+            # The caller named one credential. It must be the account's own
+            # credential, or a service credential the credential authority
+            # authorizes for this account. A named credential that the
+            # account cannot use is refused; it is never silently replaced
+            # by another one.
+            matching = [
+                credential
+                for credential in credentials
+                if str(credential.get("credential_ref") or "").strip()
+                == requested_credential_ref
+            ]
+            if matching:
+                selected = matching[0]
+            else:
+                selected = self._select_service_credential(
+                    db=db,
+                    user_id=user_id,
+                    credential_ref=requested_credential_ref,
+                )
+                if selected is None:
+                    raise GuardianExecutionBindingError(
+                        "guardian_binding_credential_unauthorized"
+                    )
+        elif credentials:
+            # Prefer the most recently registered account credential that the
+            # account is allowed to use. `list_account_credentials` returns
+            # every account-scoped credential newest-first, including revoked
+            # and expired ones, so the candidates are filtered through the
+            # credential authority before one is chosen. Selecting the newest
+            # row first would let a revoked key shadow every older valid key:
+            # the request would select the revoked row, fail, and never reach
+            # the next candidate.
+            selected = self._select_newest_usable_account_credential(
+                db=db,
+                user_id=user_id,
+                credentials=credentials,
+            )
+        else:
+            # The account owns no credential of its own. A service-owned
+            # credential may still serve this account, but only where the
+            # service's own recorded policy authorizes it. The service lane is
+            # reached only when the account lane is empty: an account that
+            # brings its own key keeps it, and a rejected account credential is
+            # never silently replaced by a service one.
+            selected = self._select_service_credential(db=db, user_id=user_id)
+            if selected is None:
+                raise GuardianExecutionBindingError(
+                    "guardian_binding_no_account_credential"
+                )
+
+        credential_ref = str(selected.get("credential_ref") or "").strip()
+        provider_id = str(selected.get("provider_id") or "").strip()
+        # The stored credential pins the provider; Guardian pins the model
+        # from the runtime's own configuration for that provider. An
+        # account-scoped credential does not restrict models, so the model
+        # must come from a trusted authority rather than the request.
+        model_id = self._resolve_account_model_id(provider_id)
+        if not model_id:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+
+        # A caller-proposed provider or model may only confirm what Guardian
+        # already resolved. A different proposal is a request to widen the
+        # authorized surface, and it is refused rather than substituted.
+        requested_provider_id = str(provider_id_constraint or "").strip()
+        if requested_provider_id and requested_provider_id != provider_id:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_provider_constraint_unsatisfied"
+            )
+        requested_model_id = str(model_id_constraint or "").strip()
+        if requested_model_id and requested_model_id != model_id:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_constraint_unsatisfied"
+            )
+
+        return resolve_guardian_execution_binding(
+            db,
+            GuardianExecutionBindingRequest(
+                account_id=user_id,
+                thread_id=str(thread_id),
+                source_message_id=str(source_message_id),
+                project_id=str(project_id) if project_id is not None else None,
+                coding_task_id=coding_task_id,
+                attempt_id=attempt_id,
+                credential_ref=credential_ref,
+                provider_id=provider_id,
+                model_id=model_id,
+            ),
+        )
+
+    def _select_newest_usable_account_credential(
+        self,
+        *,
+        db: Any,
+        user_id: str,
+        credentials: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Select the newest account credential the credential authority will use.
+
+        Discovery is not authorization. The credential authority decides
+        whether a credential may serve this account, this provider, and this
+        model; it also decides whether the credential is active, unexpired,
+        unrevoked, and covered by its recorded policy. So the candidates are
+        offered to that authority in order and the first one it authorizes is
+        the one selected. No policy decision is re-implemented here.
+
+        Raises when no candidate is usable: a candidate whose provider has no
+        resolvable model is a runtime configuration gap and is reported as
+        such, while a candidate the authority refused is an account
+        authorization failure.
+        """
+        from guardian.agents.execution_credentials import (
+            CredentialAuthorityError,
+            authorize_credential_selection,
+        )
+
+        model_unresolved = False
+        first_refusal: str | None = None
+        for credential in credentials:
+            credential_ref = str(credential.get("credential_ref") or "").strip()
+            provider_id = str(credential.get("provider_id") or "").strip()
+            if not credential_ref or not provider_id:
+                if first_refusal is None:
+                    first_refusal = "credential_reference_missing"
+                continue
+            model_id = self._resolve_account_model_id(provider_id)
+            if not model_id:
+                # Guardian's own runtime configuration cannot resolve a model
+                # for this provider. Another candidate may still resolve one,
+                # so this one is skipped rather than fatal.
+                model_unresolved = True
+                continue
+            try:
+                authorize_credential_selection(
+                    db,
+                    credential_ref=credential_ref,
+                    account_id=user_id,
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+            except CredentialAuthorityError as exc:
+                # This candidate is revoked, expired, mismatched, or outside
+                # its recorded policy. The next candidate is tried, and the
+                # reason the *newest* candidate was refused is the one
+                # reported if none of them is usable.
+                if first_refusal is None:
+                    first_refusal = str(exc.code)
+                continue
+            return credential
+        if first_refusal is not None:
+            # The reason code is the credential authority's own, exactly as
+            # the binding authority reports it, so a caller can tell a
+            # revoked key from an expired one.
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_unauthorized", first_refusal
+            )
+        if model_unresolved:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+        raise GuardianExecutionBindingError(
+            "guardian_binding_credential_unauthorized",
+            "credential_reference_missing",
+        )
+
+    def _select_service_credential(
+        self,
+        *,
+        db: Any,
+        user_id: str,
+        credential_ref: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Select the single service-owned credential this account may use.
+
+        Guardian owns the selection. The credential authority owns the
+        policy: every candidate is decided by the existing
+        ``authorize_credential_selection`` boundary, and no policy decision
+        is re-implemented here.
+
+        A service credential serves this account only where the service's own
+        recorded policy authorizes the account, the provider, the model, the
+        funding route, and the usage policy. If more than one candidate
+        authorizes, no existing authoritative rule resolves them, so this
+        fails closed rather than choosing one arbitrarily.
+
+        ``credential_ref`` narrows the candidate set to one named credential.
+        A named credential that no policy authorizes yields no candidate, so
+        the caller reports that the account has no usable credential.
+
+        Returns ``None`` when the service lane has no candidate at all; the
+        caller then reports that the account has no usable credential.
+        """
+        from guardian.agents.execution_credentials import (
+            CredentialAuthorityError,
+            authorize_credential_selection,
+            list_service_credential_candidates,
+        )
+        from guardian.core.guardian_execution_binding import (
+            GuardianExecutionBindingError,
+        )
+
+        requested_credential_ref = str(credential_ref or "").strip()
+        candidates = list_service_credential_candidates(db, account_id=user_id)
+        if requested_credential_ref:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if str(candidate.get("credential_ref") or "").strip()
+                == requested_credential_ref
+            ]
+        if not candidates:
+            return None
+
+        authorized: list[dict[str, Any]] = []
+        first_denial: CredentialAuthorityError | None = None
+        model_unresolved = False
+        for candidate in candidates:
+            credential_ref = str(candidate.get("credential_ref") or "").strip()
+            provider_id = str(candidate.get("provider_id") or "").strip()
+            if not credential_ref or not provider_id:
+                continue
+            # The model is pinned by Guardian from the runtime's own
+            # configuration for that provider, exactly as on the account
+            # lane. The service's model allow-list is enforced by the
+            # credential authority, not here.
+            model_id = self._resolve_account_model_id(provider_id)
+            if not model_id:
+                model_unresolved = True
+                continue
+            try:
+                authorize_credential_selection(
+                    db,
+                    credential_ref=credential_ref,
+                    account_id=user_id,
+                    provider_id=provider_id,
+                    model_id=model_id,
+                )
+            except CredentialAuthorityError as exc:
+                if first_denial is None:
+                    first_denial = exc
+                continue
+            authorized.append(candidate)
+
+        if len(authorized) == 1:
+            return authorized[0]
+        if len(authorized) > 1:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_selection_ambiguous"
+            )
+        if first_denial is not None:
+            # The credential authority's own denial code is preserved as the
+            # detail, so the precise cause (account policy, model policy,
+            # funding route, usage policy, expiry, revocation) stays visible.
+            raise GuardianExecutionBindingError(
+                "guardian_binding_credential_unauthorized", first_denial.code
+            )
+        if model_unresolved:
+            raise GuardianExecutionBindingError(
+                "guardian_binding_model_unresolved"
+            )
+        return None
+
+    def _resolve_account_model_id(self, provider_id: str) -> str:
+        """Resolve the account's configured model for a provider.
+
+        The model is pinned rather than discovered: the runtime's configured
+        model for the provider is authoritative — the same authority the chat
+        path uses — and the Pi wrapper independently refuses an identity
+        mismatch, so a substituted model fails closed instead of silently
+        succeeding.
+        """
+        if not str(provider_id or "").strip():
+            return ""
+        try:
+            from guardian.core.provider_registry import default_model_for_provider
+            from guardian.core.config import get_settings
+
+            resolved = default_model_for_provider(provider_id, get_settings())
+        except Exception:  # pragma: no cover - defensive branch
+            return ""
+        return str(resolved or "").strip()
+
+    def _resolve_permission_posture(
+        self,
+        *,
+        db: Any,
+        thread_id: int,
+        source_message_id: int,
+        project_id: int | None,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+        repo_root: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve the enforceable permission posture for one delegated task.
+
+        The posture is derived from trusted account, project, and workspace
+        context, and it records which surfaces actually enforce it. A
+        permission flag is a request, not a guarantee: ADR-077 rule 7 states
+        that tool allowlists and prompt instructions are defense in depth, not
+        filesystem, network, or process isolation. See
+        ``guardian/core/guardian_permission_posture.py``.
+        """
+        from guardian.core.guardian_permission_posture import (
+            GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
+            GuardianPermissionPostureError,
+            resolve_guardian_permission_posture,
+        )
+
+        resolved_root = str(repo_root or "").strip() or (
+            self._resolve_project_repo_root(
+                db=db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+        )
+        try:
+            posture = resolve_guardian_permission_posture(
+                account_id=user_id,
+                provider_id=provider_id,
+                model_id=model_id,
+                repo_root=resolved_root,
+                # The delegated task is scoped to the bound working tree. The
+                # mutation guard compares changed paths against this scope.
+                # The scope is the explicit repository-root token the worker's
+                # canonical resolver accepts; an empty entry would name
+                # nothing the guard could authorize. The grant itself still
+                # requires a resolved working-tree root above, so the scope
+                # never stands in for the missing repository binding.
+                allowed_paths=GUARDIAN_DEFAULT_ALLOWED_PATH_SCOPE,
+                allow_write=True,
+                # A delegated coding task needs a shell for tests, builds, and
+                # git. It is authorized explicitly here rather than inherited.
+                allow_shell=True,
+                # No sandbox provider is wired into the coding worker, so
+                # network egress is not authorizable as enforced.
+                allow_network=False,
+            )
+        except GuardianPermissionPostureError as exc:
+            raise GuardianExecutionBindingError(
+                "guardian_posture_unresolved", exc.code
+            ) from None
+        return posture.to_dict()
+
+    def _narrow_permission_posture(
+        self,
+        posture: Any,
+        requested: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Apply caller-requested permissions as a narrowing constraint only.
+
+        A caller may ask for less than the authorized posture, and the
+        effective posture becomes the narrower of the two. A caller may not
+        ask for more: a request for a capability the authorized posture does
+        not grant is refused rather than quietly downgraded, so a requested
+        writable operation can never silently execute as a read-only
+        success.
+        """
+        effective = dict(posture or {})
+        if not requested:
+            return effective
+
+        for flag in ("allow_shell", "allow_network", "allow_write"):
+            if flag not in requested or requested.get(flag) is None:
+                continue
+            requested_value = bool(requested.get(flag))
+            authorized_value = bool(effective.get(flag))
+            if requested_value and not authorized_value:
+                raise GuardianDelegationValidationError(
+                    f"guardian_permission_{flag}_not_authorized",
+                    status_code=403,
+                )
+            effective[flag] = authorized_value and requested_value
+
+        requested_paths = requested.get("allowed_paths")
+        if requested_paths:
+            authorized_paths = tuple(
+                str(scope) for scope in (effective.get("allowed_paths") or ())
+            )
+            narrowed: list[str] = []
+            for path in requested_paths:
+                candidate = str(path).strip()
+                if not candidate:
+                    continue
+                if not any(
+                    _path_is_within_scope(candidate, scope)
+                    for scope in authorized_paths
+                ):
+                    raise GuardianDelegationValidationError(
+                        "guardian_permission_allowed_paths_not_authorized",
+                        status_code=403,
+                    )
+                narrowed.append(candidate)
+            if narrowed:
+                effective["allowed_paths"] = list(narrowed)
+
+        requested_runtime = requested.get("max_runtime_seconds")
+        if requested_runtime is not None:
+            try:
+                requested_seconds = int(requested_runtime)
+            except (TypeError, ValueError):
+                raise GuardianDelegationValidationError(
+                    "guardian_permission_max_runtime_invalid",
+                    status_code=422,
+                ) from None
+            if requested_seconds <= 0:
+                raise GuardianDelegationValidationError(
+                    "guardian_permission_max_runtime_invalid",
+                    status_code=422,
+                )
+            authorized_seconds = int(effective.get("max_runtime_seconds") or 0)
+            if authorized_seconds <= 0:
+                raise GuardianDelegationValidationError(
+                    "guardian_permission_max_runtime_not_authorized",
+                    status_code=403,
+                )
+            effective["max_runtime_seconds"] = min(
+                authorized_seconds, requested_seconds
+            )
+
+        return effective
+
+    def _resolve_project_repo_root(
+        self,
+        *,
+        db: Any,
+        project_id: int | None,
+        user_id: str,
+    ) -> str | None:
+        """Resolve the project's bound working-tree root, fail closed.
+
+        The repository binding is the durable Project-to-working-tree
+        authority (ADR-065). A project without an active binding has no
+        authorizable workspace, so no root is returned.
+        """
+        if project_id is None:
+            return None
+        try:
+            from guardian.core.repository_authority import (
+                RepositoryAuthorityError,
+                resolve_project_repository_binding,
+            )
+
+            with db.get_session() as session:
+                binding = resolve_project_repository_binding(
+                    session,
+                    authenticated_account_id=user_id,
+                    project_id=int(project_id),
+                )
+            return str(binding.canonical_root)
+        except Exception:
+            # No active binding, an account mismatch, or an invalid root all
+            # mean the same thing here: there is no authorizable workspace.
+            return None
+
     def _create_agent_run_link(
         self,
         *,
@@ -1418,6 +2981,21 @@ class GuardianDelegationService:
         plan_summary: dict[str, Any],
         context_basis: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        # The execution binding is a *dispatch-time* authorization: it names
+        # the provider, model, and credential that one concrete attempt will
+        # use. Minting it here would make intent creation depend on the
+        # account having a usable credential, and would bind an attempt that
+        # may never be dispatched.
+        #
+        # Instead the run link records the deterministic dispatch identifiers
+        # and the lineage the binding must be minted against. The dispatch
+        # layer (Slice 3) mints the binding from trusted account context and
+        # persists it into this deployment spec before enqueueing, because the
+        # credential-lease authority re-reads the binding from the spec and
+        # the coding worker requires the task payload binding to equal the
+        # persisted one byte-for-byte.
+        coding_task_id = _new_external_id("gct")
+        attempt_id = _new_external_id("gat")
         deployment_spec = {
             "guardian_delegation": {
                 "ownership": "guardian_delegation_intent",
@@ -1434,6 +3012,8 @@ class GuardianDelegationService:
             "instructions": plan_summary["standardized_task_prompt"],
             "plan_summary": plan_summary,
             "context_basis": context_basis,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
         }
         deployment = self.agent_store.create_deployment(
             flow_id=f"guardian_delegation_{intent_id}",
@@ -1445,13 +3025,88 @@ class GuardianDelegationService:
         # Guardian Delegation Loop v1 Phase 3 still uses a direct Guardian-owned
         # route. Intent-spine unification remains deferred even though
         # source-thread result delivery is now proven for Guardian-owned runs.
-        return self.agent_store.create_run(
+        run = self.agent_store.create_run(
             deployment_id=str(deployment["deployment_id"]),
             thread_id=thread_id,
+            # The delegated run belongs to the account whose thread authorized
+            # it. Recording the account origin makes the run account-scoped
+            # for the readback authority (ADR-094) instead of an operator
+            # artifact that merely mentions an account.
+            account_origin_user_id=user_id,
             runtime_target="container",
             rollback_mode="auto",
             status="queued",
         )
+        # Carry the dispatch identifiers alongside the run so the dispatch
+        # layer can mint a binding against them and build a task payload
+        # whose binding is byte-identical to the persisted deployment spec.
+        return {
+            **run,
+            "coding_task_id": coding_task_id,
+            "attempt_id": attempt_id,
+            "deployment_id": str(deployment["deployment_id"]),
+        }
+
+    def persist_execution_binding(
+        self,
+        *,
+        deployment_id: str,
+        execution_binding: dict[str, Any],
+        instructions: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist a minted execution binding into a deployment spec.
+
+        The credential-lease authority re-reads the binding from the persisted
+        deployment spec, and the coding worker requires the task payload
+        binding to equal the persisted one byte-for-byte. Writing it here —
+        once, before dispatch — is what makes those two checks agree.
+
+        The binding is written only once. A second write with a different
+        binding is refused: an attempt's authorization is immutable once
+        established, so a retry must mint a new attempt rather than rewrite
+        this one.
+
+        The read and the write happen inside one transaction, with the
+        deployment row locked ``FOR UPDATE``. Without that lock two
+        concurrent dispatches of the same admitted attempt could both read
+        "no binding yet" and both write one, and each would then enqueue its
+        own task. The row lock makes the check-then-write atomic at the
+        PostgreSQL authority boundary, so the second dispatch is refused
+        instead of producing a second execution of one attempt.
+        """
+        db = self._require_db()
+        with db.get_session() as session:
+            row = (
+                session.query(AgentDeployment)
+                .with_for_update()
+                .filter_by(deployment_id=deployment_id)
+                .one_or_none()
+            )
+            if row is None:
+                raise GuardianDelegationValidationError(
+                    "guardian_delegation_deployment_missing"
+                )
+            spec = dict(row.spec_json or {})
+            existing = spec.get("execution_binding")
+            if isinstance(existing, dict) and existing:
+                if existing != execution_binding:
+                    raise GuardianDelegationValidationError(
+                        "guardian_delegation_execution_binding_already_established",
+                        status_code=409,
+                    )
+                session.commit()
+                return dict(existing)
+            spec["execution_binding"] = execution_binding
+            if instructions is not None:
+                # The effective task content is recorded next to the
+                # authorization it was dispatched with, so the durable
+                # deployment spec and the queued task describe the same
+                # attempt.
+                spec["instructions"] = instructions
+            row.spec_json = spec
+            row.spec_hash = _stable_hash(spec)
+            session.commit()
+        return dict(execution_binding)
 
     def _build_phase2b_plan(
         self,

@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from hashlib import sha256
 import json
 import os
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -189,6 +190,14 @@ def _fetch_intent(db: _TestDB, intent_id: str) -> GuardianDelegationIntent | Non
             .filter_by(intent_id=intent_id)
             .first()
         )
+
+
+def _find_only_intent_id(db: _TestDB) -> str:
+    """Return the single persisted intent id, for post-failure assertions."""
+    with db.get_session() as session:
+        rows = session.query(GuardianDelegationIntent).all()
+    assert len(rows) == 1, f"expected exactly one intent, found {len(rows)}"
+    return str(rows[0].intent_id)
 
 
 def _fetch_run(db: _TestDB, run_id: str) -> AgentRun | None:
@@ -953,6 +962,10 @@ def test_only_expected_guardian_delegation_routes_registered() -> None:
         ("/api/guardian/delegations/{intent_id}/approve", ("POST",)),
         ("/api/guardian/delegations/{intent_id}/cancel", ("POST",)),
         ("/api/guardian/delegations/{intent_id}/transcript", ("GET",)),
+        # The operator-authorized uncertain-run quarantine. It is a distinct
+        # path segment -- "runs" -- so it cannot collide with the {intent_id}
+        # routes above.
+        ("/api/guardian/delegations/runs/{run_id}/quarantine", ("POST",)),
     }
 
 
@@ -964,3 +977,511 @@ def test_guardian_api_route_is_flagged_off_by_default() -> None:
     }
     assert "/api/guardian/delegations" not in paths
     assert "/api/guardian/delegations/{intent_id}/transcript" not in paths
+    # The quarantine invocation path inherits the same gate: it is not part of
+    # the default supported release surface.
+    assert "/api/guardian/delegations/runs/{run_id}/quarantine" not in paths
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Acceptance-axis semantics (Task Spec 1)
+#
+# The acceptance axis is admission-scoped: it records whether the request was
+# admitted and whether the task-created start event was visible. A dispatch
+# failure is an *execution* fact and belongs on the intent axis. Run status is
+# a projection derived from the linked AgentRun; it is never stored on the
+# intent. See docs/architecture/guardian-delegation-loop-contract.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _force_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the AgentRun link step fail, as a downstream dispatch error would."""
+    service = guardian_delegations.get_service()
+
+    def _boom(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("simulated_agent_run_link_failure")
+
+    monkeypatch.setattr(service, "_create_agent_run_link", _boom)
+
+
+def test_dispatch_failure_keeps_acceptance_axis_at_admission_value(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dispatch failure must not overwrite acceptance with a degraded token."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    response = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    # The dispatch failure surfaces as a dispatch error (503), not as a 201.
+    assert response.status_code == 503
+    assert response.json()["detail"] == "guardian_delegation_dispatch_failed"
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # The acceptance axis keeps its admission value. It is NOT downgraded to
+    # `accepted_degraded`, which means "admitted with degraded start-event
+    # visibility" and would assert an admission that never happened.
+    assert row.acceptance_status == "accepted"
+
+    # The execution fact lives on the intent axis.
+    assert row.intent_status == "failed"
+
+    # The user never saw a start event, so visibility stays truthful.
+    assert row.visibility_status == "not_posted"
+
+
+def test_dispatch_failure_leaves_run_status_projection_at_not_enqueued(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run status is a projection, not a stored field on the intent."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # No AgentRun was linked, so the intent stores no run_id...
+    assert row.run_id is None
+    # ...and the run-status projection derives `not_enqueued` from that.
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"
+
+    # The intent model has no stored run_status column: the status is always
+    # derived, never persisted alongside the intent.
+    assert not hasattr(row, "run_status")
+
+
+def test_dispatch_failure_keeps_axes_independently_queryable(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance, intent, run, and visibility stay separate axes."""
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    intent_id = _find_only_intent_id(db)
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+
+    # Each axis carries only its own fact.
+    assert row.acceptance_status == "accepted"  # admission
+    assert row.intent_status == "failed"  # execution outcome
+    assert row.visibility_status == "not_posted"  # user-visible projection
+    assert row.approval_state == "approved"  # approval decision
+
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"
+
+
+def test_acceptance_status_enum_is_unchanged_by_dispatch_failure(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global acceptance vocabulary is admission-scoped and untouched."""
+    from guardian.protocol_tokens import AcceptanceStatus
+
+    # The enum still carries exactly its two admission-scoped values.
+    assert [status.value for status in AcceptanceStatus] == [
+        "accepted",
+        "accepted_degraded",
+    ]
+
+    seeded = _seed_source_context(db)
+    _force_dispatch_failure(monkeypatch)
+
+    delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+        },
+    )
+
+    row = _fetch_intent(db, _find_only_intent_id(db))
+    assert row is not None
+    # A dispatch failure never yields the degraded-visibility token.
+    assert row.acceptance_status != AcceptanceStatus.ACCEPTED_DEGRADED.value
+
+
+def test_approved_intent_dispatch_failure_keeps_acceptance_axis(
+    db: _TestDB,
+    delegation_client: TestClient,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The approve path also keeps acceptance at its admission value."""
+    seeded = _seed_source_context(db)
+
+    created = delegation_client.post(
+        "/api/guardian/delegations",
+        headers=auth_headers,
+        json={
+            "thread_id": seeded["thread_id"],
+            "source_message_id": seeded["source_message_id"],
+            "approval_mode": "human_required",
+        },
+    )
+    assert created.status_code == 201
+    intent_id = created.json()["intent_id"]
+
+    _force_dispatch_failure(monkeypatch)
+
+    approved = delegation_client.post(
+        f"/api/guardian/delegations/{intent_id}/approve",
+        headers=auth_headers,
+    )
+    assert approved.status_code == 503
+    assert approved.json()["detail"] == "guardian_delegation_dispatch_failed"
+
+    row = _fetch_intent(db, intent_id)
+    assert row is not None
+    assert row.acceptance_status == "accepted"
+    assert row.intent_status == "failed"
+    assert row.visibility_status == "not_posted"
+    assert row.run_id is None
+
+    service = guardian_delegations.get_service()
+    assert service._resolve_row_run_status(row) == "not_enqueued"
+
+
+# ---------------------------------------------------------------------------
+# Producer/consumer contract for the delegated write scope.
+#
+# ``dispatch_delegated_task`` is the producer of the permission posture, and
+# the coding worker's canonical scope resolver is the consumer. These cases pin
+# that the producer emits a scope the consumer accepts, that the authorization
+# behind it is unchanged, and that the execution binding is untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_delegated_dispatch_emits_the_canonical_write_scope(
+    db: _TestDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guardian emits the explicit repository-root token the worker reads.
+
+    The delegated task's authorized write scope is the bound working tree.
+    It has to be emitted as the canonical root token: the old empty-string
+    encoding named nothing the mutation guard could authorize, so a delegated
+    attempt would have failed closed at the worker instead of running.
+    """
+    from guardian.agents.execution_credentials import store_api_key
+    from guardian.queue import redis_queue
+    from guardian.queue.redis_queue import dequeue_coding_execution
+    from guardian.tasks.types import CodingExecutionTask
+    from guardian.workers.coding_worker import _resolve_authorized_write_scope
+
+    # Keep the coding-execution queue in memory and the credential store
+    # encryptable, so this case never reaches a shared queue.
+    monkeypatch.setattr(redis_queue, "_CLIENT", redis_queue._InMemoryRedis())
+    monkeypatch.setattr(
+        redis_queue, "_QUEUE_CLIENT", redis_queue._InMemoryRedis()
+    )
+    monkeypatch.setenv(
+        "GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY",
+        "T7xQ9v2Kc4mB8nR3wY6zA1sD5fG0hJ7kL2pX9uV4eC8=",
+    )
+
+    seeded = _seed_source_context(db)
+    store_api_key(
+        db,
+        owner_scope="account",
+        owner_id=seeded["user_id"],
+        provider_id="deepseek",
+        api_key="sk-test-scope-emission",
+        funding_route="user_byok",
+    )
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = service._create_agent_run_link(
+        intent_id="gdi-scope-emission",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    result = service.dispatch_delegated_task(
+        intent_id="gdi-scope-emission",
+        deployment_id=run["deployment_id"],
+        run_id=run["run_id"],
+        attempt_id=run["attempt_id"],
+        coding_task_id=run["coding_task_id"],
+        instructions="Do the thing.",
+        repo_root=str(tmp_path),
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+
+    payload = dequeue_coding_execution(block=False)
+    assert payload is not None
+    task = CodingExecutionTask.from_dict(payload)
+
+    # The emitted scope is the explicit repository-root token.
+    assert task.permission_policy["allowed_paths"] == ["."]
+
+    # The worker's canonical resolver accepts that representation.
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=list(task.permission_policy["allowed_paths"]),
+        repo_root=str(tmp_path),
+    )
+    assert scope.resolved is True
+    assert scope.root_authorized is True
+
+    # The resolved posture and the enqueued task agree.
+    assert result["permission_posture"]["permission_policy"]["allowed_paths"] == [
+        "."
+    ]
+
+    # No unrelated permission field changed.
+    assert task.permission_policy["allow_write"] is True
+    assert task.permission_policy["allow_shell"] is True
+    assert task.permission_policy["allow_network"] is False
+
+    # The execution binding is untouched by the scope change: the enqueued
+    # binding is byte-identical to the persisted one.
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+    assert deployment is not None
+    spec = dict(deployment.spec_json or {})
+    persisted_binding = spec.get("execution_binding")
+    assert isinstance(persisted_binding, dict)
+    assert task.execution_binding == persisted_binding
+
+
+def test_delegated_dispatch_without_a_bound_root_refuses_to_emit_a_scope(
+    db: _TestDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing repository binding must not become a root write grant.
+
+    The scope constant names the bound working tree, but it cannot stand in
+    for the binding itself. With no working-tree root and no project binding
+    to fall back on, the dispatch fails closed rather than emitting a scope
+    that would authorize the repository.
+    """
+    from guardian.agents.execution_credentials import store_api_key
+    from guardian.core.guardian_delegation_service import (
+        GuardianDelegationDispatchError,
+    )
+    from guardian.queue import redis_queue
+
+    monkeypatch.setattr(redis_queue, "_CLIENT", redis_queue._InMemoryRedis())
+    monkeypatch.setattr(
+        redis_queue, "_QUEUE_CLIENT", redis_queue._InMemoryRedis()
+    )
+    monkeypatch.setenv(
+        "GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY",
+        "T7xQ9v2Kc4mB8nR3wY6zA1sD5fG0hJ7kL2pX9uV4eC8=",
+    )
+
+    seeded = _seed_source_context(db)
+    store_api_key(
+        db,
+        owner_scope="account",
+        owner_id=seeded["user_id"],
+        provider_id="deepseek",
+        api_key="sk-test-scope-unbound",
+        funding_route="user_byok",
+    )
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = service._create_agent_run_link(
+        intent_id="gdi-scope-unbound",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=None,
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    with pytest.raises(GuardianDelegationDispatchError) as excinfo:
+        service.dispatch_delegated_task(
+            intent_id="gdi-scope-unbound",
+            deployment_id=run["deployment_id"],
+            run_id=run["run_id"],
+            attempt_id=run["attempt_id"],
+            coding_task_id=run["coding_task_id"],
+            instructions="Do the thing.",
+            repo_root=None,
+            thread_id=seeded["thread_id"],
+            source_message_id=seeded["source_message_id"],
+            user_id=seeded["user_id"],
+            project_id=None,
+        )
+
+    # It failed for the *scope* reason, not for some unrelated binding fault:
+    # the posture could not resolve a working-tree root to scope the grant to.
+    cause = excinfo.value.__cause__
+    assert cause is not None
+    assert getattr(cause, "code", "") == "guardian_posture_unresolved"
+    assert getattr(cause, "detail", "") == "guardian_posture_write_scope_unresolved"
+
+
+# ---------------------------------------------------------------------------
+# The service credential lane produces the same canonical scope.
+#
+# Selecting a service-owned credential must not change anything the worker
+# reads: the authorized write scope, the permission posture, and the
+# byte-identical relationship between the persisted and queued bindings all
+# have to be exactly what the account-owned lane produces.
+# ---------------------------------------------------------------------------
+
+
+def test_delegated_dispatch_emits_the_canonical_write_scope_for_a_service_credential(
+    db: _TestDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A service-owned credential emits the same canonical repository-root scope."""
+    from guardian.agents.execution_credentials import store_api_key
+    from guardian.queue import redis_queue
+    from guardian.queue.redis_queue import dequeue_coding_execution
+    from guardian.tasks.types import CodingExecutionTask
+    from guardian.workers.coding_worker import _resolve_authorized_write_scope
+
+    # Keep the coding-execution queue in memory and the credential store
+    # encryptable, so this case never reaches a shared queue.
+    monkeypatch.setattr(redis_queue, "_CLIENT", redis_queue._InMemoryRedis())
+    monkeypatch.setattr(
+        redis_queue, "_QUEUE_CLIENT", redis_queue._InMemoryRedis()
+    )
+    monkeypatch.setenv(
+        "GUARDIAN_OAUTH_TOKEN_ENCRYPTION_KEY",
+        "T7xQ9v2Kc4mB8nR3wY6zA1sD5fG0hJ7kL2pX9uV4eC8=",
+    )
+
+    seeded = _seed_source_context(db)
+    store_api_key(
+        db,
+        owner_scope="service",
+        owner_id="codexify-service",
+        provider_id="deepseek",
+        api_key="sk-test-service-scope-emission",
+        funding_route="codexify_metered",
+        allowed_account_ids=[seeded["user_id"]],
+        allowed_model_ids=["deepseek-v4-flash"],
+        usage_policy_ref="usage-policy-codexify-metered",
+    )
+
+    service = GuardianDelegationService()
+    service.configure_db(db)
+    run = service._create_agent_run_link(
+        intent_id="gdi-service-scope-emission",
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        project_id=seeded["project_id"],
+        user_id=seeded["user_id"],
+        plan_summary={"standardized_task_prompt": "Do the thing."},
+        context_basis=[],
+    )
+
+    result = service.dispatch_delegated_task(
+        intent_id="gdi-service-scope-emission",
+        deployment_id=run["deployment_id"],
+        run_id=run["run_id"],
+        attempt_id=run["attempt_id"],
+        coding_task_id=run["coding_task_id"],
+        instructions="Do the thing.",
+        repo_root=str(tmp_path),
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+
+    payload = dequeue_coding_execution(block=False)
+    assert payload is not None
+    task = CodingExecutionTask.from_dict(payload)
+
+    # The emitted scope is the explicit repository-root token, exactly as on
+    # the account lane.
+    assert task.permission_policy["allowed_paths"] == ["."]
+
+    # The worker's canonical resolver accepts that representation.
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=list(task.permission_policy["allowed_paths"]),
+        repo_root=str(tmp_path),
+    )
+    assert scope.resolved is True
+    assert scope.root_authorized is True
+
+    # The service ownership survives into the enqueued binding.
+    assert task.execution_binding["credential_owner_scope"] == "service"
+    assert task.execution_binding["credential_owner_id"] == "codexify-service"
+    assert task.execution_binding["funding_route"] == "codexify_metered"
+    assert task.execution_binding["usage_policy_ref"] == (
+        "usage-policy-codexify-metered"
+    )
+
+    # The enqueued binding is byte-identical to the durable one.
+    with db.get_session() as session:
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=run["deployment_id"])
+            .one_or_none()
+        )
+    assert deployment is not None
+    spec = dict(deployment.spec_json or {})
+    persisted_binding = spec.get("execution_binding")
+    assert isinstance(persisted_binding, dict)
+    assert task.execution_binding == persisted_binding
+
+    # The permission posture is unchanged by the credential's owner.
+    assert result["permission_posture"]["permission_policy"]["allowed_paths"] == [
+        "."
+    ]
+    assert task.permission_policy["allow_write"] is True
+    assert task.permission_policy["allow_shell"] is True
+    assert task.permission_policy["allow_network"] is False

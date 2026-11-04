@@ -8,11 +8,13 @@ import logging
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from guardian.agents.adapters import ADAPTERS
 from guardian.agents.adapters.base import AgentExecutionIdentity, AgentExecutionRequest
@@ -26,7 +28,18 @@ from guardian.agents.commit_gate import (
     commit_after_green,
 )
 from guardian.agents.events import build_coding_result_lineage_payload
-from guardian.agents.store import AgentStore, store
+from guardian.agents.store import (
+    CODING_RUN_REVIEW_MAX_ROWS,
+    CODING_RUN_REVIEW_PARTIAL,
+    CODING_RUN_REVIEW_UNAVAILABLE,
+    RUN_ACCEPTANCE_ACCEPTED,
+    RUN_ACCEPTANCE_UNAVAILABLE,
+    RUN_HEARTBEAT_NOT_ELIGIBLE,
+    RUN_HEARTBEAT_UNAVAILABLE,
+    RUN_TERMINAL_ACCEPTED,
+    AgentStore,
+    store,
+)
 from guardian.agents.test_results import (
     NormalizedTestResult,
     normalize_subprocess_test_result,
@@ -54,6 +67,11 @@ from guardian.queue.redis_queue import dequeue_coding_execution, is_cancelled
 from guardian.tasks.types import CodingExecutionTask, task_from_dict
 
 logger = logging.getLogger(__name__)
+
+#: How many run identifiers one startup-review log line may list. The review
+#: itself is bounded by the store's read limit; a *log line* is bounded
+#: separately so a large population cannot flood the log.
+_CODING_RUN_REVIEW_LOG_ID_LIMIT = 20
 _SUBPROCESS_RUN = subprocess.run
 
 WORKER_POLL_INTERVAL_SECONDS = float(
@@ -1121,45 +1139,194 @@ def _changed_paths_since_preflight(
     return changed
 
 
-def _path_allowed(path: str, allowed_paths: list[str]) -> bool:
-    candidate = str(path or "").replace("\\", "/").strip()
+#: The explicit scope token that authorizes the whole bound repository. A
+#: Guardian-resolved posture must name it; an empty or omitted scope never
+#: implies it.
+_AUTHORIZED_SCOPE_ROOT_TOKEN = "."
+
+#: Characters that mark a scope entry as an explicitly authorized pattern.
+_AUTHORIZED_SCOPE_PATTERN_CHARACTERS = ("*", "?", "[")
+
+
+@dataclass(frozen=True)
+class AuthorizedWriteScope:
+    """One normalized Guardian-authorized write scope.
+
+    ``entries`` holds ``(kind, value)`` pairs where kind is ``"root"``,
+    ``"prefix"`` or ``"pattern"``. An empty ``entries`` tuple means the scope
+    could not be resolved: it authorizes nothing, and the caller must fail
+    closed rather than treat the repository as unrestricted.
+    """
+
+    entries: tuple[tuple[str, str], ...] = ()
+    rejected: tuple[str, ...] = ()
+    reason: str | None = None
+
+    @property
+    def resolved(self) -> bool:
+        return bool(self.entries)
+
+    @property
+    def root_authorized(self) -> bool:
+        return any(kind == "root" for kind, _value in self.entries)
+
+    def authorized_paths(self) -> list[str]:
+        """The normalized scope entries, for diagnostic metadata."""
+        return [value for _kind, value in self.entries]
+
+
+def _scope_entry_text(raw: Any) -> str:
+    return str(raw or "").replace("\\", "/").strip()
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    if not path or not root:
+        return False
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
+def _resolve_authorized_write_scope(
+    *,
+    allowed_paths: Any,
+    repo_root: str | None,
+) -> AuthorizedWriteScope:
+    """Normalize one Guardian-authorized write scope.
+
+    This is the single interpretation of ``permission_policy["allowed_paths"]``
+    that every mutation check in this worker consumes. A scope entry is one of:
+
+    * ``"."`` — explicit repository-root authorization;
+    * a repository-relative path prefix — an exact file, or a directory and
+      everything beneath it. Prefixes are matched on a path boundary, so a
+      scope of ``src`` never authorizes the sibling ``src-other``;
+    * an explicitly authorized glob pattern.
+
+    An empty string, an absolute path outside the bound repository, and a
+    parent-directory traversal are rejected. A scope that resolves to no valid
+    entry authorizes nothing at all, so the caller fails closed instead of
+    treating the repository as unrestricted.
+    """
+    if not isinstance(allowed_paths, (list, tuple, set)):
+        return AuthorizedWriteScope(reason="allowed_paths_missing")
+
+    root = (
+        os.path.realpath(str(repo_root).strip())
+        if str(repo_root or "").strip()
+        else None
+    )
+    entries: list[tuple[str, str]] = []
+    rejected: list[str] = []
+
+    for item in allowed_paths:
+        entry = _scope_entry_text(item)
+        if not entry:
+            rejected.append("<empty>")
+            continue
+        if ".." in entry.split("/"):
+            rejected.append(entry)
+            continue
+        relative = entry
+        if os.path.isabs(entry):
+            if not root:
+                rejected.append(entry)
+                continue
+            absolute = os.path.realpath(entry)
+            if not _path_is_within(absolute, root):
+                rejected.append(entry)
+                continue
+            relative = os.path.relpath(absolute, root).replace("\\", "/")
+        while relative.startswith("./"):
+            relative = relative[2:]
+        if relative in {"", "."}:
+            entries.append(("root", _AUTHORIZED_SCOPE_ROOT_TOKEN))
+            continue
+        if any(char in relative for char in _AUTHORIZED_SCOPE_PATTERN_CHARACTERS):
+            entries.append(("pattern", relative))
+            continue
+        entries.append(("prefix", relative.rstrip("/")))
+
+    if not entries:
+        return AuthorizedWriteScope(
+            rejected=tuple(rejected),
+            reason="allowed_paths_unresolved",
+        )
+    return AuthorizedWriteScope(
+        entries=tuple(entries),
+        rejected=tuple(rejected),
+    )
+
+
+def _authorized_scope_allows_path(
+    scope: AuthorizedWriteScope,
+    path: str,
+    *,
+    repo_root: str | None = None,
+) -> bool:
+    """Return True when one changed path is inside the authorized scope.
+
+    The changed path is repository-relative, as reported by git. An absolute
+    path, a parent-directory traversal, and a path that resolves outside the
+    bound repository are rejected before the scope is consulted.
+    """
+    candidate = _scope_entry_text(path)
     if not candidate:
         return False
-    for raw_pattern in allowed_paths:
-        pattern = str(raw_pattern or "").replace("\\", "/").strip()
-        if not pattern:
-            continue
-        if os.path.isabs(pattern) or ".." in pattern.split("/"):
-            continue
-        if pattern.endswith("/"):
-            prefix = pattern.rstrip("/")
-            if candidate == prefix or candidate.startswith(pattern):
+    if os.path.isabs(candidate):
+        return False
+    if ".." in candidate.split("/"):
+        return False
+    while candidate.startswith("./"):
+        candidate = candidate[2:]
+    if not candidate or candidate == ".":
+        return False
+
+    root = (
+        os.path.realpath(str(repo_root).strip())
+        if str(repo_root or "").strip()
+        else None
+    )
+    if root:
+        absolute = os.path.join(root, candidate)
+        if os.path.exists(absolute) and not _path_is_within(
+            os.path.realpath(absolute), root
+        ):
+            return False
+
+    for kind, value in scope.entries:
+        if kind == "root":
+            return True
+        if kind == "prefix":
+            if candidate == value or candidate.startswith(f"{value}/"):
                 return True
             continue
-        if candidate == pattern or fnmatchcase(candidate, pattern):
-            return True
+        if kind == "pattern":
+            if fnmatchcase(candidate, value):
+                return True
     return False
 
 
 def _normalize_allowed_paths(raw_allowed_paths: Any) -> list[str]:
-    if not isinstance(raw_allowed_paths, (list, tuple, set)):
-        return []
-    normalized: list[str] = []
-    for item in raw_allowed_paths:
-        pattern = str(item or "").replace("\\", "/").strip()
-        if not pattern:
-            continue
-        if os.path.isabs(pattern) or ".." in pattern.split("/"):
-            continue
-        if pattern not in normalized:
-            normalized.append(pattern)
-    return normalized
+    """The normalized scope entries, for diagnostic metadata only.
+
+    Authorization decisions are made by
+    ``_resolve_authorized_write_scope`` and ``_authorized_scope_allows_path``.
+    """
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=raw_allowed_paths,
+        repo_root=None,
+    )
+    return scope.authorized_paths()
 
 
 def _bound_paths(
     paths: list[str],
     limit: int = _MUTATION_GUARD_PATH_LIMIT,
 ) -> tuple[list[str], int, bool]:
+    if not isinstance(paths, (list, tuple, set)):
+        return [], 0, False
     bounded: list[str] = []
     for path in paths:
         normalized = str(path or "").replace("\\", "/").strip()
@@ -1201,38 +1368,6 @@ def _collect_dirty_worktree_paths(
     return dirty_paths, None
 
 
-def _resolve_allowed_scope_prefixes(
-    permission_policy: dict[str, Any],
-    *,
-    repo_root: str,
-) -> list[str]:
-    raw_allowed_paths = permission_policy.get("allowed_paths")
-    if not isinstance(raw_allowed_paths, list):
-        return []
-
-    prefixes: list[str] = []
-    for item in raw_allowed_paths:
-        raw_path = _coerce_optional_text(item)
-        if not raw_path:
-            continue
-        absolute = (
-            raw_path
-            if os.path.isabs(raw_path)
-            else os.path.abspath(os.path.join(repo_root, raw_path))
-        )
-        try:
-            if os.path.commonpath([repo_root, absolute]) != repo_root:
-                continue
-            rel = os.path.relpath(absolute, repo_root)
-        except Exception:
-            continue
-        if rel in {".", ""}:
-            prefixes.append("")
-            continue
-        prefixes.append(rel.rstrip("/"))
-    return sorted(set(prefixes))
-
-
 def _enforce_isolated_dirty_preflight(
     worktree_path: str,
 ) -> tuple[bool, str | None, str | None]:
@@ -1254,31 +1389,43 @@ def _enforce_isolated_mutation_scope(
     repo_root: str,
     permission_policy: dict[str, Any],
 ) -> tuple[bool, str | None, str | None]:
+    """Check every dirty path in the isolated worktree against the grant.
+
+    This uses the same normalized scope semantics as
+    ``_evaluate_mutation_guard``: both consume one Guardian-authorized scope
+    and decide with the same predicate. An unresolvable scope fails closed
+    rather than leaving the repository unrestricted.
+    """
     dirty_paths, error = _collect_dirty_worktree_paths(worktree_path)
     if error:
         return False, _error_value("MUTATION_SCOPE_UNVERIFIED"), error
 
+    allow_write = bool(permission_policy.get("allow_write"))
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=permission_policy.get("allowed_paths"),
+        repo_root=repo_root,
+    )
+    if not scope.resolved:
+        if allow_write:
+            return (
+                False,
+                _error_value("MUTATION_SCOPE_VIOLATION"),
+                _bounded_text(
+                    "authorized write scope could not be resolved "
+                    f"({scope.reason}; rejected={list(scope.rejected)})"
+                ),
+            )
+        # Without a write grant there is no scope to enforce here. The
+        # mutation guard owns the ``allow_write`` grant.
+        return True, None, None
+
     if not dirty_paths:
         return True, None, None
 
-    allowed_prefixes = _resolve_allowed_scope_prefixes(
-        permission_policy,
-        repo_root=repo_root,
-    )
-    if not allowed_prefixes:
-        return True, None, None
-
     for dirty_path in dirty_paths:
-        normalized = dirty_path.strip("/")
-        allowed = False
-        for prefix in allowed_prefixes:
-            if not prefix:
-                allowed = True
-                break
-            if normalized == prefix or normalized.startswith(f"{prefix}/"):
-                allowed = True
-                break
-        if not allowed:
+        if not _authorized_scope_allows_path(
+            scope, dirty_path, repo_root=repo_root
+        ):
             return (
                 False,
                 _error_value("MUTATION_SCOPE_VIOLATION"),
@@ -1582,9 +1729,16 @@ def _evaluate_mutation_guard(
     before_ok: bool,
     after_paths: list[str],
     after_ok: bool,
-    allowed_paths: list[str],
+    allowed_paths: Any,
     allow_write: bool,
 ) -> dict[str, Any]:
+    """Check every changed path against the Guardian-authorized write scope.
+
+    This consumes the same normalized scope semantics as
+    ``_enforce_isolated_mutation_scope``: one scope, one predicate, one
+    decision. An unresolvable scope fails closed rather than leaving the
+    repository unrestricted.
+    """
     if repo_root is None or not before_ok or not after_ok:
         return _mutation_guard_metadata(
             enabled=bool(repo_root),
@@ -1596,6 +1750,24 @@ def _evaluate_mutation_guard(
             warning="mutation_scope_cannot_be_proven_without_git_porcelain",
         )
 
+    scope = _resolve_authorized_write_scope(
+        allowed_paths=allowed_paths,
+        repo_root=repo_root,
+    )
+    if allow_write and not scope.resolved:
+        return _mutation_guard_metadata(
+            enabled=True,
+            status="mutation_scope_violation",
+            allowed_paths=scope.authorized_paths(),
+            changed_paths=[],
+            disallowed_paths=[],
+            error_code=_error_value("MUTATION_SCOPE_VIOLATION"),
+            warning=_bounded_text(
+                "authorized write scope could not be resolved "
+                f"({scope.reason}; rejected={list(scope.rejected)})"
+            ),
+        )
+
     changed_paths = _changed_paths_since_preflight(
         repo_root,
         before_paths,
@@ -1605,7 +1777,7 @@ def _evaluate_mutation_guard(
         return _mutation_guard_metadata(
             enabled=True,
             status="clean",
-            allowed_paths=allowed_paths,
+            allowed_paths=scope.authorized_paths(),
             changed_paths=[],
             disallowed_paths=[],
         )
@@ -1615,14 +1787,16 @@ def _evaluate_mutation_guard(
         disallowed_paths = list(changed_paths)
     else:
         for path in changed_paths:
-            if not _path_allowed(path, allowed_paths):
+            if not _authorized_scope_allows_path(
+                scope, path, repo_root=repo_root
+            ):
                 disallowed_paths.append(path)
 
     if disallowed_paths:
         return _mutation_guard_metadata(
             enabled=True,
             status="mutation_scope_violation",
-            allowed_paths=allowed_paths,
+            allowed_paths=scope.authorized_paths(),
             changed_paths=changed_paths,
             disallowed_paths=disallowed_paths,
             error_code=_error_value("MUTATION_SCOPE_VIOLATION"),
@@ -1631,7 +1805,7 @@ def _evaluate_mutation_guard(
     return _mutation_guard_metadata(
         enabled=True,
         status="within_allowed_paths",
-        allowed_paths=allowed_paths,
+        allowed_paths=scope.authorized_paths(),
         changed_paths=changed_paths,
         disallowed_paths=[],
     )
@@ -1711,6 +1885,23 @@ def _execution_provenance(
     return provenance
 
 
+def _authorized_reasoning_effort_kwargs(
+    binding: CodingExecutionBinding,
+) -> dict[str, Any]:
+    """Forward the Guardian-governed reasoning effort, and nothing else.
+
+    The effort reaches the worker only through the persisted Guardian execution
+    binding, and it is forwarded verbatim. The worker never selects a level of
+    its own from the model identity or from ambient process configuration.
+
+    A binding that does not govern the effort (schema version 1) forwards no
+    value at all, so those lanes keep the harness default exactly as before.
+    """
+    if binding.reasoning_effort is None:
+        return {}
+    return {"reasoning_effort": binding.reasoning_effort}
+
+
 def _validate_task_execution_binding(
     task: CodingExecutionTask,
     deployment_spec: dict[str, Any],
@@ -1743,11 +1934,368 @@ def _validate_task_execution_binding(
     return binding
 
 
+#: Prefixes for the internally generated coding-worker ownership identifiers.
+#: They follow the repository's established ``<prefix>_<uuid4 hex>`` convention.
+_CODING_WORKER_INSTANCE_ID_PREFIX = "cwi"
+_CODING_WORKER_CLAIM_ID_PREFIX = "cwc"
+
+
+def _new_coding_worker_instance_id() -> str:
+    """Generate a fresh internal coding-worker instance identity.
+
+    The identity is a fresh uuid, not a hostname or a PID: two worker
+    instances on the same host must never collide, and a restarted process
+    must never inherit its predecessor's identity. It is generated here, in
+    the worker, so that no queue payload, deployment field, or model output
+    can choose who executes a run.
+    """
+    return f"{_CODING_WORKER_INSTANCE_ID_PREFIX}_{uuid4().hex}"
+
+
+def _new_coding_worker_claim_id() -> str:
+    """Generate a fresh ownership claim id for one proposed run acceptance.
+
+    A claim identifies exactly one acceptance, so every proposed acceptance
+    gets its own. It is durable correlation material for future fencing; it is
+    not retry authority and it says nothing about liveness.
+    """
+    return f"{_CODING_WORKER_CLAIM_ID_PREFIX}_{uuid4().hex}"
+
+
+#: How often an accepted coding run reports liveness while it executes.
+#:
+#: The cadence is explicit and overridable so that it is testable and
+#: documented. It is *only* a reporting cadence: nothing in the runtime reads
+#: this value to infer that a worker died, and no heartbeat ever authorizes
+#: execution, retry, or recovery.
+CODING_RUN_HEARTBEAT_INTERVAL_SECONDS = float(
+    os.getenv("CODING_RUN_HEARTBEAT_INTERVAL_SECONDS", "15")
+)
+
+
+class _CodingRunHeartbeat:
+    """Claim-scoped liveness reporting for one accepted coding execution.
+
+    The reporting runs on its own thread because the adapter invocation is
+    synchronous: while the worker is blocked inside the provider call, nothing
+    else on that thread could report liveness.
+
+    Every renewal opens its own bounded database session, so no SQLAlchemy
+    session is ever shared across threads. The helper is scoped to exactly one
+    run and one ownership claim; it is never process-global, and it is stopped
+    and joined when the execution ends.
+    """
+
+    def __init__(
+        self,
+        store: AgentStore,
+        *,
+        run_id: str,
+        worker_instance_id: str,
+        claim_id: str,
+        interval_seconds: float,
+    ) -> None:
+        self._store = store
+        self._run_id = str(run_id or "")
+        self._worker_instance_id = str(worker_instance_id or "")
+        self._claim_id = str(claim_id or "")
+        self._interval_seconds = max(0.05, float(interval_seconds))
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._last_result: str | None = None
+        self._rejection_reason: str | None = None
+        self._stopped = False
+
+    # -- observable state -------------------------------------------------
+
+    @property
+    def last_result(self) -> str | None:
+        """The most recent renewal outcome, or ``None`` before the first one."""
+        with self._lock:
+            return self._last_result
+
+    @property
+    def rejection_reason(self) -> str | None:
+        """Why the claim stopped being eligible, if it did."""
+        with self._lock:
+            return self._rejection_reason
+
+    @property
+    def ownership_lost(self) -> bool:
+        """Whether the claim was found to be no longer eligible.
+
+        This is the database's own verdict from a conditional update, not an
+        optimistic application-level guess.
+        """
+        return self.rejection_reason is not None
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(self) -> None:
+        """Begin reporting liveness for the owned run."""
+        if self._thread is not None:
+            return
+        thread = threading.Thread(
+            target=self._run,
+            name=f"coding-run-heartbeat-{self._run_id[:12]}",
+            daemon=True,
+        )
+        self._thread = thread
+        thread.start()
+
+    def stop(self) -> None:
+        """Stop reporting and join the helper. Safe to call more than once."""
+        if self._stopped:
+            return
+        self._stopped = True
+        self._stop_event.set()
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5.0)
+
+    # -- reporting ---------------------------------------------------------
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval_seconds):
+            try:
+                result = self._store.renew_coding_run_heartbeat(
+                    run_id=self._run_id,
+                    worker_instance_id=self._worker_instance_id,
+                    claim_id=self._claim_id,
+                )
+            except Exception:
+                logger.exception(
+                    "[coding-worker] heartbeat renewal raised run_id=%s",
+                    self._run_id,
+                )
+                result = RUN_HEARTBEAT_UNAVAILABLE
+            with self._lock:
+                self._last_result = result
+            if result == RUN_HEARTBEAT_NOT_ELIGIBLE:
+                # The claim is no longer the canonical owner of this run.
+                # Stop reporting: a heartbeat must never be manufactured for a
+                # claim that no longer holds the run.
+                with self._lock:
+                    self._rejection_reason = (
+                        "coding_run_claim_no_longer_eligible"
+                    )
+                return
+
+
+@dataclass(frozen=True)
+class CodingRunStartupReview:
+    """The bounded, read-only result of one coding worker's startup review.
+
+    This is an **observation** of canonical PostgreSQL state, not a decision
+    and not a second source of truth. It records what the canonical record
+    showed at startup; it never says a worker died, never authorises a retry,
+    a requeue, an escalation, a takeover, or a terminal result, and it never
+    changes any run.
+
+    The counts use the established liveness vocabulary
+    (``recently_observed``, ``stale_uncertain``, ``missing_evidence``,
+    ``already_resolved``, ``already_escalated``, ``inconsistent``) so that
+    the startup review and the per-run classifier speak the same language.
+
+    ``review_complete`` and ``review_error_code`` together distinguish the
+    three states a review can be in:
+
+    - **complete** -- ``review_complete`` is true and the error code is
+      ``None``: the whole unresolved population was read.
+    - **partial** -- ``review_complete`` is false and the error code is
+      ``CODING_RUN_REVIEW_PARTIAL``: the bounded read stopped at its limit and
+      more unresolved runs may exist. A partial review is never presented as a
+      complete inventory.
+    - **unavailable** -- ``review_complete`` is false and the error code is
+      ``CODING_RUN_REVIEW_UNAVAILABLE``: the canonical store could not be
+      read. This is never an empty inventory.
+
+    The identifier lists are bounded by the review's own read limit. They
+    carry internal run identifiers only: no credential value, no raw prompt,
+    no transcript content, no provider response, and no account content.
+    """
+
+    reviewed_count: int = 0
+    recently_observed_count: int = 0
+    stale_uncertain_count: int = 0
+    missing_evidence_count: int = 0
+    inconsistent_count: int = 0
+    already_resolved_count: int = 0
+    already_escalated_count: int = 0
+    review_complete: bool = False
+    review_error_code: str | None = None
+    run_ids: tuple[str, ...] = ()
+    stale_uncertain_run_ids: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """The review as a bounded, loggable mapping."""
+        return {
+            "reviewed_count": self.reviewed_count,
+            "recently_observed_count": self.recently_observed_count,
+            "stale_uncertain_count": self.stale_uncertain_count,
+            "missing_evidence_count": self.missing_evidence_count,
+            "inconsistent_count": self.inconsistent_count,
+            "already_resolved_count": self.already_resolved_count,
+            "already_escalated_count": self.already_escalated_count,
+            "review_complete": self.review_complete,
+            "review_error_code": self.review_error_code,
+            "run_ids": list(self.run_ids),
+            "stale_uncertain_run_ids": list(self.stale_uncertain_run_ids),
+        }
+
+
 class CodingWorker:
     """Processes coding execution tasks from queue via PiCodexRunnerAdapter."""
 
-    def __init__(self, agent_store: AgentStore | None = None):
+    def __init__(
+        self,
+        agent_store: AgentStore | None = None,
+        *,
+        worker_instance_id: str | None = None,
+    ):
+        """Create a coding worker with its own internal instance identity.
+
+        The instance identity is *executor* metadata: it says which worker
+        instance took an execution claim. It is not an account, principal, or
+        credential identity, and it is not derived from a hostname or a PID,
+        because two instances on one host must never collide and a restarted
+        process must never inherit its predecessor's identity.
+
+        ``worker_instance_id`` is a trusted test seam. It exists so a test can
+        inject a deterministic identity; production never supplies it, and no
+        queue payload, deployment field, or model output can select it.
+        """
         self.store = agent_store or _store
+        self.worker_instance_id = (
+            str(worker_instance_id).strip()
+            if worker_instance_id is not None
+            else _new_coding_worker_instance_id()
+        )
+        if not self.worker_instance_id:
+            raise ValueError("coding worker instance id must not be empty")
+        # Liveness reporters for the runs this worker currently owns. They are
+        # per-worker, never process-global, and every terminal path removes
+        # its entry, so a reporter cannot leak into a later task.
+        self._coding_run_heartbeats: dict[str, _CodingRunHeartbeat] = {}
+        # The ownership claim this worker holds for each run it accepted. It is
+        # the fence for terminalization: only the recorded worker instance and
+        # claim may write a terminal result. The claim comes from the durable
+        # acceptance, never from the task payload or from model output.
+        self._coding_run_claims: dict[str, str] = {}
+
+    def review_unresolved_coding_runs(
+        self,
+        *,
+        limit: int = CODING_RUN_REVIEW_MAX_ROWS,
+        observation_instant: datetime | None = None,
+    ) -> CodingRunStartupReview:
+        """Review the unresolved Guardian coding runs. **Read-only.**
+
+        The coding worker performs this once, at startup, after canonical
+        PostgreSQL access is established and before it consumes anything from
+        the coding queue.
+
+        **Startup is the trigger, not the authority.** A worker process
+        starting says nothing about any other worker's state: a system may
+        legitimately run several coding workers, and a restarting worker may
+        encounter work that is still executing on another machine. This method
+        therefore observes and classifies; it never concludes that a worker
+        died, never infers one explanation for a stale heartbeat over another
+        (a blocked worker, a database connectivity failure, a paused process,
+        a long-running operation with delayed reporting, or an actual
+        termination), and never acts on what it observed.
+
+        The classification is the one already proven for per-run liveness
+        (``classify_coding_run_liveness``); this method does not implement a
+        second classifier and does not reinterpret its verdicts. A run's
+        evidence is read from a single consistent canonical projection, and the
+        comparison is made against the **database** clock recorded with the
+        observation.
+
+        Nothing here mutates canonical state. It does not update a run, add
+        an escalation, create another attempt, mint another execution
+        binding, renew a credential lease, requeue a task, publish a terminal
+        task event, create a coding-result artifact, deliver a source-thread
+        message, replace worker ownership, modify a worktree, or execute the
+        adapter. It does not call the quarantine service, the quarantine
+        persistence, or the operator HTTP route, and it does not call
+        ``recover_dispatch()``.
+
+        A review that cannot read the canonical store is reported as
+        *unavailable*, never as an empty inventory.
+
+        ``observation_instant`` exists so a contract test can pin the
+        observation instant and exercise the staleness boundary exactly, the
+        same seam the canonical liveness snapshot already offers. Production
+        callers omit it, and the observation is then the database clock.
+        """
+        from guardian.core.guardian_dispatch import (
+            CodingRunLivenessEvidence,
+            classify_coding_run_liveness,
+        )
+
+        inventory = self.store.list_unresolved_guardian_coding_runs(
+            limit=limit,
+            observation_instant=observation_instant,
+        )
+        runs = list(inventory.get("runs") or [])
+        store_error = inventory.get("error_code")
+        if store_error:
+            # The read itself failed. This is never an empty inventory: an
+            # unreachable store is not evidence that no unresolved run exists.
+            return CodingRunStartupReview(
+                review_complete=False,
+                review_error_code=str(store_error),
+            )
+
+        recently_observed = 0
+        stale_uncertain = 0
+        missing_evidence = 0
+        inconsistent = 0
+        already_resolved = 0
+        already_escalated = 0
+        run_ids: list[str] = []
+        stale_run_ids: list[str] = []
+
+        for snapshot in runs:
+            verdict = classify_coding_run_liveness(snapshot)
+            evidence = str(getattr(verdict, "evidence", "") or "")
+            run_id = str(
+                getattr(verdict, "run_id", None) or snapshot.get("run_id") or ""
+            )
+            if run_id:
+                run_ids.append(run_id)
+            if evidence == CodingRunLivenessEvidence.RECENTLY_OBSERVED.value:
+                recently_observed += 1
+            elif evidence == CodingRunLivenessEvidence.STALE_UNCERTAIN.value:
+                stale_uncertain += 1
+                if run_id:
+                    stale_run_ids.append(run_id)
+            elif evidence == CodingRunLivenessEvidence.MISSING_EVIDENCE.value:
+                missing_evidence += 1
+            elif evidence == CodingRunLivenessEvidence.INCONSISTENT.value:
+                inconsistent += 1
+            elif evidence == CodingRunLivenessEvidence.ALREADY_RESOLVED.value:
+                already_resolved += 1
+            elif evidence == CodingRunLivenessEvidence.ALREADY_ESCALATED.value:
+                already_escalated += 1
+
+        complete = bool(inventory.get("complete"))
+        return CodingRunStartupReview(
+            reviewed_count=len(runs),
+            recently_observed_count=recently_observed,
+            stale_uncertain_count=stale_uncertain,
+            missing_evidence_count=missing_evidence,
+            inconsistent_count=inconsistent,
+            already_resolved_count=already_resolved,
+            already_escalated_count=already_escalated,
+            review_complete=complete,
+            review_error_code=None if complete else CODING_RUN_REVIEW_PARTIAL,
+            run_ids=tuple(run_ids),
+            stale_uncertain_run_ids=tuple(stale_run_ids),
+        )
 
     def poll_once(self) -> bool:
         """Poll for and process one coding task. Returns True if processed."""
@@ -1779,9 +2327,131 @@ class CodingWorker:
                 error_code="PROCESSING_ERROR",
             )
             return True
+        finally:
+            # Safety net: a liveness reporter must never outlive the task that
+            # created it, even on a path that neither persisted nor failed a
+            # result.
+            self._stop_coding_run_heartbeat(str(task.run_id or ""))
 
     def _make_lease_store(self) -> WorktreeLeaseStore:
         return WorktreeLeaseStore(db=getattr(self.store, "db", None))
+
+    # -- claim-scoped liveness reporting ----------------------------------
+
+    def _start_coding_run_heartbeat(
+        self,
+        task: CodingExecutionTask,
+        *,
+        claim_id: str,
+    ) -> _CodingRunHeartbeat:
+        """Start reporting liveness for the run this worker just claimed."""
+        heartbeat = _CodingRunHeartbeat(
+            self.store,
+            run_id=str(task.run_id or ""),
+            worker_instance_id=self.worker_instance_id,
+            claim_id=str(claim_id or ""),
+            interval_seconds=CODING_RUN_HEARTBEAT_INTERVAL_SECONDS,
+        )
+        self._coding_run_heartbeats[str(task.run_id or "")] = heartbeat
+        heartbeat.start()
+        return heartbeat
+
+    def _stop_coding_run_heartbeat(self, run_id: str) -> None:
+        """Stop and join the liveness reporter for a run, if one is active."""
+        heartbeat = self._coding_run_heartbeats.pop(str(run_id or ""), None)
+        if heartbeat is not None:
+            heartbeat.stop()
+
+    def _stop_all_coding_run_heartbeats(self) -> None:
+        """Stop every liveness reporter this worker still owns."""
+        for run_id in list(self._coding_run_heartbeats):
+            self._stop_coding_run_heartbeat(run_id)
+
+    def shutdown(self) -> None:
+        """Stop and join every liveness reporter this worker owns.
+
+        This is the worker's graceful shutdown path. A reporter must never
+        outlive the worker that owns it: an orphaned reporter would keep
+        renewing a heartbeat for a run whose owner is going away, which is
+        exactly the liveness evidence the runtime is not allowed to
+        manufacture.
+
+        Stopping a reporter does not change the run. The canonical row keeps
+        its status, its owner, its claim, and its last heartbeat; the run
+        simply stops being reported, and a stale heartbeat is not proof that
+        the worker died.
+        """
+        self._stop_all_coding_run_heartbeats()
+
+    def _coding_run_claim(self, run_id: str) -> str | None:
+        """The ownership claim this worker holds for a run, if any.
+
+        A run that was never accepted by this worker has no claim, and its
+        terminal paths keep their existing behaviour.
+        """
+        return self._coding_run_claims.get(str(run_id or ""))
+
+    def _store_coding_result(
+        self,
+        task: CodingExecutionTask,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Persist a coding result under the run's ownership claim.
+
+        When this worker accepted the run, the terminal decision is fenced by
+        the recorded worker instance and claim: the canonical result writes
+        commit only while that claim still owns the run. A stale worker
+        therefore produces no terminal status, no coding-result artifact, and
+        no source-thread result.
+        """
+        claim_id = self._coding_run_claim(task.run_id)
+        if claim_id is not None:
+            return self.store.finalize_claimed_coding_result(
+                run_id=task.run_id,
+                worker_instance_id=self.worker_instance_id,
+                claim_id=claim_id,
+                **kwargs,
+            )
+        return self.store.store_coding_result(run_id=task.run_id, **kwargs)
+
+    def _finalize_claimed_run_status(
+        self,
+        task: CodingExecutionTask,
+        *,
+        status: str,
+        error: str | None = None,
+    ) -> str:
+        """Write a terminal status under the run's ownership claim.
+
+        The status is written by the same conditional database update the
+        terminal result uses, so a worker whose claim no longer owns the run
+        cannot move it to a terminal status of its own.
+        """
+        claim_id = self._coding_run_claim(task.run_id)
+        if claim_id is None:
+            self.store.update_run_status(
+                run_id=task.run_id,
+                status=status,
+                error=error,
+            )
+            return RUN_TERMINAL_ACCEPTED
+        return self.store.finalize_claimed_run_status(
+            run_id=task.run_id,
+            worker_instance_id=self.worker_instance_id,
+            claim_id=claim_id,
+            status=status,
+            error=error,
+        )
+
+    def _coding_run_ownership_lost(self, run_id: str) -> bool:
+        """Whether the database reported this run's claim as no longer eligible.
+
+        The verdict comes from the conditional heartbeat update itself, so it is
+        the database's own answer and not an optimistic application-level
+        guess about who owns the run.
+        """
+        heartbeat = self._coding_run_heartbeats.get(str(run_id or ""))
+        return bool(heartbeat is not None and heartbeat.ownership_lost)
 
     def _read_lease(
         self, lease_store: WorktreeLeaseStore, lease_id: str
@@ -1840,8 +2510,8 @@ class CodingWorker:
                 "lease_required": lease_required,
             }
         ]
-        self.store.store_coding_result(
-            run_id=task.run_id,
+        terminal_receipt = self._store_coding_result(
+            task,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
             request_id=task.request_id or None,
@@ -1872,6 +2542,7 @@ class CodingWorker:
             branch_name=branch_name,
             worktree_path=worktree_path,
             lease_required=lease_required,
+            terminal_receipt=terminal_receipt,
         )
 
     def _resolve_lease_context(
@@ -2066,9 +2737,8 @@ class CodingWorker:
             return
         validation_command = _resolve_validation_command(task, deployment_spec)
         permission_policy = _validation_permissions(task, deployment_spec)
-        allowed_paths = _normalize_allowed_paths(
-            permission_policy.get("allowed_paths")
-        )
+        raw_allowed_paths = permission_policy.get("allowed_paths")
+        allowed_paths = _normalize_allowed_paths(raw_allowed_paths)
 
         task_workdir = str(task.cwd or "").strip() or None
         guard_snapshot = _git_mutation_guard_snapshot(
@@ -2101,6 +2771,57 @@ class CodingWorker:
                 error_code="ADAPTER_NOT_FOUND",
             )
             return
+
+        # Durable acceptance. A side-effecting Guardian execution may not
+        # begin until ownership of the run is durably recorded: the canonical
+        # agent_runs row is atomically transitioned queued -> running, stamped
+        # with started_at, and stamped with the owning worker instance and a
+        # unique ownership claim. The trusted execution binding and its
+        # lineage were validated above, and the durable deployment record
+        # supplies the authority that the claim re-checks. Anything other
+        # than an accepted claim -- already claimed, terminal, mismatched, or
+        # unreachable persistence -- refuses execution.
+        #
+        # The ownership identity is generated here, from the worker instance
+        # itself. It is never read from the task, the payload, the
+        # deployment, or anything model-controlled.
+        ownership_claim_id = _new_coding_worker_claim_id()
+        acceptance = self.store.claim_run_for_acceptance(
+            run_id=str(task.run_id or ""),
+            deployment_id=str(task.deployment_id or ""),
+            worker_instance_id=self.worker_instance_id,
+            claim_id=ownership_claim_id,
+            user_id=execution_binding.user_id,
+            thread_id=task.thread_id,
+            source_message_id=_coerce_optional_positive_int(
+                task.source_message_id
+            ),
+            attempt_id=str(task.attempt_id or ""),
+            coding_task_id=str(task.coding_task_id or ""),
+        )
+        if acceptance != RUN_ACCEPTANCE_ACCEPTED:
+            self._emit_acceptance_rejected(
+                task,
+                adapter_kind=adapter_kind,
+                error_code=(
+                    "EXECUTION_ACCEPTANCE_UNAVAILABLE"
+                    if acceptance == RUN_ACCEPTANCE_UNAVAILABLE
+                    else "EXECUTION_ACCEPTANCE_REJECTED"
+                ),
+                error_message=(
+                    "durable execution acceptance is unavailable"
+                    if acceptance == RUN_ACCEPTANCE_UNAVAILABLE
+                    else "execution run was not accepted for this worker"
+                ),
+            )
+            return
+
+        # Durable acceptance succeeded. From here the run is owned by this
+        # worker instance under this claim, so the worker starts reporting
+        # claim-scoped liveness for it. The report is evidence, not authority:
+        # it never permits execution, retry, or recovery on its own.
+        self._coding_run_claims[str(task.run_id or "")] = ownership_claim_id
+        self._start_coding_run_heartbeat(task, claim_id=ownership_claim_id)
 
         (
             lease_ctx,
@@ -2290,7 +3011,7 @@ class CodingWorker:
                 before_ok=before_ok,
                 after_paths=after_paths,
                 after_ok=after_ok,
-                allowed_paths=allowed_paths,
+                allowed_paths=raw_allowed_paths,
                 allow_write=bool(permission_policy.get("allow_write")),
             )
 
@@ -2521,8 +3242,8 @@ class CodingWorker:
                     *result_artifact_payload,
                 ]
 
-            delivery = self.store.store_coding_result(
-                run_id=task.run_id,
+            delivery = self._store_coding_result(
+                task,
                 coding_task_id=task.coding_task_id,
                 attempt_id=task.attempt_id,
                 campaign_id=task.campaign_id,
@@ -2559,6 +3280,24 @@ class CodingWorker:
                     require_human_review_before_merge
                 ),
             )
+            # The run has reached its terminal outcome. Liveness reporting
+            # stops here: the heartbeat history stays on the row, but nothing
+            # renews it, and a terminal run can no longer be renewed anyway.
+            self._stop_coding_run_liveness(task)
+
+            if str(delivery.get("terminal_claim") or "") not in (
+                "",
+                RUN_TERMINAL_ACCEPTED,
+            ):
+                # The claim did not authorize this terminalization. No
+                # terminal status, artifact, or source-thread result was
+                # written, and no terminal event may be published for it.
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt=delivery,
+                )
+                return
 
             if _is_success_like_coding_result(result_status) and not bool(
                 delivery.get("delivery_ok", False)
@@ -2575,6 +3314,7 @@ class CodingWorker:
                     worktree=normalized_worktree,
                     result_captured_by_guardian=True,
                     mutation_guard=mutation_guard,
+                    terminal_receipt=delivery,
                 )
                 return
 
@@ -2822,11 +3562,24 @@ class CodingWorker:
                         worktree=_current_worktree_metadata(),
                     )
                     return
+                if self._coding_run_ownership_lost(str(task.run_id or "")):
+                    # The database reported that this claim no longer holds
+                    # the run. Entering the adapter now would perform side
+                    # effects under a claim we do not hold, so refuse.
+                    self._emit_ownership_lost(
+                        task,
+                        adapter_kind=adapter_kind,
+                        reason=(
+                            "coding run ownership claim is no longer eligible"
+                        ),
+                    )
+                    return
                 result = execute_authorized(
                     request,
                     identity,
                     credential_material=credential_material,
                     read_only=not bool(permission_policy.get("allow_write")),
+                    **_authorized_reasoning_effort_kwargs(execution_binding),
                 )
             finally:
                 del credential_material
@@ -3665,8 +4418,8 @@ class CodingWorker:
     ) -> None:
         """Store and emit an isolated-worktree pre-execution failure."""
         normalized_worktree = _normalize_worktree_metadata(worktree)
-        self.store.store_coding_result(
-            run_id=task.run_id,
+        terminal_receipt = self._store_coding_result(
+            task,
             coding_task_id=task.coding_task_id,
             attempt_id=task.attempt_id,
             request_id=task.request_id or None,
@@ -3695,6 +4448,7 @@ class CodingWorker:
             error_code=error_code,
             worktree=normalized_worktree,
             result_captured_by_guardian=True,
+            terminal_receipt=terminal_receipt,
         )
 
     def _emit_attempt_started(
@@ -4075,6 +4829,136 @@ class CodingWorker:
                 exc,
             )
 
+    def _emit_acceptance_rejected(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        """Report a refused durable acceptance without disturbing the run.
+
+        A duplicate delivery must not turn another worker's legitimately
+        running attempt into a terminal failure, must not produce a second
+        result artifact, and must not deliver a second source-thread
+        message. The refusal is therefore published as the canonical generic,
+        non-terminal task event: it is observable, and it is not a terminal
+        outcome for the attempt.
+        """
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_EVENT.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "acceptance_rejected",
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "execution_provenance": _execution_provenance(
+                        task.execution_binding
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit acceptance rejection event: %s",
+                exc,
+            )
+
+    def _emit_ownership_lost(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        reason: str,
+    ) -> None:
+        """Report that this worker's claim no longer holds the run.
+
+        The refusal is published as the canonical generic, non-terminal task
+        event. It is deliberately *not* a terminal outcome: the run's result is
+        unknown, and only an operator may decide what happens next. Nothing
+        here replaces the claim, mints a new owner, issues a credential lease,
+        grants a retry, or delivers a result.
+        """
+        try:
+            task_events.publish_with_visibility(
+                task.run_id,
+                TaskEventType.TASK_EVENT.value,
+                {
+                    **build_coding_result_lineage_payload(
+                        run_id=task.run_id,
+                        queue_task_id=task.task_id,
+                        coding_task_id=task.coding_task_id,
+                        attempt_id=task.attempt_id,
+                        request_id=task.request_id or None,
+                        source_thread_id=task.thread_id,
+                        source_message_id=_coerce_optional_positive_int(
+                            task.source_message_id
+                        ),
+                        adapter_kind=adapter_kind,
+                    ),
+                    "status": "ownership_lost",
+                    "error_code": "EXECUTION_OWNERSHIP_LOST",
+                    "error_message": reason,
+                    "execution_provenance": _execution_provenance(
+                        task.execution_binding
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "[coding-worker] failed to emit ownership-lost event: %s",
+                exc,
+            )
+
+    def _report_terminal_claim_rejected(
+        self,
+        task: CodingExecutionTask,
+        *,
+        adapter_kind: str | None,
+        receipt: dict[str, Any],
+    ) -> None:
+        """Report a terminalization that the run's claim did not authorize.
+
+        No terminal status, no coding-result artifact, no source-thread result
+        and no terminal event were produced. The refusal is published through
+        the existing non-terminal ownership-lost event: the run's result is
+        unknown, and only an operator may decide what happens next.
+        """
+        claim = str(receipt.get("terminal_claim") or "")
+        if claim == "terminal_already_terminal":
+            # The run was already terminal. Nothing was rewritten, and no
+            # second terminal event may be published for it.
+            logger.warning(
+                "[coding-worker] terminalization skipped run_id=%s: "
+                "the run was already terminal",
+                task.run_id,
+            )
+        else:
+            self._emit_ownership_lost(
+                task,
+                adapter_kind=adapter_kind,
+                reason=str(
+                    receipt.get("delivery_reason")
+                    or "coding_run_terminal_claim_rejected"
+                ),
+            )
+        # The run is terminal from the canonical store's point of view, so
+        # stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
+
     def _emit_failure(
         self,
         task: CodingExecutionTask,
@@ -4090,13 +4974,39 @@ class CodingWorker:
         worktree_path: str | None = None,
         lease_required: bool | None = None,
         mutation_guard: dict[str, Any] | None = None,
+        terminal_receipt: dict[str, Any] | None = None,
     ) -> None:
-        """Emit task.failed event for unrecoverable errors."""
-        self.store.update_run_status(
-            run_id=task.run_id,
-            status="failed",
-            error=error_message,
-        )
+        """Emit task.failed event for unrecoverable errors.
+
+        The terminal status is written under the run's ownership claim. When
+        the claim no longer owns the run, no terminal status is written and no
+        terminal event is published: the refusal is reported through the
+        existing non-terminal ownership-lost event instead.
+        """
+        if terminal_receipt is not None:
+            # The caller already made the fenced terminal decision.
+            if str(terminal_receipt.get("terminal_claim") or "") != (
+                RUN_TERMINAL_ACCEPTED
+            ):
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt=terminal_receipt,
+                )
+                return
+        else:
+            outcome = self._finalize_claimed_run_status(
+                task,
+                status="failed",
+                error=error_message,
+            )
+            if outcome != RUN_TERMINAL_ACCEPTED:
+                self._report_terminal_claim_rejected(
+                    task,
+                    adapter_kind=adapter_kind,
+                    receipt={"terminal_claim": outcome},
+                )
+                return
         payload = {
             **build_coding_result_lineage_payload(
                 run_id=task.run_id,
@@ -4142,10 +5052,27 @@ class CodingWorker:
                 "[coding-worker] failed to emit failure event: %s",
                 exc,
             )
+        # The run is terminal now, so stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
 
     def _emit_cancelled(self, task: CodingExecutionTask) -> None:
-        """Emit task.cancelled event."""
-        self.store.update_run_status(run_id=task.run_id, status="canceled")
+        """Emit task.cancelled event.
+
+        The terminal status is written under the run's ownership claim, so a
+        worker whose claim no longer owns the run cannot cancel it, and no
+        terminal event is published for a cancellation that did not happen.
+        """
+        outcome = self._finalize_claimed_run_status(
+            task,
+            status="canceled",
+        )
+        if outcome != RUN_TERMINAL_ACCEPTED:
+            self._report_terminal_claim_rejected(
+                task,
+                adapter_kind=None,
+                receipt={"terminal_claim": outcome},
+            )
+            return
         try:
             task_events.publish_with_visibility(
                 task.run_id,
@@ -4171,6 +5098,62 @@ class CodingWorker:
                 "[coding-worker] failed to emit cancelled event: %s",
                 exc,
             )
+        # The run is terminal now, so stop reporting liveness for it.
+        self._stop_coding_run_liveness(task)
+
+    def _stop_coding_run_liveness(self, task: CodingExecutionTask) -> None:
+        """Stop reporting liveness once a run has reached a terminal state.
+
+        The heartbeat history stays on the canonical row; only the reporting
+        stops. A terminal run can no longer be renewed anyway, because
+        renewal requires the run to still be ``running``.
+        """
+        self._stop_coding_run_heartbeat(str(task.run_id or ""))
+        # The terminal decision has been made, so this worker no longer holds
+        # the run's claim. Keeping it would let a later task in this worker
+        # present a claim it no longer owns.
+        self._coding_run_claims.pop(str(task.run_id or ""), None)
+
+
+def _log_coding_run_startup_review(review: CodingRunStartupReview) -> None:
+    """Record the bounded startup review as an internal diagnostic.
+
+    The review is an observation, so the log says what was *seen*: how many
+    unresolved runs were read, how their evidence classified, and whether the
+    review covered the whole population. It never says a worker died, and it
+    never records a credential, a prompt, a transcript, or any account
+    content.
+
+    Only the identifiers of the runs whose evidence is stale are listed, and
+    only up to a fixed bound. The worker already logs ``run_id`` for the runs
+    it owns, so identifiers are within the existing logging policy; a list is
+    not, which is why it is capped.
+    """
+    logger.info(
+        "[coding-worker] startup review reviewed_count=%d "
+        "recently_observed_count=%d stale_uncertain_count=%d "
+        "missing_evidence_count=%d inconsistent_count=%d "
+        "already_resolved_count=%d already_escalated_count=%d "
+        "review_complete=%s review_error_code=%s",
+        review.reviewed_count,
+        review.recently_observed_count,
+        review.stale_uncertain_count,
+        review.missing_evidence_count,
+        review.inconsistent_count,
+        review.already_resolved_count,
+        review.already_escalated_count,
+        review.review_complete,
+        review.review_error_code,
+    )
+    if review.stale_uncertain_run_ids:
+        logger.info(
+            "[coding-worker] startup review stale_uncertain_run_ids=%s",
+            ",".join(
+                review.stale_uncertain_run_ids[
+                    :_CODING_RUN_REVIEW_LOG_ID_LIMIT
+                ]
+            ),
+        )
 
 
 def _initialize_worker() -> None:
@@ -4184,11 +5167,32 @@ def run_worker_loop() -> None:
     _initialize_worker()
     worker = CodingWorker()
 
-    while True:
-        try:
-            worker.poll_once()
-        except Exception as exc:
-            logger.exception("[coding-worker] poll error: %s", exc)
+    # The startup review happens exactly once, after canonical PostgreSQL
+    # access is established and before the first destructive queue
+    # consumption. It reads; it never acts. A review that could not read the
+    # canonical store is not an empty inventory, and a worker that cannot
+    # reach canonical persistence cannot durably accept anything, so it must
+    # not consume coding tasks either.
+    review = worker.review_unresolved_coding_runs()
+    _log_coding_run_startup_review(review)
+    if review.review_error_code == CODING_RUN_REVIEW_UNAVAILABLE:
+        raise RuntimeError(
+            "coding worker startup review could not read canonical "
+            f"persistence ({review.review_error_code}); refusing to consume "
+            "coding tasks without durable acceptance"
+        )
+
+    try:
+        while True:
+            try:
+                worker.poll_once()
+            except Exception as exc:
+                logger.exception("[coding-worker] poll error: %s", exc)
+    finally:
+        # Graceful shutdown: stop and join every liveness reporter so that
+        # none outlives the worker that owns it. The runs themselves are left
+        # untouched -- a stale heartbeat is not proof of worker death.
+        worker.shutdown()
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from fastapi import (
     Query,
     Request,
 )
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -38,11 +39,23 @@ from guardian.agents.execution_credentials import (
 from guardian.agents.events import AgentEventPublisher, publisher
 from guardian.agents.store import AgentStore, store
 from guardian.core import dependencies
+from guardian.core.auth import (
+    ACCOUNT_SESSION_PURPOSE,
+    OPERATOR_SESSION_PURPOSE,
+    get_verified_session_token_purpose,
+    resolve_account_session_subject,
+    verify_session_token_for_purpose,
+)
+from guardian.core.auth_dependencies import extract_session_token
 from guardian.core.dependencies import (
     get_account_user as get_current_user,
     require_account_session as require_api_key,
     require_operator_auth,
     require_service_api_key,
+)
+from guardian.core.guardian_delegation_service import (
+    GuardianDelegationError,
+    GuardianDelegationService,
 )
 from guardian.db.models import ChatMessage, ChatThread, Project
 from guardian.protocol_tokens import AcceptanceStatus
@@ -100,6 +113,23 @@ def _authenticated_account_user(current_user: Any) -> str:
     return resolved
 
 
+async def _raw_request_body(request: Request | None) -> dict[str, Any]:
+    """Return the request body as a mapping, for a validation rejection.
+
+    The body has already been consumed by request validation, so it is read
+    from the request's cached JSON when available. A body that cannot be
+    recovered is reported as an empty mapping rather than failing the
+    rejection itself.
+    """
+    if request is None:
+        return {}
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def _resolved_request_user(
     current_user: Any,
     requested_user: str | None = None,
@@ -123,6 +153,160 @@ def _resolved_request_user(
         if requested != resolved:
             raise HTTPException(status_code=403, detail="account_identity_mismatch")
     return resolved
+
+
+def _resolve_authorized_coding_account(request: Request) -> str:
+    """Resolve the one canonical account for an authorized coding dispatch.
+
+    The account authority is a verified account-session principal. A static
+    API key, an operator session, and the ambient single-user identity are
+    all *not* account authority for coding admission: an operator principal
+    must never silently impersonate an account principal, and a caller can
+    never name the account it wants to act as.
+    """
+    token = extract_session_token(
+        request.headers.get("Authorization") if request is not None else None,
+        request.cookies.get("gc_session") if request is not None else None,
+    )
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="coding_account_session_required",
+        )
+    purpose = get_verified_session_token_purpose(token)
+    if purpose == OPERATOR_SESSION_PURPOSE:
+        raise HTTPException(
+            status_code=403,
+            detail="coding_operator_principal_not_account_authority",
+        )
+    if not verify_session_token_for_purpose(token, ACCOUNT_SESSION_PURPOSE):
+        raise HTTPException(
+            status_code=401,
+            detail="coding_account_session_required",
+        )
+    try:
+        subject = resolve_account_session_subject(token)
+    except HTTPException:
+        raise HTTPException(
+            status_code=401,
+            detail="coding_account_session_required",
+        ) from None
+    if not str(subject or "").strip():
+        raise HTTPException(
+            status_code=401,
+            detail="coding_account_session_required",
+        )
+    return str(subject).strip()
+
+
+def _get_delegation_service() -> GuardianDelegationService:
+    """Build the delegation service bound to this router's agent store.
+
+    The service is the single coding-admission authority. It resolves the
+    canonical account, the delegation intent, the execution binding, the
+    permission posture, and the persisted run link that this route dispatches.
+    """
+    return GuardianDelegationService(
+        db=getattr(_store, "db", None),
+        agent_store=_store,
+    )
+
+
+def _requested_permission_policy(
+    envelope: CodingAgentTaskEnvelope,
+) -> dict[str, Any]:
+    """Project the requested permission policy for the admission service."""
+    policy = envelope.permission_policy
+    return {
+        "allow_shell": policy.allow_shell,
+        "allow_network": policy.allow_network,
+        "allow_write": policy.allow_write,
+        "allowed_paths": list(policy.allowed_paths or ()),
+        "max_runtime_seconds": policy.max_runtime_seconds,
+    }
+
+
+async def _dispatch_authorized_coding_request(
+    envelope: CodingAgentTaskEnvelope,
+    request: Request,
+    intent_id: str,
+) -> dict[str, Any]:
+    """Admit one account-authorized coding request and dispatch it once.
+
+    The request does not manufacture an execution lineage. It resolves the
+    canonical account from the authenticated principal and hands the request
+    to the Guardian delegation service, which authorizes the approved
+    intent, mints the execution binding, resolves the permission posture and
+    repository binding, and submits at most one coding task for the attempt
+    the intent already owns.
+    """
+    account_id = _resolve_authorized_coding_account(request)
+
+    # An explicitly submitted account identity is a compatibility assertion
+    # only. It must match the authenticated account or the request is refused.
+    asserted_account = str(envelope.user_id or "").strip()
+    if asserted_account and asserted_account != account_id:
+        raise HTTPException(status_code=403, detail="account_identity_mismatch")
+
+    try:
+        thread_id = int(envelope.thread_id)
+        source_message_id = int(envelope.source_message_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="coding_lineage_invalid") from None
+    if thread_id <= 0 or source_message_id <= 0:
+        raise HTTPException(status_code=422, detail="coding_lineage_invalid")
+
+    project_id: int | None = None
+    if envelope.project_id is not None:
+        try:
+            project_id = int(envelope.project_id)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="coding_project_invalid"
+            ) from None
+
+    service = _get_delegation_service()
+    try:
+        receipt = service.dispatch_authorized_coding_request(
+            account_id=account_id,
+            thread_id=thread_id,
+            source_message_id=source_message_id,
+            intent_id=intent_id,
+            project_id=project_id,
+            instructions=envelope.instructions,
+            requested_permission_policy=_requested_permission_policy(envelope),
+            requested_repo_root=envelope.repo_root,
+            proposed_provider_id=envelope.provider_id,
+            proposed_model_id=envelope.model_id,
+            proposed_credential_ref=envelope.credential_ref,
+            proposed_coding_task_id=envelope.coding_task_id,
+            proposed_attempt_id=envelope.attempt_id,
+        )
+    except GuardianDelegationError as exc:
+        raise HTTPException(
+            status_code=int(getattr(exc, "status_code", 503) or 503),
+            detail=str(getattr(exc, "detail", "guardian_delegation_dispatch_failed")),
+        ) from None
+
+    return {
+        "ok": True,
+        "status": AcceptanceStatus.ACCEPTED.value,
+        "origin": "guardian_delegation_intent",
+        "intent_id": receipt.get("intent_id"),
+        "run_id": receipt.get("run_id"),
+        "deployment_id": receipt.get("deployment_id"),
+        "coding_task_id": receipt.get("coding_task_id"),
+        "attempt_id": receipt.get("attempt_id"),
+        "task_id": receipt.get("task_id"),
+        "execution_binding_id": receipt.get("execution_binding_id"),
+        "account_id": receipt.get("account_id"),
+        "thread_id": receipt.get("thread_id"),
+        "source_thread_id": receipt.get("thread_id"),
+        "source_message_id": receipt.get("source_message_id"),
+        "project_id": receipt.get("project_id"),
+        "repo_root": receipt.get("repo_root"),
+        "permission_posture": receipt.get("permission_posture"),
+    }
 
 
 class AgentPlanRequest(BaseModel):
@@ -472,6 +656,7 @@ async def revoke_coding_execution_credential(
 @router.post("/coding/execute", dependencies=[Depends(require_api_key)])
 async def execute_coding_task(
     envelope: CodingAgentTaskEnvelope,
+    request: Request = None,
     current_user: str | None = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Execute a coding task via a registered coding adapter.
@@ -479,8 +664,63 @@ async def execute_coding_task(
     Takes a CodingAgentTaskEnvelope per ADR-020 and routes to the
     requested adapter kind.
 
+    When the body names an approved delegation intent, the request is
+    admitted through the Guardian delegation service: the account comes from
+    the authenticated account session, the intent must already be approved,
+    and the persisted run link the intent owns is what gets dispatched. That
+    path creates no second run, no second deployment, and no second attempt,
+    and it submits at most one coding task for the admitted attempt.
+
+    In that path the envelope's ``instructions`` are a *proposal*, not the
+    work content: the executed instructions are bound to the approved plan,
+    and a proposal that differs from it is refused before the binding is
+    persisted and before anything is enqueued.
+
+    The two intake branches are distinguished by the body's own shape. A body
+    that names a delegation intent is an authorized dispatch request, whose
+    provider, model, and credential reference are optional proposals. A body
+    that names none is the legacy self-authorizing intake, whose provider,
+    model, and credential reference remain required - an incomplete legacy
+    body is rejected before account, lineage, or credential authority is
+    consulted, and the rejection names the missing fields.
+
     Returns immediately with run_id. Poll /api/agents/runs/{run_id}/coding for progress.
     """
+    delegation_intent_id = str(envelope.delegation_intent_id or "").strip()
+    if delegation_intent_id:
+        return await _dispatch_authorized_coding_request(
+            envelope,
+            request,
+            delegation_intent_id,
+        )
+
+    # The legacy intake branch is self-authorizing: it must carry its own
+    # execution-binding identity. The authorized branch does not - it names an
+    # approved intent whose persisted run link owns the authorization - so it
+    # may carry empty proposals there.
+    if not delegation_intent_id:
+        missing_binding_identity = [
+            name
+            for name, value in (
+                ("provider_id", envelope.provider_id),
+                ("model_id", envelope.model_id),
+                ("credential_ref", envelope.credential_ref),
+            )
+            if not str(value or "").strip()
+        ]
+        if missing_binding_identity:
+            raise RequestValidationError(
+                [
+                    {
+                        "type": "missing",
+                        "loc": ("body", name),
+                        "msg": "Field required",
+                        "input": await _raw_request_body(request),
+                    }
+                    for name in missing_binding_identity
+                ]
+            ) from None
+
     resolved_user_id = _resolved_request_user(current_user, envelope.user_id)
     execution_binding = _build_execution_binding(
         envelope,

@@ -22,6 +22,9 @@ PI_READINESS_REASONS = frozenset(
         "wrapper_missing",
         "pi_sdk_build_missing",
         "adapter_initialization_failed",
+        "git_missing",
+        "git_probe_failed",
+        "git_probe_timeout",
     }
 )
 
@@ -30,6 +33,10 @@ DEFAULT_PI_PACKAGE_ROOT = (
     "/opt/codexify/pi-sdk/node_modules/@earendil-works/pi-coding-agent"
 )
 DEFAULT_PI_NODE_MODULES = "/opt/codexify/pi-sdk/node_modules"
+
+#: Bounded timeout for the local Git prerequisite probe. The probe runs
+#: ``git --version``, which must not hang a worker startup.
+GIT_READINESS_PROBE_TIMEOUT_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,7 @@ class PiReadinessReport:
 
 
 AdapterProbe = Callable[[str, Path, Mapping[str, str]], Mapping[str, object]]
+GitProbe = Callable[[Mapping[str, str]], Mapping[str, object]]
 
 
 def _probe_environment(environment: Mapping[str, str]) -> dict[str, str]:
@@ -127,15 +135,47 @@ def _default_adapter_probe(
         return {"adapter_initialized": False}
 
 
+def _default_git_probe(environment: Mapping[str, str]) -> Mapping[str, object]:
+    """Verify a usable Git CLI without touching a repository or a credential.
+
+    The probe resolves Git through ``PATH`` and runs ``git --version``. It
+    needs no repository, no provider credential, no model invocation, and it
+    does not modify any workspace. Git is a *prerequisite* for the worker's
+    authorized repository operations; discovering it grants no execution
+    permission of its own.
+    """
+    executable = shutil.which("git", path=environment.get("PATH"))
+    if not executable:
+        return {"git_available": False, "git_reason": "git_missing"}
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=GIT_READINESS_PROBE_TIMEOUT_SECONDS,
+            env=_probe_environment(environment),
+        )
+    except subprocess.TimeoutExpired:
+        return {"git_available": False, "git_reason": "git_probe_timeout"}
+    except (OSError, subprocess.SubprocessError):
+        return {"git_available": False, "git_reason": "git_probe_failed"}
+    if completed.returncode != 0:
+        return {"git_available": False, "git_reason": "git_probe_failed"}
+    return {"git_available": True}
+
+
 def evaluate_pi_readiness(
     *,
     environ: Mapping[str, str] | None = None,
     adapter_probe: AdapterProbe | None = None,
+    git_probe: GitProbe | None = None,
 ) -> PiReadinessReport:
     """Verify Pi runtime prerequisites without reading ambient auth state."""
 
     environment = dict(os.environ if environ is None else environ)
     probe_adapter = adapter_probe or _default_adapter_probe
+    probe_git = git_probe or _default_git_probe
     checks: list[PiReadinessCheck] = []
     reasons: list[str] = []
 
@@ -172,6 +212,22 @@ def evaluate_pi_readiness(
         "pi_sdk_runtime",
         "available" if sdk_available else "blocked",
         None if sdk_available else "pi_sdk_build_missing",
+    )
+
+    # Git is a mandatory prerequisite for the coding worker's authorized
+    # repository operations. A runtime without a usable Git CLI cannot
+    # perform them, so readiness is blocked rather than ready-with-a-caveat.
+    git_result = probe_git(_probe_environment(environment))
+    git_available = git_result.get("git_available") is True
+    git_reason = (
+        None
+        if git_available
+        else str(git_result.get("git_reason") or "git_missing")
+    )
+    record(
+        "git_executable",
+        "available" if git_available else "blocked",
+        git_reason,
     )
 
     harness_id = None

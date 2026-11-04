@@ -141,10 +141,16 @@ WORKDIR /app
 # Voice normalization/transcoding dependency (also includes ffprobe).
 # ffmpeg pulls packages (e.g., x11-common) whose postinst calls update-rc.d.
 # Ensure update-rc.d is present via init-system-helpers.
+# Git is a mandatory runtime prerequisite, not an optional tool: Guardian's
+# repository-binding authority resolves a working-tree root with Git, and the
+# coding worker's mutation enforcement inspects porcelain state with Git. A
+# runtime without it cannot perform an authorized repository operation, so the
+# worker must refuse to consume tasks rather than report ready.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         bubblewrap \
         ffmpeg \
+        git \
         init-system-helpers \
         nodejs \
         npm && \

@@ -356,6 +356,7 @@ def _build_task(
     require_human_review_before_merge: bool | None = None,
     provider_id: str = "test-provider-a",
     model_id: str = "test-model-a",
+    reasoning_effort: str | None = None,
 ) -> CodingExecutionTask:
     payload: dict[str, Any] = {
         "task_id": f"task-{coding_task_id}",
@@ -401,7 +402,7 @@ def _build_task(
             binding_id = f"xeb-test-{coding_task_id}-{attempt_id}"
             binding = {
                 "binding_id": binding_id,
-                "schema_version": 1,
+                "schema_version": 2 if reasoning_effort is not None else 1,
                 "harness_id": "pi",
                 "harness_selection_mode": "default",
                 "provider_id": provider_id,
@@ -429,6 +430,8 @@ def _build_task(
                 ),
                 "authorization_evidence_ref": binding_id,
             }
+            if reasoning_effort is not None:
+                binding["reasoning_effort"] = reasoning_effort
             with store.db.get_session() as session:
                 row = (
                     session.query(AgentDeployment)
@@ -6002,3 +6005,625 @@ def test_delivery_failure_is_observable_and_persists_result_artifact(
         artifacts[0]["content_json"]["delivery_reason_code"]
         == "delivery_database_unavailable"
     )
+
+
+# ---------------------------------------------------------------------------
+# Authorized mutation scope: one interpretation across both worker checks
+#
+# The coding worker has two mutation checks. Before this repair they read the
+# same Guardian policy through two different policy languages: one resolved
+# ``allowed_paths`` into repository-relative directory prefixes, the other
+# matched raw paths as exact names, trailing-slash directories, and globs.
+# They disagreed on "", ".", and "*", and the prefix resolver returned success
+# whenever its prefix list came out empty, so an invalid scope silently
+# authorized the whole repository.
+#
+# These tests pin one interpretation and assert that BOTH mechanisms reach the
+# same decision for the same scope and the same changed path.
+# ---------------------------------------------------------------------------
+
+
+def _scope_decision(
+    repo: Path,
+    *,
+    allowed_paths: Any,
+    changed_path: str,
+    allow_write: bool = True,
+) -> dict[str, Any]:
+    """Decide one changed path with BOTH worker mutation checks.
+
+    ``_enforce_isolated_mutation_scope`` reads the dirty paths out of the
+    worktree, so the changed path is materialised as an untracked file first.
+    ``_evaluate_mutation_guard`` is handed the same path directly.
+    """
+    permission_policy: dict[str, Any] = {
+        "allow_write": allow_write,
+        "allowed_paths": allowed_paths,
+    }
+    _mutate_file(repo, changed_path, "changed\n")
+    isolated_ok, isolated_code, _isolated_message = (
+        coding_worker._enforce_isolated_mutation_scope(
+            worktree_path=str(repo),
+            repo_root=str(repo),
+            permission_policy=permission_policy,
+        )
+    )
+    guard = coding_worker._evaluate_mutation_guard(
+        repo_root=str(repo),
+        before_paths=[],
+        before_ok=True,
+        after_paths=[changed_path],
+        after_ok=True,
+        allowed_paths=allowed_paths,
+        allow_write=allow_write,
+    )
+    return {
+        "isolated_allowed": bool(isolated_ok),
+        "isolated_error_code": isolated_code,
+        "guard_status": guard.get("mutation_guard_status"),
+        "guard_allowed": guard.get("mutation_guard_status")
+        == "within_allowed_paths",
+        "guard_error_code": guard.get("mutation_guard_error_code"),
+    }
+
+
+@pytest.mark.parametrize(
+    ("label", "allowed_paths", "changed_path", "expected_allowed"),
+    [
+        ("exact file", ["app.py"], "app.py", True),
+        ("unauthorized sibling file", ["app.py"], "other.py", False),
+        ("authorized directory", ["src"], "src/app.py", True),
+        ("unauthorized sibling directory", ["src"], "src_other/app.py", False),
+        ("explicit root scope", ["."], "anything/at/all.txt", True),
+        ("empty scope entry", [""], "app.py", False),
+        ("empty scope list", [], "app.py", False),
+        ("missing scope", None, "app.py", False),
+        ("absolute scope outside the repository", ["/etc"], "app.py", False),
+        ("parent traversal in scope", ["../outside"], "app.py", False),
+        ("glob matches", ["*.py"], "app.py", True),
+        ("glob does not match", ["*.py"], "notes.md", False),
+    ],
+)
+def test_both_mutation_checks_agree_on_the_authorized_scope(
+    tmp_path,
+    label,
+    allowed_paths,
+    changed_path,
+    expected_allowed,
+) -> None:
+    """Both checks must read one scope the same way under a write grant.
+
+    The grant itself (``allow_write``) is owned by the mutation guard; this
+    pins the *scope* interpretation, which both checks share.
+    """
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=allowed_paths,
+        changed_path=changed_path,
+    )
+
+    assert decision["isolated_allowed"] is expected_allowed, (
+        f"{label}: the isolated mutation check reached a different decision"
+    )
+    assert decision["guard_allowed"] is expected_allowed, (
+        f"{label}: the mutation guard reached a different decision"
+    )
+    assert decision["isolated_allowed"] == decision["guard_allowed"], (
+        f"{label}: the two mutation checks disagreed with each other"
+    )
+
+
+@pytest.mark.parametrize("allowed_paths", [[""], [], None])
+def test_unresolvable_write_scope_fails_closed(
+    tmp_path,
+    allowed_paths,
+) -> None:
+    """An unresolvable scope authorizes nothing and fails the attempt.
+
+    Before the repair, an empty resolved prefix list meant "no restriction",
+    so an empty or malformed scope silently authorized the whole repository.
+    """
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=allowed_paths,
+        changed_path="app.py",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+    assert decision["isolated_error_code"] == "MUTATION_SCOPE_VIOLATION"
+    assert decision["guard_status"] == "mutation_scope_violation"
+    assert decision["guard_error_code"] == "MUTATION_SCOPE_VIOLATION"
+
+
+def test_empty_scope_does_not_imply_unrestricted_write(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=[""],
+        changed_path="deeply/nested/anything.txt",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+
+
+def test_a_narrow_scope_never_widens_into_an_implicit_wildcard(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+
+    decision = _scope_decision(
+        repo,
+        allowed_paths=["app.py"],
+        changed_path="notes.md",
+    )
+
+    assert decision["isolated_allowed"] is False
+    assert decision["guard_allowed"] is False
+
+
+def test_escape_attempts_are_rejected_even_under_explicit_root(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+    assert scope.root_authorized is True
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "/etc/passwd", repo_root=str(repo)
+        )
+        is False
+    )
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "../outside.txt", repo_root=str(repo)
+        )
+        is False
+    )
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "src/../../outside.txt", repo_root=str(repo)
+        )
+        is False
+    )
+
+
+def test_symlink_resolving_outside_the_repository_is_rejected(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    (repo / "link.txt").symlink_to(outside)
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "link.txt", repo_root=str(repo)
+        )
+        is False
+    )
+
+
+def test_symlink_resolving_inside_the_repository_is_authorized(tmp_path) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    (repo / "inside.txt").write_text("inside\n", encoding="utf-8")
+    (repo / "link.txt").symlink_to(repo / "inside.txt")
+    scope = coding_worker._resolve_authorized_write_scope(
+        allowed_paths=["."],
+        repo_root=str(repo),
+    )
+
+    assert (
+        coding_worker._authorized_scope_allows_path(
+            scope, "link.txt", repo_root=str(repo)
+        )
+        is True
+    )
+
+
+def test_worker_fails_closed_when_the_authorized_scope_is_empty(
+    tmp_path,
+    db,
+    monkeypatch,
+) -> None:
+    repo = _init_git_repo(tmp_path, files={"README.md": "seed\n"})
+    seeded = _seed_source_context(db)
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    _install_mutating_adapter(
+        monkeypatch,
+        lambda request: _mutate_file(repo, "canary_marker.txt", "changed\n"),
+        SimpleNamespace(status="ok", summary="Empty scope was authorized."),
+    )
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-empty-scope",
+        validation_command="pytest -q",
+        permission_policy={
+            "allow_shell": True,
+            "allow_network": False,
+            "allow_write": True,
+            "allowed_paths": [""],
+            "max_runtime_seconds": 60,
+        },
+        cwd=str(repo),
+    )
+
+    worker._process_task(task)
+
+    assert published[-1][1] == "task.failed"
+    terminal_payload = published[-1][2]
+    assert terminal_payload["mutation_guard_status"] == "mutation_scope_violation"
+    assert terminal_payload["mutation_guard_error_code"] == (
+        "MUTATION_SCOPE_VIOLATION"
+    )
+    assert terminal_payload["error_code"] == "MUTATION_SCOPE_VIOLATION"
+    run_state = _fetch_run_state(store, run_id)
+    assert run_state is not None
+    assert run_state["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Reasoning-effort handoff.
+#
+# The reasoning effort is Guardian's to choose and the binding's to carry. The
+# worker forwards the persisted value unchanged and selects no level of its own.
+# ---------------------------------------------------------------------------
+
+_EFFORT_NOT_PROVIDED = object()
+
+
+def _install_effort_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[Any]:
+    """Record exactly what the worker hands the authorized adapter."""
+
+    forwarded: list[Any] = []
+
+    class _EffortAdapter:
+        def execute_authorized(
+            self,
+            request: Any,
+            identity: Any,
+            *,
+            credential_material: str,
+            read_only: bool,
+            reasoning_effort: Any = _EFFORT_NOT_PROVIDED,
+            required_tool_name: str | None = None,
+        ) -> Any:
+            del request, identity, credential_material, read_only
+            del required_tool_name
+            forwarded.append(reasoning_effort)
+            return SimpleNamespace(status="ok", summary="Effort adapter completed.")
+
+    monkeypatch.setattr(
+        coding_worker, "ADAPTERS", {"pi_codex_runner": _EffortAdapter()}
+    )
+    return forwarded
+
+
+def test_worker_forwards_the_authorized_reasoning_effort_to_the_adapter(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker hands the harness the effort Guardian authorized.
+
+    The value arrives in the persisted binding and is forwarded verbatim. The
+    worker never picks a level from the model identity or from ambient
+    process configuration.
+    """
+    seeded = _seed_source_context(db, user_id="effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    worker._process_task(task)
+
+    assert forwarded == ["off"]
+
+
+def test_worker_forwards_no_effort_for_an_ungoverned_binding(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A binding that does not govern the effort forwards no value at all.
+
+    Those lanes keep the harness default exactly as before the contract
+    existed; the worker does not restate it as an authorized value.
+    """
+    seeded = _seed_source_context(db, user_id="legacy-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-legacy-effort",
+        provider_id="test-provider-a",
+        model_id="test-model-a",
+    )
+    worker._process_task(task)
+
+    assert forwarded == [_EFFORT_NOT_PROVIDED]
+
+
+def test_worker_refuses_a_tampered_reasoning_effort_before_execution(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A queued effort that differs from the persisted spec never reaches the harness.
+
+    The binding is compared byte-for-byte with the persisted deployment
+    specification, so a tampered effort is a binding mismatch and the attempt
+    is refused before any provider execution.
+    """
+    seeded = _seed_source_context(db, user_id="tampered-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-tampered-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    # The persisted specification still carries the authorized value; only the
+    # queued task is tampered with.
+    assert task.execution_binding is not None
+    task.execution_binding["reasoning_effort"] = "high"
+
+    worker._process_task(task)
+
+    assert forwarded == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
+
+
+def test_worker_refuses_a_governing_binding_without_its_effort(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A governing binding that lost its effort fails closed.
+
+    The binding can only govern the effort if it carries one, so a binding
+    that claims to govern the effort and does not carry it is refused before
+    provider execution.
+    """
+    seeded = _seed_source_context(db, user_id="missing-effort-user")
+    store = _make_store(db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    worker = coding_worker.CodingWorker(agent_store=store)
+    published = _capture_task_events(monkeypatch)
+    forwarded = _install_effort_adapter(monkeypatch)
+
+    task = _build_task(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        coding_task_id="coding-task-missing-effort",
+        provider_id="deepseek",
+        model_id="deepseek-v4-flash",
+        reasoning_effort="off",
+    )
+    assert task.execution_binding is not None
+    task.execution_binding.pop("reasoning_effort")
+
+    worker._process_task(task)
+
+    assert forwarded == []
+    assert published[-1][1] == "task.failed"
+    assert published[-1][2]["error_code"] == "EXECUTION_BINDING_REJECTED"
+
+
+# ---------------------------------------------------------------------------
+# The read-only startup review.
+#
+# The review is observed and classified at worker startup, before the first
+# destructive queue consumption. These cases live here, against the worker's
+# own SQLite-backed test double, so the review is exercised on the same
+# surface the worker's normal execution uses.
+# ---------------------------------------------------------------------------
+
+
+def _seed_guardian_bound_accepted_run(
+    db: _TestDB,
+    seeded: dict[str, Any],
+    *,
+    worker_instance_id: str = "cwi_startup_worker_a",
+    claim_id: str = "cwc_startup_claim_a",
+) -> tuple[str, str]:
+    """Seed a Guardian-bound run and accept it under a known claim."""
+    store = AgentStore(db=db)
+    attempt_id = "gat_startup_review"
+    coding_task_id = "gct_startup_review"
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+        extra_spec={
+            "guardian_delegation": {
+                "ownership": "guardian_delegation_intent",
+                "intent_id": "gdi_startup_review",
+                "phase": "phase3",
+            },
+            "attempt_id": attempt_id,
+            "coding_task_id": coding_task_id,
+        },
+    )
+    outcome = store.claim_run_for_acceptance(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        worker_instance_id=worker_instance_id,
+        claim_id=claim_id,
+        user_id=seeded["user_id"],
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        attempt_id=attempt_id,
+        coding_task_id=coding_task_id,
+    )
+    assert outcome == "accepted", outcome
+    return deployment_id, run_id
+
+
+def test_the_startup_review_finds_a_guardian_bound_running_run(
+    db: _TestDB,
+) -> None:
+    """A Guardian-bound accepted run is discovered by the startup review."""
+    seeded = _seed_source_context(db)
+    _, run_id = _seed_guardian_bound_accepted_run(db, seeded)
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    review = worker.review_unresolved_coding_runs()
+
+    assert review.reviewed_count == 1
+    assert run_id in review.run_ids
+    assert review.review_complete is True
+    assert review.review_error_code is None
+
+
+def test_the_startup_review_ignores_a_run_that_is_not_guardian_bound(
+    db: _TestDB,
+) -> None:
+    """A running run with no Guardian ownership is not part of the review."""
+    seeded = _seed_source_context(db)
+    store = AgentStore(db=db)
+    deployment_id, run_id = _seed_execution_run(
+        store,
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        user_id=seeded["user_id"],
+        project_id=seeded["project_id"],
+        adapter_kind="pi",
+    )
+    outcome = store.claim_run_for_acceptance(
+        run_id=run_id,
+        deployment_id=deployment_id,
+        worker_instance_id="cwi_startup_worker_a",
+        claim_id="cwc_startup_claim_a",
+        user_id=seeded["user_id"],
+        thread_id=seeded["thread_id"],
+        source_message_id=seeded["source_message_id"],
+        attempt_id="gat_startup_review",
+        coding_task_id="gct_startup_review",
+    )
+    assert outcome == "accepted", outcome
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    review = worker.review_unresolved_coding_runs()
+
+    assert run_id not in review.run_ids
+    assert review.reviewed_count == 0
+
+
+def test_the_startup_review_leaves_the_canonical_run_unchanged(
+    db: _TestDB,
+) -> None:
+    """The review observes the run; it does not write it.
+
+    The escalation guarantee is proven against disposable PostgreSQL in
+    ``tests/contracts/test_guardian_coding_worker_restart_review_contract.py``;
+    this worker's SQLite test double does not create the escalation table.
+    """
+    seeded = _seed_source_context(db)
+    _, run_id = _seed_guardian_bound_accepted_run(db, seeded)
+    store = AgentStore(db=db)
+    with db.get_session() as session:
+        before = session.query(AgentRun).filter_by(run_id=run_id).one()
+        before_state = (
+            before.status,
+            before.coding_worker_instance_id,
+            before.coding_worker_claim_id,
+            before.coding_worker_last_heartbeat_at,
+            before.ended_at,
+        )
+
+    worker = coding_worker.CodingWorker(agent_store=store)
+    worker.review_unresolved_coding_runs()
+
+    with db.get_session() as session:
+        after = session.query(AgentRun).filter_by(run_id=run_id).one()
+        after_state = (
+            after.status,
+            after.coding_worker_instance_id,
+            after.coding_worker_claim_id,
+            after.coding_worker_last_heartbeat_at,
+            after.ended_at,
+        )
+
+    assert after_state == before_state

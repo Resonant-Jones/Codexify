@@ -123,6 +123,53 @@ def test_worker_coding_has_invocation_scoped_identity_and_no_shared_pi_auth() ->
     assert "check_worker_coding_readiness.py" in worker
 
 
+def test_coding_worker_runtime_ships_git_from_the_canonical_runtime() -> None:
+    """The worker image must inherit a working Git CLI, installed once.
+
+    The worker resolves a repository root and inspects porcelain state with
+    Git. The image that runs it derives from the canonical runtime stage, so
+    the single installation there is what both images ship.
+    """
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "FROM runtime AS worker-coding-runtime" in dockerfile
+    runtime = dockerfile.split("FROM python:3.11.14-slim AS runtime", 1)[1]
+    runtime = runtime.split("\nFROM ", 1)[0]
+    install = runtime.split("apt-get install -y --no-install-recommends", 1)[1]
+    install = install.split("&&", 1)[0]
+    assert "git" in install.replace("\\", " ").split()
+
+    # The worker stage must not carry a second, divergent installation.
+    worker_stage = dockerfile.split("FROM runtime AS worker-coding-runtime", 1)[1]
+    worker_stage = worker_stage.split("\nFROM ", 1)[0]
+    assert "apt-get install" not in worker_stage
+
+
+def test_coding_worker_readiness_gate_requires_git() -> None:
+    """Pi readiness alone must not report a runtime ready without Git."""
+    from guardian.agents.pi_readiness import (
+        PI_READINESS_REASONS,
+        evaluate_pi_readiness,
+    )
+
+    assert "git_missing" in PI_READINESS_REASONS
+    assert "git_probe_failed" in PI_READINESS_REASONS
+    assert "git_probe_timeout" in PI_READINESS_REASONS
+
+    report = evaluate_pi_readiness(
+        environ={"PATH": "/nonexistent"},
+        adapter_probe=lambda *_args: pytest.fail("adapter probe must not run"),
+        git_probe=lambda _environment: {
+            "git_available": False,
+            "git_reason": "git_missing",
+        },
+    )
+
+    assert report.status == "blocked"
+    assert report.can_consume_tasks is False
+    assert "git_missing" in report.reasons
+
+
 def test_worker_image_installs_exact_declared_pi_runtime_without_credentials() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     runtime_package = json.loads(RUNTIME_PACKAGE.read_text(encoding="utf-8"))

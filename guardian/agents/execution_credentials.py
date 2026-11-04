@@ -130,6 +130,45 @@ def list_account_credentials(db: Any, *, account_id: str) -> list[dict[str, Any]
         return [_safe_credential(row) for row in rows]
 
 
+def list_service_credential_candidates(
+    db: Any, *, account_id: str
+) -> list[dict[str, Any]]:
+    """Discover service-owned credentials whose recorded policy names an account.
+
+    Discovery is *not* authorization. This returns candidates only; every
+    candidate still has to pass :func:`authorize_credential_selection` before
+    it can authorize anything.
+
+    The account allow-list recorded on the credential is the service's own
+    statement of which accounts may consume it, so discovery is scoped to
+    the intended account. Nothing else is filtered here on purpose: provider
+    match, model eligibility, funding route, usage policy, expiry, and
+    revocation are all decisions of the credential authority, and duplicating
+    them here would create a second policy engine.
+
+    No secret material is returned. The encrypted blob is never selected.
+    """
+    account = _text(account_id)
+    if not account:
+        raise CredentialAuthorityError("account_identity_missing")
+    with db.get_session() as session:
+        rows = (
+            session.query(CodingExecutionCredential)
+            .filter_by(owner_scope="service")
+            .order_by(CodingExecutionCredential.created_at.desc())
+            .all()
+        )
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            if account not in (row.allowed_account_ids or []):
+                continue
+            candidate = _safe_credential(row)
+            candidate["allowed_account_ids"] = sorted(row.allowed_account_ids or [])
+            candidate["allowed_model_ids"] = sorted(row.allowed_model_ids or [])
+            candidates.append(candidate)
+        return candidates
+
+
 def revoke_account_credential(
     db: Any, *, account_id: str, credential_ref: str
 ) -> bool:
