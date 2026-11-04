@@ -356,6 +356,12 @@ migration-repair statements and its corrected migration head. No architectural
 decision changed; the repair mechanism, the runtime evidence and the
 qualification boundary are unchanged by the reconciliation.
 
+`main` then advanced again with PR #995 (`b15621a27`, "regenerate the
+qualification registry for the current tip"), which was merged into this branch
+as well. That commit closes the pre-existing registry drift described in
+[§8.2](#82-baseline-failures); `python scripts/qualification/generate_registry.py --check`
+now exits 0 on this branch.
+
 ### 7.2 What stayed separate
 
 - **Stock direct Compose startup** — repaired in place; no third startup
@@ -449,12 +455,15 @@ other disk-intensive Docker activity should be started** on this host.
 ### 8.2 Baseline failures
 
 These reproduce identically on the unmodified base commit
-`97778bedf5a1ec4a04fb2fbb968dafb0aed9582c` and are recorded, not fixed:
+`97778bedf5a1ec4a04fb2fbb968dafb0aed9582c` and are recorded, not fixed. The
+first was closed upstream while this task was open; the third is surfaced by
+this PR's CI but is not caused by it:
 
 | Command | Failure | Baseline? |
 | --- | --- | --- |
-| `python scripts/qualification/generate_registry.py --check` | `supported-compose: not current (config/supported_profiles/v1-music-producer.yaml); 12 reason(s)` — registry drift | Yes — identical on the unmodified base. The registry and rubric are outside this task's scope and were not regenerated. The `Qualification Contracts` workflow is path-filtered to `docs/qualification/**`, `scripts/qualification/**`, `tests/qualification/**` and its own file, none of which this change touches, so the drift does not gate this PR; it does gate any future change in those paths until the registry is regenerated under its own authority. |
+| `python scripts/qualification/generate_registry.py --check` | At the task's base revision: `supported-compose: not current (config/supported_profiles/v1-music-producer.yaml); 12 reason(s)` — registry drift | Yes — identical on the unmodified base, and **fixed upstream** while this task was open: `main` regenerated the registry in PR #995 (`b15621a27`), which is merged into this branch, and the check now exits **0** here. The registry and rubric were not edited by this task. |
 | `pytest tests/ops/` (broader suite) | 4 failures: 3× `test_candidate_runtime_checkpoint.py`, 1× `test_codexify_tester_services.py::test_tester_status_accepts_a_running_account_import_worker` | Yes — identical set on the unmodified base. The tester failure is caused by this host sandbox blocking heredoc-created temporary files in `codexify_tester.sh`, not by product code. |
+| CI `Frontend Quality` on this PR | `features/onboarding/__tests__/Onboarding.test.tsx > account introduction > never asks for a username or calls messaging when unavailable` — "Unable to find an element with the text: /People messaging is not enabled/" (1 failed file, 2,392 passed) | **Pre-existing on `main`, not caused by this change.** This PR's `frontend/` tree is byte-identical to `origin/main`'s (`git diff origin/main HEAD -- frontend/` is empty). The job is a no-op on PRs with no frontend-relevant change; it ran here because the CI change filter treats `docker-compose.yml` as a *shared* change and therefore sets `run_frontend=true`. The rendered DOM in the failure shows the flow had advanced to a later onboarding step while the test awaits two fixed transitions — a timing-sensitive assertion in a tree this PR does not touch. **Not repaired here:** the fix is a frontend test or component change, outside this task's authorized scope and outside the migration-source contract. |
 
 ## 9. What this receipt does not claim
 
