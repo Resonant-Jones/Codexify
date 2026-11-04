@@ -353,7 +353,7 @@ These reproduce identically on the unmodified base commit
 
 | Command | Failure | Baseline? |
 | --- | --- | --- |
-| `python scripts/qualification/generate_registry.py --check` | `supported-compose: not current (config/supported_profiles/v1-music-producer.yaml); 12 reason(s)` — registry drift | Yes — identical on the unmodified base. The registry and rubric are outside this task's scope and were not regenerated. |
+| `python scripts/qualification/generate_registry.py --check` | `supported-compose: not current (config/supported_profiles/v1-music-producer.yaml); 12 reason(s)` — registry drift | Yes — identical on the unmodified base. The registry and rubric are outside this task's scope and were not regenerated. The `Qualification Contracts` workflow is path-filtered to `docs/qualification/**`, `scripts/qualification/**`, `tests/qualification/**` and its own file, none of which this change touches, so the drift does not gate this PR; it does gate any future change in those paths until the registry is regenerated under its own authority. |
 | `pytest tests/ops/` (broader suite) | 4 failures: 3× `test_candidate_runtime_checkpoint.py`, 1× `test_codexify_tester_services.py::test_tester_status_accepts_a_running_account_import_worker` | Yes — identical set on the unmodified base. The tester failure is caused by this host sandbox blocking heredoc-created temporary files in `codexify_tester.sh`, not by product code. |
 
 ## 9. What this receipt does not claim
