@@ -24,23 +24,23 @@
     },
     "supported-compose": {
       "blockers": [
-        "The tested commit 5da79431fa059b7da80688380550cf29d4854b18 is not an ancestor of the current tip, so this run cannot be shown to describe the code the tip contains. A qualification run must test a revision that is part of the lineage it qualifies."
+        "1 earlier run receipt(s) for this surface were superseded by a later run."
       ],
       "evidence": [
-        "docs/architecture/proofs/supported-compose/2026-09-22-current-tip-final-supported-compose-qualification.md"
+        "docs/architecture/proofs/supported-compose/2026-11-03-supported-compose-qualification-69ef035a.md"
       ],
-      "freshness": "stale",
-      "last_qualified_at": "2026-09-22",
-      "latest_run": "runs/2026-09-22-supported-compose-current-tip.md",
+      "freshness": "current",
+      "last_qualified_at": "2026-11-03",
+      "latest_run": "runs/2026-11-03-supported-compose-69ef035a.md",
       "metrics": {
         "human_testers": 0,
         "independent_completions": 0,
-        "run_receipts": 1
+        "run_receipts": 2
       },
       "rubric": "rubrics/supported-compose.md",
       "scope": "The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip",
-      "status": "HOLD",
-      "tested_commit": "5da79431fa059b7da80688380550cf29d4854b18",
+      "status": "PASS",
+      "tested_commit": "69ef035a4320724b9a53279d2fabd6bac0c6e98f",
       "title": "Supported Compose Runtime"
     }
   },
