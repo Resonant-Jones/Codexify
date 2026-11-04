@@ -377,7 +377,13 @@ def test_heartbeat_timestamp_comes_from_the_database_clock(
     db: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The heartbeat uses PostgreSQL's clock, not the worker's wall clock."""
+    """The heartbeat uses PostgreSQL's clock, not the worker's wall clock.
+
+    The durable run row takes both of its execution timestamps from the
+    database clock. A wildly wrong host clock cannot reach them: the
+    acceptance stamp and the heartbeat are both the database's answer, so
+    the two columns stay comparable to the same clock that judges staleness.
+    """
     import guardian.agents.store as store_module
 
     monkeypatch.setattr(
@@ -392,9 +398,10 @@ def test_heartbeat_timestamp_comes_from_the_database_clock(
     assert _claim(db, task) == acceptance._ACCEPTED
 
     state = _heartbeat_state(db, str(task.run_id))
-    # started_at comes from the patched Python clock ...
-    assert state["started_at"].year == 1999
-    # ... while the heartbeat comes from the database clock.
+    # The acceptance stamp comes from the database clock, not the patched
+    # host clock ...
+    assert state["started_at"].year != 1999
+    # ... and so does the heartbeat.
     assert state["heartbeat_at"].year != 1999
 
 

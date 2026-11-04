@@ -964,3 +964,147 @@ One further trap belongs in the record: **the merge ref does not refresh when
 running CI against the base tip as of its last synchronization, so it can
 keep reporting a defect that `main` has already repaired. Re-syncing the
 head — a push, or "Update branch" — is what re-points it.
+
+## 25. The `guardian/agents/store.py` conflict with `main`, and its resolution
+
+### 25.1 The conflict surface
+
+`main` advanced to `c1e377158` (PR #986, the coding-worker claim-store
+reconciliation) while this branch was open, and both sides had rewritten the
+same module. `git merge-tree --write-tree 1b2934ace c1e377158` produced
+**exactly one conflicted file**: `guardian/agents/store.py`.
+
+Relative to the merge base `74fd8f489`, both sides changed `<module>`,
+`_is_terminal_agent_run_status` and the `AgentStore` class body; each side
+also added its own module-level helper. At method granularity inside
+`AgentStore`, **exactly three methods were rewritten on both sides**:
+
+| Method | `main`'s form | This branch's form |
+|---|---|---|
+| `claim_run_for_acceptance` | 85-line PostgreSQL compare-and-set | 190-line in-Python acceptance |
+| `renew_coding_run_heartbeat` | PostgreSQL conditional update | in-Python conditional update |
+| `claim_coding_run_terminal` | PostgreSQL claim-fenced terminal | in-Python claim-fenced terminal |
+
+Two facts decided the shape of the resolution.
+
+**`main` adds no `AgentStore` method that this branch lacks.** The method-set
+difference is one-directional: 12 members exist only on this branch (the
+liveness snapshot, the unresolved-run review, the uncertain quarantine and its
+operator route, the terminal finalization and side-evidence writers, the
+artifact and escalation writers, and the lineage matcher), and **0** exist only
+on `main`. `main`'s `AgentStore` is a method-level subset of this branch's.
+
+**The merged worker is this branch's.** `guardian/workers/coding_worker.py`
+auto-merges to this branch's version, and that version calls
+`finalize_claimed_coding_result`, `finalize_claimed_run_status` and
+`list_unresolved_guardian_coding_runs` — all three are members that exist only
+on this branch. So a resolution that took `main`'s file wholesale would have
+deleted the very layer the merged worker calls.
+
+The resolution is therefore **additive**: this branch's `store.py` with
+`main`'s three compare-and-set methods and `main`'s two module-level helpers
+lifted in verbatim, and nothing of this branch's removed. The method bodies
+were lifted by `ast` line range from `c1e377158` and spliced in; none was
+hand-transcribed.
+
+### 25.2 The terminal-time lineage guard is strengthened, not dropped
+
+This branch guarded the terminal decision with a class-level method,
+`_coding_run_lineage_matches(self, session, run_row)`, that re-reads the
+deployment and refuses the terminal decision when the deployment's asserted
+thread or user contradicts the run. `main` guards the same decision with a
+module-level function, `_coding_run_lineage_matches(run, deployment, claimed)`.
+
+`main`'s is **strictly stronger**, and it is the guard the merged code now
+carries:
+
+| Condition | This branch's method | `main`'s function |
+|---|---|---|
+| Run carries no deployment at all | allow | refuse |
+| Deployment id set but the row is absent | refuse | refuse |
+| Deployment id does not match the run | not checked | refuse |
+| Run carries no account origin | not checked | refuse |
+| Run carries no thread | not checked | refuse |
+| Deployment spec is not a dict | tolerate | refuse |
+| Persisted execution binding is not a dict | not checked | refuse |
+| Asserted thread contradicts the run | refuse | refuse |
+| Asserted user contradicts the run | refuse | refuse |
+| Any *other* identity assertion contradicts | not checked | refuse |
+
+Every condition this branch's method refuses on, `main`'s function refuses on
+as well; `main`'s refuses on seven more. The superseded class-level method is
+therefore removed as dead code — no caller remains — and **no terminal-time
+authority guard is dropped**.
+
+### 25.3 The one genuine contradiction: the clock of the durable run row
+
+The two sides disagreed about one persisted value, and the disagreement was
+not reconcilable.
+
+This branch's acceptance stamped `agent_runs.started_at` from the **host**
+clock (`_utc_now()`). `main`'s acceptance stamps it from the **database**
+clock (`func.coalesce(AgentRun.started_at, func.now())`), together with the
+initial heartbeat column, and `main`'s own contract states the invariant
+explicitly — *"A wildly wrong host clock cannot affect persisted execution
+timestamps"* — asserting `before <= started_at <= heartbeat <= after` against
+database `clock_timestamp()` readings.
+
+This branch's heartbeat contract asserted the opposite for `started_at`:
+under a patched host clock it required `started_at.year == 1999`. Both
+contracts read the **same persisted column** of the same row, so no
+implementation can satisfy both. The disagreement was a real one, not an
+artifact: the first run of the merged tree failed exactly this case, and
+nothing else.
+
+The resolution takes `main`'s position, and **does not change `main`**.
+`main`'s three methods are adopted verbatim; what changes is one
+over-specified assertion in this branch's own heartbeat contract. That
+assertion pinned the acceptance stamp *to* the host clock in order to show
+that the heartbeat was *not* on the host clock. Corrected, it asserts the
+invariant the test's own name and docstring already claim — *"The heartbeat
+uses PostgreSQL's clock, not the worker's wall clock"* — now covering both
+timestamps:
+
+```python
+# before
+assert state["started_at"].year == 1999
+assert state["heartbeat_at"].year != 1999
+
+# after
+assert state["started_at"].year != 1999
+assert state["heartbeat_at"].year != 1999
+```
+
+The corrected assertion is **stronger**: the previous one proved only that
+the heartbeat was independent of the host clock, while pinning the acceptance
+stamp to it; the corrected one proves that *neither* persisted timestamp can
+be moved by a wrong host clock. It also brings the acceptance stamp into
+line with the branch's own terminal comment — *"The database clock is the
+canonical time source for the durable run row"* — which the branch already
+applied to `ended_at`.
+
+### 25.4 Verification of the resolved tree
+
+Run against the resolved tree, with PostgreSQL 16.15 as the durable store
+(`postgresql://` scheme; the `postgresql+psycopg://` scheme is rejected by
+raw `psycopg` and errors 36 unrelated tests locally):
+
+| Selection | Result |
+|---|---|
+| `tests/contracts/` (29 files) | **719 passed, 1 xfailed, 0 failed** |
+| The ten coding contract suites alone, before §25.3 | 307 passed, 1 xfailed, **1 failed** (the clock case) |
+| The same ten suites, after §25.3 | all green |
+
+The ten coding suites are: authorized dispatch, claim store, worker
+acceptance, worker heartbeat, worker ownership, worker recovery, worker
+terminal fencing, run liveness, run uncertain quarantine, and worker restart
+review.
+
+### 25.5 What was not changed
+
+`main` was not modified in any way by this resolution. No file on `main` was
+edited, no claim on `main`'s lane was taken, and `main`'s own
+`tests/contracts/test_guardian_coding_claim_store_contract.py` was carried
+across unmodified and passes as written. The peer's claim-store
+implementation is present in the resolved tree exactly as `main` holds it.
+
