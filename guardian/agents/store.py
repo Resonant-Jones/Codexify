@@ -3468,6 +3468,12 @@ class AgentStore:
         its predicate against the row the competing transaction committed, so
         an acceptance and a pre-acceptance refusal can never both succeed.
 
+        The decision is a single conditional statement, so it does not depend
+        on any dialect's row-lock semantics and is not restricted to one
+        dialect. The competing-worker interleaving is proven under PostgreSQL
+        concurrency; the same statement keeps the refusal working on every
+        other supported store instead of silently stopping there.
+
         The outcomes are the established terminal vocabulary:
 
         ``terminal_accepted``
@@ -3502,8 +3508,6 @@ class AgentStore:
         normalized_status = _normalize_agent_run_status(status)
 
         def _transition(session: Any) -> str:
-            if session.get_bind().dialect.name != "postgresql":
-                return RUN_TERMINAL_UNAVAILABLE
             values: dict[str, Any] = {
                 "status": normalized_status,
                 "ended_at": func.now(),
