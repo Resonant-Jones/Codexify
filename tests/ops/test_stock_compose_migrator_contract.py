@@ -73,12 +73,27 @@ def _revision_file(revision: str, down_revision: str | None = None) -> str:
     return f'revision = "{revision}"\ndown_revision = {down_revision!r}\n'
 
 
-def _migration_tree(root: Path, revisions: dict[str, str]) -> Path:
-    """Build a migration tree Alembic can read."""
+DEFAULT_ENV = """from alembic import context
+
+config = context.config
+"""
+
+
+def _migration_tree(
+    root: Path, revisions: dict[str, str], *, include_env: bool = True
+) -> Path:
+    """Build a migration tree Alembic can read.
+
+    The tree carries the migration environment as well as its revisions,
+    because Alembic executes ``env.py`` during an upgrade and the coherence
+    proof therefore has to cover it.
+    """
     versions = root / "versions"
     versions.mkdir(parents=True, exist_ok=True)
     for name, body in revisions.items():
         (versions / name).write_text(body, encoding="utf-8")
+    if include_env:
+        (root / "env.py").write_text(DEFAULT_ENV, encoding="utf-8")
     return root
 
 
@@ -196,6 +211,50 @@ def test_same_revision_with_different_content_is_rejected(migrator, tmp_path) ->
 # --- C. Missing migration source ------------------------------------------
 
 
+def test_altered_migration_environment_is_rejected(migrator, tmp_path) -> None:
+    """Identical revisions with a different ``env.py`` are not the same source.
+
+    Alembic executes ``env.py`` during an upgrade, so two trees that agree on
+    every revision file can still apply the schema differently.
+    """
+    effective = _migration_tree(
+        tmp_path / "image", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
+    )
+    source = _migration_tree(
+        tmp_path / "source", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
+    )
+    (source / "env.py").write_text(
+        "from alembic import context\n# altered environment\n", encoding="utf-8"
+    )
+
+    comparison = migrator.compare_migration_sources(effective, source)
+
+    assert not comparison.coherent
+    assert comparison.environment_mismatches
+    assert any("env.py" in entry for entry in comparison.environment_mismatches)
+    # The revision comparison itself is clean; only the environment differs.
+    assert comparison.content_mismatches == ()
+    with pytest.raises(migrator.MigrationSourceError, match="env.py"):
+        migrator.require_coherent_migration_source(comparison, source)
+
+
+def test_missing_migration_environment_is_rejected(migrator, tmp_path) -> None:
+    effective = _migration_tree(
+        tmp_path / "image", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
+    )
+    source = _migration_tree(
+        tmp_path / "source",
+        {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")},
+        include_env=False,
+    )
+
+    comparison = migrator.compare_migration_sources(effective, source)
+
+    assert not comparison.coherent
+    with pytest.raises(migrator.MigrationSourceError, match="env.py"):
+        migrator.require_coherent_migration_source(comparison, source)
+
+
 def test_missing_migration_source_is_rejected(migrator, tmp_path) -> None:
     effective = _migration_tree(
         tmp_path / "image", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
@@ -258,6 +317,33 @@ def test_migrator_exits_non_zero_before_migrating_an_incoherent_source(
             "aaaa1111111_add_thing.py": _revision_file("aaaa1111111"),
             "bbbb2222222_add_other.py": _revision_file("bbbb2222222"),
         },
+    )
+    ini = tmp_path / "alembic.ini"
+    ini.write_text(
+        f"[alembic]\nscript_location = {effective}\n", encoding="utf-8"
+    )
+
+    def _must_not_run(*args, **kwargs):
+        raise AssertionError("alembic must not run against an incoherent source")
+
+    monkeypatch.setattr(migrator, "run", _must_not_run)
+    monkeypatch.setenv("ALEMBIC_CONFIG", str(ini))
+    monkeypatch.setenv("CODEXIFY_SOURCE_MIGRATIONS_DIR", str(source))
+
+    assert migrator.main() == 1
+
+
+def test_migrator_exits_non_zero_before_migrating_an_altered_environment(
+    migrator, tmp_path, monkeypatch
+) -> None:
+    effective = _migration_tree(
+        tmp_path / "image", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
+    )
+    source = _migration_tree(
+        tmp_path / "source", {"aaaa1111111_add_thing.py": _revision_file("aaaa1111111")}
+    )
+    (source / "env.py").write_text(
+        "from alembic import context\n# altered environment\n", encoding="utf-8"
     )
     ini = tmp_path / "alembic.ini"
     ini.write_text(

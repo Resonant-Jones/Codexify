@@ -137,11 +137,15 @@ loudly at container creation instead of silently mounting an empty directory.
 **`backend/scripts/docker/run_migrator.py`** — three fail-closed gates, in
 order:
 
-1. **Coherence proof.** SHA-256 over `versions/*.py` in the effective
-   (image-baked) migration source and in `CODEXIFY_SOURCE_MIGRATIONS_DIR`. Any
-   revision missing on either side, any content mismatch, or any read error
-   aborts the run before Alembic is invoked. The log names the offending
-   revisions.
+1. **Coherence proof.** SHA-256 over the effective (image-baked) migration
+   source and `CODEXIFY_SOURCE_MIGRATIONS_DIR`. The comparison covers the
+   revision files under `versions/*.py` **and the migration environment
+   `env.py`**, because Alembic executes `env.py` during an upgrade: two trees
+   with identical revisions can still apply the schema differently. Any
+   revision missing on either side, any content mismatch, any missing or
+   differing `env.py`, or any read error aborts the run before Alembic is
+   invoked. The log names the offending revisions and the environment
+   difference.
 2. **Single head.** The effective migration source must resolve to exactly one
    Alembic head; zero heads and multiple heads both fail closed.
 3. **Database readback.** After `alembic upgrade heads`, the migrator reads
@@ -172,6 +176,9 @@ running a checkout's migrations against a different application source.
 | 2 | Coherence comparison, matching source (accepted) | Unit/contract test | PASS |
 | 3 | Coherence comparison, image ahead of source (rejected) | Unit/contract test | PASS |
 | 4 | Coherence comparison, same revision with different content (rejected) | Unit/contract test | PASS |
+| 4a | Coherence comparison, altered `env.py` with identical revisions (rejected) | Unit/contract test | PASS |
+| 4b | Coherence comparison, `env.py` missing from one side (rejected) | Unit/contract test | PASS |
+| 4c | Migrator exits non-zero and never invokes Alembic on an altered environment | Unit/contract test | PASS |
 | 5 | Missing migration source (rejected) | Unit/contract test | PASS |
 | 6 | Migration source without revisions (rejected) | Unit/contract test | PASS |
 | 7 | Multiple Alembic heads (rejected) | Unit/contract test | PASS |
@@ -199,13 +206,16 @@ Run from the isolated worktree at `97778bed`:
 ```
 python -m pytest -v tests/ops/test_source_compose_supported_profile_contract.py \
                    tests/ops/test_stock_compose_migrator_contract.py
-→ 22 passed
+→ 25 passed
 
 python -m pytest -v tests/test_whooshd_smoke_env_contract.py
 → 85 passed
 
 python -m pytest -q tests/architecture/test_beta_release_boundary.py
 → 122 passed
+
+python -m pytest -q tests/evidence_packets/test_guardian_evidence_bounded_read_contract.py
+→ 138 passed
 
 docker compose --env-file <synthetic-local-only>.env -f docker-compose.yml config --quiet
 → exit 0
@@ -216,6 +226,11 @@ python scripts/validate_docs.py
 git diff --check
 → exit 0
 ```
+
+The release-truth contract in `tests/evidence_packets/release_truth_contract.py`
+requires the Current phase to state the release gate as *remaining* `HOLD`.
+That phrase arrived on `main` after this branch's base revision, so this branch
+was reconciled with current `main` (see [§7.1](#71-reconciliation-with-current-main)).
 
 ## 6. Disposable runtime proof
 
@@ -294,7 +309,20 @@ coverage, provider-ledger evidence, browser behaviour, retrieval provenance and
 restart recovery were **not** executed here and belong to the future
 `supported-compose-stock` run.
 
-### 6.6 Environment note
+### 6.6 Scope of the runtime evidence relative to the environment comparison
+
+The disposable runtime proof in [§6.2](#62-case-a--matching-source-matched-image)
+and [§6.3](#63-case-b--stale-pre-baked-image-isolated) was executed against the
+revision-set comparison. The `env.py` extension of the coherence proof landed
+after that run: it is a **strict strengthening** — it can only reject more
+sources, never accept more — so the observed behaviour remains a valid
+demonstration of the mechanism. The environment comparison itself is covered by
+unit/contract tests only ([§5](#5-proof-surfaces), rows 4a–4c) and was **not
+re-executed at runtime**, because the host's Docker capacity is critical and
+further image builds are suspended. That is recorded as a coverage boundary,
+not as a runtime pass.
+
+### 6.7 Environment note
 
 The first execution of this proof reached the migration gates but the backend
 refused to start: the supported profile `v1-local-core-web-mcp` declares a
@@ -307,6 +335,28 @@ recorded run. No profile declaration, Compose file, or cloud/connector
 configuration was changed to achieve it.
 
 ## 7. Boundaries preserved
+
+### 7.1 Reconciliation with current `main`
+
+This branch was based on `97778bed`. While it was open, `main` advanced by
+three commits, including `b518517bc` ("restore the release-hold clauses the
+weekly override dropped"), which corrected `00-current-state.md` to state the
+release gate as *remaining* `HOLD` and added the line "Capabilities without
+current-main qualification are not default Beta support."
+
+The branch's own base text said "The release gate is `HOLD`". The release-truth
+contract in `tests/evidence_packets/release_truth_contract.py` requires the
+literal phrase *release gate remains \`HOLD\`` in the Current phase, so the
+branch failed that assertion once the newer contract was in force.
+
+Resolution: `main` was merged into this branch, and the single conflicted file
+was resolved by keeping **both** sides — `main`'s corrected release-hold
+phrase and its new "not default Beta support" line, plus this task's
+migration-repair statements and its corrected migration head. No architectural
+decision changed; the repair mechanism, the runtime evidence and the
+qualification boundary are unchanged by the reconciliation.
+
+### 7.2 What stayed separate
 
 - **Stock direct Compose startup** — repaired in place; no third startup
   mechanism was introduced.
@@ -328,19 +378,65 @@ configuration was changed to achieve it.
 
 ## 8. Pre-existing failures (baseline, not caused by this change)
 
-### 8.1 Operational residuals
+### 8.1 Operational residuals and capacity recovery
 
-- **Host volume capacity.** Building the proof image grew the Docker data image
-  on `/Volumes/Dev_SSD` by roughly 8 GB; the file is sparse and does not shrink
-  when the image tag is deleted, so the host went from 9.3 GiB free at task
-  start to 1.5 GiB at the proof preflight and under 1 GiB after the proof
-  (100% capacity). The proof image was removed, both proof projects were torn
-  down, and the BuildKit cache retains the build's layers, but reclaiming the
-  underlying allocation would require a global BuildKit prune or a Docker
-  Desktop disk trim, neither of which this task is authorized to perform.
-  **This is disclosed, not repaired**, and it is an operator action: the Docker
-  data image is shared with the live Private Preview lane, which this task
-  verified as unchanged.
+**What happened.** Building the proof image grew the Docker data image on
+`/Volumes/Dev_SSD` by roughly 8 GB. The file is sparse and does not shrink when
+the image tag is deleted, so free space on the volume fell from 9.3 GiB at task
+start to **264 MiB** (100% capacity) at its worst. The Docker guest's own
+filesystem then hit ENOSPC and was remounted read-only: `docker run`,
+`docker exec` and `docker logs` failed with `read-only file system` while the
+metadata API kept answering.
+
+**Capacity recovery (outside Docker).** No global BuildKit prune and no Docker
+Desktop reset were performed — neither is authorized for this task, and the
+data image is shared with the Private Preview. Instead, the reclaimable space
+*outside* Docker was identified and recovered: the repository's `.worktrees/`
+directory held **119 stale worktree checkouts totalling 82.3 GiB apparent**,
+of which **73 were clean, unlocked and untouched for more than 24 hours**
+(41.2 GiB apparent). Clean means no uncommitted source changes, so every commit
+stayed in the shared object store and every branch ref stayed in the
+repository; only regenerable checkouts were removed, via `git worktree remove
+--force`. This task's own worktree and another executor's unpushed branch worktree
+were excluded, and no Docker object, image, volume or Preview resource was
+touched.
+
+| Worktree removed | Apparent | Reclaimed |
+| --- | --- | --- |
+| `github-account-connector-integration` | 6,658 MiB | 6,809 MiB |
+| `qual-compose-41ff6152` | 5,246 MiB | 1,484 MiB |
+| `integrate-saved-widget-consent-aware-20261027` | 2,397 MiB | 391 MiB |
+| `private-preview-lens-20261015` | 1,588 MiB | 1,641 MiB |
+| `feat-auto-20261020-1dfc4b78` | 964 MiB | 898 MiB |
+| `private-preview-live-20261014` | 903 MiB | 938 MiB |
+| `pytest-module-identity` | 626 MiB | 664 MiB |
+
+**Reclaimed: 12.52 GiB. Free space: 2.74 GiB → 15.26 GiB.** Two further
+candidates (`baseline-6ead26697`, `verify-pristine`) were skipped because git
+reported them as no longer registered worktrees; they were left untouched.
+
+**Guest recovery.** The read-only guest mount did not clear itself once space
+returned, because the containerd metadata store itself lives on that mount.
+`docker desktop stop --force` followed by a relaunch was a no-op (the backend
+process survived), so the engine was recycled with `docker desktop restart`.
+The guest filesystem returned to read-write (`docker run` succeeded again).
+The long-running Private Preview services came back automatically on their
+`unless-stopped` policy — 13 containers up, database healthy, origin
+`/health` returning `ok`, and **the Preview database still at `3a91d7c4e8b2`,
+unchanged**. Its two one-shot services (`migrator`, `graph-init`) are exited
+with code 255 from the engine recycle; re-running them belongs to that lane's
+own flow and would advance that lane's database, so this task did not do it.
+The Preview backend image is still `sha256:22d9f5f13e7d9889794efa32385ee9e790eaacaff5edf7ca9e41a41a1e6e5c55`
+and its nine named volumes are intact. The main checkout's
+`backend/scripts/docker/run_migrator.py` and `docker-compose.yml` were never
+modified, so no Preview container ever executed this task's changed script.
+
+**Still outstanding (operator action).** The sparse Docker data image did not
+shrink: reclaiming that allocation needs Docker Desktop disk compaction or an
+authorized prune, both of which are controlled operations that require backup,
+ownership verification and downtime planning. Until then the volume has ~15 GiB
+of headroom, and **no further Docker builds, stock-path qualification runs or
+other disk-intensive Docker activity should be started** on this host.
 - **A second executor holds an unpushed branch** at
   `/Users/chriscastillo/.codex/worktrees/3164/Codexify-main`
   (`codex/stock-compose-migration-source`, `e50f5756e`) based on the same base

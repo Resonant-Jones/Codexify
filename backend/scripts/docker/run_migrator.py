@@ -19,6 +19,10 @@ SOURCE_MIGRATIONS_DIR_ENV = "CODEXIFY_SOURCE_MIGRATIONS_DIR"
 
 VERSIONS_DIRNAME = "versions"
 REVISION_SUFFIX = ".py"
+# Alembic executes the migration environment during an upgrade, so it is part
+# of the migration source that actually runs. Two trees with identical revision
+# files but different environments are not the same migration source.
+ENV_FILENAME = "env.py"
 
 
 class MigrationSourceError(RuntimeError):
@@ -34,6 +38,7 @@ class MigrationSourceComparison:
     missing_from_source: tuple[str, ...]
     extra_in_source: tuple[str, ...]
     content_mismatches: tuple[str, ...]
+    environment_mismatches: tuple[str, ...]
     errors: tuple[str, ...]
 
     @property
@@ -43,6 +48,7 @@ class MigrationSourceComparison:
             or self.missing_from_source
             or self.extra_in_source
             or self.content_mismatches
+            or self.environment_mismatches
         )
 
     def summary(self) -> str:
@@ -52,6 +58,7 @@ class MigrationSourceComparison:
             f"missing_from_source={list(self.missing_from_source)}, "
             f"extra_in_source={list(self.extra_in_source)}, "
             f"content_mismatches={list(self.content_mismatches)}, "
+            f"environment_mismatches={list(self.environment_mismatches)}, "
             f"errors={list(self.errors)}"
         )
 
@@ -141,6 +148,23 @@ def revision_digests(migrations_dir: Path) -> tuple[dict[str, str], list[str]]:
     return digests, errors
 
 
+def environment_digest(migrations_dir: Path) -> tuple[str | None, list[str]]:
+    """Return the SHA-256 of a migration tree's environment file, plus errors.
+
+    Alembic executes ``env.py`` during an upgrade, so two trees can hold
+    identical revisions and still differ in the behaviour their upgrade
+    applies. The environment file is therefore part of the migration source
+    that the coherence proof has to cover.
+    """
+    path = migrations_dir / ENV_FILENAME
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest(), []
+    except FileNotFoundError:
+        return None, []
+    except OSError as exc:
+        return None, [f"cannot read {path}: {exc}"]
+
+
 def compare_migration_sources(
     effective_dir: Path, source_dir: Path
 ) -> MigrationSourceComparison:
@@ -158,13 +182,41 @@ def compare_migration_sources(
         )
     )
 
+    effective_env, effective_env_errors = environment_digest(effective_dir)
+    source_env, source_env_errors = environment_digest(source_dir)
+
+    environment_mismatches: list[str] = []
+    if effective_env is None and source_env is None:
+        environment_mismatches.append(
+            f"{ENV_FILENAME} is missing from both migration sources"
+        )
+    elif effective_env is None:
+        environment_mismatches.append(
+            f"{ENV_FILENAME} is missing from the effective migration source"
+        )
+    elif source_env is None:
+        environment_mismatches.append(
+            f"{ENV_FILENAME} is missing from the checkout's migration source"
+        )
+    elif effective_env != source_env:
+        environment_mismatches.append(
+            f"{ENV_FILENAME} differs between the effective migration source "
+            "and the checkout"
+        )
+
     return MigrationSourceComparison(
         effective_revisions=len(effective),
         source_revisions=len(source),
         missing_from_source=missing,
         extra_in_source=extra,
         content_mismatches=mismatched,
-        errors=tuple(effective_errors + source_errors),
+        environment_mismatches=tuple(environment_mismatches),
+        errors=tuple(
+            effective_errors
+            + source_errors
+            + effective_env_errors
+            + source_env_errors
+        ),
     )
 
 
@@ -179,6 +231,13 @@ def require_coherent_migration_source(
     if comparison.source_revisions == 0:
         raise MigrationSourceError(
             f"no migration revisions found in the checkout's migration source {source_dir}"
+        )
+    if comparison.environment_mismatches:
+        raise MigrationSourceError(
+            "the migration environment does not describe this checkout ("
+            + "; ".join(comparison.environment_mismatches)
+            + "); rebuild the backend image from this checkout before starting "
+            "the stack"
         )
     if not comparison.coherent:
         raise MigrationSourceError(
