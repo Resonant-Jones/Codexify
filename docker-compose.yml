@@ -141,11 +141,35 @@ services:
       CODEXIFY_EMBEDDINGS_BACKEND: "${CODEXIFY_EMBEDDINGS_BACKEND:-local}"
       EMBEDDING_BACKEND: "local"
       CODEXIFY_USE_OPENAI: "0"
-    # NOTE: no guardian volume mounts — virtiofs stat bug on macOS Docker Desktop
-    # causes os.path.exists() to fail for files with com.apple.provenance xattr.
-    # Migration files come from the baked image (COPY guardian /app/guardian).
+      # Read-only view of this checkout's migration source. The migrator
+      # compares it against the source baked into the image and refuses to
+      # migrate when they describe different revisions.
+      CODEXIFY_SOURCE_MIGRATIONS_DIR: /source-migrations
+    # The migrator executes the migration source baked into the image
+    # (COPY guardian /app/guardian). The backend and the workers serve this
+    # checkout's source, so that baked source has to describe the same
+    # checkout; otherwise the application would serve against a schema built
+    # from a different revision. ./guardian/db/migrations is mounted read-only
+    # at a side path purely so the migrator can prove that before it applies
+    # anything, and it is never executed from. A stale image fails the
+    # migrator closed rather than migrating to a head the application does not
+    # expect.
+    #
+    # NOTE: the guardian tree itself is still not mounted on this service. The
+    # virtiofs stat bug on macOS Docker Desktop can make os.path.exists() fail
+    # for bind-mounted files carrying the com.apple.provenance xattr, and the
+    # migration source Alembic executes from must not depend on that path. The
+    # read-only ./guardian/db/migrations mount above is a comparison surface
+    # only: if a host cannot read it, the comparison fails and the migrator
+    # fails closed instead of migrating.
     volumes:
       - ./backend:/app/backend
+      - type: bind
+        source: ./guardian/db/migrations
+        target: /source-migrations
+        read_only: true
+        bind:
+          create_host_path: false
     restart: "no"
     command: ["/app/backend/scripts/docker/run_migrator.py"]
 
