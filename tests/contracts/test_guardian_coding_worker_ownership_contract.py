@@ -28,6 +28,7 @@ import re
 import socket
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from uuid import UUID
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -316,7 +317,21 @@ def test_worker_identity_is_generated_internally() -> None:
     # Not derived from the host or the process.
     hostname = socket.gethostname()
     assert hostname not in identity
-    assert str(os.getpid()) not in identity
+    # Not derived from the process, either. The identity is a fresh uuid4,
+    # so it cannot carry the process id; the assertion says so directly
+    # instead of by proxy.
+    #
+    # The previous form of this assertion was `str(os.getpid()) not in
+    # identity`. That is a substring test against a random hex string, not
+    # a derivation test: the identity is a uuid4 and so cannot be derived
+    # from the process, but the decimal process id occurs inside the hex by
+    # coincidence. Measured over 200,000 identities, the collision rate is
+    # ~0.03% for a four-digit process id, ~0.003% for a five-digit one,
+    # ~12% for a two-digit one, and ~85% for a single-digit one -- because a
+    # fresh container's early processes get small ids. So the assertion
+    # failed intermittently on main, and because CI runs pytest with
+    # `--maxfail=1` one such failure hides every other test in the run.
+    assert UUID(identity.removeprefix("cwi_")).version == 4
 
 
 def test_different_worker_instances_have_distinct_ids() -> None:
