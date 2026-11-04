@@ -82,7 +82,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python -m pytest -q --disable-warnings tests/architecture
+          python -m pytest -q --disable-warnings tests/architecture tests/evidence_packets
 
       - name: Verify generated projections and ARP packets are current
         shell: bash
