@@ -520,6 +520,86 @@ def test_a_failed_registration_does_not_fail_the_job(monkeypatch, music_client):
 
 
 # --------------------------------------------------------------------------
+# The whole-state write
+#
+# `current_spec` is a record of what the Producer produced, written whole.
+# A partial write that merged would silently resurrect values the Artist
+# already changed -- so it has to clear them, and that has to be proven
+# against a real database rather than asserted about a mock.
+# --------------------------------------------------------------------------
+
+
+def test_a_whole_state_write_replaces_and_a_partial_one_clears():
+    """A revision replaces the state; it does not merge into it.
+
+    Writing the full state, then writing only part of it, must leave the
+    omitted columns null. A merge would resurrect values the Artist had
+    already changed -- and the write would still look like it worked.
+    """
+    import os
+    import uuid
+
+    import psycopg
+    from psycopg import sql
+
+    admin = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not admin:
+        pytest.skip("a disposable PostgreSQL is required for this proof")
+
+    name = "music_state_" + uuid.uuid4().hex
+    with psycopg.connect(admin, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    info = psycopg.conninfo.conninfo_to_dict(admin)
+    info["dbname"] = name
+
+    from sqlalchemy.engine import URL
+
+    migration_url = URL.create(
+        "postgresql+psycopg",
+        username=info.get("user"),
+        password=info.get("password"),
+        host=info.get("host"),
+        port=int(info.get("port", 5432)),
+        database=name,
+    ).render_as_string(hide_password=False)
+
+    try:
+        from guardian.core.pgdb import PgDB
+        from tests.services.test_memory_vault_read_projection import _migrate_to_head
+
+        _migrate_to_head(migration_url)
+
+        db = PgDB(migration_url.replace("postgresql+psycopg://", "postgresql://", 1))
+
+        project_id = db.create_project("music state proof", "proof")
+        db.upsert_music_project(
+            project_id,
+            bpm=120.0,
+            musical_key="C minor",
+            bars=8,
+            current_spec={"title": "first"},
+        )
+
+        full = db.get_music_project(project_id)
+        assert full["bpm"] == 120.0
+        assert full["musical_key"] == "C minor"
+        assert full["current_spec"] == {"title": "first"}
+
+        # A partial write is a new complete state, not a patch.
+        db.upsert_music_project(project_id, bpm=90.0)
+        partial = db.get_music_project(project_id)
+        assert partial["bpm"] == 90.0
+        assert partial["musical_key"] is None, "a partial write merged instead of replacing"
+        assert partial["bars"] is None
+        assert partial["current_spec"] is None
+    finally:
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+
+
+# --------------------------------------------------------------------------
 # The model and the migration describe the same table
 # --------------------------------------------------------------------------
 

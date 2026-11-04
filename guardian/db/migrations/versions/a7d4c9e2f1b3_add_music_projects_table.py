@@ -19,12 +19,16 @@ The table is 1:1 with ``projects``: ``project_id`` is both the primary
 key and the foreign key, so attaching a Music Project to a Project and
 detaching it are the same operation.
 
-``current_spec`` is the complete session state and is the source of
-truth.  The scalar columns beside it are a queryable projection of the
-same values -- "every project at 120 BPM" is a question worth asking,
-and asking it should not mean parsing JSON.  They are not indexed
-because the table is small and is almost always reached by
-``project_id``.
+``current_spec`` is the complete session state as the Producer produced
+it, and it is a *record* of that state rather than a second truth about
+it.  The Producer owns the specification; this column is what this side
+keeps of it.  It is written whole and never field-patched, so a revision
+replaces the whole state rather than merging into it.
+
+The scalar columns beside it are a queryable projection of the same
+values -- "every project at 120 BPM" is a question worth asking, and
+asking it should not mean parsing JSON.  They are not indexed because
+the table is small and is almost always reached by ``project_id``.
 """
 
 from __future__ import annotations

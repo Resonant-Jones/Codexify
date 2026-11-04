@@ -36,6 +36,13 @@ music; this side owns the record of it. Everything that decides *what*
 the music should be -- tempo, key, bars, the spec itself -- is derived
 by the Producer and written back complete, never patched field by field,
 because a revision replaces the whole state.
+
+``music_projects.current_spec`` is therefore a whole-state *record* of
+what the Producer produced, not an independent truth about the music.
+It is written whole. When the Artist edits the ``.rpp`` in REAPER after
+the handoff, the two disagree, and until that is reconciled the
+Producer's specification is the authority on what the music is -- the
+column records where it was at handoff, not where it is now.
 """
 
 import logging
