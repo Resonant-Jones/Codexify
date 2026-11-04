@@ -1269,6 +1269,138 @@ def test_an_unclaimed_worker_cannot_persist_a_result_after_another_worker_accept
     assert acceptance._coding_result_message_count(db, task.thread_id) == 0
 
 
+def test_a_pre_acceptance_result_that_loses_to_acceptance_persists_nothing(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker B wins acceptance; Worker A's result write persists nothing.
+
+    The interleaving is controlled, not timed. Worker A enters its
+    pre-acceptance result path and is held there, Worker B completes durable
+    acceptance, and only then does Worker A's result write run.
+
+    This is the result-write counterpart of
+    ``test_a_pre_acceptance_refusal_that_loses_to_acceptance_cannot_overwrite_the_run``.
+    The status path proves that a losing refusal cannot rewrite the run; this
+    proves that a losing result write cannot leave a result artifact or a
+    source-thread result message behind either. Both are refused by the same
+    atomic decision.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    original = AgentStore.finalize_unclaimed_coding_result
+    reached = threading.Event()
+    release = threading.Event()
+
+    def _held(self: Any, **kwargs: Any) -> dict[str, Any]:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "finalize_unclaimed_coding_result", _held)
+
+    receipts: dict[str, Any] = {}
+
+    def _write_result() -> None:
+        receipts["result"] = _pre_acceptance_result(db, task)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_write_result)
+        assert reached.wait(timeout=30)
+        # Worker B wins durable acceptance while Worker A is held.
+        assert _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        ) == _ACCEPTED
+        release.set()
+        future.result(timeout=30)
+
+    receipt = receipts["result"]
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is False
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_acceptance_that_loses_to_a_pre_acceptance_result_cannot_claim_the_run(
+    db: Any,
+) -> None:
+    """Worker A wins the result write; Worker B cannot accept the terminal run."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    receipt = _pre_acceptance_result(db, task)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert receipt.get("terminal_accepted") is True
+
+    outcome = _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    assert outcome == _REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert state["ended_at"] is not None
+    # The winning result write committed with its terminal status.
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+def test_competing_acceptance_and_pre_acceptance_result_cannot_both_succeed(
+    db: Any,
+) -> None:
+    """Exactly one of the competing acceptance and result write wins.
+
+    The result is persisted if and only if the result write is the winner: a
+    result artifact and a source-thread result message exist exactly when the
+    run was terminalized by the pre-acceptance result path, and never when
+    acceptance took the run.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    barrier = threading.Barrier(2)
+
+    def _claim_racing() -> str:
+        barrier.wait(timeout=30)
+        return _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    def _result_racing() -> dict[str, Any]:
+        barrier.wait(timeout=30)
+        return _pre_acceptance_result(db, task)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claim_future = pool.submit(_claim_racing)
+        result_future = pool.submit(_result_racing)
+        claim_outcome = claim_future.result(timeout=60)
+        receipt = result_future.result(timeout=60)
+
+    result_accepted = receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    if claim_outcome == _ACCEPTED:
+        assert not result_accepted, (claim_outcome, receipt)
+        assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+        state = _run_state(db, str(task.run_id))
+        assert state["status"] == "running"
+        assert state["instance_id"] == _INSTANCE_B
+        assert state["claim_id"] == _CLAIM_B
+        assert acceptance._artifact_count(db, str(task.run_id)) == 0
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+    else:
+        assert claim_outcome == _REJECTED, (claim_outcome, receipt)
+        assert result_accepted, (claim_outcome, receipt)
+        state = _run_state(db, str(task.run_id))
+        assert state["status"] == "failed"
+        assert state["instance_id"] is None
+        assert state["claim_id"] is None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 1
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
 def test_an_unclaimed_result_on_an_eligible_run_still_commits(
     db: Any,
 ) -> None:
