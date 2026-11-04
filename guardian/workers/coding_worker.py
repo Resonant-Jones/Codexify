@@ -2403,6 +2403,13 @@ class CodingWorker:
         commit only while that claim still owns the run. A stale worker
         therefore produces no terminal status, no coding-result artifact, and
         no source-thread result.
+
+        A worker that never held a claim has no claim fence to rely on, so its
+        result writes are bound to the same atomic pre-acceptance decision:
+        the canonical result writes commit only while the run is still queued
+        and unclaimed. A worker without a claim can therefore not persist a
+        result artifact, a source-thread message, or a terminal state over a
+        run that another worker has accepted.
         """
         claim_id = self._coding_run_claim(task.run_id)
         if claim_id is not None:
@@ -2412,7 +2419,10 @@ class CodingWorker:
                 claim_id=claim_id,
                 **kwargs,
             )
-        return self.store.store_coding_result(run_id=task.run_id, **kwargs)
+        return self.store.finalize_unclaimed_coding_result(
+            run_id=task.run_id,
+            **kwargs,
+        )
 
     def _finalize_claimed_run_status(
         self,
@@ -2426,15 +2436,21 @@ class CodingWorker:
         The status is written by the same conditional database update the
         terminal result uses, so a worker whose claim no longer owns the run
         cannot move it to a terminal status of its own.
+
+        A worker that never held a claim falls back to the atomic
+        pre-acceptance refusal, which evaluates the queued state and the
+        absence of worker ownership in the same database write that establishes
+        the terminal state. An unrestricted status write is never used to
+        terminalize a coding run, so a competing worker that accepted the run
+        first keeps its ownership and its running state.
         """
         claim_id = self._coding_run_claim(task.run_id)
         if claim_id is None:
-            self.store.update_run_status(
+            return self.store.terminalize_unclaimed_queued_run(
                 run_id=task.run_id,
                 status=status,
                 error=error,
             )
-            return RUN_TERMINAL_ACCEPTED
         return self.store.finalize_claimed_run_status(
             run_id=task.run_id,
             worker_instance_id=self.worker_instance_id,
