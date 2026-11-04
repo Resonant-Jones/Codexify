@@ -363,16 +363,29 @@ as well. That commit closes the pre-existing registry drift described in
 now exits 0 on this branch.
 
 **No registry regeneration is required after this branch merges.** The
-qualification registry's freshness for a surface depends on which of the
-rubric's declared `surface_paths` changed between the run receipt commit
-(`69ef035a4`) and the tip — `scripts/qualification/lib/freshness.py` intersects
-`git diff --name-only <receipt> <tip>` with the rubric's `surface_paths`, and a
-surface is `current` only when that intersection is empty. Computed both ways:
-`origin/main` touches **12** surface paths, this branch's head touches the
-**same 12**, and this branch adds **zero** touched surface paths. The projected
-registry is therefore byte-identical before and after the merge, and
-`generate_registry.py --check` exits 0 at this branch's final head
-(`62a3401ad`).
+freshness *verdict* for a surface is computed on a path set:
+`scripts/qualification/lib/freshness.py` diffs the run receipt commit
+(`69ef035a4`) against the tip, intersects the result with the rubric's declared
+`surface_paths` via `match_surface`, and returns `current` only when that
+intersection is empty. Computed both ways: `origin/main` touches **12** surface
+paths, this branch's head touches the **same 12**, and this branch adds
+**zero** touched surface paths. The verdict is therefore identical before and
+after the merge, so the projected registry is unchanged.
+
+Two precision notes, so this claim is not read for more than it proves:
+
+- The registry **persists a cardinality, not the path set.** The freshness
+  blocker is built from `len(touched)` ("12 path(s) in this qualification
+  surface changed since the run"), and `projection.py::_blockers_for` puts only
+  those blocker strings into `entry["blockers"]` — the touched paths never
+  reach `docs/qualification/registry.json`. A same-cardinality swap of *which*
+  paths changed is therefore invisible to `generate_registry.py --check`. That
+  is a limit on the evidence the registry records, not a wrong verdict.
+- Consequently the "no regeneration" conclusion rests on the **set-level**
+  comparison above (the same 12 paths, zero added), not on the count and not on
+  the check alone. `generate_registry.py --check` exits 0 at this branch's
+  final head (`c16f5aef4`), which is consistent with that comparison but does
+  not by itself prove set equality.
 
 ### 7.2 What stayed separate
 
