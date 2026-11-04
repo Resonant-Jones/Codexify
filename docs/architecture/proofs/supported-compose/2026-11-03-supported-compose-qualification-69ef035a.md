@@ -7,8 +7,9 @@
 ## Result
 
 **Rubric verdict: PASS** for the supported Compose runtime on the frozen
-evaluated revision `69ef035a4320724b9a53279d2fabd6bac0c6e98f`, with three
-recorded limitations and two excluded surfaces.
+evaluated revision `69ef035a4320724b9a53279d2fabd6bac0c6e98f`, with two
+recorded limitations, one explicit scope boundary, one finding outside the
+rubric's criteria, and the excluded surfaces named below.
 
 The supported local Compose topology started on the repaired canonical
 startup path, applied the source tree's own Alembic head, and satisfied every
@@ -38,9 +39,42 @@ persisted.**
    pre-baked `codexify-worker-coding-runtime:latest`, not from the
    source-matched backend image. It is outside this rubric and outside the
    supported profile. See [§5](#5-supported-topology-and-startup).
-3. **The event outbox was not drained during the run.** All ten
-   `events_outbox` rows remained `pending`, while the live `/api/events` SSE
-   stream delivered the same events. See [§12](#12-event-stream-and-outbox).
+
+### Scope of this PASS
+
+**This PASS applies to the launcher-driven, source-matched startup that this
+run exercised** — `scripts/whooshd_docker_smoke_up.sh full --detach --project
+codexify_qual_20261103`, which renders `docker-compose.yml` +
+`docker-compose.whooshd-smoke.yml` with the supported profile's provider
+contract and builds the backend image from the evaluated checkout
+(`codexify-backend-runtime:src-69ef035a4320`).
+
+**It does not qualify the stock `:latest` Compose startup at the same
+revision.** The plain `docker compose up` path against the pre-baked
+`codexify-backend-runtime:latest` image remains unqualified, and the reason
+is structural rather than incidental. `backend/migrations` is a symlink to
+`../guardian/db/migrations`, and `docker-compose.yml`'s migrator bind-mounts
+only `./backend:/app/backend`, so the symlink resolves into the baked image
+instead of into the checkout. PR #982 hardened the qualification launcher; it
+did not change the stock Compose configuration. The mechanism is set out in
+[§5.1](#51-the-launcher-path-versus-the-stock-compose-path).
+
+This boundary is stated up front because the registry projects this receipt's
+verdict against a surface whose scope — "the supported local Docker Compose
+runtime" — is broader than the single startup path exercised here. Every
+rubric criterion was met against the exercised path, so the verdict stands as
+PASS; but this receipt must not be read as saying the stock supported install
+path is qualified. `docs/architecture/00-current-state.md` remains release
+authority and records the stock-path migrator defect as an open blocker.
+
+### Finding outside the rubric's criteria
+
+**The retained `pending` `events_outbox` rows are the implemented behaviour,
+not a delivery failure.** No rubric check depends on outbox publication state,
+and the live SSE surface served the same events correctly. The open question is
+whether the outbox's `status` column has meaningful publication semantics and
+whether retention is bounded — not whether the table "drains". See
+[§12](#12-event-stream-and-outbox).
 
 ### Excluded surfaces
 
@@ -258,6 +292,61 @@ outside the supported profile (the rubric explicitly does not qualify "the
 autonomous coding worker"), and it was therefore **not** qualified by this
 run. It is recorded so that no reader mistakes the running container for
 evidence about the source-matched path.
+
+### 5.1 The launcher path versus the stock Compose path
+
+The rubric anchors its scope to the runtime that
+`docs/architecture/00-current-state.md` names as the supported install path.
+That document names the local Docker Compose profile `v1-local-core-web-mcp`
+with its provider contract — it does not name a startup command — and it
+records, at this tip, that the **stock** supported path still fails Gate B.
+This subsection records exactly how the path exercised by this run differs from
+the stock path, so that this receipt cannot be read as qualifying the stock
+path.
+
+| | Launcher path (exercised) | Stock Compose path (not exercised) |
+| --- | --- | --- |
+| Startup | `scripts/whooshd_docker_smoke_up.sh full --detach --project codexify_qual_20261103` | `docker compose up` over `docker-compose.yml` (+ `docker-compose.whooshd-smoke.yml`) |
+| Backend image | `codexify-backend-runtime:src-69ef035a4320`, built from the evaluated checkout | `${CODEXIFY_BACKEND_IMAGE:-codexify-backend-runtime:latest}` — the pre-baked image |
+| Migration source | the image's `/app/guardian`, which **is** the evaluated checkout's `guardian/db/migrations` | the bind-mounted `./backend`, whose `migrations` symlink resolves into the baked image's `/app/guardian` |
+| Migrator volumes | stock declaration, unchanged: `- ./backend:/app/backend` | stock declaration, unchanged: `- ./backend:/app/backend` |
+| Gate B at `69ef035a4` | **PASS** — `alembic_version` = `d91e4fa6702b` by direct readback | **not exercised**; structurally the migrator applies the baked image's head, not the source head |
+| `docker-compose.runtime.yml` migrator | not used by this path | declares **no volumes at all** |
+
+The two paths use the **same Compose configuration**. They differ only in
+which image that configuration resolves. The mechanism was verified from the
+frozen tree, not inferred:
+
+- `backend/migrations` is a symlink in the evaluated revision. Git records it
+  with mode `120000` and blob `0fb5f8a0ce92f02bce914dcd96c5f2be43e63a31`,
+  whose content is `../guardian/db/migrations`.
+- `docker-compose.yml` declares the backend image as
+  `${CODEXIFY_BACKEND_IMAGE:-codexify-backend-runtime:latest}`, and its
+  `migrator` service declares exactly one volume, `- ./backend:/app/backend`,
+  carrying the source's own comment: *"NOTE: no guardian volume mounts —
+  virtiofs stat bug on macOS Docker Desktop causes os.path.exists() to fail
+  for files with com.apple.provenance xattr. Migration files come from the
+  baked image (COPY guardian /app/guardian)."* The bind mount replaces
+  `/app/backend` with the checkout's `backend/`, so the `migrations` symlink
+  resolves to `/app/guardian/db/migrations` — the **image's** guardian, not
+  the checkout's.
+- `docker-compose.runtime.yml`'s `migrator` declares no `volumes` key at all.
+- The launcher instead sets `IMAGE_TAG="codexify-backend-runtime:src-${SOURCE_SHA:0:12}"`,
+  builds it with `docker build --target runtime -f backend/Dockerfile -t
+  "$IMAGE_TAG" "$REPO_ROOT"`, compares the built image's migration head with
+  the source head, and exports `CODEXIFY_BACKEND_IMAGE`.
+
+Because the launcher's image is built from the evaluated checkout, the baked
+`/app/guardian` *is* the frozen source, and the migrator reaches the source
+head. That is the whole reason Gate B passes here, and it is a property of
+the image the launcher builds — not of the Compose file, which PR #982 did not
+touch.
+
+**Consequence for this receipt.** Gate B is proven for the launcher path at
+this revision. It is **not** proven for the stock path, and no claim in this
+proof extends to it. The stock-path migrator defect remains open in the tree
+at this revision and is recorded as an active blocker in
+`docs/architecture/00-current-state.md`.
 
 ### Provider contract at the container level
 
@@ -600,15 +689,49 @@ data: {"role": "assistant", "content": "qual-compose-02", …}
 The same stream is reachable through the frontend's Vite proxy
 (`http://127.0.0.1:5173/api/events`), which is the path the browser uses.
 
-**Limitation — the event outbox was not drained.** All ten rows in
-`events_outbox` remained `status = pending` at the end of the run, including
-the `task.completed` row for the successful turn. The durable events exist
-with correct payloads and the live SSE surface served them; what was not
-observed is the outbox being marked published. This is recorded as a
-limitation rather than a failure because no rubric check depends on the
-outbox publication state, and the browser observed the correct terminal
-rendering. It is worth a separate look: an outbox that never drains is the
-kind of seam where "event publication" and "UI receipt" can diverge.
+**Finding — the retained `pending` outbox rows are the implemented
+behaviour, not a delivery failure.** All ten rows in `events_outbox` carried
+`status = pending` at the end of the run, including the `task.completed` row
+for the successful turn. That status is **not** evidence of failed
+publication, and this run's evidence does not support a "the outbox did not
+drain" conclusion. The following was verified in the evaluated source:
+
+- `stream_events` (`guardian/guardian_api.py`) reads the outbox and keeps the
+  rows. Its body carries the explicit marker: *"Keep outbox events intact so
+  concurrent clients can resume independently without losing events due to
+  destructive cleanup."*
+- The read path `PgDB.list_events_after` filters only on `id > last_id` (plus
+  tenant). It does **not** filter on `status`, and it does not even select the
+  `status` column. Delivery never depends on a published status.
+- The `status` column is schema-only at runtime. The table's DDL
+  (`ac973209add4`) declares `status VARCHAR(32) NOT NULL DEFAULT 'pending'`
+  with an index on `(status, created_at)`, and `guardian/db/models.py` maps it.
+  The runtime model the outbox writer and reader actually use
+  (`guardian/core/models.py`) does **not** map `status` at all, and nothing in
+  the runtime ever transitions it. `pending` is therefore the permanent value
+  and carries no publication semantics.
+
+**The narrower open question is retention, not drainage.** The only deletion
+API, `delete_events_through`, exists on `PgDB`, on `ChatDB`, and on the event
+bus, but it has **no production caller** — its only callers are in
+`guardian/tests/test_events_outbox.py`. The SSE path deliberately does not call
+it. Two consequences follow, and both are narrower than "drain the outbox":
+
+1. `status` is either vestigial — in which case it should be dropped or given
+   meaning — or the publication state it was designed for was never wired up.
+   Until that is settled it must not be read as a delivery signal.
+2. Retention is currently **unbounded** in practice. The `stream_events`
+   docstring still states *"Deletes events up to the last delivered id so the
+   outbox does not grow unbounded"*, but no such deletion is implemented; the
+   inline comment deliberately supersedes it. That is a
+   documentation-versus-code drift, and it is where a bounded retention policy
+   belongs.
+
+Deleting or acknowledging these rows to make the table "drain" would break the
+concurrent-client resume behaviour the implementation intentionally preserves.
+No rubric check depends on outbox publication state, and the browser observed
+the correct terminal rendering, so this is recorded as a finding rather than a
+failure.
 
 ## 13. Restart recovery
 

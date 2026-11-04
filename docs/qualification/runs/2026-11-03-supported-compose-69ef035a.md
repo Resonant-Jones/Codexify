@@ -63,6 +63,18 @@ deliberately retained as the Gate A evidence artifact.
 The frozen runtime revision did not move during the run. The working tree was
 clean at every check.
 
+**Scope of this verdict.** The PASS applies to the launcher-driven,
+source-matched startup this run exercised
+(`scripts/whooshd_docker_smoke_up.sh full --detach`, image
+`codexify-backend-runtime:src-69ef035a4320` built from the evaluated
+checkout). It does **not** qualify the stock `:latest` Compose startup at the
+same revision: `backend/migrations` is a symlink to `../guardian/db/migrations`
+and `docker-compose.yml`'s migrator bind-mounts only `./backend:/app/backend`,
+so the symlink resolves into the baked image rather than into the checkout.
+PR #982 hardened the qualification launcher; it did not change the stock
+Compose configuration, and the stock-path migrator defect remains open in the
+tree at this revision. The full mechanism is in the detailed proof, §5.1.
+
 ## Qualification matrix
 
 | Criterion | Result | Observation | Evidence |
@@ -103,10 +115,17 @@ retrieval with document/chunk provenance, explicit model authority, real
 browser projection with event delivery, restart recovery, and the nine
 focused verification surfaces.
 
-The boundary that the September 2026 run failed is now green. An explicitly
-requested unavailable local model was rejected **before provider execution**:
-the request's `request_id` has no entry in the provider's own ledger, no
-substitute model ran, and no assistant message was persisted.
+Two boundaries that earlier runs left open are green **on the exercised
+path**. The migration boundary that QUAL-COMPOSE-01 failed is green on the
+launcher path, verified by direct database readback rather than an exit code.
+The fail-closed model-authority boundary that the September run failed is
+green too: an explicitly requested unavailable local model was rejected
+**before provider execution** — the request's `request_id` has no entry in the
+provider's own ledger, no substitute model ran, and no assistant message was
+persisted.
+
+Neither of those two statements extends to the stock `:latest` Compose path,
+which this run did not exercise. See the scope note above.
 
 ## Proven
 
@@ -147,6 +166,10 @@ None. No rubric blocking criterion occurred.
   nine groups executed here is Trio-gated.
 - `worker-coding` on the source-matched image. It started from the pre-baked
   `codexify-worker-coding-runtime:latest` and is outside this rubric.
+- The **stock `:latest` Compose startup** at this revision. This run qualified
+  the launcher-driven, source-matched path only. The stock path's migrator
+  cannot reach the source tree's migrations, so it is unqualified here and
+  remains the open blocker recorded in `docs/architecture/00-current-state.md`.
 
 ## Human friction
 
@@ -155,8 +178,9 @@ with no human tester in the loop.
 
 ## Positive signals
 
-- The migration boundary that QUAL-COMPOSE-01 failed is repaired and now
-  verified by a direct database readback, not by an exit code.
+- The migration boundary that QUAL-COMPOSE-01 failed is green on the
+  launcher path, verified by a direct database readback rather than an exit
+  code. The stock path's copy of that boundary is still open.
 - The fail-closed model-authority boundary that the September run failed is
   green, corroborated from the provider's own ledger.
 - Restart recovery, which the September run left UNPROVEN, is now exercised
@@ -170,10 +194,15 @@ durable trace record identifies the retrieved document and chunk; the HTTP
 surface returns `documents: []` and `retrieval_provenance: null`. An operator
 inspecting `rag-trace` today cannot see what the system actually retrieved.
 
-Secondary: the `events_outbox` was never drained during the run — all ten rows
-remained `pending` while the live SSE stream served the same events. An
-outbox that does not drain is exactly where "event publication" and "UI
-receipt" can drift apart, so it deserves its own look.
+Secondary: the `events_outbox` retention lifecycle. All ten rows remained
+`pending` while the live SSE stream served the same events — but that is the
+implemented behaviour, not a delivery failure. The SSE path keeps outbox rows
+intact so concurrent clients can resume independently, and the read path
+filters only on event id, never on `status`. The narrower questions are
+whether the schema-only `status` column should be given meaning or dropped,
+and whether retention should be bounded — the `stream_events` docstring still
+claims a deletion that the code no longer performs. Deleting rows to make the
+table "drain" would break the resume behaviour the implementation preserves.
 
 ## Evidence
 
