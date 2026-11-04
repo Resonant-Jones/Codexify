@@ -6,18 +6,18 @@ import shlex
 import shutil
 import subprocess
 import threading
-from contextlib import suppress
+import warnings
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import JSON, Integer, create_engine
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from guardian.agents.commit_gate import CommitGateResult
 from guardian.agents.store import AgentStore
@@ -29,7 +29,6 @@ from guardian.agents.worktree_leases import WorktreeLeaseContract
 from guardian.db.models import (
     AgentDeployment,
     AgentRun,
-    AgentRunArtifact,
     Base,
     Campaign,
     CampaignExecutionAttempt,
@@ -46,50 +45,59 @@ from guardian.workers import coding_worker
 
 
 class _TestDB:
+    """A disposable PostgreSQL database, isolated per test by schema.
+
+    The claim authority is PostgreSQL-only: acceptance compares and sets
+    durable ownership under row locks, and the store refuses any other
+    dialect. This harness therefore uses a real PostgreSQL server instead of
+    an in-memory substitute, and creates the real schema so genuine foreign
+    keys, constraints, column types, and JSONB behaviour are exercised rather
+    than simulated.
+
+    Each test gets its own schema on the same server, so no state can leak
+    between tests, and the schema is dropped when the test finishes.
+    """
+
     def __init__(self) -> None:
-        self._engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            future=True,
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        self._original_types = {
-            AgentDeployment.__table__.c.id: AgentDeployment.__table__.c.id.type,
-            AgentRun.__table__.c.id: AgentRun.__table__.c.id.type,
-            AgentRunArtifact.__table__.c.id: AgentRunArtifact.__table__.c.id.type,
-            ChatMessage.__table__.c.id: ChatMessage.__table__.c.id.type,
-            ChatThread.__table__.c.thread_config: ChatThread.__table__.c.thread_config.type,
-            AgentDeployment.__table__.c.spec_json: AgentDeployment.__table__.c.spec_json.type,
-            ChatMessage.__table__.c.extra_meta: ChatMessage.__table__.c.extra_meta.type,
-            AgentRunArtifact.__table__.c.content_json: AgentRunArtifact.__table__.c.content_json.type,
-        }
-        for column in self._original_types:
-            if column.name == "id" and column.table.name in {
-                "agent_deployments",
-                "agent_runs",
-                "agent_run_artifacts",
-                "chat_messages",
-            }:
-                column.type = Integer()
-            else:
-                column.type = JSON().with_variant(JSONB, "postgresql")
-        Base.metadata.create_all(
-            bind=self._engine,
-            tables=[
-                User.__table__,
-                Project.__table__,
-                ChatThread.__table__,
-                ChatMessage.__table__,
-                AgentDeployment.__table__,
-                AgentRun.__table__,
-                AgentRunArtifact.__table__,
-                CampaignGoal.__table__,
-                Campaign.__table__,
-                CodingWorkOrder.__table__,
-                CampaignExecutionAttempt.__table__,
-                CodingWorktreeLease.__table__,
-            ],
-        )
+        raw_url = str(os.environ.get("TEST_DATABASE_URL") or "").strip()
+        if not raw_url:
+            raise RuntimeError(
+                "TEST_DATABASE_URL is required. The coding-worker claim "
+                "contract is PostgreSQL-only, and this harness refuses to "
+                "substitute another backend or silently skip."
+            )
+        url = make_url(raw_url)
+        if url.get_backend_name() != "postgresql":
+            raise RuntimeError(
+                "TEST_DATABASE_URL must point at PostgreSQL; got "
+                f"{url.get_backend_name()!r}. The claim authority refuses "
+                "non-PostgreSQL persistence."
+            )
+        self._schema = f"codexify_worker_{uuid4().hex[:16]}"
+        self._url = url
+        self._engine: Any = None
+        admin = create_engine(url, future=True)
+        try:
+            with admin.begin() as connection:
+                connection.execute(text(f'CREATE SCHEMA "{self._schema}"'))
+        finally:
+            admin.dispose()
+        try:
+            self._engine = create_engine(
+                url,
+                future=True,
+                connect_args={"options": f"-csearch_path={self._schema}"},
+            )
+            # The real schema: every table the ORM declares, with the real
+            # PostgreSQL types, foreign keys, and check constraints.
+            Base.metadata.create_all(bind=self._engine)
+        except Exception:
+            # The schema is test-owned. If construction fails after the schema
+            # was created, drop it here rather than leaving an orphan behind
+            # on a server that other executors also use.
+            self._dispose_engine()
+            self._drop_schema()
+            raise
         self._session_factory = sessionmaker(
             bind=self._engine,
             autoflush=False,
@@ -101,9 +109,28 @@ class _TestDB:
         return self._session_factory()
 
     def close(self) -> None:
-        for column, original in self._original_types.items():
-            column.type = original
-        self._engine.dispose()
+        """Dispose the engine and drop the test-owned schema.
+
+        Safe to call more than once: the schema is dropped with IF EXISTS so
+        a repeated teardown cannot raise.
+        """
+        self._dispose_engine()
+        self._drop_schema()
+
+    def _dispose_engine(self) -> None:
+        if self._engine is not None:
+            self._engine.dispose()
+            self._engine = None
+
+    def _drop_schema(self) -> None:
+        admin = create_engine(self._url, future=True)
+        try:
+            with admin.begin() as connection:
+                connection.execute(
+                    text(f'DROP SCHEMA IF EXISTS "{self._schema}" CASCADE')
+                )
+        finally:
+            admin.dispose()
 
 
 @pytest.fixture
@@ -112,8 +139,19 @@ def db() -> _TestDB:
     try:
         yield test_db
     finally:
-        with suppress(Exception):
+        try:
             test_db.close()
+        except Exception as exc:
+            # A cleanup failure must be visible. It is reported as a warning
+            # rather than an error so a green test is never turned red by a
+            # teardown problem, but it can no longer disappear silently and
+            # leave schemas accumulating on the shared server.
+            warnings.warn(
+                f"coding-worker harness cleanup failed for schema "
+                f"{test_db._schema}: {exc!r}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 def _seed_source_context(
@@ -199,6 +237,11 @@ def _seed_campaign_entities(
                 updated_at=now,
             )
         )
+        # The goal row must exist before the campaign row that references it.
+        # Campaign and CampaignGoal have no ORM relationship, so the unit of
+        # work does not order their inserts for us, and PostgreSQL enforces
+        # the foreign key that SQLite ignored.
+        session.flush()
         session.add(
             Campaign(
                 campaign_id=campaign_id,
@@ -327,6 +370,7 @@ def _seed_execution_run(
     run = store.create_run(
         deployment_id=str(deployment["deployment_id"]),
         thread_id=thread_id,
+        account_origin_user_id=user_id,
         runtime_target=runtime_target,
         rollback_mode="auto",
         status="queued",
@@ -892,6 +936,15 @@ def _fetch_campaign_attempts(
             .filter_by(campaign_id=campaign_id)
             .order_by(CampaignExecutionAttempt.created_at.asc())
             .all()
+        )
+
+
+def _fetch_work_order(db: _TestDB, work_order_id: str) -> CodingWorkOrder | None:
+    with db.get_session() as session:
+        return (
+            session.query(CodingWorkOrder)
+            .filter_by(work_order_id=work_order_id)
+            .first()
         )
 
 
