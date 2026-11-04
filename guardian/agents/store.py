@@ -3449,6 +3449,7 @@ class AgentStore:
         self,
         *,
         run_id: str,
+        deployment_id: str,
         status: str,
         error: str | None = None,
         session: Any = None,
@@ -3474,14 +3475,27 @@ class AgentStore:
         concurrency; the same statement keeps the refusal working on every
         other supported store instead of silently stopping there.
 
+        The refusal is also scoped to the run's durable deployment
+        relationship, exactly as acceptance is. ``deployment_id`` is the
+        external deployment id the caller believes the run belongs to. The
+        store resolves that relationship from the canonical records rather
+        than trusting the assertion: the run names the deployment it belongs
+        to, and that deployment must be the one the caller expected. A caller
+        that names the wrong deployment, or names none at all, has no standing
+        to terminalize any run. The deployment and run are locked in the same
+        order the acceptance and claim-fenced paths use, so the three paths
+        cannot deadlock against each other.
+
         The outcomes are the established terminal vocabulary:
 
         ``terminal_accepted``
-            The run was queued and unclaimed, and this call moved it to the
-            requested terminal status.
+            The run was queued and unclaimed, belonged to the expected
+            deployment, and this call moved it to the requested terminal
+            status.
         ``terminal_rejected``
             The run exists but is not eligible for a pre-acceptance refusal:
-            a worker owns it, or it is no longer queued.
+            a worker owns it, it is no longer queued, it belongs to a
+            different deployment, or the caller named no deployment.
         ``terminal_already_terminal``
             The run already carried a terminal status. Nothing was rewritten.
         ``terminal_missing``
@@ -3505,9 +3519,37 @@ class AgentStore:
             return RUN_TERMINAL_REJECTED
         if not str(run_id or "").strip():
             return RUN_TERMINAL_MISSING
+        expected_deployment = str(deployment_id or "").strip()
+        if not expected_deployment:
+            # A caller that cannot name the deployment it acts for has no
+            # standing to terminalize any run.
+            return RUN_TERMINAL_REJECTED
         normalized_status = _normalize_agent_run_status(status)
 
         def _transition(session: Any) -> str:
+            # Lock the deployment, then the run: the same order
+            # ``claim_run_for_acceptance`` and ``claim_coding_run_terminal``
+            # use, so the three terminal paths cannot deadlock.
+            deployment = (
+                session.query(AgentDeployment)
+                .filter_by(deployment_id=expected_deployment)
+                .with_for_update()
+                .one_or_none()
+            )
+            if deployment is None:
+                return RUN_TERMINAL_REJECTED
+            run = (
+                session.query(AgentRun)
+                .filter_by(run_id=str(run_id))
+                .with_for_update()
+                .one_or_none()
+            )
+            if run is None:
+                return RUN_TERMINAL_MISSING
+            if run.deployment_id != deployment.id:
+                # The caller's expectation contradicts the canonical
+                # run/deployment relationship. It has no standing here.
+                return RUN_TERMINAL_REJECTED
             values: dict[str, Any] = {
                 "status": normalized_status,
                 "ended_at": func.now(),
@@ -3518,6 +3560,7 @@ class AgentStore:
                 session.query(AgentRun)
                 .filter(
                     AgentRun.run_id == str(run_id),
+                    AgentRun.deployment_id == deployment.id,
                     AgentRun.status == "queued",
                     AgentRun.coding_worker_instance_id.is_(None),
                     AgentRun.coding_worker_claim_id.is_(None),
@@ -3564,6 +3607,7 @@ class AgentStore:
         self,
         *,
         run_id: str,
+        deployment_id: str,
         **result_kwargs: Any,
     ) -> dict[str, Any]:
         """Finalize a coding result for a run this worker never claimed.
@@ -3576,6 +3620,10 @@ class AgentStore:
         whether they may be committed. A worker that never held a claim can
         therefore not persist a result artifact, a source-thread message, or a
         terminal state over a run that another worker has accepted.
+
+        ``deployment_id`` is the external deployment id the caller believes the
+        run belongs to, and it is held to the same canonical relationship the
+        status decision requires.
 
         The returned receipt always carries ``terminal_claim``:
 
@@ -3623,6 +3671,7 @@ class AgentStore:
             outcome = self.terminalize_unclaimed_queued_run(
                 session=session,
                 run_id=run_id,
+                deployment_id=deployment_id,
                 status=str(receipt.get("terminal_run_status") or "failed"),
                 error=receipt.get("terminal_error"),
             )

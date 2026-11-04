@@ -33,7 +33,7 @@ from typing import Any
 
 import pytest
 
-from guardian.db.models import AgentRun
+from guardian.db.models import AgentDeployment, AgentRun
 from guardian.workers import coding_worker
 
 try:  # The baseline has no claim-fenced terminal operation.
@@ -853,17 +853,61 @@ def test_a_run_that_was_never_accepted_keeps_its_legacy_behaviour(
 # ---------------------------------------------------------------------------
 
 
+def _task_with_deployment(task: Any, deployment_id: str) -> Any:
+    """Return the task with the deployment it claims to act for replaced."""
+    import dataclasses
+
+    return dataclasses.replace(task, deployment_id=str(deployment_id))
+
+
+def _another_real_deployment_id(db: Any, task: Any) -> str:
+    """Create a second, real deployment and return its external id.
+
+    The refusal must refuse a run that belongs to a *different* deployment,
+    not merely a run whose named deployment does not exist, so the second
+    deployment has to be a genuine row.
+    """
+    from uuid import uuid4
+
+    with db.get_session() as session:
+        run_row = session.query(AgentRun).filter_by(run_id=str(task.run_id)).one()
+        source = (
+            session.query(AgentDeployment)
+            .filter_by(id=run_row.deployment_id)
+            .one()
+        )
+        token = uuid4().hex
+        other = AgentDeployment(
+            deployment_id=f"other-deployment-{token[:12]}",
+            flow_id=source.flow_id,
+            thread_id=source.thread_id,
+            spec_json=dict(source.spec_json or {}),
+            spec_hash=token,
+            trust_state=source.trust_state,
+            status=source.status,
+        )
+        session.add(other)
+        session.commit()
+        return str(other.deployment_id)
+
+
 def _pre_acceptance_refusal(
     db: Any,
     task: Any,
     *,
     status: str = "failed",
     error: str | None = "peer refusal",
+    deployment_id: str | None = None,
 ) -> str:
     """Terminalize a run through the atomic pre-acceptance operation."""
     store = AgentStore(db=db)
     return store.terminalize_unclaimed_queued_run(
         run_id=str(task.run_id or ""),
+        deployment_id=(
+            str(task.deployment_id or "")
+            if deployment_id is None
+            else str(deployment_id)
+        ),
         status=status,
         error=error,
     )
@@ -875,11 +919,17 @@ def _pre_acceptance_result(
     *,
     result_status: str = "failed",
     result_summary: str = "Pre-acceptance refusal.",
+    deployment_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist a result through the pre-acceptance result operation."""
     store = AgentStore(db=db)
     return store.finalize_unclaimed_coding_result(
         run_id=str(task.run_id or ""),
+        deployment_id=(
+            str(task.deployment_id or "")
+            if deployment_id is None
+            else str(deployment_id)
+        ),
         coding_task_id=str(task.coding_task_id or ""),
         attempt_id=str(task.attempt_id or ""),
         request_id=task.request_id or None,
@@ -939,6 +989,129 @@ def test_a_run_claimed_by_another_worker_cannot_be_terminalized_pre_acceptance(
     assert state["status"] == "running"
     assert state["instance_id"] == _INSTANCE_B
     assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_refusal_naming_another_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A caller with no standing on the run's deployment cannot terminalize it.
+
+    Acceptance scopes a run to the deployment the caller names, so the
+    pre-acceptance refusal is held to the same canonical relationship. A
+    refusal that names a different real deployment has no standing here, and
+    the run keeps its queued, unowned state for the worker that does.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+    assert other_deployment_id != str(task.deployment_id or "")
+
+    outcome = _pre_acceptance_refusal(
+        db,
+        task,
+        deployment_id=other_deployment_id,
+    )
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_refusal_naming_an_unknown_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A deployment that does not exist gives the caller no standing."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    outcome = _pre_acceptance_refusal(
+        db,
+        task,
+        deployment_id="deployment-that-does-not-exist",
+    )
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_a_pre_acceptance_refusal_without_a_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A caller that cannot name its deployment has no standing to refuse."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    outcome = _pre_acceptance_refusal(db, task, deployment_id="  ")
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_an_unclaimed_result_naming_another_deployment_persists_nothing(
+    db: Any,
+) -> None:
+    """The unclaimed result path is bound to the same deployment relationship."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+
+    receipt = _pre_acceptance_result(
+        db,
+        task,
+        deployment_id=other_deployment_id,
+    )
+
+    assert receipt["terminal_claim"] == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is not True
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_claimless_worker_naming_another_deployment_publishes_no_terminal_event(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker passes its task's deployment through to the refusal."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+
+    recorder = acceptance._EventRecorder()
+    recorder.install(monkeypatch)
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    try:
+        worker._emit_failure(
+            _task_with_deployment(task, other_deployment_id),
+            adapter_kind="pi_codex_runner",
+            error_message="this task names another deployment",
+            error_code="PEER_FAILURE",
+        )
+    finally:
+        worker.shutdown()
+
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert recorder.terminal_events() == []
     assert acceptance._artifact_count(db, str(task.run_id)) == 0
     assert acceptance._coding_result_message_count(db, task.thread_id) == 0
 
@@ -1126,6 +1299,7 @@ def test_unavailable_persistence_cannot_be_a_successful_terminalization(
     store = AgentStore(db=db)
     outcome = store.terminalize_unclaimed_queued_run(
         run_id=str(task.run_id or ""),
+        deployment_id=str(task.deployment_id or ""),
         status="failed",
         error="peer refusal",
     )
@@ -1140,6 +1314,7 @@ def test_unavailable_persistence_cannot_be_a_successful_terminalization(
     monkeypatch.setattr(store.db, "get_session", _unreachable)
     outcome = store.terminalize_unclaimed_queued_run(
         run_id=str(task.run_id or ""),
+        deployment_id=str(task.deployment_id or ""),
         status="failed",
         error="peer refusal",
     )
@@ -1155,10 +1330,13 @@ def test_unavailable_persistence_cannot_be_a_successful_terminalization(
 
 def test_a_missing_run_is_distinguished_from_an_ineligible_one(db: Any) -> None:
     """A missing run is reported as missing, not as an ineligible refusal."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
     store = AgentStore(db=db)
 
     outcome = store.terminalize_unclaimed_queued_run(
         run_id="run-that-does-not-exist",
+        deployment_id=str(task.deployment_id or ""),
         status="failed",
         error="peer refusal",
     )
