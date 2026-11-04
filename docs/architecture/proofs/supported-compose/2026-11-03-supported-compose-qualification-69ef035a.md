@@ -1023,6 +1023,15 @@ All commands were run from the frozen worktree at
 `69ef035a4320724b9a53279d2fabd6bac0c6e98f`, after the run's cleanup, against the
 working tree that produced this proof and the run receipt.
 
+**Re-run after the scope amendment.** The proof and receipt were amended after
+an independent adjudication to scope the verdict to the launcher-driven path
+and to correct the `events_outbox` finding (§Result, §5.1, §12). Every
+command in the table below was executed again against the amended files, with
+the same results and the same exit codes. The registry was regenerated and
+came out **byte-identical**, because the amendment changed narrative text
+only and not any field the generator projects. The tip quoted in the result
+column moved forward to the amendment commit; the evaluated revision did not.
+
 | # | Command | Result | Exit |
 | --- | --- | --- | --- |
 | 1 | `python scripts/qualification/generate_registry.py` | `Wrote docs/qualification/registry.json (2 qualification surface(s), tip 69ef035a4320724b9a53279d2fabd6bac0c6e98f).` | 0 |
