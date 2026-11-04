@@ -1084,6 +1084,66 @@ class Project(Base):
 
 
 # =========================
+# Music Projects
+# =========================
+
+
+class MusicProject(Base):
+    """Musical state for a Project that is a Music Project.
+
+    A Music Project is not a new kind of Project. It is an ordinary
+    ``Project`` with musical state hanging off it, exactly the way
+    ``MediaAsset`` hangs off a project by ``project_id``. That keeps
+    threads, chats, artifacts and retrieval working without a parallel
+    concept anywhere.
+
+    ``projects.system_role`` cannot carry this instead: it means
+    "system-owned", its CHECK allows only ``'general'`` and ``'imports'``,
+    and the partial unique index ``uq_projects_user_id_system_role``
+    allows one row per ``(user_id, system_role)`` -- so a user could
+    have exactly one music project under it.
+
+    The table is 1:1 with ``projects``: ``project_id`` is both the primary
+    key and the foreign key.
+
+    ``current_spec`` is the complete session state and is the source of
+    truth. The scalar columns beside it are a queryable projection of the
+    same values -- "every project at 120 BPM" should not mean parsing
+    JSON -- and are not indexed because this table is small and is
+    almost always reached by ``project_id``.
+    """
+
+    __tablename__ = "music_projects"
+
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    musical_key: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    musical_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_signature: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    length_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    library_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    current_spec: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped["Project"] = relationship("Project")
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
+# =========================
 # Repository Bindings (Stage 2K.1 / ADR-065)
 # =========================
 

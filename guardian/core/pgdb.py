@@ -1389,6 +1389,121 @@ class PgDB(ChatDB):
             raise RuntimeError("Unable to resolve default project")
         return project_id
 
+    # ------------------------------------------------------------------
+    # Music Projects
+    #
+    # A Music Project is an ordinary Project with a side row here. The
+    # methods are thin on purpose: the musical state is written by the
+    # Producer and read back by the host, and there is no business logic
+    # that belongs on this side of the boundary.
+    # ------------------------------------------------------------------
+
+    def get_music_project(self, project_id: int) -> dict[str, Any] | None:
+        """Return a Music Project's musical state, or None."""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT project_id, bpm, musical_key, musical_mode, bars,
+                           time_signature, length_seconds, library_path,
+                           current_spec, created_at, updated_at
+                    FROM music_projects
+                    WHERE project_id = %s
+                    """,
+                    (project_id,),
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def upsert_music_project(
+        self,
+        project_id: int,
+        *,
+        bpm: float | None = None,
+        musical_key: str | None = None,
+        musical_mode: str | None = None,
+        bars: int | None = None,
+        time_signature: str | None = None,
+        length_seconds: float | None = None,
+        library_path: str | None = None,
+        current_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Attach or update a Music Project's musical state.
+
+        The complete state is written, not merged: a revision replaces the
+        spec outright, so a partial update here would silently resurrect
+        values the Artist already changed.
+        """
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO music_projects (
+                        project_id, bpm, musical_key, musical_mode, bars,
+                        time_signature, length_seconds, library_path,
+                        current_spec, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
+                    ON CONFLICT (project_id) DO UPDATE SET
+                        bpm = EXCLUDED.bpm,
+                        musical_key = EXCLUDED.musical_key,
+                        musical_mode = EXCLUDED.musical_mode,
+                        bars = EXCLUDED.bars,
+                        time_signature = EXCLUDED.time_signature,
+                        length_seconds = EXCLUDED.length_seconds,
+                        library_path = EXCLUDED.library_path,
+                        current_spec = EXCLUDED.current_spec,
+                        updated_at = now()
+                    RETURNING project_id, bpm, musical_key, musical_mode, bars,
+                              time_signature, length_seconds, library_path,
+                              current_spec, created_at, updated_at
+                    """,
+                    (
+                        project_id,
+                        bpm,
+                        musical_key,
+                        musical_mode,
+                        bars,
+                        time_signature,
+                        length_seconds,
+                        library_path,
+                        json.dumps(current_spec) if current_spec is not None else None,
+                    ),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise RuntimeError("Failed to write music project")
+                return dict(row)
+
+    def delete_music_project(self, project_id: int) -> bool:
+        """Detach the musical state from a Project.
+
+        The Project itself is untouched; only the side row goes. Returns
+        whether a row was actually removed.
+        """
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM music_projects WHERE project_id = %s",
+                    (project_id,),
+                )
+                return cur.rowcount > 0
+
+    def list_music_projects(self) -> list[dict[str, Any]]:
+        """Return every Music Project's musical state."""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT project_id, bpm, musical_key, musical_mode, bars,
+                           time_signature, length_seconds, library_path,
+                           current_spec, created_at, updated_at
+                    FROM music_projects
+                    ORDER BY updated_at DESC
+                    """
+                )
+                return [dict(row) for row in cur.fetchall()]
+
     def ensure_project(self, name: str, description: str = "") -> int:
         with self._connect() as conn:
             with conn.cursor() as cur:
