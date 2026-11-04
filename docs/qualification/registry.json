@@ -38,7 +38,7 @@
         "run_receipts": 2
       },
       "rubric": "rubrics/supported-compose.md",
-      "scope": "The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip",
+      "scope": "The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip, through a source-matched launcher startup",
       "status": "PASS",
       "tested_commit": "69ef035a4320724b9a53279d2fabd6bac0c6e98f",
       "title": "Supported Compose Runtime"

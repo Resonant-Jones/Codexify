@@ -1,7 +1,7 @@
 # Supported-Compose runtime — qualification at `69ef035a` — 2026-11-03
 
 - Rubric: ../rubrics/supported-compose.md
-- Rubric version: 1
+- Rubric version: 2
 - Verdict: PASS
 - Date/time window: 2026-11-03
 - Tester alias: automated-architecture-proof
@@ -21,7 +21,7 @@
 
 ```yaml qualification-metadata
 qualification_id: supported-compose
-rubric_version: 1
+rubric_version: 2
 verdict: PASS
 commit: 69ef035a4320724b9a53279d2fabd6bac0c6e98f
 date: 2026-11-03
@@ -31,6 +31,16 @@ assistance_level_peak: 0
 evidence:
   - docs/architecture/proofs/supported-compose/2026-11-03-supported-compose-qualification-69ef035a.md
 ```
+
+This run was executed against rubric version 1. Rubric version 2 (2026-11-04)
+narrows the scope statement to name the source-matched launcher startup and
+adds the launcher to the rubric's `surface_paths`. It changes no required
+check, no blocking criterion, and no observation. The run was adjudicated
+against rubric version 2 on 2026-11-04 and satisfies it exactly: the startup
+command it exercised was
+`scripts/whooshd_docker_smoke_up.sh full --detach --project
+codexify_qual_20261103`, and the backend image reference it resolved was
+`codexify-backend-runtime:src-69ef035a4320`.
 
 ## Scope
 

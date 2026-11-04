@@ -1049,6 +1049,14 @@ same code are recorded in the earlier supported-compose proof
 §"Document validation"), and this run changed no link target. DLG validation
 ran against the frozen revision itself, not against a later tip.
 
+**The rubric was revised after the run.** The run was executed against
+rubric version 1. Rubric version 2 narrows the rubric's scope statement to
+name the source-matched launcher startup, and adds
+`scripts/whooshd_docker_smoke_up.sh` to the rubric's `surface_paths` because
+the launcher is part of the qualified path. No required check, blocking
+criterion, or measurement changed, and no observation in this proof changed.
+The run was adjudicated against rubric version 2 and satisfies it exactly.
+
 ### 20.1 The generated registry agrees with the receipt
 
 The registry is generated, never hand-edited. The projection was compared
@@ -1057,7 +1065,7 @@ field by field against the run receipt's `qualification-metadata` block:
 | Field | Receipt | Generated registry | Agree |
 | --- | --- | --- | --- |
 | `qualification_id` | `supported-compose` | `supported-compose` | yes |
-| `rubric_version` | 1 | rubric `rubrics/supported-compose.md`, version 1 | yes |
+| `rubric_version` | 2 | rubric `rubrics/supported-compose.md`, version 2 | yes |
 | `verdict` / `status` | `PASS` | `PASS` | yes |
 | `commit` / `tested_commit` | `69ef035a4320724b9a53279d2fabd6bac0c6e98f` | `69ef035a4320724b9a53279d2fabd6bac0c6e98f` | yes |
 | `date` / `last_qualified_at` | `2026-11-03` | `2026-11-03` | yes |

@@ -6,15 +6,20 @@
 
 ## Version
 
-`1`
+`2`
+
+Version 2 narrows the scope statement to name the startup path a run
+exercised, and adds the launcher to `surface_paths` because the launcher is
+part of the qualified path. No required check, blocking criterion, or
+measurement changed.
 
 ## Qualification metadata
 
 ```yaml qualification-metadata
 qualification_id: supported-compose
-version: 1
+version: 2
 title: Supported Compose Runtime
-scope: The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip
+scope: The supported local Docker Compose runtime, exercised end to end on one frozen evaluated tip, through a source-matched launcher startup
 surface_paths:
   - docker-compose*.yml
   - config/supported_profiles/**
@@ -23,6 +28,7 @@ surface_paths:
   - guardian/routes/**
   - guardian/workers/**
   - guardian/db/migrations/**
+  - scripts/whooshd_docker_smoke_up.sh
 ```
 
 ## Purpose
@@ -46,6 +52,36 @@ This rubric does **not** qualify:
 
 Those lanes have their own authority. A PASS here does not widen them.
 
+### Startup boundary
+
+A runtime is qualified **through the startup path the run exercised**, so this
+rubric names that path rather than leaving it to inference. The scope
+statement above is what the registry projects, and a PASS is only
+interpretable when that projection says what was actually exercised.
+
+The supported local runtime has two startup paths in this repository:
+
+- **The source-matched launcher startup** —
+  `scripts/whooshd_docker_smoke_up.sh full --detach`. It renders
+  `docker-compose.yml` + `docker-compose.whooshd-smoke.yml`, applies the
+  supported profile's provider contract, and builds the backend image from
+  the evaluated checkout (`codexify-backend-runtime:src-<sha12>`), so the
+  migrator resolves the source tree's migrations. **This is the path this
+  rubric qualifies.**
+- **The stock Compose startup** — `docker compose up` against the pre-baked
+  `codexify-backend-runtime:latest` image. `backend/migrations` is a symlink
+  to `../guardian/db/migrations` and the migrator bind-mounts only
+  `./backend:/app/backend`, so the symlink resolves into the baked image and
+  the migrator applies the image's Alembic head instead of the source head.
+  **This path is not qualified by this rubric.** It is an open supported-path
+  defect recorded in `docs/architecture/00-current-state.md`, and it needs its
+  own qualification once the migrator's migration source is settled.
+
+A run under this rubric must record the startup command it exercised and the
+backend image reference it resolved. A PASS is a claim about the *named*
+scope only; it is never a claim about a startup path the run did not
+exercise.
+
 ## Qualification identity
 
 Every run of this rubric must record:
@@ -55,6 +91,7 @@ Every run of this rubric must record:
 - the supported profile name and its resolved provider contract;
 - the logical provider and model actually exercised;
 - the Compose files rendered, in order;
+- the startup command exercised and the backend image reference it resolved;
 - the live Alembic revision;
 - the durable artifact receipts collected.
 
