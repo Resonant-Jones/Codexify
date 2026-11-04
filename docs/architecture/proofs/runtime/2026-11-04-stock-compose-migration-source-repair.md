@@ -362,6 +362,18 @@ as well. That commit closes the pre-existing registry drift described in
 [§8.2](#82-baseline-failures); `python scripts/qualification/generate_registry.py --check`
 now exits 0 on this branch.
 
+**No registry regeneration is required after this branch merges.** The
+qualification registry's freshness for a surface depends on which of the
+rubric's declared `surface_paths` changed between the run receipt commit
+(`69ef035a4`) and the tip — `scripts/qualification/lib/freshness.py` intersects
+`git diff --name-only <receipt> <tip>` with the rubric's `surface_paths`, and a
+surface is `current` only when that intersection is empty. Computed both ways:
+`origin/main` touches **12** surface paths, this branch's head touches the
+**same 12**, and this branch adds **zero** touched surface paths. The projected
+registry is therefore byte-identical before and after the merge, and
+`generate_registry.py --check` exits 0 at this branch's final head
+(`62a3401ad`).
+
 ### 7.2 What stayed separate
 
 - **Stock direct Compose startup** — repaired in place; no third startup
