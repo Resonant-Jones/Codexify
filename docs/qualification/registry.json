@@ -24,12 +24,13 @@
     },
     "supported-compose": {
       "blockers": [
+        "The tested commit no longer describes the current tip: 12 path(s) in this qualification surface changed since the run.",
         "1 earlier run receipt(s) for this surface were superseded by a later run."
       ],
       "evidence": [
         "docs/architecture/proofs/supported-compose/2026-11-03-supported-compose-qualification-69ef035a.md"
       ],
-      "freshness": "current",
+      "freshness": "stale",
       "last_qualified_at": "2026-11-03",
       "latest_run": "runs/2026-11-03-supported-compose-69ef035a.md",
       "metrics": {
