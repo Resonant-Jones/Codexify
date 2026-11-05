@@ -2137,7 +2137,36 @@ connected accounts, successful real-provider retrieval, and hosted
 callability are unqualified, and the description and setup help say so.
 Full evidence:
 `docs/architecture/proofs/runtime/2026-11-03-openconnector-gate-b-slice-6-catalog-projection-proof.md`.
-Gate B remains open.
+Gate B was subsequently closed by the acceptance revalidation recorded above.
+
+#### Re-validation observation (2026-11-05) — independent no-auth crossing re-run
+
+The qualified no-auth crossing was re-executed on a fresh pinned gateway
+deployment against `acf8e451c`, with no source change. Every property the
+2026-11-03 live-crossing receipt established was independently re-observed:
+the Guardian internal-only route returned 500 live Hacker News story ids with
+`auditPersisted: true`; the outbound request carried no connection selector
+while its bearer and body were otherwise unchanged; all six negative controls
+reached the custodian zero times; and the custodian's own run log grew by
+exactly 1 for the crossing and by 0 across the controls.
+
+Three observations are added to the evidence base. The loopback-only
+publication was verified by **active refusal** on the host's LAN IPv4 and
+global IPv6 addresses, not only by the absence of a listening line. The run log
+served as a custodian-side dispatch witness, independent of Guardian's own
+record of the call. And the upstream **no-auth grant exemption** was
+reproduced live: a token whose `allowedConnections` names a non-existent
+identity still executes the no-auth action, because upstream exempts a
+`no_auth` connection from connection-grant evaluation. The Codexify-side
+non-empty-grant invariant still holds and still stops the crossing
+(§5.1.1 row 16a); for a no-auth action it is a **Guardian** invariant, not an
+upstream enforcement, and it is not credential-bearing isolation evidence.
+
+This is corroboration only. It does not reopen the Gate B disposition, it
+widens no boundary, and it does not re-run credential-bearing isolation
+(R-ISO stands), hosted callability (still unqualified), or the
+private-network deployment proof (still outstanding). Full evidence:
+`docs/architecture/proofs/runtime/2026-11-05-openconnector-gate-b-no-auth-crossing-revalidation-proof.md`.
 
 | Aspect | Definition |
 | --- | --- |
