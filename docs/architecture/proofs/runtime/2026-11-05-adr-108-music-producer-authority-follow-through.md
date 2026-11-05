@@ -49,9 +49,18 @@ draft's distinctive identifiers (`studio_arrangements`, `studio_tracks`,
 
 There is therefore no stub to retire, and no stub to point at ADR-108. The
 item is satisfied by the absence of the artifact rather than by an action.
-The ADR's own prose describing the stub as present is therefore inaccurate
-about the state of the repository, and this receipt records that rather
-than leaving it to be discovered later.
+
+The scope of that finding is worth stating precisely. The search covered
+this repository at `origin/main` and both local checkouts of it
+(`/Volumes/Dev_SSD/Codexify-main` and a shallow PR checkout), by filename
+and by the withdrawn draft's distinctive identifiers. It did not cover
+working directories outside this repository, and the ADR's phrase "in a
+working directory" is ambiguous about whether the draft ever lived here.
+What is established is that **no stub pointing at ADR-108 exists in this
+repository**, so item 5 requires no action against `main` — and that the
+ADR's prose describing the stub as present does not match the state of
+this repository. This receipt records that rather than leaving it to be
+discovered later.
 
 ## The PLAN.md pointer
 
