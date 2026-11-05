@@ -4,6 +4,10 @@ Status: implemented
 Scope: one bounded, read-only, account-scoped historical conversation retrieval
 capability for Guardian.
 
+Durable native-message custody: **architecture accepted 2026-11-05 under
+ADR-016; schema, writer/reader enforcement and PostgreSQL proof unimplemented**.
+See [section 3.14](#314-accepted-durable-native-message-custody-2026-11-05).
+
 This document describes the implemented boundary. It does not claim live runtime
 qualification; see [Validation results](#validation-results).
 
@@ -211,7 +215,7 @@ separate persisted evidence, trusted write custody, origin classification, and
 conditional model-visible recall eligibility.
 
 **Current truth:** finding #3 is **partially** addressed. The reader at
-`guardian/core/account_history_recall.py::_candidate_message_rows` still
+`guardian/core/account_history_recall.py::_select_message_excerpts` still
 filters message owner/kind and later formats `source_platform="codexify"`
 without independently establishing each message's source. Canonical ChatGPT
 import metadata inside a native thread still passes that filter. What is now
@@ -224,6 +228,14 @@ assertion at its canonical insert
 reader-side per-message classification, exclusion, and coverage reporting
 remain open. Earlier authorization tests below do not qualify this evidence
 boundary.
+
+The protected write capability serializes to ordinary JSON; it does not supply
+an independently readable ordinary-user custody witness. ADR-016's
+[accepted November 5 amendment](adr/016-continuity-governance-surface-contract.md#accepted-durable-custody-amendment-2026-11-05)
+therefore requires a nullable same-row custody discriminator. That acceptance
+is architecture only, not an implemented column or a repaired reader. Matching
+legacy JSON remains unproven; certain exact trusted assistant witnesses retain
+their separately accepted meaning.
 
 ### 3.10 Message-origin metadata custody (2026-11-01)
 
@@ -273,13 +285,13 @@ coverage receipts remain required follow-ups for finding #3, as described in
 
 **Remaining implementation prerequisites:**
 
-- Stamp native origin at the remaining trusted creation paths — the worker
-  completion service, voice, Hosted Room, agent-result, and proof writers —
-  using the same `NativeOriginAssertion` capability rather than a
-  client-reachable parameter. The ordinary user message and the accepted
-  assistant completion are stamped; see
-  [section 3.11](#311-native-user-message-origin-stamping-2026-11-02) and
-  [section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02).
+- Implement the accepted nullable same-row custody mechanism and its guarded
+  native-user and accepted-assistant creation operations. Current protected
+  JSON stamping in [section 3.11](#311-native-user-message-origin-stamping-2026-11-02)
+  and [section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02)
+  does not implement that durable witness. Other worker-completion, voice,
+  Hosted Room, agent-result and proof writers remain unproven; they acquire no
+  new native-creation authority through this acceptance.
 - Evaluate each candidate message's origin independently at read time and
   exclude imported, unknown, and conflicting messages before excerpts reach
   the model.
@@ -297,11 +309,13 @@ coverage receipts remain required follow-ups for finding #3, as described in
 
 **Required subsequent implementation, not current behavior:**
 
-- For every candidate, require positive message-level native evidence: a
-  protected, backend-assigned `extra_meta.message_origin` assertion written
-  atomically at native creation, or ADR-016's exact-message trusted historical
-  assistant-completion witness. A native thread, absent import flags, owner,
-  role, storage location, or grant is insufficient.
+- For every candidate, require positive message-level native evidence: the
+  accepted supported `native_origin_custody` discriminator paired with its
+  coherent protected assertion and exact creation binding, or ADR-016's
+  existing exact-message trusted historical assistant-completion witness.
+  Assertion-shaped JSON alone, a native thread, absent import flags, owner,
+  role, storage location or grant is insufficient. NULL legacy user custody
+  stays unproven; no retrospective backfill is permitted.
 - Preserve existing importer `origin`, profile, timestamps, source IDs, raw
   metadata, and lineage. Imported messages in native threads remain imported;
   partial, unsupported, or unproven metadata is unknown, and incompatible
@@ -495,9 +509,10 @@ fallback path is not refactored into a new persistence system.
   the same-account, same-thread attempt naming that exact message, with a
   non-null `accepted_at` and no failure or cancellation — independently proves
   it. That reader-side witness is not implemented here.
-- Restore trust-custody is unchanged. An uploaded archive can still carry
-  assertion-shaped JSON; that is not proof, and restore remains a required
-  follow-up.
+- Generic upload admission now refuses reserved assertion JSON under section
+  3.13. Admission for the newly accepted custody column is still unimplemented;
+  it must refuse untrusted non-null claims. Cross-installation proof-preserving
+  custody transfer remains separately governed and unimplemented.
 
 **Finding #3 is still open.** This slice establishes creation evidence for new
 accepted native assistant completions. It does not implement per-message origin
@@ -515,8 +530,9 @@ The generic account-restore path cannot admit an archive-provided
 native-origin claim as native-origin authority.
 
 **The boundary.** ADR-016 reserves `extra_meta.message_origin` for the
-protected canonical creation operation. That member is creation evidence, not
-restored bytes. An authenticated account owner may submit an archive of
+protected canonical creation operation. That member is descriptive provenance;
+its serialized bytes do not independently prove creation custody. An
+authenticated account owner may submit an archive of
 historical conversation content, and that permission covers ownership of the
 restored records, archive integrity, and schema validity. It does not extend to
 historical message-origin evidence or to the trusted custody of native-origin
@@ -524,11 +540,13 @@ assertions.
 
 **No trusted proof-preserving restore path exists.** The archive manifest
 carries a self-authored checksum over its own members and is bound to the
-uploading account. Neither can independently authenticate the original creation
-evidence of an exact message: neither carries a signature or attestation over
-that evidence, and the canonical message id in the archive is chosen by the
-archive. No signing service, attestation format, or trusted export-custody
-mechanism exists, and none is introduced by this change.
+uploading account. Neither establishes trusted custody from the original
+canonical creation operation, and the canonical message id in the archive is
+chosen by the archive. This is an unproven custody-transfer boundary, not a
+requirement to add signatures, hashing or a signing service to runtime recall.
+ADR-016's accepted mechanism trusts Guardian and canonical PostgreSQL;
+cross-installation proof-preserving restoration remains separately governed
+and unimplemented.
 
 **The behavior.** `AccountRestoreService._parse_and_validate_archive` detects
 the reserved member on every `chat_messages` payload row and refuses the
@@ -597,6 +615,46 @@ manufacturing native-origin evidence. It does not implement per-message origin
 classification, reader-side exclusion, source labels, or content-free
 per-message coverage receipts, and it does not change the recall reader, the
 ADR-084 grant resolver, the Command Bus, or ordinary-chat advertisement.
+
+### 3.14 Accepted durable native-message custody (2026-11-05)
+
+The operator approved proposal `a680ff6ed` on 2026-11-05 and explicitly amended
+[ADR-016](adr/016-continuity-governance-surface-contract.md#accepted-durable-custody-amendment-2026-11-05).
+The [accepted decision](2026-11-05-native-message-origin-custody-decision.md)
+records the rationale and next implementation boundary. ADR-016 remains the
+single governing origin authority.
+
+The accepted target is nullable `chat_messages.native_origin_custody`, default
+NULL, with `native_user_v1` and `native_assistant_attempt_v1` identifying the two
+trusted Guardian creation operations. Content, the descriptive origin assertion
+and custody must be created atomically; accepted assistant binding shares that
+transaction. PostgreSQL constraints and immutability guards must prevent invalid
+values, rebinding, erasure and post-insert promotion, including NULL-to-positive
+backfill. Generic import/restore and arbitrary metadata cannot supply custody.
+Every existing row retains NULL; a known JSON shape does not reconstruct its
+write authority. Existing exact trusted assistant witnesses remain valid under
+their narrower accepted checks and do not prove an associated user record.
+
+Guardian and canonical PostgreSQL are trusted. This mechanism proves a native
+creation operation inside that boundary; it is **not cryptographic attestation**.
+Runtime retrieval requires no signatures or hashing. No signing service,
+additional provenance store, new credentials or key management is introduced.
+Privileged SQL compromise is outside the forgery-protection claim.
+
+The reader must independently verify exact-message custody before emitting a
+native excerpt or source label, and report imported/unknown/conflicting
+candidate-message exclusions without leaking content or private metadata.
+Authentication, Project/thread access, content/kind restrictions, request-scoped
+grants and bounded execution remain independent requirements. Historical
+evidence gains no instruction authority.
+
+**Runtime remains unimplemented:** no custody column, migration, new writer or
+reader enforcement, or current PostgreSQL/live proof is supplied by acceptance.
+Generic restore must refuse untrusted custody claims; it cannot preserve trusted
+custody across installations or ID remapping. That future proof-preserving path
+remains separately governed and unimplemented. Existing JSON-assertion refusal
+is implemented; new-column admission guards still require implementation.
+Release remains HOLD, and migration work requires separate authorization.
 
 ## 4. Surfaces
 
@@ -997,6 +1055,13 @@ service converts an unexpected read failure into
 
 ## 14. Validation results
 
+The 2026-11-05 architecture acceptance supplies no runtime proof for the new
+custody column or reader. Historical results below describe their dated
+write-side JSON, authorization and retrieval surfaces. The later blocked-task
+baseline reported 122 passes and 36 setup errors for unavailable
+`TEST_DATABASE_URL`; it did not establish PostgreSQL custody proof or an
+application regression. No automated runtime tests apply to the acceptance task.
+
 The runtime results below belong to the request-authorization implementation
 at `fb06e9d96`, not to this documentation-only origin clarification. They do
 not prove message-level origin enforcement. This clarification is checked by
@@ -1280,17 +1345,19 @@ open, and none of them is repaired here:
 | --- | --- |
 | #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
 | #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
-| #3 — Message-level imported provenance filtering | **Open; partially addressed.** The write-side boundary is now enforced *and* productive: no ordinary-chat creation or enrichment path can establish, replace, or remove a native-origin assertion; the ordinary authenticated user message and the accepted assistant completion each receive a backend-authored assertion at their canonical insert; and the generic account restore refuses an archive that presents itself as carrying native-origin evidence. The reader-side per-message origin classification, exclusion, and content-free per-message coverage receipts remain unimplemented, so an imported message inside a native thread still reaches the model. Thread checks and request grants do not close this defect. |
+| #3 — Message-level imported provenance filtering | **Open; accepted custody architecture, implementation pending.** Current write guards produce/protect descriptive assertion JSON, and generic upload refuses its claims. ADR-016's 2026-11-05 amendment accepts a nullable, creation-bound same-row discriminator because JSON cannot independently prove ordinary-user custody. The column, constraints, new writer/admission guards, reader classification and content-free message exclusion receipts remain unimplemented. Existing exact assistant witnesses remain permitted; thread checks and grants do not close the defect. |
 | #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
 | #5 — 500-thread coverage truncation | **Open.** Not repaired. |
 
-Dependency-ordered follow-on work: #3 message-level imported provenance
-exclusion — the remaining writer/custody coverage (worker completion service,
-voice, Hosted Room, agent-result, proof) and a separately accepted
-proof-preserving restore custody path, then per-message reader filtering and
-coverage receipts — followed by #1 PostgreSQL session compatibility, #5
-retrieval coverage and truncation, then #2 ordinary-chat advertisement and
-final activation.
+Dependency-ordered follow-on work: separately authorize the accepted #3
+same-row custody migration, exclusive native writers, mutation/import/restore
+guards and independent reader enforcement, with disposable PostgreSQL proof and
+content-free coverage receipts. Other writer coverage and cross-installation
+proof-preserving restore remain separately bounded; unsupported writers stay
+unproven, and generic untrusted restore remains refused. Then address #1
+PostgreSQL session compatibility, #5 coverage/truncation and #2 ordinary-chat
+advertisement before any separately qualified activation. Acceptance starts
+none of that work automatically.
 
 **Known documentation drift.** The `implementationStatus` string in
 `docs/architecture/fixtures/history-recall-intent.v1.json` still says that no
@@ -1302,22 +1369,14 @@ behavioral source of truth for the expectations and was deliberately left
 unmodified by this change, so the stale status line is reported here rather
 than corrected in place.
 
-The writer-coverage table in ADR-016 still describes
-`routes/chat.py::_persist_message_to_thread` as creating the row "before a
-generic metadata merge", and still reads as though no ordinary-chat path
-stamps native origin. That is now stale for the ordinary authenticated user
-message and the accepted assistant completion, which are stamped at their
-canonical inserts
-([section 3.11](#311-native-user-message-origin-stamping-2026-11-02),
-[section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02));
-it remains accurate for every other writer in that table. ADR-016 is an
-accepted contract and is not in this slice's authorized scope, so the drift is
-reported here rather than corrected in place. The same applies to the
-`implementationStatus` string in
+The November 5 ADR-016 amendment distinguishes existing JSON stamping from the
+unimplemented durable custody mechanism. The `implementationStatus` string in
 `docs/architecture/fixtures/history-message-provenance.v1.json`, which still
-describes native stamping as unimplemented; it is now partially implemented,
-and the remaining writers, proof-preserving restore, and per-message filtering
-are still unimplemented.
+describes native stamping as unimplemented; it is partially implemented, while
+the new custody column, remaining writers, proof-preserving restore and
+per-message filtering remain unimplemented. Those documentation-only fixture
+status strings are unchanged and do not override the accepted amendment or
+constitute runtime proof.
 
 **Runtime limitations of this slice:**
 
