@@ -32,14 +32,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import event, text
 
-from guardian.db.models import AgentRun
+from guardian.db.models import AgentDeployment, AgentRun
 from guardian.workers import coding_worker
 
 try:  # The baseline has no claim-fenced terminal operation.
     from guardian.agents.store import (
         RUN_TERMINAL_ACCEPTED,
         RUN_TERMINAL_ALREADY_TERMINAL,
+        RUN_TERMINAL_MISSING,
         RUN_TERMINAL_REJECTED,
         RUN_TERMINAL_UNAVAILABLE,
         AgentStore,
@@ -47,6 +49,7 @@ try:  # The baseline has no claim-fenced terminal operation.
 except ImportError:
     RUN_TERMINAL_ACCEPTED = "terminal_accepted"
     RUN_TERMINAL_ALREADY_TERMINAL = "terminal_already_terminal"
+    RUN_TERMINAL_MISSING = "terminal_missing"
     RUN_TERMINAL_REJECTED = "terminal_rejected"
     RUN_TERMINAL_UNAVAILABLE = "terminal_unavailable"
 
@@ -837,3 +840,927 @@ def test_a_run_that_was_never_accepted_keeps_its_legacy_behaviour(
     state = _run_state(db, str(task.run_id))
     assert state["status"] == "succeeded"
     assert acceptance._artifact_count(db, str(task.run_id)) == 1
+
+
+# ---------------------------------------------------------------------------
+# 15: the pre-acceptance terminal path.
+#
+# A worker that never held a durable claim may still have to refuse an
+# execution before acceptance. That refusal is a terminal decision, so it
+# must not be able to overwrite a run that another worker has already
+# accepted. Before this section the worker fell back to an unrestricted
+# status write, and the queued state and the absence of worker ownership
+# were never evaluated by the database at all.
+# ---------------------------------------------------------------------------
+
+
+def _task_with_deployment(task: Any, deployment_id: str) -> Any:
+    """Return the task with the deployment it claims to act for replaced."""
+    import dataclasses
+
+    return dataclasses.replace(task, deployment_id=str(deployment_id))
+
+
+def _another_real_deployment_id(db: Any, task: Any) -> str:
+    """Create a second, real deployment and return its external id.
+
+    The refusal must refuse a run that belongs to a *different* deployment,
+    not merely a run whose named deployment does not exist, so the second
+    deployment has to be a genuine row.
+    """
+    from uuid import uuid4
+
+    with db.get_session() as session:
+        run_row = session.query(AgentRun).filter_by(run_id=str(task.run_id)).one()
+        source = (
+            session.query(AgentDeployment)
+            .filter_by(id=run_row.deployment_id)
+            .one()
+        )
+        token = uuid4().hex
+        other = AgentDeployment(
+            deployment_id=f"other-deployment-{token[:12]}",
+            flow_id=source.flow_id,
+            thread_id=source.thread_id,
+            spec_json=dict(source.spec_json or {}),
+            spec_hash=token,
+            trust_state=source.trust_state,
+            status=source.status,
+        )
+        session.add(other)
+        session.commit()
+        return str(other.deployment_id)
+
+
+def _pre_acceptance_refusal(
+    db: Any,
+    task: Any,
+    *,
+    status: str = "failed",
+    error: str | None = "peer refusal",
+    deployment_id: str | None = None,
+) -> str:
+    """Terminalize a run through the atomic pre-acceptance operation."""
+    store = AgentStore(db=db)
+    return store.terminalize_unclaimed_queued_run(
+        run_id=str(task.run_id or ""),
+        deployment_id=(
+            str(task.deployment_id or "")
+            if deployment_id is None
+            else str(deployment_id)
+        ),
+        status=status,
+        error=error,
+    )
+
+
+def _pre_acceptance_result(
+    db: Any,
+    task: Any,
+    *,
+    result_status: str = "failed",
+    result_summary: str = "Pre-acceptance refusal.",
+    deployment_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist a result through the pre-acceptance result operation."""
+    store = AgentStore(db=db)
+    return store.finalize_unclaimed_coding_result(
+        run_id=str(task.run_id or ""),
+        deployment_id=(
+            str(task.deployment_id or "")
+            if deployment_id is None
+            else str(deployment_id)
+        ),
+        coding_task_id=str(task.coding_task_id or ""),
+        attempt_id=str(task.attempt_id or ""),
+        request_id=task.request_id or None,
+        thread_id=task.thread_id,
+        source_message_id=task.source_message_id,
+        result_status=result_status,
+        result_summary=result_summary,
+        adapter_kind="pi_codex_runner",
+        files_changed=["guardian/agents/store.py"],
+    )
+
+
+def test_the_store_exports_the_pre_acceptance_terminal_outcomes() -> None:
+    """The store publishes the pre-acceptance outcome vocabulary."""
+    from guardian.agents import store as agent_store
+
+    assert agent_store.RUN_TERMINAL_MISSING == RUN_TERMINAL_MISSING
+    assert agent_store.RUN_TERMINAL_ACCEPTED == RUN_TERMINAL_ACCEPTED
+    assert agent_store.RUN_TERMINAL_REJECTED == RUN_TERMINAL_REJECTED
+    assert agent_store.RUN_TERMINAL_ALREADY_TERMINAL == RUN_TERMINAL_ALREADY_TERMINAL
+    assert agent_store.RUN_TERMINAL_UNAVAILABLE == RUN_TERMINAL_UNAVAILABLE
+
+
+def test_an_eligible_queued_unclaimed_run_is_terminalized_pre_acceptance(
+    db: Any,
+) -> None:
+    """A legitimate pre-acceptance failure still terminalizes its own run."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    assert _run_state(db, str(task.run_id))["status"] == "queued"
+
+    outcome = _pre_acceptance_refusal(db, task)
+
+    assert outcome == RUN_TERMINAL_ACCEPTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["ended_at"] is not None
+    assert state["error"] == "peer refusal"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_a_run_claimed_by_another_worker_cannot_be_terminalized_pre_acceptance(
+    db: Any,
+) -> None:
+    """A claimed run is not eligible for a pre-acceptance terminal refusal."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    assert _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B) == (
+        _ACCEPTED
+    )
+
+    outcome = _pre_acceptance_refusal(db, task)
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_refusal_naming_another_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A caller with no standing on the run's deployment cannot terminalize it.
+
+    Acceptance scopes a run to the deployment the caller names, so the
+    pre-acceptance refusal is held to the same canonical relationship. A
+    refusal that names a different real deployment has no standing here, and
+    the run keeps its queued, unowned state for the worker that does.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+    assert other_deployment_id != str(task.deployment_id or "")
+
+    outcome = _pre_acceptance_refusal(
+        db,
+        task,
+        deployment_id=other_deployment_id,
+    )
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_refusal_naming_an_unknown_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A deployment that does not exist gives the caller no standing."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    outcome = _pre_acceptance_refusal(
+        db,
+        task,
+        deployment_id="deployment-that-does-not-exist",
+    )
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_a_pre_acceptance_refusal_without_a_deployment_is_refused(
+    db: Any,
+) -> None:
+    """A caller that cannot name its deployment has no standing to refuse."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    outcome = _pre_acceptance_refusal(db, task, deployment_id="  ")
+
+    assert outcome == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_an_unclaimed_result_naming_another_deployment_persists_nothing(
+    db: Any,
+) -> None:
+    """The unclaimed result path is bound to the same deployment relationship."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+
+    receipt = _pre_acceptance_result(
+        db,
+        task,
+        deployment_id=other_deployment_id,
+    )
+
+    assert receipt["terminal_claim"] == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is not True
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_claimless_worker_naming_another_deployment_publishes_no_terminal_event(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker passes its task's deployment through to the refusal."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    other_deployment_id = _another_real_deployment_id(db, task)
+
+    recorder = acceptance._EventRecorder()
+    recorder.install(monkeypatch)
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    try:
+        worker._emit_failure(
+            _task_with_deployment(task, other_deployment_id),
+            adapter_kind="pi_codex_runner",
+            error_message="this task names another deployment",
+            error_code="PEER_FAILURE",
+        )
+    finally:
+        worker.shutdown()
+
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert recorder.terminal_events() == []
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_refusal_that_loses_to_acceptance_cannot_overwrite_the_run(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker B wins acceptance; Worker A's refusal cannot overwrite it.
+
+    The interleaving is controlled, not timed. Worker A enters its
+    pre-acceptance refusal and is held there, Worker B completes durable
+    acceptance, and only then does Worker A's conditional write run.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    original = AgentStore.terminalize_unclaimed_queued_run
+    reached = threading.Event()
+    release = threading.Event()
+
+    def _held(self: Any, **kwargs: Any) -> str:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "terminalize_unclaimed_queued_run", _held)
+
+    outcomes: dict[str, str] = {}
+
+    def _refuse() -> None:
+        outcomes["refusal"] = _pre_acceptance_refusal(db, task)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_refuse)
+        assert reached.wait(timeout=30)
+        # Worker B wins durable acceptance while Worker A is held.
+        assert _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        ) == _ACCEPTED
+        release.set()
+        future.result(timeout=30)
+
+    assert outcomes["refusal"] == RUN_TERMINAL_REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_acceptance_that_loses_to_a_pre_acceptance_refusal_cannot_claim_the_run(
+    db: Any,
+) -> None:
+    """Worker A wins the refusal; Worker B cannot accept the terminal run."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    assert _pre_acceptance_refusal(db, task) == RUN_TERMINAL_ACCEPTED
+
+    outcome = _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    assert outcome == _REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+
+
+def test_competing_acceptance_and_pre_acceptance_refusal_cannot_both_succeed(
+    db: Any,
+) -> None:
+    """Exactly one of the two competing terminal decisions wins."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    barrier = threading.Barrier(2)
+
+    def _claim_racing() -> str:
+        barrier.wait(timeout=30)
+        return _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    def _refuse_racing() -> str:
+        barrier.wait(timeout=30)
+        return _pre_acceptance_refusal(db, task)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claim_future = pool.submit(_claim_racing)
+        refusal_future = pool.submit(_refuse_racing)
+        claim_outcome = claim_future.result(timeout=60)
+        refusal_outcome = refusal_future.result(timeout=60)
+
+    winners = [
+        outcome
+        for outcome, expected in (
+            (claim_outcome, _ACCEPTED),
+            (refusal_outcome, RUN_TERMINAL_ACCEPTED),
+        )
+        if outcome == expected
+    ]
+    assert len(winners) == 1, (claim_outcome, refusal_outcome)
+
+    state = _run_state(db, str(task.run_id))
+    if claim_outcome == _ACCEPTED:
+        assert state["status"] == "running"
+        assert state["instance_id"] == _INSTANCE_B
+        assert state["claim_id"] == _CLAIM_B
+    else:
+        assert state["status"] == "failed"
+        assert state["instance_id"] is None
+        assert state["claim_id"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+
+
+def test_a_repeated_pre_acceptance_refusal_produces_no_second_transition(
+    db: Any,
+) -> None:
+    """A repeated refusal neither rewrites the run nor duplicates a result."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    first = _pre_acceptance_refusal(db, task)
+    ended_at = _run_state(db, str(task.run_id))["ended_at"]
+    second = _pre_acceptance_refusal(db, task)
+
+    assert first == RUN_TERMINAL_ACCEPTED
+    assert second == RUN_TERMINAL_ALREADY_TERMINAL
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["ended_at"] == ended_at
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_unclaimed_worker_cannot_persist_a_result_after_another_worker_accepts(
+    db: Any,
+) -> None:
+    """The unclaimed result path respects the same atomic ownership decision."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    assert _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B) == (
+        _ACCEPTED
+    )
+
+    receipt = _pre_acceptance_result(db, task)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is False
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_pre_acceptance_result_that_loses_to_acceptance_persists_nothing(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker B wins acceptance; Worker A's result write persists nothing.
+
+    The interleaving is controlled, not timed. Worker A enters its
+    pre-acceptance result path and is held there, Worker B completes durable
+    acceptance, and only then does Worker A's result write run.
+
+    This is the result-write counterpart of
+    ``test_a_pre_acceptance_refusal_that_loses_to_acceptance_cannot_overwrite_the_run``.
+    The status path proves that a losing refusal cannot rewrite the run; this
+    proves that a losing result write cannot leave a result artifact or a
+    source-thread result message behind either. Both are refused by the same
+    atomic decision.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    original = AgentStore.finalize_unclaimed_coding_result
+    reached = threading.Event()
+    release = threading.Event()
+
+    def _held(self: Any, **kwargs: Any) -> dict[str, Any]:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "finalize_unclaimed_coding_result", _held)
+
+    receipts: dict[str, Any] = {}
+
+    def _write_result() -> None:
+        receipts["result"] = _pre_acceptance_result(db, task)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_write_result)
+        assert reached.wait(timeout=30)
+        # Worker B wins durable acceptance while Worker A is held.
+        assert _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        ) == _ACCEPTED
+        release.set()
+        future.result(timeout=30)
+
+    receipt = receipts["result"]
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is False
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_acceptance_that_loses_to_a_pre_acceptance_result_cannot_claim_the_run(
+    db: Any,
+) -> None:
+    """Worker A wins the result write; Worker B cannot accept the terminal run."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    receipt = _pre_acceptance_result(db, task)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert receipt.get("terminal_accepted") is True
+
+    outcome = _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    assert outcome == _REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert state["ended_at"] is not None
+    # The winning result write committed with its terminal status.
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+def test_competing_acceptance_and_pre_acceptance_result_cannot_both_succeed(
+    db: Any,
+) -> None:
+    """Exactly one of the competing acceptance and result write wins.
+
+    The result is persisted if and only if the result write is the winner: a
+    result artifact and a source-thread result message exist exactly when the
+    run was terminalized by the pre-acceptance result path, and never when
+    acceptance took the run.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    barrier = threading.Barrier(2)
+
+    def _claim_racing() -> str:
+        barrier.wait(timeout=30)
+        return _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    def _result_racing() -> dict[str, Any]:
+        barrier.wait(timeout=30)
+        return _pre_acceptance_result(db, task)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claim_future = pool.submit(_claim_racing)
+        result_future = pool.submit(_result_racing)
+        claim_outcome = claim_future.result(timeout=60)
+        receipt = result_future.result(timeout=60)
+
+    result_accepted = receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    if claim_outcome == _ACCEPTED:
+        assert not result_accepted, (claim_outcome, receipt)
+        assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+        state = _run_state(db, str(task.run_id))
+        assert state["status"] == "running"
+        assert state["instance_id"] == _INSTANCE_B
+        assert state["claim_id"] == _CLAIM_B
+        assert acceptance._artifact_count(db, str(task.run_id)) == 0
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+    else:
+        assert claim_outcome == _REJECTED, (claim_outcome, receipt)
+        assert result_accepted, (claim_outcome, receipt)
+        state = _run_state(db, str(task.run_id))
+        assert state["status"] == "failed"
+        assert state["instance_id"] is None
+        assert state["claim_id"] is None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 1
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+def test_an_unclaimed_result_on_an_eligible_run_still_commits(
+    db: Any,
+) -> None:
+    """The pre-acceptance result path keeps its legitimate behaviour."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    receipt = _pre_acceptance_result(db, task)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["ended_at"] is not None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The unclaimed result path and the lock order it must respect.
+# ---------------------------------------------------------------------------
+
+
+def _deadlock_count(db: Any) -> int:
+    """The number of deadlocks PostgreSQL has detected in this database."""
+    with db.get_session() as session:
+        name = session.get_bind().url.database
+        row = session.execute(
+            text("SELECT deadlocks FROM pg_stat_database WHERE datname = :name"),
+            {"name": name},
+        ).one()
+    return int(row[0])
+
+
+def test_the_unclaimed_result_path_locks_before_it_writes_a_result(
+    db: Any,
+) -> None:
+    """The canonical locks are taken before any result write is issued.
+
+    The coding result artifact is a child row of the run, so inserting it
+    makes PostgreSQL take a foreign-key lock on the run row. If that insert
+    could be issued before this path asked for the deployment and run locks,
+    the two transactions would want the locks in opposite orders: this one
+    holding the run and waiting for the deployment, a competing acceptance
+    holding the deployment and waiting for the run.
+
+    The lock order is asserted on the statements the real path issues, in
+    the order it issues them, against real PostgreSQL.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    statements: list[str] = []
+    with db.get_session() as probe:
+        engine = probe.get_bind()
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(" ".join(str(statement).split()))
+
+    try:
+        receipt = _pre_acceptance_result(db, task)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+
+    deployment_lock = next(
+        index
+        for index, statement in enumerate(statements)
+        if "agent_deployments" in statement and "FOR UPDATE" in statement
+    )
+    run_lock = next(
+        index
+        for index, statement in enumerate(statements)
+        if "agent_runs" in statement and "FOR UPDATE" in statement
+    )
+    first_insert = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.startswith("INSERT INTO")
+    )
+
+    assert deployment_lock < run_lock, statements
+    assert run_lock < first_insert, (
+        "a result write was issued before the run lock was taken",
+        statements,
+    )
+
+
+def test_a_competing_acceptance_cannot_deadlock_the_unclaimed_result_path(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An acceptance that commits first refuses the unclaimed result path.
+
+    The unclaimed path is held before it asks for any lock, the acceptance
+    completes durably, and only then does the unclaimed path continue. The
+    refusal must be a refusal: no artifact, no source-thread result message,
+    no terminal status, and no ownership taken from the accepting worker.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    reached = threading.Event()
+    release = threading.Event()
+    original = AgentStore._lock_terminal_authority
+
+    def _held(self: Any, **kwargs: Any) -> Any:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "_lock_terminal_authority", _held)
+
+    receipts: dict[str, Any] = {}
+
+    def _write_result() -> None:
+        receipts["result"] = _pre_acceptance_result(db, task)
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_write_result)
+        assert reached.wait(timeout=30)
+        # The acceptance completes durably while the unclaimed path waits.
+        assert _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        ) == _ACCEPTED
+        release.set()
+        future.result(timeout=30)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+
+    receipt = receipts["result"]
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is False
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert state["ended_at"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_unclaimed_result_that_commits_first_refuses_the_competing_acceptance(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unclaimed result that commits first refuses the later acceptance."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    reached = threading.Event()
+    release = threading.Event()
+    original = AgentStore.claim_run_for_acceptance
+
+    def _held(self: Any, **kwargs: Any) -> str:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "claim_run_for_acceptance", _held)
+
+    outcomes: dict[str, str] = {}
+
+    def _accept() -> None:
+        outcomes["acceptance"] = _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        )
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_accept)
+        assert reached.wait(timeout=30)
+        # The unclaimed result commits durably while the acceptance waits.
+        receipt = _pre_acceptance_result(db, task)
+        release.set()
+        future.result(timeout=30)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert receipt.get("terminal_accepted") is True
+    assert outcomes["acceptance"] == _REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert state["ended_at"] is not None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+def test_competing_acceptance_and_unclaimed_result_cannot_both_succeed(
+    db: Any,
+) -> None:
+    """Released together, exactly one of the two wins and neither deadlocks.
+
+    The two paths want the same deployment and run locks. Whichever takes
+    them first decides, and the other is refused. Nothing may be left
+    half-written: the result exists if and only if the unclaimed result path
+    is the winner.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    barrier = threading.Barrier(2)
+
+    def _accept_racing() -> str:
+        barrier.wait(timeout=30)
+        return _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    def _result_racing() -> dict[str, Any]:
+        barrier.wait(timeout=30)
+        return _pre_acceptance_result(db, task)
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        accept_future = pool.submit(_accept_racing)
+        result_future = pool.submit(_result_racing)
+        acceptance_outcome = accept_future.result(timeout=60)
+        receipt = result_future.result(timeout=60)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+    assert acceptance_outcome in {_ACCEPTED, _REJECTED}, acceptance_outcome
+    assert receipt.get("terminal_claim") in {
+        RUN_TERMINAL_ACCEPTED,
+        RUN_TERMINAL_REJECTED,
+    }, receipt
+
+    acceptance_won = acceptance_outcome == _ACCEPTED
+    result_won = receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert acceptance_won != result_won, (acceptance_outcome, receipt)
+
+    state = _run_state(db, str(task.run_id))
+    if acceptance_won:
+        assert state["status"] == "running"
+        assert state["instance_id"] == _INSTANCE_B
+        assert state["claim_id"] == _CLAIM_B
+        assert state["ended_at"] is None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 0
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+    else:
+        assert state["status"] == "failed"
+        assert state["instance_id"] is None
+        assert state["claim_id"] is None
+        assert state["ended_at"] is not None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 1
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+
+def test_unavailable_persistence_cannot_be_a_successful_terminalization(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persistence failure is never reported as a successful terminalization."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    # No durable store is reachable.
+    original_has_db = AgentStore._has_db
+    monkeypatch.setattr(AgentStore, "_has_db", lambda self: False)
+    store = AgentStore(db=db)
+    outcome = store.terminalize_unclaimed_queued_run(
+        run_id=str(task.run_id or ""),
+        deployment_id=str(task.deployment_id or ""),
+        status="failed",
+        error="peer refusal",
+    )
+    assert outcome == RUN_TERMINAL_UNAVAILABLE
+    monkeypatch.setattr(AgentStore, "_has_db", original_has_db)
+    store = AgentStore(db=db)
+
+    def _unreachable(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("injected persistence failure")
+
+    original_get_session = store.db.get_session
+    monkeypatch.setattr(store.db, "get_session", _unreachable)
+    outcome = store.terminalize_unclaimed_queued_run(
+        run_id=str(task.run_id or ""),
+        deployment_id=str(task.deployment_id or ""),
+        status="failed",
+        error="peer refusal",
+    )
+    assert outcome == RUN_TERMINAL_UNAVAILABLE
+    monkeypatch.setattr(store.db, "get_session", original_get_session)
+
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "queued"
+    assert state["ended_at"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_a_missing_run_is_distinguished_from_an_ineligible_one(db: Any) -> None:
+    """A missing run is reported as missing, not as an ineligible refusal."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    store = AgentStore(db=db)
+
+    outcome = store.terminalize_unclaimed_queued_run(
+        run_id="run-that-does-not-exist",
+        deployment_id=str(task.deployment_id or ""),
+        status="failed",
+        error="peer refusal",
+    )
+
+    assert outcome == RUN_TERMINAL_MISSING
+
+
+def test_the_worker_pre_acceptance_failure_does_not_overwrite_an_accepted_run(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker without a claim reports refusal and changes nothing."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    assert _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B) == (
+        _ACCEPTED
+    )
+
+    recorder = acceptance._EventRecorder()
+    recorder.install(monkeypatch)
+
+    worker = coding_worker.CodingWorker(agent_store=AgentStore(db=db))
+    try:
+        worker._emit_failure(
+            task,
+            adapter_kind="pi_codex_runner",
+            error_message="this worker never owned the run",
+            error_code="PEER_FAILURE",
+        )
+    finally:
+        worker.shutdown()
+
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert recorder.terminal_events() == []
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_the_accepted_worker_terminal_result_transaction_still_commits(
+    db: Any,
+) -> None:
+    """The claim-scoped terminal result transaction is unaffected."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+    assert _claim(db, task) == _ACCEPTED
+
+    receipt = _finalize(db, task)
+
+    assert receipt["terminal_claim"] == RUN_TERMINAL_ACCEPTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "succeeded"
+    assert state["ended_at"] is not None
+    assert state["instance_id"] == _INSTANCE_A
+    assert state["claim_id"] == _CLAIM_A
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 1

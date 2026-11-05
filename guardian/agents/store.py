@@ -245,6 +245,10 @@ RUN_TERMINAL_ACCEPTED = "terminal_accepted"
 RUN_TERMINAL_REJECTED = "terminal_rejected"
 RUN_TERMINAL_ALREADY_TERMINAL = "terminal_already_terminal"
 RUN_TERMINAL_UNAVAILABLE = "terminal_unavailable"
+#: ``terminal_missing`` -- no canonical run carries the requested run id, so
+#: there was nothing to decide and nothing was written. This is distinct from
+#: ``terminal_rejected``, which means the run exists but is not eligible.
+RUN_TERMINAL_MISSING = "terminal_missing"
 
 
 class _SharedTransactionSession:
@@ -3440,6 +3444,321 @@ class AgentStore:
                 run_id,
             )
             return RUN_TERMINAL_UNAVAILABLE
+
+    def _lock_terminal_authority(
+        self,
+        *,
+        session: Any,
+        run_id: str,
+        expected_deployment: str,
+    ) -> tuple[Any, Any]:
+        """Lock the deployment, then the run: the canonical terminal order.
+
+        ``claim_run_for_acceptance`` and ``claim_coding_run_terminal`` take
+        these two locks in this order, so every terminal path wants them in
+        this order and no two of them can want each other's locks.
+
+        The locks are returned rather than decided here. A caller that only
+        needs the ordering — the pre-acceptance result path, which must take
+        the locks before it writes a result — uses this to establish the
+        order without taking an ownership decision of its own. The decision
+        stays in ``terminalize_unclaimed_queued_run``, where the conditional
+        write is the authority.
+
+        Returns ``(deployment, run)``. A missing deployment is
+        ``(None, None)``; a present deployment with a missing run is
+        ``(deployment, None)``.
+        """
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=expected_deployment)
+            .with_for_update()
+            .one_or_none()
+        )
+        if deployment is None:
+            return None, None
+        run = (
+            session.query(AgentRun)
+            .filter_by(run_id=str(run_id))
+            .with_for_update()
+            .one_or_none()
+        )
+        return deployment, run
+
+    def terminalize_unclaimed_queued_run(
+        self,
+        *,
+        run_id: str,
+        deployment_id: str,
+        status: str,
+        error: str | None = None,
+        session: Any = None,
+    ) -> str:
+        """Atomically terminalize a queued, unclaimed coding run.
+
+        A worker that never held a durable claim may still have to refuse an
+        execution before acceptance. That refusal is a terminal decision, so it
+        must never be able to overwrite a run that another worker has already
+        accepted. The queued state and the absence of worker ownership are
+        therefore evaluated in the same database write that establishes the
+        terminal state: there is no earlier ownership check that could go
+        stale between the check and the write.
+
+        The conditional write is the whole authority decision. It takes the
+        same row lock a competing acceptance needs, and PostgreSQL re-evaluates
+        its predicate against the row the competing transaction committed, so
+        an acceptance and a pre-acceptance refusal can never both succeed.
+
+        The decision is a single conditional statement, so it does not depend
+        on any dialect's row-lock semantics and is not restricted to one
+        dialect. The competing-worker interleaving is proven under PostgreSQL
+        concurrency; the same statement keeps the refusal working on every
+        other supported store instead of silently stopping there.
+
+        The refusal is also scoped to the run's durable deployment
+        relationship, exactly as acceptance is. ``deployment_id`` is the
+        external deployment id the caller believes the run belongs to. The
+        store resolves that relationship from the canonical records rather
+        than trusting the assertion: the run names the deployment it belongs
+        to, and that deployment must be the one the caller expected. A caller
+        that names the wrong deployment, or names none at all, has no standing
+        to terminalize any run. The deployment and run are locked in the same
+        order the acceptance and claim-fenced paths use, so the three paths
+        cannot deadlock against each other.
+
+        The outcomes are the established terminal vocabulary:
+
+        ``terminal_accepted``
+            The run was queued and unclaimed, belonged to the expected
+            deployment, and this call moved it to the requested terminal
+            status.
+        ``terminal_rejected``
+            The run exists but is not eligible for a pre-acceptance refusal:
+            a worker owns it, it is no longer queued, it belongs to a
+            different deployment, or the caller named no deployment.
+        ``terminal_already_terminal``
+            The run already carried a terminal status. Nothing was rewritten.
+        ``terminal_missing``
+            No canonical run carries that run id.
+        ``terminal_unavailable``
+            Persistence could not be reached. The caller must fail closed.
+        """
+        if not self._has_db():
+            logger.exception(
+                "[agent-store] pre-acceptance terminal unavailable run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+        # A pre-acceptance refusal may only establish a failure or a
+        # cancellation. It never establishes a successful execution.
+        if str(status or "").strip().lower() not in {
+            "failed",
+            "canceled",
+            "cancelled",
+        }:
+            return RUN_TERMINAL_REJECTED
+        if not str(run_id or "").strip():
+            return RUN_TERMINAL_MISSING
+        expected_deployment = str(deployment_id or "").strip()
+        if not expected_deployment:
+            # A caller that cannot name the deployment it acts for has no
+            # standing to terminalize any run.
+            return RUN_TERMINAL_REJECTED
+        normalized_status = _normalize_agent_run_status(status)
+
+        def _transition(session: Any) -> str:
+            # Lock the deployment, then the run: the same order
+            # ``claim_run_for_acceptance`` and ``claim_coding_run_terminal``
+            # use, so the three terminal paths cannot deadlock.
+            deployment, run = self._lock_terminal_authority(
+                session=session,
+                run_id=str(run_id),
+                expected_deployment=expected_deployment,
+            )
+            if deployment is None:
+                return RUN_TERMINAL_REJECTED
+            if run is None:
+                return RUN_TERMINAL_MISSING
+            if run.deployment_id != deployment.id:
+                # The caller's expectation contradicts the canonical
+                # run/deployment relationship. It has no standing here.
+                return RUN_TERMINAL_REJECTED
+            values: dict[str, Any] = {
+                "status": normalized_status,
+                "ended_at": func.now(),
+            }
+            if error is not None:
+                values["error"] = error
+            updated = (
+                session.query(AgentRun)
+                .filter(
+                    AgentRun.run_id == str(run_id),
+                    AgentRun.deployment_id == deployment.id,
+                    AgentRun.status == "queued",
+                    AgentRun.coding_worker_instance_id.is_(None),
+                    AgentRun.coding_worker_claim_id.is_(None),
+                )
+                .update(values, synchronize_session="fetch")
+            )
+            if updated == 1:
+                return RUN_TERMINAL_ACCEPTED
+            # Nothing was transitioned. Classify the refusal for the caller.
+            # This read carries no authority: the transition has already
+            # failed, and it cannot move the run.
+            row = (
+                session.query(AgentRun)
+                .filter_by(run_id=str(run_id))
+                .one_or_none()
+            )
+            if row is None:
+                return RUN_TERMINAL_MISSING
+            if _is_terminal_agent_run_status(row.status):
+                return RUN_TERMINAL_ALREADY_TERMINAL
+            return RUN_TERMINAL_REJECTED
+
+        try:
+            if session is not None:
+                # The caller owns the transaction: stage the transition and let
+                # the caller commit or roll it back together with its other
+                # writes.
+                return _transition(session)
+            with self.db.get_session() as owned_session:
+                outcome = _transition(owned_session)
+                if outcome == RUN_TERMINAL_ACCEPTED:
+                    owned_session.commit()
+                else:
+                    owned_session.rollback()
+                return outcome
+        except Exception:
+            logger.exception(
+                "[agent-store] pre-acceptance terminal failed run_id=%s",
+                run_id,
+            )
+            return RUN_TERMINAL_UNAVAILABLE
+
+    def finalize_unclaimed_coding_result(
+        self,
+        *,
+        run_id: str,
+        deployment_id: str,
+        **result_kwargs: Any,
+    ) -> dict[str, Any]:
+        """Finalize a coding result for a run this worker never claimed.
+
+        This is the pre-acceptance counterpart of
+        ``finalize_claimed_coding_result``. The canonical result writes -- the
+        source-thread result message, the Guardian delegation delivery state,
+        and the coding-result artifact -- are staged on one session, and the
+        same atomic pre-acceptance decision that governs the status decides
+        whether they may be committed. A worker that never held a claim can
+        therefore not persist a result artifact, a source-thread message, or a
+        terminal state over a run that another worker has accepted.
+
+        ``deployment_id`` is the external deployment id the caller believes the
+        run belongs to, and it is held to the same canonical relationship the
+        status decision requires.
+
+        The deployment and run locks are taken before any result write is
+        issued to the database. The coding result artifact is a child row of
+        the run, so inserting it makes PostgreSQL take a foreign-key lock on
+        the run row; taking the canonical locks first means this transaction
+        can never hold a run lock while waiting for the deployment lock,
+        which is the order a competing acceptance takes them in the other way
+        round. The locks establish the order only -- the same atomic
+        pre-acceptance decision still decides whether the writes may be
+        committed.
+
+        The returned receipt always carries ``terminal_claim``:
+
+        ``terminal_accepted``
+            The run was queued and unclaimed, and the terminal result was
+            committed together with the terminal status.
+        ``terminal_already_terminal``
+            The run already carried a terminal status. Nothing was rewritten.
+        ``terminal_rejected``
+            The run was not eligible for a pre-acceptance refusal. No terminal
+            status, no artifact, no source-thread message.
+        ``terminal_missing``
+            No canonical run carries that run id.
+        ``terminal_unavailable``
+            Persistence could not be reached. The caller must fail closed.
+        """
+        if not self._has_db():
+            logger.exception(
+                "[agent-store] unclaimed terminal result unavailable run_id=%s",
+                run_id,
+            )
+            return self._terminal_rejection_receipt(
+                run_id=run_id,
+                claim=RUN_TERMINAL_UNAVAILABLE,
+                reason="terminal_persistence_unavailable",
+            )
+
+        with self.db.get_session() as session:
+            try:
+                # Take the canonical ownership locks before any result write is
+                # issued to the database. The result writes include a coding
+                # result artifact, which is a child row of the run: inserting
+                # it makes PostgreSQL take a foreign-key lock on the run row
+                # itself. The deployment and run locks are taken first so that
+                # this transaction can never hold a run lock while waiting for
+                # the deployment lock, which is the order a competing
+                # acceptance takes them in the other way round.
+                #
+                # This establishes the lock order only. It decides nothing:
+                # the conditional write in ``terminalize_unclaimed_queued_run``
+                # remains the authority for whether this refusal may happen.
+                self._lock_terminal_authority(
+                    session=session,
+                    run_id=run_id,
+                    expected_deployment=str(deployment_id or "").strip(),
+                )
+                receipt = self.store_coding_result(
+                    run_id=run_id,
+                    session=session,
+                    **result_kwargs,
+                )
+            except Exception:
+                # Nothing was committed: the terminal decision and the result
+                # writes share this transaction.
+                session.rollback()
+                logger.exception(
+                    "[agent-store] unclaimed terminal result failed run_id=%s",
+                    run_id,
+                )
+                raise
+
+            outcome = self.terminalize_unclaimed_queued_run(
+                session=session,
+                run_id=run_id,
+                deployment_id=deployment_id,
+                status=str(receipt.get("terminal_run_status") or "failed"),
+                error=receipt.get("terminal_error"),
+            )
+            if outcome != RUN_TERMINAL_ACCEPTED:
+                session.rollback()
+                logger.warning(
+                    "[agent-store] pre-acceptance terminal rejected run_id=%s "
+                    "outcome=%s",
+                    run_id,
+                    outcome,
+                )
+                return self._terminal_rejection_receipt(
+                    run_id=run_id,
+                    claim=outcome,
+                    reason=(
+                        "coding_run_already_terminal"
+                        if outcome == RUN_TERMINAL_ALREADY_TERMINAL
+                        else "coding_run_preacceptance_refused"
+                    ),
+                )
+
+            session.commit()
+
+        receipt["terminal_claim"] = RUN_TERMINAL_ACCEPTED
+        receipt["terminal_accepted"] = True
+        receipt["terminal_run_status_updated"] = True
+        return receipt
 
     def _terminal_rejection_receipt(
         self,
