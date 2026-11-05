@@ -380,11 +380,22 @@ def test_whooshd_profile_persona_profiles_enabled() -> None:
     for label in (
         "imprint", "system_prompt", "system_docs", "user_profile", "admin",
         "federation", "collaboration", "connectors", "tools", "api_tools",
-        "agent", "agent_orchestration", "voice", "cron", "__missing__",
+        "agent", "agent_orchestration", "cron", "__missing__",
     ):
         assert manifest.route_status(label) == "quarantined", label
     assert manifest.route_status("command_bus") == "internal_only"
     assert manifest.route_status("coding_work_orders") == "internal_only"
+    # The Private Preview is the test bed for cloud voice (ADR-110), so the
+    # voice routes are admitted here and nowhere else. Every other supported
+    # profile keeps voice quarantined, which is what keeps TTS / voice outside
+    # default Beta (ADR-069).
+    assert manifest.route_status("voice") == "enabled"
+    # The sandbox contract is a worker-to-worker surface, not an end-user
+    # surface (ADR-109): it stays internal-only and is never publicly routed.
+    assert manifest.route_status("sandbox") == "internal_only"
+    for profile in ("v1-local-core-web-mcp", "v1-friends-family-web"):
+        assert load_supported_profile(profile).route_status("voice") == "quarantined"
+        assert load_supported_profile(profile).route_status("sandbox") == "quarantined"
     # This admission is specific to the shared Whoosh'd private-preview profile.
     for profile in ("v1-local-core-web-mcp", "v1-friends-family-web"):
         assert load_supported_profile(profile).route_status("persona_profiles") == "quarantined"

@@ -9,11 +9,18 @@ from __future__ import annotations
 import os
 from typing import List
 
-from ..tts_service import AuthenticationError, SynthesisError, TTSProvider
+from ..tts_service import (
+    NATIVE_OUTPUT_FORMAT_MP3,
+    AuthenticationError,
+    SynthesisError,
+    TTSProvider,
+)
 
 
 class MiniMaxProvider(TTSProvider):
     """Scaffold provider for MiniMax cloud TTS."""
+
+    native_output_format = NATIVE_OUTPUT_FORMAT_MP3
 
     def __init__(self):
         self.api_key = (os.getenv("MINIMAX_API_KEY") or "").strip()

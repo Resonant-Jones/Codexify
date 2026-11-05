@@ -13,6 +13,7 @@ import requests
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 
 from ..tts_service import (
+    NATIVE_OUTPUT_FORMAT_MP3,
     AuthenticationError,
     SynthesisError,
     TTSProvider,
@@ -27,6 +28,8 @@ class ElevenLabsProvider(TTSProvider):
     """ElevenLabs implementation of TTSProvider."""
 
     API_BASE = "https://api.elevenlabs.io/v1"
+
+    native_output_format = NATIVE_OUTPUT_FORMAT_MP3
 
     def __init__(self, api_key: Optional[str] = None):
         """

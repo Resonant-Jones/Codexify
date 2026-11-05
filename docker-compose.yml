@@ -311,6 +311,10 @@ services:
       - ./data/media:/app/data/media
       - ./data/imports:/app/data/imports
       - ./docker:/app/docker
+      # Workspace archives prepared by the coding worker and consumed by the
+      # sandbox provider adapter. Shared so the adapter can content-address
+      # the archive it materializes.
+      - codexify_sandbox_workspaces:/app/.sandbox-workspaces
       - codexify_cli_home:/home/codexify
       - hf_cache:/root/.cache/huggingface
       - ./models:/models
@@ -376,6 +380,12 @@ services:
       CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
       CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
       CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
+      # Cloud voice providers sit behind the same posture gate as every other
+      # cloud surface: local-only by default, and egress-scoped when allowed.
+      CODEXIFY_LOCAL_ONLY_MODE: "${CODEXIFY_LOCAL_ONLY_MODE:-true}"
+      ALLOW_CLOUD_PROVIDERS: "${ALLOW_CLOUD_PROVIDERS:-false}"
+      CODEXIFY_EGRESS_ALLOWLIST: "${CODEXIFY_EGRESS_ALLOWLIST:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
 
       # --- OpenAI (cloud) ---
       # NOTE: We intentionally do NOT override OPENAI_BASE_URL here.
@@ -626,6 +636,15 @@ services:
       # --- Graph-write runtime boundary (default-off) ---
       CODEXIFY_ENABLE_GRAPH_WRITES: "${CODEXIFY_ENABLE_GRAPH_WRITES:-false}"
       CODEXIFY_GRAPH_BACKEND: "${CODEXIFY_GRAPH_BACKEND:-noop}"
+      # --- Hosted sandbox execution (default-off) ---
+      # The provider is resolved by name on the Guardian side; the worker never
+      # names one. `sbx` must be present in the image for the Docker adapter.
+      CODEXIFY_SANDBOX_PROVIDER: "${CODEXIFY_SANDBOX_PROVIDER:-}"
+      CODEXIFY_PI_SANDBOX_ENABLED: "${CODEXIFY_PI_SANDBOX_ENABLED:-false}"
+      CODEXIFY_SANDBOX_API_BASE: "${CODEXIFY_SANDBOX_API_BASE:-http://backend:8888}"
+      CODEXIFY_SANDBOX_API_KEY: "${GUARDIAN_API_KEY:-}"
+      CODEXIFY_SANDBOX_WORKSPACE_ARCHIVE: "${CODEXIFY_SANDBOX_WORKSPACE_ARCHIVE:-}"
+      CODEXIFY_SANDBOX_TIMEOUT_SECONDS: "${CODEXIFY_SANDBOX_TIMEOUT_SECONDS:-900}"
     volumes:
       - ./.git:/app/.git
       - ./guardian:/app/codexify
@@ -634,6 +653,7 @@ services:
       - ./config:/app/config:ro
       - ./codex_runner:/app/codex_runner
       - hf_cache:/root/.cache/huggingface
+      - codexify_sandbox_workspaces:/app/.sandbox-workspaces
     restart: unless-stopped
     command: ["/app/backend/scripts/docker/run_worker_coding.py"]
     healthcheck:
@@ -684,6 +704,12 @@ services:
       CODEXIFY_TTS_PROVIDER: "${CODEXIFY_TTS_PROVIDER:-local_openai_compatible}"
       CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
       CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
+      # Cloud voice providers sit behind the same posture gate as every other
+      # cloud surface: local-only by default, and egress-scoped when allowed.
+      CODEXIFY_LOCAL_ONLY_MODE: "${CODEXIFY_LOCAL_ONLY_MODE:-true}"
+      ALLOW_CLOUD_PROVIDERS: "${ALLOW_CLOUD_PROVIDERS:-false}"
+      CODEXIFY_EGRESS_ALLOWLIST: "${CODEXIFY_EGRESS_ALLOWLIST:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       STORAGE_BASE_PATH: /app/data/media
       REDIS_URL: redis://redis:6379/0
       HF_HOME: /root/.cache/huggingface
@@ -1179,3 +1205,4 @@ volumes:
   frontend_pnpm_store:
   codexify_cli_home:
   codexify_pi_auth:
+  codexify_sandbox_workspaces:

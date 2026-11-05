@@ -119,7 +119,7 @@ class Settings(BaseSettings):
         default="",
         description=(
             "Comma-separated outbound capability allowlist used when CODEXIFY_LOCAL_ONLY_MODE=false. "
-            "Supported entries include: openai, groq, deepseek, alibaba, minimax, github, elevenlabs, federation, webhook."
+            "Supported entries include: openai, groq, deepseek, alibaba, minimax, github, elevenlabs, deepgram, federation, webhook."
         ),
     )
     LLM_MODEL: str = Field(

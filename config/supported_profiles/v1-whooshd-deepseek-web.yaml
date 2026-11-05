@@ -68,10 +68,12 @@ route_posture:
     - share
     - hosted_rooms
     - hosted_room_guest
+    - voice
   internal_only:
     - coding_work_orders
     - command_bus
     - memory_vault
+    - sandbox
   quarantined:
     - llm_overrides
     - neo
@@ -87,7 +89,6 @@ route_posture:
     - collaboration
     - connectors
     - google_connect
-    - voice
     - flows
     - tools
     - api_tools

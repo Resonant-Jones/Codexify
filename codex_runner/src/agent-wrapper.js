@@ -31,6 +31,11 @@ import {
 	EVALUATOR_RESULT_CONTRACT,
 	projectGuardianEvaluatorResult,
 } from "./guardian-evaluator-result.js";
+import {
+	createGuardianSandboxExtensionFactory,
+	readSandboxExtensionConfig,
+	SANDBOX_EXCLUDED_TOOL_NAMES,
+} from "./guardian-sandbox-extension.js";
 
 // Parse command line args
 const args = process.argv.slice(2);
@@ -264,10 +269,34 @@ async function loadPiSdk({ isolatedCredentials = false } = {}) {
 	}
 	const modelRuntime = await codingAgent.ModelRuntime.create(runtimeOptions);
 
+	// Sandboxed bash execution needs two more Pi SDK surfaces: the bash tool
+	// factory (to install a spawn hook) and the resource loader (to register
+	// the extension that owns the tool). Fail closed when sandbox mode is
+	// requested and either surface is absent -- silently executing locally
+	// would move execution outside the sandbox boundary.
+	const sandboxConfig = readSandboxExtensionConfig(process.env);
+	if (sandboxConfig) {
+		if (typeof codingAgent.createBashTool !== "function") {
+			throw new Error(
+				"Pi coding-agent package is missing the createBashTool factory; " +
+					"sandboxed bash execution cannot be installed.",
+			);
+		}
+		if (typeof codingAgent.DefaultResourceLoader !== "function") {
+			throw new Error(
+				"Pi coding-agent package is missing the DefaultResourceLoader factory; " +
+					"sandboxed bash execution cannot be installed.",
+			);
+		}
+	}
+
 	return {
 		createAgentSession: codingAgent.createAgentSession,
 		SessionManager: codingAgent.SessionManager,
 		SettingsManager: codingAgent.SettingsManager,
+		createBashTool: codingAgent.createBashTool,
+		DefaultResourceLoader: codingAgent.DefaultResourceLoader,
+		sandboxConfig,
 		modelRuntime,
 		getModel: modelRuntime.getModel.bind(modelRuntime),
 		getProviders: modelRuntime.getProviders.bind(modelRuntime),
@@ -470,6 +499,9 @@ async function runAgent() {
 	let getProviders;
 	let harnessId;
 	let harnessVersion;
+	let createBashTool;
+	let DefaultResourceLoader;
+	let sandboxConfig = null;
 
 	let authorizedIdentity = null;
 	let authorizedCredential = null;
@@ -496,6 +528,9 @@ async function runAgent() {
 			getProviders,
 			harnessId,
 			harnessVersion,
+			createBashTool,
+			DefaultResourceLoader,
+			sandboxConfig,
 		} = await loadPiSdk({ isolatedCredentials: guardianAuthorizedMode }));
 	} catch (error) {
 		if (guardianAuthorizedMode) {
@@ -539,7 +574,7 @@ async function runAgent() {
 
 	// Maintained Pi 0.82.1 contract: `tools` is a string[] of tool NAMES,
 	// not AgentTool objects. Disabled/read-only sessions get `[]`.
-	const configuredToolNames = OPTIONS.disableTools ? [] : [...CONFIGURED_WRITABLE_TOOL_NAMES];
+	let configuredToolNames = OPTIONS.disableTools ? [] : [...CONFIGURED_WRITABLE_TOOL_NAMES];
 
 	// Get model
 	const model = getModel(resolvedProviderId, resolvedModelId);
@@ -750,6 +785,74 @@ async function runAgent() {
 				);
 				return;
 			}
+		}
+		if (sandboxConfig) {
+			// Fail closed: a half-configured sandbox would silently execute on
+			// the host, which is exactly the boundary this mode exists to hold.
+			if (sandboxConfig.missing.length > 0) {
+				if (guardianAuthorizedMode) {
+					emitAuthorizedFailure("wrapper_protocol_failed", "sandbox_configuration", {
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+						missing_configuration: sandboxConfig.missing,
+					});
+					return;
+				}
+				console.error(
+					"Sandbox mode is enabled but misconfigured. Missing: " +
+						sandboxConfig.missing.join(", "),
+				);
+				process.exit(1);
+			}
+			// A read-only sandbox workspace cannot satisfy a write-mandatory
+			// turn. Fail closed rather than advertise a tool the boundary
+			// would reject.
+			if (
+				requiredToolName &&
+				SANDBOX_EXCLUDED_TOOL_NAMES.includes(requiredToolName)
+			) {
+				if (guardianAuthorizedMode) {
+					emitAuthorizedFailure("wrapper_protocol_failed", "sandbox_tool_selection", {
+						actual_runtime_identity: actualRuntimeIdentity,
+						runtime_identity_established: true,
+						session_initialized: false,
+						provider_request_started: false,
+					});
+					return;
+				}
+				console.error(
+					`Sandbox mode cannot satisfy a mandatory "${requiredToolName}" tool turn.`,
+				);
+				process.exit(1);
+			}
+			// `write` and `edit` would mutate the host filesystem outside the
+			// sandbox boundary, so they are not advertised in sandbox mode.
+			configuredToolNames = configuredToolNames.filter(
+				(name) => !SANDBOX_EXCLUDED_TOOL_NAMES.includes(name),
+			);
+			const sandboxProxyPath =
+				sandboxConfig.proxyPath ||
+				path.join(
+					path.dirname(fileURLToPath(import.meta.url)),
+					"guardian-sandbox-proxy.js",
+				);
+			const sandboxAgentDir =
+				(process.env.PI_AGENT_DIR || "").trim() ||
+				path.join(process.env.HOME || "/root", ".pi", "agent");
+			sessionOptions.resourceLoader = new DefaultResourceLoader({
+				cwd: OPTIONS.cwd,
+				agentDir: sandboxAgentDir,
+				settingsManager: sessionOptions.settingsManager,
+				extensionFactories: [
+					createGuardianSandboxExtensionFactory({
+						createBashTool,
+						proxyPath: sandboxProxyPath,
+						cwd: OPTIONS.cwd,
+					}),
+				],
+			});
 		}
 		result = await createAgentSession(sessionOptions);
 	} catch (error) {
