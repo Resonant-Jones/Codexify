@@ -3445,6 +3445,46 @@ class AgentStore:
             )
             return RUN_TERMINAL_UNAVAILABLE
 
+    def _lock_terminal_authority(
+        self,
+        *,
+        session: Any,
+        run_id: str,
+        expected_deployment: str,
+    ) -> tuple[Any, Any]:
+        """Lock the deployment, then the run: the canonical terminal order.
+
+        ``claim_run_for_acceptance`` and ``claim_coding_run_terminal`` take
+        these two locks in this order, so every terminal path wants them in
+        this order and no two of them can want each other's locks.
+
+        The locks are returned rather than decided here. A caller that only
+        needs the ordering — the pre-acceptance result path, which must take
+        the locks before it writes a result — uses this to establish the
+        order without taking an ownership decision of its own. The decision
+        stays in ``terminalize_unclaimed_queued_run``, where the conditional
+        write is the authority.
+
+        Returns ``(deployment, run)``. A missing deployment is
+        ``(None, None)``; a present deployment with a missing run is
+        ``(deployment, None)``.
+        """
+        deployment = (
+            session.query(AgentDeployment)
+            .filter_by(deployment_id=expected_deployment)
+            .with_for_update()
+            .one_or_none()
+        )
+        if deployment is None:
+            return None, None
+        run = (
+            session.query(AgentRun)
+            .filter_by(run_id=str(run_id))
+            .with_for_update()
+            .one_or_none()
+        )
+        return deployment, run
+
     def terminalize_unclaimed_queued_run(
         self,
         *,
@@ -3530,20 +3570,13 @@ class AgentStore:
             # Lock the deployment, then the run: the same order
             # ``claim_run_for_acceptance`` and ``claim_coding_run_terminal``
             # use, so the three terminal paths cannot deadlock.
-            deployment = (
-                session.query(AgentDeployment)
-                .filter_by(deployment_id=expected_deployment)
-                .with_for_update()
-                .one_or_none()
+            deployment, run = self._lock_terminal_authority(
+                session=session,
+                run_id=str(run_id),
+                expected_deployment=expected_deployment,
             )
             if deployment is None:
                 return RUN_TERMINAL_REJECTED
-            run = (
-                session.query(AgentRun)
-                .filter_by(run_id=str(run_id))
-                .with_for_update()
-                .one_or_none()
-            )
             if run is None:
                 return RUN_TERMINAL_MISSING
             if run.deployment_id != deployment.id:
@@ -3625,6 +3658,16 @@ class AgentStore:
         run belongs to, and it is held to the same canonical relationship the
         status decision requires.
 
+        The deployment and run locks are taken before any result write is
+        issued to the database. The coding result artifact is a child row of
+        the run, so inserting it makes PostgreSQL take a foreign-key lock on
+        the run row; taking the canonical locks first means this transaction
+        can never hold a run lock while waiting for the deployment lock,
+        which is the order a competing acceptance takes them in the other way
+        round. The locks establish the order only -- the same atomic
+        pre-acceptance decision still decides whether the writes may be
+        committed.
+
         The returned receipt always carries ``terminal_claim``:
 
         ``terminal_accepted``
@@ -3653,6 +3696,23 @@ class AgentStore:
 
         with self.db.get_session() as session:
             try:
+                # Take the canonical ownership locks before any result write is
+                # issued to the database. The result writes include a coding
+                # result artifact, which is a child row of the run: inserting
+                # it makes PostgreSQL take a foreign-key lock on the run row
+                # itself. The deployment and run locks are taken first so that
+                # this transaction can never hold a run lock while waiting for
+                # the deployment lock, which is the order a competing
+                # acceptance takes them in the other way round.
+                #
+                # This establishes the lock order only. It decides nothing:
+                # the conditional write in ``terminalize_unclaimed_queued_run``
+                # remains the authority for whether this refusal may happen.
+                self._lock_terminal_authority(
+                    session=session,
+                    run_id=run_id,
+                    expected_deployment=str(deployment_id or "").strip(),
+                )
                 receipt = self.store_coding_result(
                     run_id=run_id,
                     session=session,

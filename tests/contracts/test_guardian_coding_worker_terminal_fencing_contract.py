@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import event, text
 
 from guardian.db.models import AgentDeployment, AgentRun
 from guardian.workers import coding_worker
@@ -1415,6 +1416,241 @@ def test_an_unclaimed_result_on_an_eligible_run_still_commits(
     assert state["status"] == "failed"
     assert state["ended_at"] is not None
     assert acceptance._artifact_count(db, str(task.run_id)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The unclaimed result path and the lock order it must respect.
+# ---------------------------------------------------------------------------
+
+
+def _deadlock_count(db: Any) -> int:
+    """The number of deadlocks PostgreSQL has detected in this database."""
+    with db.get_session() as session:
+        name = session.get_bind().url.database
+        row = session.execute(
+            text("SELECT deadlocks FROM pg_stat_database WHERE datname = :name"),
+            {"name": name},
+        ).one()
+    return int(row[0])
+
+
+def test_the_unclaimed_result_path_locks_before_it_writes_a_result(
+    db: Any,
+) -> None:
+    """The canonical locks are taken before any result write is issued.
+
+    The coding result artifact is a child row of the run, so inserting it
+    makes PostgreSQL take a foreign-key lock on the run row. If that insert
+    could be issued before this path asked for the deployment and run locks,
+    the two transactions would want the locks in opposite orders: this one
+    holding the run and waiting for the deployment, a competing acceptance
+    holding the deployment and waiting for the run.
+
+    The lock order is asserted on the statements the real path issues, in
+    the order it issues them, against real PostgreSQL.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    statements: list[str] = []
+    with db.get_session() as probe:
+        engine = probe.get_bind()
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(" ".join(str(statement).split()))
+
+    try:
+        receipt = _pre_acceptance_result(db, task)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+
+    deployment_lock = next(
+        index
+        for index, statement in enumerate(statements)
+        if "agent_deployments" in statement and "FOR UPDATE" in statement
+    )
+    run_lock = next(
+        index
+        for index, statement in enumerate(statements)
+        if "agent_runs" in statement and "FOR UPDATE" in statement
+    )
+    first_insert = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.startswith("INSERT INTO")
+    )
+
+    assert deployment_lock < run_lock, statements
+    assert run_lock < first_insert, (
+        "a result write was issued before the run lock was taken",
+        statements,
+    )
+
+
+def test_a_competing_acceptance_cannot_deadlock_the_unclaimed_result_path(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An acceptance that commits first refuses the unclaimed result path.
+
+    The unclaimed path is held before it asks for any lock, the acceptance
+    completes durably, and only then does the unclaimed path continue. The
+    refusal must be a refusal: no artifact, no source-thread result message,
+    no terminal status, and no ownership taken from the accepting worker.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    reached = threading.Event()
+    release = threading.Event()
+    original = AgentStore._lock_terminal_authority
+
+    def _held(self: Any, **kwargs: Any) -> Any:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "_lock_terminal_authority", _held)
+
+    receipts: dict[str, Any] = {}
+
+    def _write_result() -> None:
+        receipts["result"] = _pre_acceptance_result(db, task)
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_write_result)
+        assert reached.wait(timeout=30)
+        # The acceptance completes durably while the unclaimed path waits.
+        assert _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        ) == _ACCEPTED
+        release.set()
+        future.result(timeout=30)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+
+    receipt = receipts["result"]
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_REJECTED
+    assert receipt.get("terminal_accepted") is False
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "running"
+    assert state["instance_id"] == _INSTANCE_B
+    assert state["claim_id"] == _CLAIM_B
+    assert state["ended_at"] is None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 0
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+
+
+def test_an_unclaimed_result_that_commits_first_refuses_the_competing_acceptance(
+    db: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unclaimed result that commits first refuses the later acceptance."""
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    reached = threading.Event()
+    release = threading.Event()
+    original = AgentStore.claim_run_for_acceptance
+
+    def _held(self: Any, **kwargs: Any) -> str:
+        reached.set()
+        assert release.wait(timeout=30)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(AgentStore, "claim_run_for_acceptance", _held)
+
+    outcomes: dict[str, str] = {}
+
+    def _accept() -> None:
+        outcomes["acceptance"] = _claim(
+            db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B
+        )
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_accept)
+        assert reached.wait(timeout=30)
+        # The unclaimed result commits durably while the acceptance waits.
+        receipt = _pre_acceptance_result(db, task)
+        release.set()
+        future.result(timeout=30)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+
+    assert receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert receipt.get("terminal_accepted") is True
+    assert outcomes["acceptance"] == _REJECTED
+    state = _run_state(db, str(task.run_id))
+    assert state["status"] == "failed"
+    assert state["instance_id"] is None
+    assert state["claim_id"] is None
+    assert state["ended_at"] is not None
+    assert acceptance._artifact_count(db, str(task.run_id)) == 1
+    assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
+
+def test_competing_acceptance_and_unclaimed_result_cannot_both_succeed(
+    db: Any,
+) -> None:
+    """Released together, exactly one of the two wins and neither deadlocks.
+
+    The two paths want the same deployment and run locks. Whichever takes
+    them first decides, and the other is refused. Nothing may be left
+    half-written: the result exists if and only if the unclaimed result path
+    is the winner.
+    """
+    dispatched = acceptance._dispatch_one(db)
+    task = dispatched["task"]
+
+    barrier = threading.Barrier(2)
+
+    def _accept_racing() -> str:
+        barrier.wait(timeout=30)
+        return _claim(db, task, worker_instance_id=_INSTANCE_B, claim_id=_CLAIM_B)
+
+    def _result_racing() -> dict[str, Any]:
+        barrier.wait(timeout=30)
+        return _pre_acceptance_result(db, task)
+
+    deadlocks_before = _deadlock_count(db)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        accept_future = pool.submit(_accept_racing)
+        result_future = pool.submit(_result_racing)
+        acceptance_outcome = accept_future.result(timeout=60)
+        receipt = result_future.result(timeout=60)
+
+    assert _deadlock_count(db) == deadlocks_before, "PostgreSQL reported a deadlock"
+    assert acceptance_outcome in {_ACCEPTED, _REJECTED}, acceptance_outcome
+    assert receipt.get("terminal_claim") in {
+        RUN_TERMINAL_ACCEPTED,
+        RUN_TERMINAL_REJECTED,
+    }, receipt
+
+    acceptance_won = acceptance_outcome == _ACCEPTED
+    result_won = receipt.get("terminal_claim") == RUN_TERMINAL_ACCEPTED
+    assert acceptance_won != result_won, (acceptance_outcome, receipt)
+
+    state = _run_state(db, str(task.run_id))
+    if acceptance_won:
+        assert state["status"] == "running"
+        assert state["instance_id"] == _INSTANCE_B
+        assert state["claim_id"] == _CLAIM_B
+        assert state["ended_at"] is None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 0
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 0
+    else:
+        assert state["status"] == "failed"
+        assert state["instance_id"] is None
+        assert state["claim_id"] is None
+        assert state["ended_at"] is not None
+        assert acceptance._artifact_count(db, str(task.run_id)) == 1
+        assert acceptance._coding_result_message_count(db, task.thread_id) == 1
+
 
 
 def test_unavailable_persistence_cannot_be_a_successful_terminalization(
