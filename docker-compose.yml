@@ -1050,8 +1050,16 @@ services:
       - music
     # Built from the Agent-DAW repository at a tagged release. Point
     # CODEXIFY_AGENTDAW_BUILD_CONTEXT at a local checkout for development.
+    #
+    # The tag is part of the contract, not a formality. The route's async
+    # path reads the project id back out of the job's echoed context, and
+    # the engine only started carrying that context in v0.1.3. On v0.1.2
+    # the files are produced, the registration is skipped with a warning,
+    # and the route still reports success -- so nothing is registered.
+    # Verified against images built from the tags themselves: v0.1.2
+    # answers `"context": null`, v0.1.5 answers with the context.
     build:
-      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.2}"
+      context: "${CODEXIFY_AGENTDAW_BUILD_CONTEXT:-https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.6}"
       dockerfile: Dockerfile
     working_dir: /app
     environment:
