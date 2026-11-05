@@ -1,5 +1,38 @@
 # Codexify Studio v1 Plan (Paid Add-On, Local-First, Reaper-Canonical)
 
+## Authority boundary
+
+The authority split across Codexify, Agent-DAW, REAPER and the Artist is
+recorded in [ADR-108](../architecture/adr/108-codexify-music-producer-authority-and-agentdaw-service-boundary.md).
+Where this plan and that ADR could be read as disagreeing, the ADR governs.
+
+Two consequences worth stating here, because this plan predates the Music
+Producer surface:
+
+- **Codexify does not own a normalized composition schema.** The authority
+  on spec content is the Producer. Codexify keeps the whole-state *record*
+  of what the Producer produced, and writes it whole -- it never patches
+  fields and never merges. An earlier draft that proposed a Codexify-owned
+  `studio_arrangements` / `studio_tracks` composition schema was withdrawn
+  as a duplicate truth plane over Agent-DAW's published specification
+  contract. See ADR-108's "Superseded proposal".
+- **The Music Producer surface is merged code, behind a quarantining
+  supported profile.** It is `guardian/routes/music_projects.py` (a thin
+  facade in the Guardian process, because model-callable tools are derived
+  from the Guardian application's own OpenAPI schema) forwarding to an
+  Agent-DAW service over the canonical service-plugin protocol. It is
+  *not* a qualified supported path: the `v1-music-producer` profile
+  quarantines the routes everywhere else, and
+  [00 Current State](../architecture/00-current-state.md) remains the
+  release authority.
+
+What this plan describes below -- the Node/TypeScript Studio Harness, the
+ReaPack add-on bundle, the separate Studio UI package, the Strudel engine
+path, the action ledger, and the licensing model -- is **not implemented**.
+ADR-108 records the authority that governs the shipped Music Producer
+surface; it does not implement this plan, and it does not make the Studio
+surface a supported path.
+
 ## Summary
 Codexify Studio v1 will be a separate paid add-on product surface, backed by a new Node/TypeScript harness that sits between Codexify backend and Reaper.  
 Codexify remains the intent/planning/identity brain; Reaper remains the source of truth for DAW state; Studio harness executes deterministic actions and streams status/events back.  
