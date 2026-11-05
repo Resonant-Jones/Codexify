@@ -486,17 +486,15 @@ vi.mock("@/imprint/api", () => ({
   fetchSystemPromptSummary: vi.fn().mockResolvedValue(null),
 }));
 
-function emitLiveEvent(type: string, data: Record<string, unknown>) {
-  // Flush pending React work before the event is delivered. The live-event
-  // subscription is re-registered from a passive effect whenever the inference
-  // state changes, and React schedules passive effects asynchronously. An event
-  // delivered before that effect has run reaches a handler that still holds the
-  // previous inference state; that handler treats the event as belonging to a
-  // different turn and drops it, so the inference phase stays "queued" and the
-  // terminal-state assertion times out. Flushing first makes the delivery
-  // deterministic, and the handler set is re-read afterwards because the
-  // re-subscription replaces it.
-  act(() => {});
+async function emitLiveEvent(type: string, data: Record<string, unknown>) {
+  // React re-registers the component's live-event subscription from a passive
+  // effect, and it schedules passive effects as a macrotask. The effect's
+  // *cleanup* runs during the commit while its *setup* runs later, so without
+  // draining that queue the event can land in a window where the subscription
+  // is missing, or where the handler still holds the previous inference state
+  // and therefore drops the event as belonging to another turn. Draining the
+  // queue first makes the delivery deterministic.
+  await act(async () => {});
   const listeners = liveEventsMock.handlers.get(type);
   if (!listeners) return;
   act(() => {
@@ -616,7 +614,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
-    emitLiveEvent("task.completed", {
+    await emitLiveEvent("task.completed", {
       thread_id: 1,
       task_id: "task-1",
     });
@@ -625,7 +623,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
     });
 
-    emitLiveEvent("task.completed", {
+    await emitLiveEvent("task.completed", {
       thread_id: 1,
       task_id: "task-1",
     });
@@ -643,7 +641,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
-    emitLiveEvent("completion.error", {
+    await emitLiveEvent("completion.error", {
       thread_id: 1,
       error: "stream dropped",
     });
@@ -675,7 +673,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
-    emitLiveEvent(String(event), {
+    await emitLiveEvent(String(event), {
       thread_id: threadId,
       task_id: taskId,
       turn_id: "unrelated-turn",
@@ -712,7 +710,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       });
       inferenceMocks.attachTask("newer-task");
     });
-    emitLiveEvent(String(event), {
+    await emitLiveEvent(String(event), {
       thread_id: 1,
       task_id: "task-1",
       error: "Prior request failed",
@@ -736,7 +734,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
     act(() => { inferenceMocks.reset(); });
-    emitLiveEvent(event, { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent(event, { thread_id: 1, task_id: "task-1" });
     await waitFor(() => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
     });
@@ -757,7 +755,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     });
 
-    emitLiveEvent(event, {
+    await emitLiveEvent(event, {
       thread_id: 1,
       task_id: "task-1",
       error: "Current request failed",
@@ -809,7 +807,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(completeCalls()).toHaveLength(1);
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
       if (feed === "global") {
-        emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+        await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
       } else {
         act(() => {
           inferenceMocks.onTaskCancelled?.(1, "task-1");
@@ -818,7 +816,7 @@ describe("GuardianChat turn lock lifecycle", () => {
         view.rerenderChat();
       }
       // Duplicate delivery from both observations must coalesce into one retry.
-      emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+      await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
       act(() => inferenceMocks.onTaskCancelled?.(1, "task-1"));
       if (post === "late-failure") await act(async () => { finishStop(false); });
       await waitFor(() => expect(completeCalls()).toHaveLength(2));
@@ -831,7 +829,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       expect(inferenceMocks.state.mode).toBe("no_think");
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
       if (post === "pending") await act(async () => { finishStop(true); });
-      emitLiveEvent("task.completed", { thread_id: 1, task_id: "task-fast" });
+      await emitLiveEvent("task.completed", { thread_id: 1, task_id: "task-fast" });
       await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
       await allowRetryTimer();
       expect(completeCalls()).toHaveLength(2);
@@ -841,7 +839,7 @@ describe("GuardianChat turn lock lifecycle", () => {
   it.each(["task.completed", "task.failed"])("does not fast-retry when %s wins the cancellation race", async (terminal) => {
     await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Worker failure" });
+    await emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Worker failure" });
     await allowRetryTimer();
     expect(completeCalls()).toHaveLength(1);
     expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
@@ -851,7 +849,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     "does not fast-retry after foreign cancellation %j", async (payload) => {
       await startThinkingTurn();
       fireEvent.click(screen.getByTestId("chat-fast"));
-      emitLiveEvent("task.cancelled", payload);
+      await emitLiveEvent("task.cancelled", payload);
       await allowRetryTimer();
       expect(completeCalls()).toHaveLength(1);
       expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
@@ -863,7 +861,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     inferenceMocks.requestCancel.mockResolvedValueOnce(false);
     fireEvent.click(screen.getByTestId("chat-fast"));
     await act(async () => { await Promise.resolve(); });
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     await allowRetryTimer();
     expect(completeCalls()).toHaveLength(1);
   });
@@ -871,7 +869,7 @@ describe("GuardianChat turn lock lifecycle", () => {
   it("invalidates scheduled fast retry when the user starts a newer turn", async () => {
     const view = await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(view.onSendMessage).toHaveBeenCalledTimes(2));
     await allowRetryTimer();
@@ -890,7 +888,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       return { data: { task_id: "task-fast" } };
     });
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenLastCalledWith("task-fast"), { timeout: 1800 });
     expect(completeCalls()).toHaveLength(3);
     expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
@@ -905,7 +903,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       });
     });
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     await waitFor(() => expect(completeCalls()).toHaveLength(5), { timeout: 3000 });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
     expect(inferenceMocks.attachTask).toHaveBeenCalledTimes(1);
@@ -922,7 +920,7 @@ describe("GuardianChat turn lock lifecycle", () => {
   it.each(["stop", "provider"])("a later %s supersedes a scheduled fast handoff", async (action) => {
     await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
     await allowRetryTimer();
     expect(completeCalls()).toHaveLength(1);
@@ -931,7 +929,7 @@ describe("GuardianChat turn lock lifecycle", () => {
   it("does not fast-retry from a legacy cancellation without task identity", async () => {
     await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1 });
+    await emitLiveEvent("task.cancelled", { thread_id: 1 });
     await allowRetryTimer();
     expect(completeCalls()).toHaveLength(1);
   });
@@ -939,7 +937,7 @@ describe("GuardianChat turn lock lifecycle", () => {
   it("invalidates a scheduled fast handoff when the component unmounts", async () => {
     const view = await startThinkingTurn();
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     view.unmount();
     await allowRetryTimer();
     expect(completeCalls()).toHaveLength(1);
@@ -954,7 +952,7 @@ describe("GuardianChat turn lock lifecycle", () => {
       return { data: {} };
     });
     fireEvent.click(screen.getByTestId("chat-fast"));
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     await waitFor(() => expect(completeCalls()).toHaveLength(2));
     expect(inferenceMocks.state.phase).toBe("failed");
     expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked");
@@ -1073,7 +1071,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     await screen.findByTestId("composer-stub");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
-    emitLiveEvent("task.failed", { thread_id: 1, task_id: "task-1", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED" });
+    await emitLiveEvent("task.failed", { thread_id: 1, task_id: "task-1", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED" });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
     // The inference projection is committed by the same terminal event as the
     // turn release, but it is a separate state update: await it rather than
@@ -1093,7 +1091,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     await screen.findByTestId("composer-stub");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
-    emitLiveEvent(type, {
+    await emitLiveEvent(type, {
       thread_id: 1, task_id: "task-1", toolTurnState: "failed",
       loopStopReason: reason, error: reason,
       completed_at: "2026-04-05T00:00:01.000Z",
@@ -1119,7 +1117,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     await screen.findByTestId("composer-stub");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
-    emitLiveEvent(type, {
+    await emitLiveEvent(type, {
       thread_id: 1, task_id: "task-1",
       failure_code: "CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED",
       error: "Accepted chat task work deadline exceeded.",
@@ -1160,7 +1158,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     if (action === "provider") expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
     fireEvent.click(screen.getByTestId("composer-send"));
     expect(chatMocks.startCompletion).toHaveBeenCalledOnce();
-    emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Actual task failure" });
+    await emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Actual task failure" });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
     expect(inferenceMocks.state.phase).toBe(
       terminal === "task.completed" ? "completed" : terminal === "task.cancelled" ? "cancelled" : "failed"
@@ -1178,7 +1176,7 @@ describe("GuardianChat turn lock lifecycle", () => {
     fireEvent.click(screen.getByTestId(action === "stop" ? "chat-cancel" : "composer-provider-switch"));
     expect(screen.getByTestId("lock-state")).toHaveTextContent("locked");
     expect(inferenceMocks.reset).toHaveBeenCalledTimes(resetsBefore);
-    emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
     await act(async () => { resolveCancel(false); });
     expect(inferenceMocks.state.phase).toBe("cancelled");
