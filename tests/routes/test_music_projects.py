@@ -176,6 +176,16 @@ class _FakeResponse:
 
 
 @pytest.fixture
+def database_url():
+    """A disposable PostgreSQL, migrated to head.
+
+    The registration path only misbehaves against a real database, so the
+    proofs that guard it need one.
+    """
+    yield from _disposable_database()
+
+
+@pytest.fixture
 def music_client():
     """A client for the music router on its own.
 
@@ -335,8 +345,76 @@ def test_a_compose_without_a_project_is_refused(music_client):
     assert response.status_code == 422
 
 
+def _disposable_database():
+    """A real PostgreSQL, migrated to head, for the duration of a test.
+
+    The registration path only misbehaves against a real database: a fake
+    session has no expiry, no commit semantics, and no unique constraint,
+    so it cannot catch a row that never landed or a second write that
+    collided with the first. These tests therefore need the real thing.
+    """
+    import os
+    import uuid
+
+    import psycopg
+    from psycopg import sql
+
+    admin = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not admin:
+        pytest.skip("a disposable PostgreSQL is required for this proof")
+
+    name = "music_assets_" + uuid.uuid4().hex
+    with psycopg.connect(admin, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    info = psycopg.conninfo.conninfo_to_dict(admin)
+    info["dbname"] = name
+
+    from sqlalchemy.engine import URL
+
+    migration_url = URL.create(
+        "postgresql+psycopg",
+        username=info.get("user"),
+        password=info.get("password"),
+        host=info.get("host"),
+        port=int(info.get("port", 5432)),
+        database=name,
+    ).render_as_string(hide_password=False)
+
+    try:
+        from guardian.core.pgdb import PgDB
+        from tests.services.test_memory_vault_read_projection import _migrate_to_head
+
+        _migrate_to_head(migration_url)
+
+        yield migration_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    finally:
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+
+
+def _write_artifacts(tmp_path, count=3):
+    """Distinct files, as a render would leave them."""
+    artifacts = []
+    for index in range(count):
+        path = tmp_path / f"stem-{index}.wav"
+        path.write_bytes(f"RIFF....WAVEfmt {index}".encode())
+        artifacts.append(
+            {
+                "path": str(path),
+                "media_kind": "audio",
+                "mime_type": "audio/wav",
+                "provenance": "generated",
+                "bytes": path.stat().st_size,
+                "content_hash": None,
+            }
+        )
+    return artifacts
+
+
 def test_a_registration_that_does_not_commit_is_not_a_registration(
-    monkeypatch, tmp_path
+    database_url, tmp_path, monkeypatch
 ):
     """The row has to survive the session closing.
 
@@ -344,56 +422,204 @@ def test_a_registration_that_does_not_commit_is_not_a_registration(
     closing one rolls back anything uncommitted. A registration that
     flushes but never commits reports success and leaves nothing behind
     -- which is the worst shape a bug can have: it looks like it worked.
+
+    Run against a real database, because that is the only place the
+    difference between a flushed row and a committed one exists.
     """
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
     from guardian.routes import music_projects
 
-    calls = []
+    db = GuardianDB(database_url)
+    monkeypatch.setattr(music_projects, "_media_db", lambda: db)
 
-    class _Session:
-        def add(self, _asset):
-            calls.append("add")
-
-        def flush(self):
-            calls.append("flush")
-
-        def commit(self):
-            calls.append("commit")
-
-    class _Db:
-        def get_session(self):
-            return _SessionContext(_Session())
-
-    class _SessionContext:
-        def __init__(self, session):
-            self._session = session
-
-        def __enter__(self):
-            return self._session
-
-        def __exit__(self, *_exc):
-            return False
-
-    monkeypatch.setattr(music_projects, "_media_db", lambda: _Db())
-
-    artifact = tmp_path / "mix.wav"
-    artifact.write_bytes(b"RIFF....WAVEfmt ")
+    project_id = PgDB(database_url).create_project("music assets", "proof")
 
     registered = music_projects.register_artifacts(
-        [
-            {
-                "path": str(artifact),
-                "media_kind": "audio",
-                "mime_type": "audio/wav",
-                "provenance": "generated",
-                "bytes": artifact.stat().st_size,
-            }
-        ],
-        project_id=1,
+        _write_artifacts(tmp_path, 1),
+        project_id=project_id,
         user_id="local",
     )
 
     assert len(registered) == 1
-    assert "commit" in calls, calls
+    assert registered[0]["asset_id"], "the registration reported no asset id"
+
+    with PgDB(database_url)._connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM media_assets WHERE project_id = %s", (project_id,)
+            )
+            rows = cur.fetchall()
+    assert len(rows) == 1, "the row did not survive the session closing"
+    assert str(rows[0]["id"]) == registered[0]["asset_id"]
+
+
+def test_every_produced_file_is_registered_not_just_the_first(
+    database_url, tmp_path, monkeypatch
+):
+    """One registration must not cost the Artist the rest of the session.
+
+    A render produces a set of files -- stems, sequences, a mix, a project.
+    If the first one raises, the ones after it must still be registered:
+    the files exist whether or not a row was written, and losing them is
+    the failure the Artist cannot see.
+    """
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
+    from guardian.routes import music_projects
+
+    db = GuardianDB(database_url)
+    monkeypatch.setattr(music_projects, "_media_db", lambda: db)
+
+    project_id = PgDB(database_url).create_project("music assets", "proof")
+
+    artifacts = _write_artifacts(tmp_path, 3)
+    registered = music_projects.register_artifacts(
+        artifacts,
+        project_id=project_id,
+        user_id="local",
+    )
+
+    assert len(registered) == 3, [r["asset_id"] for r in registered]
+    assert len({r["asset_id"] for r in registered}) == 3
+
+    with PgDB(database_url)._connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM media_assets WHERE project_id = %s", (project_id,)
+            )
+            rows = cur.fetchall()
+    assert len(rows) == 3
+
+
+def test_registering_the_same_file_twice_is_one_row(
+    database_url, tmp_path, monkeypatch
+):
+    """Polling a finished job twice must not fail the second time.
+
+    The job endpoint is polled, and every poll of a finished job asks for
+    the files again. The second registration meets the first one's row,
+    and the identity it owns is the same fact -- so it reuses that row
+    rather than colliding with it and taking the rest of the session
+    down with it.
+    """
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
+    from guardian.routes import music_projects
+
+    db = GuardianDB(database_url)
+    monkeypatch.setattr(music_projects, "_media_db", lambda: db)
+
+    project_id = PgDB(database_url).create_project("music assets", "proof")
+    artifacts = _write_artifacts(tmp_path, 2)
+
+    first = music_projects.register_artifacts(
+        artifacts, project_id=project_id, user_id="local"
+    )
+    second = music_projects.register_artifacts(
+        artifacts, project_id=project_id, user_id="local"
+    )
+
+    assert len(first) == 2
+    assert len(second) == 2, "the second registration lost the files"
+    assert [r["asset_id"] for r in first] == [r["asset_id"] for r in second]
+
+    with PgDB(database_url)._connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM media_assets WHERE project_id = %s", (project_id,)
+            )
+            rows = cur.fetchall()
+    assert len(rows) == 2, "the second registration wrote a duplicate row"
+
+
+def test_the_host_hashes_the_bytes_rather_than_trusting_the_producer(
+    database_url, tmp_path, monkeypatch
+):
+    """Identity is the host's, so the hash is the host's.
+
+    The Producer reports a hash for each file it produced. If the host
+    takes that claim as the identity, a wrong hash becomes the row's
+    identity -- and two registrations of the same bytes become two rows.
+    The host already holds the bytes, so it hashes them itself.
+    """
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
+    from guardian.routes import music_projects
+
+    db = GuardianDB(database_url)
+    monkeypatch.setattr(music_projects, "_media_db", lambda: db)
+
+    project_id = PgDB(database_url).create_project("music assets", "proof")
+
+    artifacts = _write_artifacts(tmp_path, 1)
+    artifacts[0]["content_hash"] = "0" * 64
+
+    registered = music_projects.register_artifacts(
+        artifacts, project_id=project_id, user_id="local",
+    )
+
+    assert len(registered) == 1
+    assert registered[0]["content_hash"] != "0" * 64, (
+        "the host took the producer's hash as the identity"
+    )
+
+    import hashlib
+
+    expected = hashlib.sha256((tmp_path / "stem-0.wav").read_bytes()).hexdigest()
+    assert registered[0]["content_hash"] == expected
+
+
+def test_artifacts_are_registered_against_a_project_with_no_thread(
+    database_url, tmp_path, monkeypatch
+):
+    """Custody belongs to the Project; the Thread is only provenance.
+
+    ADR-108 requires this assertion to be proven against a real
+    database: the files are registered even when the originating thread
+    cannot be resolved, because the Project is the durable home and the
+    Thread is the attribution. A missing thread must not cost the
+    Artist their files -- and the row must not claim a thread that does
+    not exist.
+
+    This goes through the real resolution path rather than around it:
+    the thread id below is not in the database, and the registration has
+    to notice that and carry on without it.
+    """
+    from types import SimpleNamespace
+
+    from guardian.core.db import GuardianDB
+    from guardian.core.pgdb import PgDB
+    from guardian.routes import music_projects
+
+    db = GuardianDB(database_url)
+    monkeypatch.setattr(music_projects, "_media_db", lambda: db)
+
+    project_id = PgDB(database_url).create_project("music custody", "proof")
+    missing_thread_id = 987654
+
+    artifacts = _write_artifacts(tmp_path, 2)
+    music_projects._register_artifacts_from(
+        {"artifacts": artifacts},
+        {"project_id": str(project_id), "thread_id": str(missing_thread_id)},
+        SimpleNamespace(user_id="local"),
+    )
+
+    with PgDB(database_url)._connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, project_id, thread_id FROM media_assets "
+                "WHERE project_id = %s",
+                (project_id,),
+            )
+            rows = cur.fetchall()
+
+    assert len(rows) == 2, "the files were lost over a missing thread"
+    for row in rows:
+        assert row["project_id"] == project_id
+        assert row["thread_id"] is None, (
+            "the row claims a thread that does not exist"
+        )
 
 
 def test_a_finished_job_registers_its_files(monkeypatch, music_client):
