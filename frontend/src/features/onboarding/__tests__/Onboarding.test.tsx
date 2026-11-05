@@ -39,10 +39,18 @@ function mount(ready = true, mobile = false) {
 }
 const dialog = () => screen.getByRole("dialog", { name: "Codexify onboarding" });
 async function next() {
+  // The provider applies the next step only *after* the awaited save resolves
+  // (`await save(...)` then `setStep(next)`), so waiting for "patch was called"
+  // is not enough to know the step has changed: after the first advance that
+  // condition is already satisfied by the earlier call and the wait resolves
+  // immediately. Wait for *this* advance's patch call instead.
+  const patchCallsBefore = mocks.patch.mock.calls.length;
   fireEvent.click(
     within(dialog()).getByRole("button", { name: /^(Continue|Skip username|Finish)$/ })
   );
-  await waitFor(() => expect(mocks.patch).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(mocks.patch.mock.calls.length).toBeGreaterThan(patchCallsBefore)
+  );
 }
 afterEach(cleanup);
 beforeEach(() => {
@@ -149,7 +157,10 @@ describe("account introduction", () => {
     await next();
     await next();
     expect(screen.queryByLabelText("Username")).toBeNull();
-    expect(screen.getByText(/People messaging is not enabled/)).toBeVisible();
+    // The unavailable-messaging notice is rendered by the username step, which
+    // only mounts once the previous step's save has resolved. Await the notice
+    // itself instead of assuming the step is already on screen.
+    expect(await screen.findByText(/People messaging is not enabled/)).toBeVisible();
   });
   it("opens passive Tips later and hides unavailable capability entries", async () => {
     durable.status = "completed";

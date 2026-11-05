@@ -487,6 +487,16 @@ vi.mock("@/imprint/api", () => ({
 }));
 
 function emitLiveEvent(type: string, data: Record<string, unknown>) {
+  // Flush pending React work before the event is delivered. The live-event
+  // subscription is re-registered from a passive effect whenever the inference
+  // state changes, and React schedules passive effects asynchronously. An event
+  // delivered before that effect has run reaches a handler that still holds the
+  // previous inference state; that handler treats the event as belonging to a
+  // different turn and drops it, so the inference phase stays "queued" and the
+  // terminal-state assertion times out. Flushing first makes the delivery
+  // deterministic, and the handler set is re-read afterwards because the
+  // re-subscription replaces it.
+  act(() => {});
   const listeners = liveEventsMock.handlers.get(type);
   if (!listeners) return;
   act(() => {
@@ -1065,7 +1075,12 @@ describe("GuardianChat turn lock lifecycle", () => {
     await waitFor(() => expect(screen.getByTestId("inference-task-id")).toHaveTextContent("task-1"));
     emitLiveEvent("task.failed", { thread_id: 1, task_id: "task-1", failure_code: "CHAT_ACCEPTED_TASK_ORPHANED" });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
-    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable");
+    // The inference projection is committed by the same terminal event as the
+    // turn release, but it is a separate state update: await it rather than
+    // assuming it landed with the lock release.
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable")
+    );
     expect(completeCalls()).toHaveLength(1);
     expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
   });
@@ -1112,7 +1127,9 @@ describe("GuardianChat turn lock lifecycle", () => {
       completed_at: "2026-04-05T00:00:01.000Z",
     });
     await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
-    expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable");
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-message-region")).toHaveAttribute("data-inference-state", "failed_retryable")
+    );
     expect(taskSources.instances[0].close).toHaveBeenCalledOnce();
     expect(view.onSendMessage).toHaveBeenCalledOnce();
     await allowRetryTimer();

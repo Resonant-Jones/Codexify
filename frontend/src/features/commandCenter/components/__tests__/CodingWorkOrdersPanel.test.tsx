@@ -178,6 +178,11 @@ describe("CodingWorkOrdersPanel", () => {
     const recommendations = await screen.findByTestId(
       "coding-orchestrator-recommendations"
     );
+    // The recommendations container is mounted from the first render, while the
+    // orchestrator response that fills it is still in flight. Await the
+    // recommendation itself so the assertion cannot run against an empty
+    // container.
+    await within(recommendations).findByText(/Recommendation one/);
     expect(within(recommendations).getByText(/Recommendation one/)).toBeInTheDocument();
     expect(
       within(recommendations).getByText("READY_FOR_DISPATCH")
