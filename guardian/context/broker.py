@@ -229,6 +229,15 @@ def _coerce_int(value: Any) -> Optional[int]:
     return num if num > 0 else None
 
 
+def _coerce_chunk_index(value: Any) -> Optional[int]:
+    """Coerce a chunk index, keeping chunk zero addressable."""
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        return None
+    return num if num >= 0 else None
+
+
 def _is_verified_active_personal_fact(fact: Any) -> bool:
     if not isinstance(fact, dict):
         return False
@@ -296,19 +305,35 @@ def _serialize_rag_trace_document(item: Any) -> dict[str, Any]:
                 score = float(raw_score)
         except (TypeError, ValueError):
             score = 0.0
+    # Semantic hits carry `text` and `metadata.filename`; document-lane records
+    # carry `excerpt` and `title`. Read both shapes so the operator surface
+    # names the document that actually contributed.
+    title = "unknown"
+    snippet_source = ""
+    if isinstance(item, dict):
+        title = str(
+            item.get("title")
+            or metadata.get("filename")
+            or metadata.get("title")
+            or "unknown"
+        )
+        snippet_source = str(item.get("text") or item.get("excerpt") or "")
     return {
         "id": str(item.get("id", "")) if isinstance(item, dict) else "",
-        "title": str(
-            metadata.get("filename", "unknown")
-            if isinstance(item, dict)
-            else "unknown"
-        ),
+        "title": title,
         "score": score,
-        "snippet": (
-            str(item.get("text", ""))[:100] + "..."
-            if isinstance(item, dict)
-            else "..."
-        ),
+        "snippet": (snippet_source[:100] + "...") if snippet_source else "...",
+        "document_id": str(
+            item.get("document_id") or metadata.get("doc_id") or ""
+        ).strip()
+        or None,
+        "chunk_index": _coerce_chunk_index(
+            item.get("chunk_index")
+            if item.get("chunk_index") is not None
+            else metadata.get("chunk_index")
+        )
+        if isinstance(item, dict)
+        else None,
         "source_type": str(
             item.get("source_type") or metadata.get("source_type") or ""
         ).strip()
@@ -334,6 +359,222 @@ def _serialize_rag_trace_document(item: Any) -> dict[str, Any]:
         "retrieval_policy": dict(item.get("retrieval_policy") or {})
         if isinstance(item, dict)
         else {},
+    }
+
+
+# Operator-facing retrieval diagnostics carried on the broker's rag_trace.
+#
+# These labels are module-local on purpose: ADR-016 keeps the canonical
+# protocol-token registry documentation-only, so a runtime label introduced
+# here must not be registered there.
+RAG_TRACE_EVIDENCE_KEY = "rag_trace_evidence"
+RAG_TRACE_EVIDENCE_SCOPE = "context_broker_retrieval_diagnostics"
+RAG_TRACE_EVIDENCE_CAPABLE = True
+
+
+def _build_rag_trace_source_hit_counts(context: Dict[str, Any]) -> Dict[str, int]:
+    """Count the retrieval hits the assembled context holds, per lane.
+
+    The counts are the lane-level truth behind the operator surface. They are
+    derived from the assembled context, so a hit that never reached the
+    context is never counted as retrieved.
+    """
+    semantic_hits = context.get("semantic", [])
+    obsidian_hits = [
+        item for item in (context.get("obsidian") or []) if isinstance(item, dict)
+    ]
+    semantic_ids = {
+        str(item.get("id") or "")
+        for item in semantic_hits
+        if isinstance(item, dict)
+    }
+    # The Obsidian-only assembly path keeps its hits outside `semantic`; the
+    # main path folds them into `semantic`. Count them once either way.
+    obsidian_only_hits = [
+        item
+        for item in obsidian_hits
+        if str(item.get("id") or "") not in semantic_ids
+    ]
+    return {
+        "semantic_total": len(semantic_hits),
+        "thread_semantic": len(
+            [
+                item
+                for item in semantic_hits
+                if isinstance(item, dict)
+                and str(item.get("namespace") or "").startswith("thread:")
+            ]
+        ),
+        "obsidian_semantic": len(
+            [
+                item
+                for item in semantic_hits
+                if isinstance(item, dict)
+                and _extract_result_namespace(item) == OBSIDIAN_NAMESPACE
+            ]
+        )
+        + len(obsidian_only_hits),
+        "other_semantic": 0,
+        "project_documents": len(
+            [
+                item
+                for item in context.get("docs", {}).get("project", [])
+                if isinstance(item, dict)
+            ]
+        ),
+        "thread_documents": len(
+            [
+                item
+                for item in context.get("docs", {}).get("thread", [])
+                if isinstance(item, dict)
+            ]
+        ),
+        "global_documents": len(
+            [
+                item
+                for item in context.get("docs", {}).get("global", [])
+                if isinstance(item, dict)
+            ]
+        ),
+        "other_documents": 0,
+        "memory": len(
+            [
+                item
+                for item in context.get("memory", [])
+                if isinstance(item, dict)
+            ]
+        ),
+        "graph": len(
+            [
+                item
+                for item in context.get("graph", [])
+                if isinstance(item, dict)
+            ]
+        ),
+    }
+
+
+def _build_rag_trace_documents(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Serialize every retained retrieval hit for the operator-facing trace.
+
+    Semantic hits, Obsidian hits, and the project/thread/global document
+    buckets all contribute to the trace, so a retrieval that landed a document
+    through a document lane is visible on the surface instead of looking like
+    an empty retrieval.
+    """
+    documents: List[Dict[str, Any]] = []
+    seen: set[Tuple[str, str]] = set()
+    semantic_hits = context.get("semantic") or []
+    semantic_ids = {
+        str(item.get("id") or "")
+        for item in semantic_hits
+        if isinstance(item, dict)
+    }
+    obsidian_hits = [
+        item
+        for item in (context.get("obsidian") or [])
+        if isinstance(item, dict)
+        and str(item.get("id") or "") not in semantic_ids
+    ]
+    lane_items: List[Tuple[str, List[Any]]] = [
+        ("semantic", list(semantic_hits)),
+        ("obsidian", obsidian_hits),
+    ]
+    docs_value = context.get("docs")
+    if isinstance(docs_value, dict):
+        lane_items.extend(
+            [
+                ("project_documents", list(docs_value.get("project") or [])),
+                ("thread_documents", list(docs_value.get("thread") or [])),
+                ("global_documents", list(docs_value.get("global") or [])),
+            ]
+        )
+    for lane, items in lane_items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "")
+            key = (lane, item_id)
+            if item_id and key in seen:
+                continue
+            seen.add(key)
+            documents.append(_serialize_rag_trace_document(item))
+    return documents
+
+
+def _build_rag_trace_retrieval_truth(
+    *,
+    context: Dict[str, Any],
+    requested_source_mode: str,
+    normalized_source_mode: str,
+    retrieval_executed: bool,
+) -> Tuple[Dict[str, Any], bool, Optional[str]]:
+    """Derive the retrieval truth every operator surface reports.
+
+    The same derivation is used on every assembly path, so the surface cannot
+    report the same empty shape for both a successful and a failed retrieval.
+    """
+    source_hit_counts = _build_rag_trace_source_hit_counts(context)
+    retrieval_absence_reason: Optional[str] = None
+    if not retrieval_executed:
+        retrieval_absence_reason = (
+            TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value
+        )
+    elif not any(source_hit_counts.values()):
+        retrieval_absence_reason = (
+            TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
+        )
+    retrieval_provenance = {
+        "requested_source_mode": requested_source_mode,
+        "normalized_source_mode": normalized_source_mode,
+        "source_hit_counts": source_hit_counts,
+        "retrieval_status": context.get("retrieval_status")
+        or (
+            "obsidian_only_success"
+            if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY
+            and context.get("obsidian")
+            else "no_candidates"
+        ),
+    }
+    return retrieval_provenance, retrieval_executed, retrieval_absence_reason
+
+
+def _build_rag_trace_evidence(
+    *,
+    documents: List[Dict[str, Any]],
+    retrieval_executed: bool,
+    retrieval_absence_reason: Optional[str],
+    source_hit_counts: Dict[str, int],
+) -> Dict[str, Any]:
+    """Describe what this trace observed, for operator-facing surfaces.
+
+    ``evidence_capable`` states that the trace carries retrieval truth at all;
+    ``retrieval_observed`` plus ``absence_reason`` state what that truth is.
+    An operator can therefore tell "retrieval produced nothing" apart from
+    "this surface is not evidence".
+    """
+    observed_lanes = [
+        lane
+        for lane, count in (
+            ("semantic", source_hit_counts.get("semantic_total", 0)),
+            ("obsidian", source_hit_counts.get("obsidian_semantic", 0)),
+            ("project_documents", source_hit_counts.get("project_documents", 0)),
+            ("thread_documents", source_hit_counts.get("thread_documents", 0)),
+            ("global_documents", source_hit_counts.get("global_documents", 0)),
+            ("memory", source_hit_counts.get("memory", 0)),
+            ("graph", source_hit_counts.get("graph", 0)),
+        )
+        if int(count or 0) > 0
+    ]
+    return {
+        "evidence_capable": RAG_TRACE_EVIDENCE_CAPABLE,
+        "scope": RAG_TRACE_EVIDENCE_SCOPE,
+        "surface": "rag_trace",
+        "retrieval_observed": bool(observed_lanes),
+        "retrieval_executed": bool(retrieval_executed),
+        "absence_reason": retrieval_absence_reason,
+        "observed_lanes": observed_lanes,
+        "document_count": len(documents),
     }
 
 
@@ -1034,8 +1275,12 @@ class ContextBroker:
                 - "federated": Federated search results (if federated=True)
 
             rag_trace: Dict summarizing contributing items:
-                - "documents": List of {id, title, score, snippet}
+                - "documents": List of the contributing retrieval hits, each
+                  serialized as {id, title, score, snippet, document_id,
+                  chunk_index, retrieval_lane, policy_reason}
                 - "graph": List of {node_id, kind, text}
+                - "rag_trace_evidence": Evidence marker for this surface
+                  (evidence_capable, retrieval_observed, absence_reason)
         """
         # Normalize depth. `depth` is a legacy alias kept for compatibility.
         widened = False
@@ -1169,18 +1414,42 @@ class ContextBroker:
                     ),
                 }
             )
+            # Apply codex entry retrieval exclusion before the trace is built
+            # so the operator surface reports exactly what reached the model.
+            context["obsidian"] = self._filter_codex_entries(
+                context.get("obsidian", [])
+            )
+            (
+                retrieval_provenance,
+                retrieval_executed,
+                retrieval_absence_reason,
+            ) = _build_rag_trace_retrieval_truth(
+                context=context,
+                requested_source_mode=requested_source_mode,
+                normalized_source_mode=normalized_source_mode,
+                retrieval_executed=True,
+            )
+            rag_trace_documents = _build_rag_trace_documents(context)
             rag_trace = {
                 "thread_id": thread_id,
                 "project_id": resolved_project_id,
                 "depth_mode": normalized_depth,
-                "documents": [
-                    _serialize_rag_trace_document(item)
-                    for item in obsidian_docs
-                ],
+                "documents": rag_trace_documents,
                 "graph": [],
                 "source_mode": normalized_source_mode,
                 "effective_policy": effective_policy,
                 "retrieval_policy": dict(effective_context_policy),
+                "retrieval_provenance": retrieval_provenance,
+                "retrieval_executed": retrieval_executed,
+                "retrieval_absence_reason": retrieval_absence_reason,
+                RAG_TRACE_EVIDENCE_KEY: _build_rag_trace_evidence(
+                    documents=rag_trace_documents,
+                    retrieval_executed=retrieval_executed,
+                    retrieval_absence_reason=retrieval_absence_reason,
+                    source_hit_counts=dict(
+                        retrieval_provenance.get("source_hit_counts") or {}
+                    ),
+                ),
                 "retrieval_suppression": context.get("retrieval_suppression"),
                 "widen_reason": WIDEN_REASON_NONE,
                 "graph_context": {
@@ -1222,7 +1491,7 @@ class ContextBroker:
                     "boundary": source_mode_boundary,
                 },
                 "retrieval_status": context["retrieval_status"],
-                "obsidian_count": len(obsidian_docs),
+                "obsidian_count": len(context.get("obsidian") or []),
             }
             memory_preselection_trace = _build_memory_preselection_trace(
                 enabled=enable_memory_preselection_trace,
@@ -1252,9 +1521,6 @@ class ContextBroker:
                 "skipped",
                 0,
                 "skipped",
-            )
-            context["obsidian"] = self._filter_codex_entries(
-                context.get("obsidian", [])
             )
             return context, rag_trace
         if normalized_depth != "shallow" and self.always_search_thread_first:
@@ -1685,85 +1951,35 @@ class ContextBroker:
         if not widened and widen_reason != WIDEN_REASON_NONE:
             raise AssertionError("invalid_widen_reason_without_widening")
 
-        source_hit_counts = {
-            "semantic_total": len(context.get("semantic", [])),
-            "thread_semantic": len(
-                [
-                    item
-                    for item in context.get("semantic", [])
-                    if isinstance(item, dict)
-                    and str(item.get("namespace") or "").startswith("thread:")
-                ]
-            ),
-            "obsidian_semantic": len(
-                [
-                    item
-                    for item in context.get("semantic", [])
-                    if isinstance(item, dict)
-                    and _extract_result_namespace(item) == OBSIDIAN_NAMESPACE
-                ]
-            ),
-            "other_semantic": 0,
-            "project_documents": len(
-                [
-                    item
-                    for item in context.get("docs", {}).get("project", [])
-                    if isinstance(item, dict)
-                ]
-            ),
-            "thread_documents": len(
-                [
-                    item
-                    for item in context.get("docs", {}).get("thread", [])
-                    if isinstance(item, dict)
-                ]
-            ),
-            "global_documents": len(
-                [
-                    item
-                    for item in context.get("docs", {}).get("global", [])
-                    if isinstance(item, dict)
-                ]
-            ),
-            "other_documents": 0,
-            "memory": len(
-                [
-                    item
-                    for item in context.get("memory", [])
-                    if isinstance(item, dict)
-                ]
-            ),
-            "graph": len(
-                [
-                    item
-                    for item in context.get("graph", [])
-                    if isinstance(item, dict)
-                ]
-            ),
-        }
-        retrieval_executed = normalized_depth != "shallow"
-        retrieval_absence_reason = None
-        if not retrieval_executed:
-            retrieval_absence_reason = (
-                TraceSnapshotAbsenceReason.RETRIEVAL_NOT_EXECUTED.value
+        # Apply codex entry retrieval exclusion before the operator trace is
+        # built, so the surface reports exactly what reached the model and
+        # never claims a withheld hit as a retrieved one.
+        context["semantic"] = self._filter_codex_entries(
+            context.get("semantic", [])
+        )
+        context["obsidian"] = self._filter_codex_entries(
+            context.get("obsidian", [])
+        )
+        if isinstance(context.get("docs"), dict):
+            context["docs"] = self._filter_codex_from_doc_buckets(
+                context["docs"]
             )
-        elif not any(source_hit_counts.values()):
-            retrieval_absence_reason = (
-                TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
+        if "memory" in context:
+            context["memory"] = self._filter_codex_entries(
+                context.get("memory", [])
             )
 
-        retrieval_provenance = {
-            "requested_source_mode": requested_source_mode,
-            "normalized_source_mode": normalized_source_mode,
-            "source_hit_counts": source_hit_counts,
-            "retrieval_status": context.get("retrieval_status")
-            or (
-                "obsidian_only_success"
-                if normalized_source_mode == SOURCE_MODE_OBSIDIAN_ONLY
-                and context.get("obsidian")
-                else "no_candidates"
-            ),
-        }
+        (
+            retrieval_provenance,
+            retrieval_executed,
+            retrieval_absence_reason,
+        ) = _build_rag_trace_retrieval_truth(
+            context=context,
+            requested_source_mode=requested_source_mode,
+            normalized_source_mode=normalized_source_mode,
+            retrieval_executed=normalized_depth != "shallow",
+        )
+        rag_trace_documents = _build_rag_trace_documents(context)
 
         # Keep source-boundary diagnostics stable while source_mode still
         # crosses the worker boundary through the temporary origin bridge.
@@ -1771,10 +1987,7 @@ class ContextBroker:
             "thread_id": thread_id,
             "project_id": resolved_project_id,
             "depth_mode": normalized_depth,
-            "documents": [
-                _serialize_rag_trace_document(item)
-                for item in context.get("semantic", [])
-            ],
+            "documents": rag_trace_documents,
             "graph": [
                 {
                     "node_id": str(item.get("message_id", "")),
@@ -1793,6 +2006,14 @@ class ContextBroker:
             },
             "retrieval_executed": retrieval_executed,
             "retrieval_absence_reason": retrieval_absence_reason,
+            RAG_TRACE_EVIDENCE_KEY: _build_rag_trace_evidence(
+                documents=rag_trace_documents,
+                retrieval_executed=retrieval_executed,
+                retrieval_absence_reason=retrieval_absence_reason,
+                source_hit_counts=dict(
+                    retrieval_provenance.get("source_hit_counts") or {}
+                ),
+            ),
             "image_routing_path": None,
             "image_routing_absence_reason": (
                 TraceSnapshotAbsenceReason.IMAGE_ROUTING_NOT_EVALUATED.value
@@ -1825,22 +2046,6 @@ class ContextBroker:
             raise
         except Exception:
             pass
-
-        # Apply codex entry retrieval exclusion before returning
-        context["semantic"] = self._filter_codex_entries(
-            context.get("semantic", [])
-        )
-        context["obsidian"] = self._filter_codex_entries(
-            context.get("obsidian", [])
-        )
-        if isinstance(context.get("docs"), dict):
-            context["docs"] = self._filter_codex_from_doc_buckets(
-                context["docs"]
-            )
-        if "memory" in context:
-            context["memory"] = self._filter_codex_entries(
-                context.get("memory", [])
-            )
 
         return context, rag_trace
 

@@ -24,7 +24,7 @@
     },
     "supported-compose": {
       "blockers": [
-        "The tested commit no longer describes the current tip: 12 path(s) in this qualification surface changed since the run.",
+        "The tested commit no longer describes the current tip: 17 path(s) in this qualification surface changed since the run.",
         "1 earlier run receipt(s) for this surface were superseded by a later run."
       ],
       "evidence": [
@@ -43,6 +43,25 @@
       "status": "PASS",
       "tested_commit": "69ef035a4320724b9a53279d2fabd6bac0c6e98f",
       "title": "Supported Compose Runtime"
+    },
+    "supported-compose-stock": {
+      "blockers": [
+        "No qualification run receipt exists for this surface; the registry cannot project a qualification status without one."
+      ],
+      "evidence": [],
+      "freshness": "stale",
+      "last_qualified_at": null,
+      "latest_run": null,
+      "metrics": {
+        "human_testers": 0,
+        "independent_completions": 0,
+        "run_receipts": 0
+      },
+      "rubric": "rubrics/supported-compose-stock.md",
+      "scope": "The supported local-first Beta profile v1-local-core-web-mcp, exercised end to end on one frozen revision through stock Docker Compose startup, without the source-matched launcher",
+      "status": "HOLD",
+      "tested_commit": null,
+      "title": "Stock Compose Runtime"
     }
   },
   "registry_version": 1,
