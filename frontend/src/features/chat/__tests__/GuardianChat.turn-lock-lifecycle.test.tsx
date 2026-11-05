@@ -502,6 +502,11 @@ async function emitLiveEvent(type: string, data: Record<string, unknown>) {
       handler({ type, data });
     }
   });
+  // The handler's own continuation is asynchronous (it may await before it
+  // settles the inference state or invalidates a scheduled retry). Drain it
+  // too, so the test never advances a timer while the delivered effect is
+  // still in flight.
+  await act(async () => {});
 }
 
 function renderChat(overrides: {
@@ -560,6 +565,13 @@ describe("GuardianChat turn lock lifecycle", () => {
     inferenceMocks.realHook = false;
     chatMocks.resetState();
     inferenceMocks.reset();
+    // `clearAllMocks` clears call history but keeps implementations and any
+    // queued one-shot values. A test whose requestCancel is never called (for
+    // example because the click it drives is rejected) would leave its queued
+    // value behind, and the next test would silently consume it. Reset the
+    // mock so no test inherits another's one-shot behaviour, then restore the
+    // default.
+    inferenceMocks.requestCancel.mockReset();
     inferenceMocks.requestCancel.mockResolvedValue(true);
     apiMock.get.mockResolvedValue({ data: {} });
     apiMock.post.mockImplementation(async (url: string) => {
@@ -573,7 +585,12 @@ describe("GuardianChat turn lock lifecycle", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Let any pending continuation from this test settle before the next test
+    // starts. A continuation that resumes after the test has ended can call
+    // the shared mocks (a scheduled retry, a late completion) and pollute the
+    // next test's call counts, which makes the outcome depend on test order.
+    await act(async () => {});
     cleanup();
     expect(liveEventsMock.handlers.size).toBe(0);
     liveEventsMock.handlers.clear();
@@ -1155,7 +1172,9 @@ describe("GuardianChat turn lock lifecycle", () => {
     expect(chatMocks.endCompletion).toHaveBeenCalledTimes(endsBefore);
     expect(inferenceMocks.state.taskId).toBe("task-1");
     expect(inferenceMocks.state.phase).toBe("streaming");
-    if (action === "provider") expect(onSessionProviderChange).toHaveBeenCalledWith("remote");
+    if (action === "provider") {
+      await waitFor(() => expect(onSessionProviderChange).toHaveBeenCalledWith("remote"));
+    }
     fireEvent.click(screen.getByTestId("composer-send"));
     expect(chatMocks.startCompletion).toHaveBeenCalledOnce();
     await emitLiveEvent(terminal, { thread_id: 1, task_id: "task-1", error: "Actual task failure" });
