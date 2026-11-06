@@ -708,10 +708,32 @@ def register_artifacts(
     a file *is*; the host owns the rules for naming and storing it, and
     duplicating those rules would let them drift.
 
+    Three things this has to get right, because each of them fails
+    silently:
+
+    - **The row survives.** The session is a plain SQLAlchemy Session:
+      closing it rolls back anything uncommitted, so the row has to be
+      committed here or it never existed.
+    - **The identity is stable.** The host reads the bytes, so it hashes
+      them itself. Trusting the Producer's hash would let a wrong hash
+      become the row's identity, and two registrations of the same file
+      would then become two rows.
+    - **Registration is idempotent.** A job can be polled more than
+      once. The second poll must reuse the row the first one wrote, not
+      collide with it.
+
+    One artifact that cannot be registered does not cost the Artist the
+    others, so each is registered on its own.
+
     Returns one row per registered artifact, with the asset id.
     """
     from guardian.db.models import MediaAsset
-    from guardian.services.media_identity import compute_identity, utcnow
+    from guardian.services.media_identity import (
+        compute_content_hash,
+        compute_identity,
+        find_existing_asset,
+        utcnow,
+    )
 
     if not artifacts:
         return []
@@ -728,63 +750,117 @@ def register_artifacts(
         media_kind = str(artifact.get("media_kind") or "other")
         if media_kind not in {"document", "image", "audio", "video", "other"}:
             media_kind = "other"
+        provenance = str(artifact.get("provenance") or "generated")
 
         file_data = path.read_bytes()
+        # The host owns the identity, so the host hashes the bytes it just
+        # read. The Producer's hash is a claim about them; if it disagrees
+        # with the bytes in front of us, the bytes win.
+        content_hash = compute_content_hash(file_data)
+        reported_hash = artifact.get("content_hash")
+        if reported_hash and reported_hash != content_hash:
+            logger.warning(
+                "[music_projects] %s reported hash %s but hashes to %s; "
+                "the host's own hash is the identity",
+                path.name,
+                str(reported_hash)[:12],
+                content_hash[:12],
+            )
+
         identity = compute_identity(
             file_data=file_data,
             media_kind=media_kind,
-            provenance=str(artifact.get("provenance") or "generated"),
+            provenance=provenance,
             human_label=path.stem,
             original_filename=path.name,
             mime_type=artifact.get("mime_type"),
             first_seen_at=utcnow(),
-            content_hash=artifact.get("content_hash"),
+            content_hash=content_hash,
         )
 
-        asset = MediaAsset(
-            id=str(uuid.uuid4()),
-            project_id=project_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            media_kind=media_kind,
-            provenance=str(artifact.get("provenance") or "generated"),
-            source_tag="agentdaw",
-            content_hash=identity.content_hash,
-            deterministic_id=identity.deterministic_id,
-            normalized_slug=identity.normalized_slug,
-            system_name=identity.system_name,
-            storage_prefix=identity.storage_prefix,
-            src_url=path.as_uri(),
-            mime_type=artifact.get("mime_type"),
-            filesize=artifact.get("bytes"),
-            # The column is NOT NULL with a flush-time default. Writing it
-            # explicitly means the row is complete the moment it is
-            # constructed, rather than depending on when the session
-            # happens to flush it.
-            import_lineage=[],
-        )
+        try:
+            with db.get_session() as session:
+                existing = find_existing_asset(
+                    session,
+                    project_id=project_id,
+                    media_kind=media_kind,
+                    provenance=provenance,
+                    content_hash=content_hash,
+                )
+                if existing is not None:
+                    # The same bytes are already this project's asset of
+                    # this kind. The identity is the same fact, so this is
+                    # the same row -- not a second one.
+                    registered.append(
+                        {
+                            "asset_id": existing.id,
+                            "role": artifact.get("role"),
+                            "media_kind": media_kind,
+                            "mime_type": artifact.get("mime_type"),
+                            "bytes": artifact.get("bytes"),
+                            "content_hash": content_hash,
+                            "deterministic_id": existing.deterministic_id,
+                            "system_name": existing.system_name,
+                            "storage_prefix": existing.storage_prefix,
+                        }
+                    )
+                    continue
 
-        with db.get_session() as session:
-            session.add(asset)
-            session.flush()
-            # The session is a plain SQLAlchemy Session: closing it rolls
-            # back anything uncommitted, so the row has to be committed
-            # here or it never existed. The flush alone would let this
-            # function report a registration that did not happen.
-            session.commit()
+                asset = MediaAsset(
+                    id=str(uuid.uuid4()),
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    media_kind=media_kind,
+                    provenance=provenance,
+                    source_tag="agentdaw",
+                    content_hash=content_hash,
+                    deterministic_id=identity.deterministic_id,
+                    normalized_slug=identity.normalized_slug,
+                    system_name=identity.system_name,
+                    storage_prefix=identity.storage_prefix,
+                    src_url=path.as_uri(),
+                    mime_type=artifact.get("mime_type"),
+                    filesize=artifact.get("bytes"),
+                    # The column is NOT NULL with a flush-time default. Writing it
+                    # explicitly means the row is complete the moment it is
+                    # constructed, rather than depending on when the session
+                    # happens to flush it.
+                    import_lineage=[],
+                )
 
-        registered.append(
-            {
-                "asset_id": asset.id,
-                "role": artifact.get("role"),
-                "media_kind": media_kind,
-                "mime_type": artifact.get("mime_type"),
-                "bytes": artifact.get("bytes"),
-                "content_hash": identity.content_hash,
-                "deterministic_id": identity.deterministic_id,
-                "system_name": identity.system_name,
-                "storage_prefix": identity.storage_prefix,
-            }
-        )
+                session.add(asset)
+                session.flush()
+                # Read the id while the session still holds the instance.
+                # Committing expires the instance's attributes, and a
+                # closed session cannot refresh them -- so reading it
+                # afterwards raises instead of returning the id.
+                asset_id = asset.id
+                # The flush alone would let this function report a
+                # registration that did not happen.
+                session.commit()
+
+                registered.append(
+                    {
+                        "asset_id": asset_id,
+                        "role": artifact.get("role"),
+                        "media_kind": media_kind,
+                        "mime_type": artifact.get("mime_type"),
+                        "bytes": artifact.get("bytes"),
+                        "content_hash": content_hash,
+                        "deterministic_id": identity.deterministic_id,
+                        "system_name": identity.system_name,
+                        "storage_prefix": identity.storage_prefix,
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            # The Artist's music exists whether or not a row was written,
+            # and one file that will not register does not cost the
+            # Artist the rest of the session.
+            logger.warning(
+                "[music_projects] could not register %s: %s",
+                path.name,
+                exc,
+            )
 
     return registered

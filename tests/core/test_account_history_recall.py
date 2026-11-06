@@ -55,6 +55,7 @@ from guardian.core.account_history_recall import (
 from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import (
     Base,
+    ChatCompletionAttempt,
     ChatMessage,
     ChatThread,
     MemoryRecord,
@@ -65,6 +66,31 @@ from guardian.db.models import (
 
 ACCOUNT_A = "account-a"
 ACCOUNT_B = "account-b"
+
+#: The stored shape the trusted native creation seam writes. The recall reader
+#: now classifies every candidate message by source origin, so a seeded
+#: message only reaches the model when it carries this evidence.
+NATIVE_ASSERTION = {
+    "message_origin": {
+        "version": 1,
+        "origin_system": "codexify",
+        "asserted_at": "2026-11-01T22:00:00+00:00",
+    }
+}
+
+#: The canonical importer's stored metadata shape.
+IMPORTED_META = {
+    "origin": "chatgpt_import",
+    "canonical_filter_profile": "chatgpt_v1_canonical",
+    "imported_at": "2026-10-31T12:00:00+00:00",
+    "source_thread_id": "export-chat-1",
+    "source_message_id": "export-message-1",
+    "source_created_at": "2025-05-02T10:00:00+00:00",
+    "turn_index": 0,
+    "raw_role": "user",
+    "raw_message": {"id": "export-message-1", "author": {"role": "user"}},
+    "era": "legacy",
+}
 
 
 @pytest.fixture
@@ -78,6 +104,21 @@ def session_factory():
     # autoincrements a single-column INTEGER primary key, so the test dialect
     # keeps the canonical BigInteger on PostgreSQL and uses INTEGER locally.
     original_message_id = ChatMessage.__table__.c.id.type
+    # The assistant origin witness reads ``chat_completion_attempts``. Its
+    # orphan-outcome CHECK constraint is PostgreSQL-only (``jsonb_typeof`` and
+    # ``::timestamptz`` casts), so the test dialect drops just that constraint
+    # and restores it afterwards.
+    original_attempt_outcome = ChatCompletionAttempt.__table__.c.terminal_outcome.type
+    original_attempt_snapshot = (
+        ChatCompletionAttempt.__table__.c.deadline_snapshot.type
+    )
+    dropped_attempt_constraints = [
+        constraint
+        for constraint in list(ChatCompletionAttempt.__table__.constraints)
+        if getattr(constraint, "name", None) == "ck_chat_attempt_orphan_outcome"
+    ]
+    for constraint in dropped_attempt_constraints:
+        ChatCompletionAttempt.__table__.constraints.discard(constraint)
 
     ChatThread.__table__.c.thread_config.type = JSON().with_variant(
         original_thread_config, "postgresql"
@@ -90,6 +131,12 @@ def session_factory():
     )
     ChatMessage.__table__.c.id.type = Integer().with_variant(
         original_message_id, "postgresql"
+    )
+    ChatCompletionAttempt.__table__.c.terminal_outcome.type = JSON().with_variant(
+        original_attempt_outcome, "postgresql"
+    )
+    ChatCompletionAttempt.__table__.c.deadline_snapshot.type = JSON().with_variant(
+        original_attempt_snapshot, "postgresql"
     )
 
     engine = create_engine(
@@ -105,6 +152,7 @@ def session_factory():
             Project.__table__,
             ChatThread.__table__,
             ChatMessage.__table__,
+            ChatCompletionAttempt.__table__,
             MemoryRecord.__table__,
         ],
     )
@@ -117,6 +165,14 @@ def session_factory():
         ChatMessage.__table__.c.extra_meta.type = original_extra_meta
         MemoryRecord.__table__.c.extensions.type = original_memory_extensions
         ChatMessage.__table__.c.id.type = original_message_id
+        ChatCompletionAttempt.__table__.c.terminal_outcome.type = (
+            original_attempt_outcome
+        )
+        ChatCompletionAttempt.__table__.c.deadline_snapshot.type = (
+            original_attempt_snapshot
+        )
+        for constraint in dropped_attempt_constraints:
+            ChatCompletionAttempt.__table__.constraints.add(constraint)
         engine.dispose()
 
 
@@ -138,8 +194,15 @@ def _seed(
     thread_kwargs: dict | None = None,
     messages: list[tuple[str, str, str]] | None = None,
     project_description: str | None = None,
+    message_meta: list[dict] | None = None,
 ):
-    """Create one account, Project, thread, and message set."""
+    """Create one account, Project, thread, and message set.
+
+    ``message_meta`` supplies the stored metadata of each seeded message, in
+    the same order as ``messages``. A seeded message defaults to the trusted
+    native-creation evidence, because the reader now classifies every candidate
+    message by source origin before it can become an excerpt.
+    """
 
     with session_factory() as session:
         for owner in {account_id, project_owner}:
@@ -172,7 +235,9 @@ def _seed(
         session.add(thread)
         session.flush()
         thread_id = thread.id
-        for role, content, occurred_at in messages or []:
+        metas = message_meta or []
+        for index, (role, content, occurred_at) in enumerate(messages or []):
+            stored_meta = metas[index] if index < len(metas) else dict(NATIVE_ASSERTION)
             session.add(
                 ChatMessage(
                     thread_id=thread_id,
@@ -181,6 +246,7 @@ def _seed(
                     content=content,
                     event_at=datetime.fromisoformat(occurred_at),
                     kind="chat",
+                    extra_meta=dict(stored_meta),
                 )
             )
         session.commit()
@@ -388,6 +454,473 @@ def test_recall_scopes_to_the_named_project_only(session_factory):
 
     assert {excerpt.thread_id for excerpt in recall.excerpts} == {1}
     assert all("project two" not in excerpt.excerpt for excerpt in recall.excerpts)
+
+
+# ---------------------------------------------------------------------------
+# Per-message source-origin eligibility
+# ---------------------------------------------------------------------------
+
+
+def test_an_imported_message_inside_a_native_thread_is_not_model_exposed(
+    session_factory,
+):
+    """A canonical import inside a native thread stays human-only."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "exported chatgpt transcript about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[dict(IMPORTED_META)],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.excerpts == ()
+    assert recall.coverage.excluded_imported_messages == 1
+    assert recall.coverage.excluded_unknown_messages == 0
+    assert recall.coverage.excluded_conflicting_messages == 0
+    # The thread itself was eligible; only the message was excluded.
+    assert recall.coverage.eligible_threads == 1
+    assert recall.coverage.excluded_imported_threads == 0
+    assert "exported chatgpt transcript" not in str(recall.to_payload())
+
+
+def test_an_unknown_legacy_message_is_not_model_exposed(session_factory):
+    """A row with no native proof stays ineligible, however likely it is."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "legacy unmarked note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[{}],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.excerpts == ()
+    assert recall.coverage.excluded_unknown_messages == 1
+    assert recall.coverage.excluded_imported_messages == 0
+    assert recall.coverage.excluded_conflicting_messages == 0
+    assert "legacy unmarked note" not in str(recall.to_payload())
+
+
+def test_a_conflicting_message_is_not_model_exposed(session_factory):
+    """A native claim and import evidence together are a conflict."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "contradictory message about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[{**NATIVE_ASSERTION, **IMPORTED_META}],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.excerpts == ()
+    assert recall.coverage.excluded_conflicting_messages == 1
+    assert recall.coverage.excluded_imported_messages == 0
+    assert recall.coverage.excluded_unknown_messages == 0
+    assert "contradictory message" not in str(recall.to_payload())
+
+
+def test_a_native_message_is_exposed_and_only_then_gets_the_source_label(
+    session_factory,
+):
+    """The protected native assertion is the positive evidence that exposes a row."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "native continuity discussion",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert len(recall.excerpts) == 1
+    assert recall.excerpts[0].source_platform == "codexify"
+    assert recall.excerpts[0].origin_system == "codexify"
+    assert recall.coverage.excluded_imported_messages == 0
+    assert recall.coverage.excluded_unknown_messages == 0
+    assert recall.coverage.excluded_conflicting_messages == 0
+
+
+def test_mixed_origin_thread_exposes_only_its_native_members(session_factory):
+    """Every member of a mixed-origin thread is classified on its own evidence."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "native member about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+            (
+                "user",
+                "imported member about continuity",
+                "2025-05-02T10:01:00+00:00",
+            ),
+            (
+                "user",
+                "unknown member about continuity",
+                "2025-05-02T10:02:00+00:00",
+            ),
+            (
+                "user",
+                "conflicting member about continuity",
+                "2025-05-02T10:03:00+00:00",
+            ),
+        ],
+        message_meta=[
+            dict(NATIVE_ASSERTION),
+            dict(IMPORTED_META),
+            {},
+            {**NATIVE_ASSERTION, **IMPORTED_META},
+        ],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert len(recall.excerpts) == 1
+    assert "native member" in recall.excerpts[0].excerpt
+    assert recall.coverage.excluded_imported_messages == 1
+    assert recall.coverage.excluded_unknown_messages == 1
+    assert recall.coverage.excluded_conflicting_messages == 1
+    payload = str(recall.to_payload())
+    assert "imported member" not in payload
+    assert "unknown member" not in payload
+    assert "conflicting member" not in payload
+
+
+def test_the_per_message_exclusion_counts_are_separate_from_thread_counts(
+    session_factory,
+):
+    """Message-level origin exclusions never mix into the thread-level counters."""
+
+    _seed(
+        session_factory,
+        thread_kwargs={"origin_system": "openai"},
+        messages=[
+            (
+                "user",
+                "imported thread member about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[dict(IMPORTED_META)],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.coverage.excluded_imported_threads == 1
+    # The thread was excluded before any message was classified, so no
+    # message-level origin count is reported for it.
+    assert recall.coverage.excluded_imported_messages == 0
+    assert recall.coverage.excluded_unknown_messages == 0
+    assert recall.coverage.excluded_conflicting_messages == 0
+    assert recall.coverage.scanned_messages == 0
+
+
+def test_the_coverage_receipt_stays_content_free(session_factory):
+    """The origin counters carry counts only, never ids or content."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "native member about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+            (
+                "user",
+                "imported member about continuity",
+                "2025-05-02T10:01:00+00:00",
+            ),
+        ],
+        message_meta=[dict(NATIVE_ASSERTION), dict(IMPORTED_META)],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    coverage = recall.coverage.to_payload()
+    assert coverage["excluded_imported_messages"] == 1
+    assert coverage["excluded_unknown_messages"] == 0
+    assert coverage["excluded_conflicting_messages"] == 0
+    serialized = json.dumps(coverage, default=str)
+    assert "imported member" not in serialized
+    assert "export-message-1" not in serialized
+    assert "export-chat-1" not in serialized
+
+
+def test_excluded_messages_keep_their_importer_metadata(session_factory):
+    """Exclusion is a read-time decision; the stored record is untouched."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "imported member about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[dict(IMPORTED_META)],
+    )
+
+    with session_factory() as session:
+        before = [
+            (row.id, row.content, dict(row.extra_meta or {}))
+            for row in session.query(ChatMessage).all()
+        ]
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+        assert recall.excerpts == ()
+        after = [
+            (row.id, row.content, dict(row.extra_meta or {}))
+            for row in session.query(ChatMessage).all()
+        ]
+
+    assert before == after
+    stored = before[0][2]
+    assert stored["origin"] == "chatgpt_import"
+    assert stored["canonical_filter_profile"] == "chatgpt_v1_canonical"
+    assert stored["source_message_id"] == "export-message-1"
+    assert stored["source_thread_id"] == "export-chat-1"
+    assert stored["imported_at"] == "2026-10-31T12:00:00+00:00"
+    assert stored["raw_message"] == IMPORTED_META["raw_message"]
+
+
+def test_an_assistant_message_with_no_native_proof_is_not_model_exposed(
+    session_factory,
+):
+    """An assistant row with no proof and no witness stays ineligible."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "assistant",
+                "unproven assistant note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[{}],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.excerpts == ()
+    assert recall.coverage.excluded_unknown_messages == 1
+
+
+def test_the_assistant_origin_witness_exposes_exactly_its_own_message(
+    session_factory,
+):
+    """An accepted attempt proves only the message it names, in its own thread."""
+
+    thread_id = _seed(
+        session_factory,
+        messages=[
+            (
+                "assistant",
+                "witnessed assistant note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+            (
+                "user",
+                "unwitnessed note about continuity",
+                "2025-05-02T10:01:00+00:00",
+            ),
+        ],
+        message_meta=[{}, {}],
+    )
+
+    with session_factory() as session:
+        message = (
+            session.query(ChatMessage)
+            .filter_by(thread_id=thread_id, role="assistant")
+            .one()
+        )
+        session.add(
+            ChatCompletionAttempt(
+                request_id="witness-request",
+                backend_task_id="witness-task",
+                thread_id=thread_id,
+                turn_id="witness-turn",
+                completed_message_id=message.id,
+                accepted_at=datetime(2025, 5, 2, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert len(recall.excerpts) == 1
+    assert "witnessed assistant note" in recall.excerpts[0].excerpt
+    assert recall.excerpts[0].source_platform == "codexify"
+    # The witness named one message only; the other stays unproven.
+    assert recall.coverage.excluded_unknown_messages == 1
+
+
+def test_a_failed_attempt_witness_does_not_expose_its_message(session_factory):
+    """A cancelled attempt is not proof of native creation."""
+
+    thread_id = _seed(
+        session_factory,
+        messages=[
+            (
+                "assistant",
+                "cancelled assistant note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+        message_meta=[{}],
+    )
+
+    with session_factory() as session:
+        message = (
+            session.query(ChatMessage)
+            .filter_by(thread_id=thread_id, role="assistant")
+            .one()
+        )
+        session.add(
+            ChatCompletionAttempt(
+                request_id="cancelled-request",
+                backend_task_id="cancelled-task",
+                thread_id=thread_id,
+                turn_id="cancelled-turn",
+                completed_message_id=message.id,
+                accepted_at=datetime(2025, 5, 2, 10, 0, tzinfo=timezone.utc),
+                terminal_event_type="task.cancelled",
+            )
+        )
+        session.commit()
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert recall.excerpts == ()
+    assert recall.coverage.excluded_unknown_messages == 1
+
+
+def test_an_origin_exclusion_does_not_leak_across_accounts(session_factory):
+    """A native message of another account never enters this account's receipt."""
+
+    _seed(
+        session_factory,
+        messages=[
+            (
+                "user",
+                "own account native note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+    )
+    _seed(
+        session_factory,
+        account_id=ACCOUNT_B,
+        project_owner=ACCOUNT_B,
+        project_id=2,
+        messages=[
+            (
+                "user",
+                "other account native note about continuity",
+                "2025-05-02T10:00:00+00:00",
+            ),
+        ],
+    )
+
+    with session_factory() as session:
+        recall = search_account_history(
+            session,
+            principal=_principal(ACCOUNT_A),
+            project_id=1,
+            query="continuity",
+        )
+
+    assert len(recall.excerpts) == 1
+    assert "own account native note" in recall.excerpts[0].excerpt
+    assert "other account native note" not in str(recall.to_payload())
 
 
 # ---------------------------------------------------------------------------

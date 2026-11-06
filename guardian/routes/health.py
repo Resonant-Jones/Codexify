@@ -1285,9 +1285,15 @@ def health_vector():
             else None
         )
         if not backend:
-            backend = (
-                os.getenv("CODEXIFY_VECTOR_STORE", "faiss").strip().lower()
-            )
+            # Resolve the backend the way the canonical runtime does, rather
+            # than reading a raw env default that can disagree with it. The
+            # env default for CODEXIFY_VECTOR_STORE is "faiss", while the
+            # supported runtime resolves "chroma"; a disagreement here made
+            # the probe take the shared-store branch and write its probe
+            # vector into the shared collection.
+            from guardian.core.config import resolve_vector_store_runtime
+
+            backend = resolve_vector_store_runtime().backend
 
         probe_id = uuid4().hex
         probe_text = f"health_check_{probe_id}"
@@ -1299,6 +1305,12 @@ def health_vector():
 
         if backend == "chroma":
             source = "probe"
+            # The probe writes into a DISPOSABLE collection in the canonical
+            # runtime's own Chroma path. It must never write into the shared
+            # collection: a Chroma collection's dimension is fixed by its
+            # first write, so a probe vector of a different dimension would
+            # silently fix the shared collection at the wrong dimension and
+            # make every real embedding fail closed afterwards.
             with tempfile.TemporaryDirectory() as tmp_dir:
                 embedder = Embedder(
                     store="chroma",

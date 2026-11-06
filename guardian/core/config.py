@@ -181,6 +181,35 @@ class Settings(BaseSettings):
         allow_inf_nan=False,
         description="Maximum active document embedding execution, including model startup.",
     )
+    DOCUMENT_EMBED_STALE_SECONDS: float = Field(
+        default=900.0,
+        gt=0,
+        le=86400,
+        allow_inf_nan=False,
+        description=(
+            "Age after which a document left in 'processing' by a killed embed "
+            "worker is treated as abandoned and terminally failed by the "
+            "document embed worker's sweeper."
+        ),
+    )
+    DOCUMENT_EMBED_SWEEP_INTERVAL_SECONDS: float = Field(
+        default=60.0,
+        gt=0,
+        le=3600,
+        allow_inf_nan=False,
+        description=(
+            "Interval between abandoned-processing sweeps inside the existing "
+            "document embed worker process."
+        ),
+    )
+    DOCUMENT_EMBED_SWEEP_BATCH_LIMIT: int = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description=(
+            "Maximum number of abandoned documents claimed per sweep pass."
+        ),
+    )
 
     EMBEDDER_PROVIDER: str = Field(
         default="local_api",
