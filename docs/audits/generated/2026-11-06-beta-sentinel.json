@@ -1,0 +1,693 @@
+{
+  "audit": {
+    "domains": [
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/chat.py exists",
+            "label": "Chat completion route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/chat.py did not match expected text: '/api/chat/{thread_id}/complete', 'enqueue('",
+            "label": "Chat route exposes async completion enqueue path",
+            "status": "WARN"
+          },
+          {
+            "evidence": "guardian/workers/chat_worker.py exists",
+            "label": "Chat worker present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/redis_queue.py exists",
+            "label": "Redis queue adapter present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/task_events.py exists",
+            "label": "Task event transport present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/completion_pipeline.md exists",
+            "label": "Completion pipeline documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'",
+            "label": "Architecture docs still flag chat-loop dependency coupling",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "does provider-output validation reliably reject malformed responses before persistence?",
+          "can worker crashes or restarts leave threads locked or duplicate turns in edge cases?",
+          "is degraded behavior for Redis outage explicit to operators and end users?"
+        ],
+        "name": "Core Loop Integrity",
+        "pass_count": 5,
+        "suggested_score": "1-2 likely",
+        "summary": "Chat route, worker, queue, task-event, and completion-pipeline anchors are all present. The repo also explicitly records Redis and worker coupling as an operational risk, so restart and degraded-mode behavior still need human validation.",
+        "warn_count": 2
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/db/models.py exists",
+            "label": "Primary data models present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md exists",
+            "label": "Data and storage documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md exists",
+            "label": "Modules and ownership documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Key Entities and Collections', 'Hard invariants'",
+            "label": "Data and storage docs enumerate entities and invariants",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md matches 'Subsystem Matrix', 'Ownership Guidance'",
+            "label": "Modules docs describe subsystem ownership seams",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'tool execution unification'",
+            "label": "Repo-local docs warn about contract drift in tool primitives",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "are lifecycle transitions for threads, documents, jobs, and events stable across migrations and releases?",
+          "do schema changes preserve backward compatibility for existing API and worker flows?",
+          "are ownership and identity constraints enforced consistently in code, not just described in docs?"
+        ],
+        "name": "Primitive Stability",
+        "pass_count": 5,
+        "suggested_score": "1-2 likely",
+        "summary": "The repo has a central models file plus current docs for entities, invariants, subsystem seams, and ownership guidance. Contract-drift warnings around legacy tools versus the command bus suggest at least one primitive family is still in transition.",
+        "warn_count": 1
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/command_bus.py exists",
+            "label": "Command bus route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/command_bus/contracts.py exists",
+            "label": "Command bus contracts present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/cron.py exists",
+            "label": "Cron route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/workers/cron_worker.py exists",
+            "label": "Cron worker present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/agent_orchestration.py exists",
+            "label": "Guardian intent spine route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/agents/store.py exists",
+            "label": "Agent orchestration persistence seams present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/workers/coding_worker.py exists",
+            "label": "Guardian-mediated coding worker seam present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'",
+            "label": "Architecture docs describe command bus, cron, and coding-agent seams",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced",
+            "label": "Legacy /tools compatibility route status",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "does the extension boundary allow new workflows without kernel edits?",
+          "can new automation paths continue to prefer durable command-bus and cron lanes over ad hoc process-local behavior?",
+          "do Guardian intent-spine and coding-agent return-path seams stay policy-governed across chat, automation, and future plugin entrypoints?",
+          "is self-extending plugin governance explicit enough to prevent capability drift at install and runtime binding boundaries?"
+        ],
+        "name": "Extension Boundary",
+        "pass_count": 7,
+        "suggested_score": "1-2 likely",
+        "summary": "Command bus, cron execution, Guardian intent-orchestration seams, and the Guardian-mediated coding result path provide the current extension boundary evidence. This remains a cautionary domain because extension governance and cross-surface maturity still require manual review.",
+        "warn_count": 2
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/health.py exists",
+            "label": "Health route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md exists",
+            "label": "Config and ops documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md matches 'GET /health', 'GET /metrics', 'GET /api/tasks/{task_id}/events'",
+            "label": "Config and ops docs enumerate health and metrics surfaces",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/task_events.py exists",
+            "label": "Task event transport present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py matches '/health/sync'",
+            "label": "Sync API exposes a health endpoint",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'",
+            "label": "Observability docs leave some logging guarantees unverified",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "do logs include enough request, task, and identity context to debug failures without reproducing them locally?",
+          "are queue depth, worker liveness, and dependency health observable enough for operational triage?",
+          "do restart scenarios preserve enough traceability across task events, outbox events, and sync subscribers?"
+        ],
+        "name": "Observability",
+        "pass_count": 5,
+        "suggested_score": "1-2 likely",
+        "summary": "Repo-local evidence shows explicit health endpoints, task-event streaming, metrics, and sync health reporting. The docs still label parts of the logging and event-delivery story as unverified or restart-sensitive, so incident-debug depth needs manual confirmation.",
+        "warn_count": 1
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/db/models.py exists",
+            "label": "Primary data models present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/queue/redis_queue.py exists",
+            "label": "Redis queue adapter present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Postgres is the source of truth', 'queue-backed'",
+            "label": "Data docs define Postgres as source of truth and queue-backed execution",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/db/models.py matches '__tablename__ = \"cron_runs\"', 'uq_command_idempotency_key'",
+            "label": "Models include durable run and idempotency anchors",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py matches 'idempotent upsert', '\"idempotent\": not is_new'",
+            "label": "Sync API acknowledges idempotent event ingestion",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'Durable sync path:'",
+            "label": "Roadmap docs warn that sync delivery is not yet durable",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'",
+            "label": "Risk register warns about Redis persistence or replay gaps",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "are degraded modes explicit for Redis outage?",
+          "can failed chat, ingestion, and cron work be replayed without duplicate side effects?",
+          "are restart, retry, and dead-letter expectations documented strongly enough for operators to recover safely?"
+        ],
+        "name": "Durability & Recovery",
+        "pass_count": 5,
+        "suggested_score": "1-2 likely",
+        "summary": "The repo contains durable Postgres models, queue-backed execution, and explicit idempotency anchors for some run types. At the same time, repo-local docs warn about non-durable sync delivery, Redis persistence limits in Compose, and incomplete replay ergonomics.",
+        "warn_count": 2
+      },
+      {
+        "checks": [
+          {
+            "evidence": "docs/architecture/system-overview.md exists",
+            "label": "System overview documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'React frontend', 'Desktop shell'",
+            "label": "System overview documents multiple client surfaces",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'Frontend API/runtime layer'",
+            "label": "System overview describes a frontend API/runtime layer",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/config-and-ops.md matches 'desktop backend/share envs', 'browser-stored overrides'",
+            "label": "Config and ops docs record desktop/runtime overrides",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/chat.py exists",
+            "label": "Chat API route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'",
+            "label": "Repo-local docs still describe shell-level coupling",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "do non-web clients use the same auth, event, and workflow contracts as the web UI without special-case backend logic?",
+          "can CLI, voice, or agent surfaces complete the core loop without relying on browser-only state assumptions?",
+          "are surface-specific UX choices cleanly separated from core service behavior?"
+        ],
+        "name": "Alternate Surface Readiness",
+        "pass_count": 5,
+        "suggested_score": "manual review required",
+        "summary": "Codexify clearly serves at least web and desktop surfaces through shared backend APIs, and the docs describe runtime overrides for those clients. The scanned evidence does not prove that headless, mobile, or automation clients are first-class enough to justify a machine-suggested score without human review.",
+        "warn_count": 1
+      },
+      {
+        "checks": [
+          {
+            "evidence": "guardian/routes/federation.py exists",
+            "label": "Federation route present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/sync/api.py exists",
+            "label": "Sync API present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "guardian/routes/federation.py matches 'trust policy', 'base_version'",
+            "label": "Federation route includes trust-policy and version anchors",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'federation', 'sync'",
+            "label": "Architecture docs describe federation and sync flow",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'",
+            "label": "Roadmap docs warn that sync subscriptions are process-local",
+            "status": "WARN"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'",
+            "label": "Risk register warns that federation remains security- and config-sensitive",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "can peers verify identity, rotation, revocation, and trust-policy changes safely over time?",
+          "are conflict resolution and replay semantics strong enough under partitions or restart gaps?",
+          "are degraded federation modes explicit when relays, trust policy, or egress checks fail?"
+        ],
+        "name": "Federation Readiness",
+        "pass_count": 4,
+        "suggested_score": "0-1 likely",
+        "summary": "Federation routes, trust-policy checks, sync endpoints, and version-aware diff handling exist in the repo. The same repo-local evidence also says sync delivery is process-local and federation is still a high-blast-radius, config-sensitive area, so the likely band remains low.",
+        "warn_count": 2
+      },
+      {
+        "checks": [
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md exists",
+            "label": "Modules and ownership documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/roadmap-signals.md exists",
+            "label": "Roadmap signals documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/tech-debt-and-risks.md exists",
+            "label": "Tech debt and risks documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/iddb_policy_v1.md exists",
+            "label": "IDDB policy documentation present",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/data-and-storage.md matches 'Hard invariants', 'explicit, not ambient'",
+            "label": "Data docs describe hard invariants and explicit access boundaries",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/system-overview.md matches 'enforcement is in route/auth/policy code, not in prompts'",
+            "label": "System overview states that enforcement lives in code and policy layers",
+            "status": "PASS"
+          },
+          {
+            "evidence": "docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'",
+            "label": "Ownership authority is still informal in the scanned docs",
+            "status": "WARN"
+          }
+        ],
+        "fail_count": 0,
+        "manual_prompts": [
+          "are governance invariants documented and enforced?",
+          "is extension authority explicit enough to prevent accidental policy or boundary regressions?",
+          "are versioning, migration, and compatibility expectations strong enough to support rolling architectural change?"
+        ],
+        "name": "Governance Readiness",
+        "pass_count": 6,
+        "suggested_score": "manual review required",
+        "summary": "The repo has a current ownership map, risk register, roadmap signal doc, identity policy, and documented hard invariants. Those are solid governance inputs, but the scanned evidence still leaves extension authority and enforcement coverage too cross-cutting for a truthful machine score.",
+        "warn_count": 1
+      }
+    ],
+    "failures": [],
+    "mode": "json",
+    "repo": {
+      "branch": "main",
+      "dirty": false,
+      "head": "e66beb5021188ddaa3a5d6afad86094a995f5325",
+      "status_error": "",
+      "status_lines": []
+    },
+    "repo_root_relative": ".",
+    "strongest_domains": [
+      "Extension Boundary",
+      "Primitive Stability",
+      "Observability"
+    ],
+    "summary": {
+      "fail": 0,
+      "pass": 42,
+      "warn": 12
+    },
+    "warnings": [
+      {
+        "domain": "Core Loop Integrity",
+        "evidence": "guardian/routes/chat.py did not match expected text: '/api/chat/{thread_id}/complete', 'enqueue('",
+        "label": "Chat route exposes async completion enqueue path"
+      },
+      {
+        "domain": "Core Loop Integrity",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'The primary chat loop is queue-coupled.'",
+        "label": "Architecture docs still flag chat-loop dependency coupling"
+      },
+      {
+        "domain": "Primitive Stability",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'tool execution unification'",
+        "label": "Repo-local docs warn about contract drift in tool primitives"
+      },
+      {
+        "domain": "Extension Boundary",
+        "evidence": "docs/architecture/system-overview.md did not match expected text: 'command bus', 'Cron and job execution', 'Coding results now return through Guardian'",
+        "label": "Architecture docs describe command bus, cron, and coding-agent seams"
+      },
+      {
+        "domain": "Extension Boundary",
+        "evidence": "docs/architecture/modules-and-ownership.md references 'legacy tools shim'; route is absent and should remain compatibility-only if reintroduced",
+        "label": "Legacy /tools compatibility route status"
+      },
+      {
+        "domain": "Observability",
+        "evidence": "docs/architecture/config-and-ops.md contains 'Structured JSON logger setup is `Unverified`'",
+        "label": "Observability docs leave some logging guarantees unverified"
+      },
+      {
+        "domain": "Durability & Recovery",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'Durable sync path:'",
+        "label": "Roadmap docs warn that sync delivery is not yet durable"
+      },
+      {
+        "domain": "Durability & Recovery",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Redis in Compose is configured without durable persistence'",
+        "label": "Risk register warns about Redis persistence or replay gaps"
+      },
+      {
+        "domain": "Alternate Surface Readiness",
+        "evidence": "docs/architecture/roadmap-signals.md contains 'Frontend routing and shell orchestration are mostly hand-rolled'",
+        "label": "Repo-local docs still describe shell-level coupling"
+      },
+      {
+        "domain": "Federation Readiness",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Sync subscriptions are process-local'",
+        "label": "Roadmap docs warn that sync subscriptions are process-local"
+      },
+      {
+        "domain": "Federation Readiness",
+        "evidence": "docs/architecture/tech-debt-and-risks.md contains 'Federation is security- and config-sensitive'",
+        "label": "Risk register warns that federation remains security- and config-sensitive"
+      },
+      {
+        "domain": "Governance Readiness",
+        "evidence": "docs/architecture/modules-and-ownership.md contains 'This repo does not declare formal team ownership in code'",
+        "label": "Ownership authority is still informal in the scanned docs"
+      }
+    ],
+    "weakest_domains": [
+      "Federation Readiness",
+      "Alternate Surface Readiness",
+      "Governance Readiness"
+    ]
+  },
+  "blockers": [
+    "Each tracked qualification surface carries its own dated run receipt inside the tip's lineage and is not `stale` against it; a receipt for one surface does not qualify another, and a proof artifact the registry cannot read does not qualify it either. **Partially satisfied at `844b35599ed6`:** `supported-compose-stock` now carries its own dated receipt at the tip's lineage with verdict `PASS` and projects `freshness: current`. `supported-compose` (the source-matched path) is still `stale` against this tip, and `onboarding-and-people` still has no receipt at all.",
+    "Queue/worker, deadline, graceful-stop, lock, migration deployment, browser, import-recall, and scope-isolation gates are green on one evaluated tip.",
+    "Delegated execution has a passing worker-to-adapter `reasoning_effort` contract and live proof. **Partially satisfied at `456da46b8`**: the contract no longer fails before provider execution \u2014 the binding's authored effort now resolves against the lane's compatible set before the worker forwards it, an unauthorized or lane-incompatible effort still fails closed, and a caller-supplied task field still cannot set it. The **live proof** is still missing: no delegated execution was exercised on a supported path in this window.",
+    "Claimed Preview or public-ingress paths have current live evidence, and release metadata points to the evaluated mainline. **Partially satisfied at `dece01821`**: the Preview lane now carries current live evidence \u2014 the schema advance, the twenty recipient-local read-state checks re-run against the running service, and a restored reconciler cycle \u2014 but the **release metadata still points at a pre-evaluated revision**: the newest beta release sentinel artifact records a May head, so the metadata half of this criterion is not yet met."
+  ],
+  "commit_subjects": [
+    "Merge pull request #1010 from Resonant-Jones/docs/preview-schema-advance-criterion-20261106",
+    "docs(current-state): close the Preview schema-advance release criterion",
+    "Merge pull request #1009 from Resonant-Jones/docs/preview-reconciler-recovery-20261106",
+    "docs(current-state): record the Private Preview reconciler recovery",
+    "Merge pull request #1008 from Resonant-Jones/docs/preview-schema-advance-receipt-20261106",
+    "docs(current-state): record the live Preview schema advance and read-state requalification",
+    "Merge pull request #1007 from Resonant-Jones/feat/auto-20261105-c8c1dc20",
+    "docs(current-state): let the registry carry the changed-path count",
+    "docs(current-state): correct the eight claims that landing #1007 falsifies",
+    "Merge mainline into feat/auto-20261105-c8c1dc20 and reconcile the release truth",
+    "docs: refresh weekly current-state override",
+    "docs(qualification): qualify the stock Compose startup with a PASS verdict",
+    "Merge remote-tracking branch 'origin/main' into feat/auto-20261105-c8c1dc20",
+    "fix(rag): derive the embedding dimension from the configured model",
+    "docs: add 2026-05-02 daily dev log"
+  ],
+  "current_state": {
+    "checklist": [
+      {
+        "label": "Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.",
+        "mark": "x"
+      },
+      {
+        "label": "Bounded chat, cancellation, durable readback, retrieval, authorization, and migration-chain evidence exists at evaluated mainline tips.",
+        "mark": "x"
+      },
+      {
+        "label": "Release-readiness claims are machine-checkable: the qualification registry is generated and drift-gated, and the knowledge-graph corpus is bound to a revision.",
+        "mark": "x"
+      },
+      {
+        "label": "A supported-Compose qualification exists inside the tip's lineage, on the source-matched launcher startup, covering explicit-model rejection with provider-side non-execution evidence, ordinary chat with durable state, retrieval with attribution, browser/event coherence, and restart recovery.",
+        "mark": "x"
+      },
+      {
+        "label": "A migration is judged by the database's own `alembic_version`, not by a container's exit code, and the stock migrator refuses to run against a migration source that does not describe this checkout.",
+        "mark": "x"
+      },
+      {
+        "label": "The **stock** supported Compose path applies the source head's migrations \u2014 proven on the stock path by direct `alembic_version` readback, including refusal of a stale image, a same-head image with different content, and a same-head source with a different migration environment.",
+        "mark": "x"
+      },
+      {
+        "label": "A stock-path qualification run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery, under a `supported-compose-stock` rubric with its own run receipt and registry entry. **Closed at `844b35599ed6`** by the stock-path run (`docs/qualification/runs/2026-11-05-supported-compose-stock-844b35599ed6.md`, verdict `PASS`): the source-head migration contract passed with the live `alembic_version` read directly out of PostgreSQL equal to the checkout's single head `a7d4c9e2f1b3` with exactly one row; document ingestion and retrieval passed after the collection-dimension defect was repaired; browser projection was exercised in a real browser, with the terminal state converging in the UI and a reload preserving it. The earlier run at `456da46b8` remains in the repository as a `FAIL` receipt, so the defect and its repair stay on the record.",
+        "mark": "x"
+      },
+      {
+        "label": "Each tracked qualification surface carries its own dated run receipt inside the tip's lineage and is not `stale` against it; a receipt for one surface does not qualify another, and a proof artifact the registry cannot read does not qualify it either. **Partially satisfied at `844b35599ed6`:** `supported-compose-stock` now carries its own dated receipt at the tip's lineage with verdict `PASS` and projects `freshness: current`. `supported-compose` (the source-matched path) is still `stale` against this tip, and `onboarding-and-people` still has no receipt at all.",
+        "mark": ""
+      },
+      {
+        "label": "The live Preview database is advanced past `3a91d7c4e8b2` and the five unapplied schema revisions land. **Closed at `dece01821`**: the live database moved `3a91d7c4e8b2` \u2192 `a7d4c9e2f1b3`, applying five schema-carrying revisions (`b7e2c4a1d903`, `d86f2a4b1c90`, `e42c7d0b9135`, `d91e4fa6702b`, `a7d4c9e2f1b3`) and two graph-only mergepoints (`a3115f64dda8`, `c8e42a91d307`); every pre-existing row is preserved (138 \u2192 140 public tables, 113547 chat messages and 5144 threads unchanged) and the live `alembic_version` was read directly out of PostgreSQL as `a7d4c9e2f1b3` with exactly one row. The recovery path was proven rather than assumed \u2014 the pre-migration `pg_dump` was restored into a disposable database and compared row-for-row with the live database it was dumped from \u2014 and the image's baked migration source was proven byte-identical to the served checkout by a SHA-256 manifest computed inside the image. Receipt: `docs/architecture/proofs/runtime/2026-11-06-private-preview-schema-advance-and-read-state-proof.md`.",
+        "mark": "x"
+      },
+      {
+        "label": "Queue/worker, deadline, graceful-stop, lock, migration deployment, browser, import-recall, and scope-isolation gates are green on one evaluated tip.",
+        "mark": ""
+      },
+      {
+        "label": "A document left in `embedding_status = 'processing'` by a worker kill is recovered or terminally failed. **Closed at `456da46b8`**: a bounded age-based sweeper inside the existing `worker-document-embed` terminally fails abandoned documents with a recorded reason, using a compare-and-set on the claim timestamp so a live worker's document is never stolen. Re-embedding is not provably idempotent, so the outcome is terminal failure rather than a silent double-index.",
+        "mark": "x"
+      },
+      {
+        "label": "Per-message origin classification excludes imported, unknown, and conflicting messages before excerpts reach the model. **Closed at `456da46b8`**: `guardian/core/message_origin_classification.py` classifies each candidate message at read time, the recall reader excludes imported/unknown/conflicting messages before excerpts reach the model, and the coverage receipt carries content-free per-message exclusion counts separate from thread-level counts. No schema change, no migration, no backfill; ADR-016's write-side custody boundary is unchanged.",
+        "mark": "x"
+      },
+      {
+        "label": "Delegated execution has a passing worker-to-adapter `reasoning_effort` contract and live proof. **Partially satisfied at `456da46b8`**: the contract no longer fails before provider execution \u2014 the binding's authored effort now resolves against the lane's compatible set before the worker forwards it, an unauthorized or lane-incompatible effort still fails closed, and a caller-supplied task field still cannot set it. The **live proof** is still missing: no delegated execution was exercised on a supported path in this window.",
+        "mark": ""
+      },
+      {
+        "label": "Claimed Preview or public-ingress paths have current live evidence, and release metadata points to the evaluated mainline. **Partially satisfied at `dece01821`**: the Preview lane now carries current live evidence \u2014 the schema advance, the twenty recipient-local read-state checks re-run against the running service, and a restored reconciler cycle \u2014 but the **release metadata still points at a pre-evaluated revision**: the newest beta release sentinel artifact records a May head, so the metadata half of this criterion is not yet met.",
+        "mark": ""
+      }
+    ],
+    "path": "docs/architecture/00-current-state.md"
+  },
+  "date": "2026-11-06",
+  "generated": {
+    "json": "docs/audits/generated/2026-11-06-beta-sentinel.json",
+    "markdown": "docs/audits/generated/2026-11-06-beta-sentinel.md"
+  },
+  "not_promised": [
+    "cloud-provider beta support",
+    "public multi-user deployment",
+    "federation durability",
+    "graph-write release expansion",
+    "unsupported provider paths"
+  ],
+  "release_gates": [
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Supported install path, Beta boundary, provider identity, and local-only policy are defined on `main`.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Bounded chat, cancellation, durable readback, retrieval, authorization, and migration-chain evidence exists at evaluated mainline tips.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Release-readiness claims are machine-checkable: the qualification registry is generated and drift-gated, and the knowledge-graph corpus is bound to a revision.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "A supported-Compose qualification exists inside the tip's lineage, on the source-matched launcher startup, covering explicit-model rejection with provider-side non-execution evidence, ordinary chat with durable state, retrieval with attribution, browser/event coherence, and restart recovery.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "A migration is judged by the database's own `alembic_version`, not by a container's exit code, and the stock migrator refuses to run against a migration source that does not describe this checkout.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "The **stock** supported Compose path applies the source head's migrations \u2014 proven on the stock path by direct `alembic_version` readback, including refusal of a stale image, a same-head image with different content, and a same-head source with a different migration environment.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "A stock-path qualification run passes health, inventory, chat, durable readback, retrieval, browser projection, event delivery, and restart recovery, under a `supported-compose-stock` rubric with its own run receipt and registry entry. **Closed at `844b35599ed6`** by the stock-path run (`docs/qualification/runs/2026-11-05-supported-compose-stock-844b35599ed6.md`, verdict `PASS`): the source-head migration contract passed with the live `alembic_version` read directly out of PostgreSQL equal to the checkout's single head `a7d4c9e2f1b3` with exactly one row; document ingestion and retrieval passed after the collection-dimension defect was repaired; browser projection was exercised in a real browser, with the terminal state converging in the UI and a reload preserving it. The earlier run at `456da46b8` remains in the repository as a `FAIL` receipt, so the defect and its repair stay on the record.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Each tracked qualification surface carries its own dated run receipt inside the tip's lineage and is not `stale` against it; a receipt for one surface does not qualify another, and a proof artifact the registry cannot read does not qualify it either. **Partially satisfied at `844b35599ed6`:** `supported-compose-stock` now carries its own dated receipt at the tip's lineage with verdict `PASS` and projects `freshness: current`. `supported-compose` (the source-matched path) is still `stale` against this tip, and `onboarding-and-people` still has no receipt at all.",
+      "notes": "Checklist item from current state.",
+      "status": "warning"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "The live Preview database is advanced past `3a91d7c4e8b2` and the five unapplied schema revisions land. **Closed at `dece01821`**: the live database moved `3a91d7c4e8b2` \u2192 `a7d4c9e2f1b3`, applying five schema-carrying revisions (`b7e2c4a1d903`, `d86f2a4b1c90`, `e42c7d0b9135`, `d91e4fa6702b`, `a7d4c9e2f1b3`) and two graph-only mergepoints (`a3115f64dda8`, `c8e42a91d307`); every pre-existing row is preserved (138 \u2192 140 public tables, 113547 chat messages and 5144 threads unchanged) and the live `alembic_version` was read directly out of PostgreSQL as `a7d4c9e2f1b3` with exactly one row. The recovery path was proven rather than assumed \u2014 the pre-migration `pg_dump` was restored into a disposable database and compared row-for-row with the live database it was dumped from \u2014 and the image's baked migration source was proven byte-identical to the served checkout by a SHA-256 manifest computed inside the image. Receipt: `docs/architecture/proofs/runtime/2026-11-06-private-preview-schema-advance-and-read-state-proof.md`.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Queue/worker, deadline, graceful-stop, lock, migration deployment, browser, import-recall, and scope-isolation gates are green on one evaluated tip.",
+      "notes": "Checklist item from current state.",
+      "status": "warning"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "A document left in `embedding_status = 'processing'` by a worker kill is recovered or terminally failed. **Closed at `456da46b8`**: a bounded age-based sweeper inside the existing `worker-document-embed` terminally fails abandoned documents with a recorded reason, using a compare-and-set on the claim timestamp so a live worker's document is never stolen. Re-embedding is not provably idempotent, so the outcome is terminal failure rather than a silent double-index.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Per-message origin classification excludes imported, unknown, and conflicting messages before excerpts reach the model. **Closed at `456da46b8`**: `guardian/core/message_origin_classification.py` classifies each candidate message at read time, the recall reader excludes imported/unknown/conflicting messages before excerpts reach the model, and the coverage receipt carries content-free per-message exclusion counts separate from thread-level counts. No schema change, no migration, no backfill; ADR-016's write-side custody boundary is unchanged.",
+      "notes": "Checklist item from current state.",
+      "status": "checked"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Delegated execution has a passing worker-to-adapter `reasoning_effort` contract and live proof. **Partially satisfied at `456da46b8`**: the contract no longer fails before provider execution \u2014 the binding's authored effort now resolves against the lane's compatible set before the worker forwards it, an unauthorized or lane-incompatible effort still fails closed, and a caller-supplied task field still cannot set it. The **live proof** is still missing: no delegated execution was exercised on a supported path in this window.",
+      "notes": "Checklist item from current state.",
+      "status": "warning"
+    },
+    {
+      "evidence": "docs/architecture/00-current-state.md",
+      "name": "Claimed Preview or public-ingress paths have current live evidence, and release metadata points to the evaluated mainline. **Partially satisfied at `dece01821`**: the Preview lane now carries current live evidence \u2014 the schema advance, the twenty recipient-local read-state checks re-run against the running service, and a restored reconciler cycle \u2014 but the **release metadata still points at a pre-evaluated revision**: the newest beta release sentinel artifact records a May head, so the metadata half of this criterion is not yet met.",
+      "notes": "Checklist item from current state.",
+      "status": "warning"
+    },
+    {
+      "evidence": "scripts/audit_platform_readiness.py",
+      "name": "Platform readiness audit execution",
+      "notes": "Audit script executed and returned JSON summary.",
+      "status": "warning"
+    }
+  ],
+  "repo": {
+    "branch": "main",
+    "dirty": false,
+    "head": "e66beb5021188ddaa3a5d6afad86094a995f5325",
+    "status_error": "",
+    "status_lines": []
+  },
+  "warnings": [
+    "Core Loop Integrity: Chat route exposes async completion enqueue path",
+    "Core Loop Integrity: Architecture docs still flag chat-loop dependency coupling",
+    "Primitive Stability: Repo-local docs warn about contract drift in tool primitives",
+    "Extension Boundary: Architecture docs describe command bus, cron, and coding-agent seams",
+    "Extension Boundary: Legacy /tools compatibility route status",
+    "Observability: Observability docs leave some logging guarantees unverified",
+    "Durability & Recovery: Roadmap docs warn that sync delivery is not yet durable",
+    "Durability & Recovery: Risk register warns about Redis persistence or replay gaps",
+    "Alternate Surface Readiness: Repo-local docs still describe shell-level coupling",
+    "Federation Readiness: Roadmap docs warn that sync subscriptions are process-local",
+    "Federation Readiness: Risk register warns that federation remains security- and config-sensitive",
+    "Governance Readiness: Ownership authority is still informal in the scanned docs"
+  ]
+}
