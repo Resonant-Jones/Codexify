@@ -127,7 +127,11 @@ services:
       CHAT_WORKER_CONCURRENCY: "1"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      # One egress value for the whole profile: Guardian validates the running
+      # allowlist against the supported profile's provider contract at startup.
+      # `deepgram` is the cloud voice lane; the chat worker's own LLM lane
+      # remains DeepSeek-only.
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
@@ -139,13 +143,11 @@ services:
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
 
   worker-voice:
-    volumes:
-      - *private_preview_chroma_mount
+    # The voice worker is where cloud voice providers are actually invoked.
+    # It gets the same posture the backend has. It does not consume the
+    # operator-owned vector store, so it mounts no chroma volume.
     environment:
-      <<: *private_preview_chroma_env
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
-      # The voice worker is where cloud voice providers are actually invoked.
-      # It gets the same posture the backend has.
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
       CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"

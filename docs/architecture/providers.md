@@ -171,3 +171,45 @@ used when explicitly selected.
 - Keep MiniMax credentials server-side only.
 - Do not commit `.env`/`.env.local` files with real keys.
 - Do not expose provider keys to frontend clients in production.
+
+## Deepgram (voice)
+
+Deepgram is a **voice** provider, not a chat inference provider. It serves
+text-to-speech and speech-to-text through the Guardian voice surface; it is
+never a chat routing lane.
+
+### Enable Deepgram
+
+Set:
+
+- `DEEPGRAM_API_KEY=<your_deepgram_api_key>`
+- `ALLOW_CLOUD_PROVIDERS=true`
+- `CODEXIFY_LOCAL_ONLY_MODE=false`
+- `CODEXIFY_EGRESS_ALLOWLIST=deepgram` — or `deepseek,deepgram` when the
+  deployment's chat lane is DeepSeek
+
+Voice provider selection is separate from chat routing:
+
+- `CODEXIFY_TTS_PROVIDER` selects the text-to-speech provider.
+- `CODEXIFY_STT_PROVIDER` selects the speech-to-text provider.
+- `CODEXIFY_DEFAULT_VOICE` selects the voice within the provider.
+
+### Routing behavior
+
+- The provider is registered by name in the voice runtime's provider tuples;
+  the runtime never encodes provider names to resolve behavior.
+- A registered cloud voice provider resolves to `degraded` with an empty voice
+  list when the cloud posture is not granted, exactly as every other cloud
+  provider does.
+- The audio container a provider emits is declared by the provider itself, so
+  the runtime carries no provider-specific knowledge.
+
+### Security
+
+- Keep the Deepgram credential server-side only.
+- Do not commit `.env`/`.env.local` files with real keys.
+- A deployment grants the voice egress lane explicitly. The egress allowlist is
+  one value for the whole supported profile, and Guardian validates it against
+  the profile's provider contract at startup, so the allowlist and the profile
+  must always agree — see
+  [[adr/052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].

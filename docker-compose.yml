@@ -381,10 +381,12 @@ services:
       CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
       CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
       # Cloud voice providers sit behind the same posture gate as every other
-      # cloud surface: local-only by default, and egress-scoped when allowed.
-      CODEXIFY_LOCAL_ONLY_MODE: "${CODEXIFY_LOCAL_ONLY_MODE:-true}"
-      ALLOW_CLOUD_PROVIDERS: "${ALLOW_CLOUD_PROVIDERS:-false}"
-      CODEXIFY_EGRESS_ALLOWLIST: "${CODEXIFY_EGRESS_ALLOWLIST:-}"
+      # cloud surface, but the stock deployment does not grant that gate: it
+      # stays local-only with an empty egress allowlist. The posture is
+      # declared by the deployment that grants it rather than interpolated
+      # from the operator's env file, because Guardian validates the running
+      # allowlist against the supported profile's provider contract at
+      # startup and an interpolated value would drift from it.
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
 
       # --- OpenAI (cloud) ---
@@ -705,10 +707,12 @@ services:
       CODEXIFY_STT_PROVIDER: "${CODEXIFY_STT_PROVIDER:-local_openai_compatible}"
       CODEXIFY_DEFAULT_VOICE: "${CODEXIFY_DEFAULT_VOICE:-alloy}"
       # Cloud voice providers sit behind the same posture gate as every other
-      # cloud surface: local-only by default, and egress-scoped when allowed.
-      CODEXIFY_LOCAL_ONLY_MODE: "${CODEXIFY_LOCAL_ONLY_MODE:-true}"
-      ALLOW_CLOUD_PROVIDERS: "${ALLOW_CLOUD_PROVIDERS:-false}"
-      CODEXIFY_EGRESS_ALLOWLIST: "${CODEXIFY_EGRESS_ALLOWLIST:-}"
+      # cloud surface, but the stock deployment does not grant that gate: it
+      # stays local-only with an empty egress allowlist. The posture is
+      # declared by the deployment that grants it rather than interpolated
+      # from the operator's env file, because Guardian validates the running
+      # allowlist against the supported profile's provider contract at
+      # startup and an interpolated value would drift from it.
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       STORAGE_BASE_PATH: /app/data/media
       REDIS_URL: redis://redis:6379/0

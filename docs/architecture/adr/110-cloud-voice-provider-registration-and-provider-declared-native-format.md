@@ -85,6 +85,22 @@ A cloud voice provider is classified `cloud` and therefore requires
 Preview is the sanctioned cloud lane: it already sets
 `ALLOW_CLOUD_PROVIDERS=true` and `CODEXIFY_LOCAL_ONLY_MODE=false`.
 
+The egress allowlist entry is a **profile contract change**, not a runtime
+knob. The `v1-whooshd-deepseek-web` profile declares one allowlist string, and
+Guardian validates the running allowlist against it at startup, raising
+`LLMConfigError` on a mismatch. Admitting the voice lane therefore means the
+profile's `provider_contract` changes to `deepseek,deepgram` and **every**
+deployment of that profile presents exactly that string — the Private Preview
+overlay, the Whoosh'd dual-provider overlay, and the tester env template. This
+is recorded as an amendment to
+[[052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].
+
+The stock deployment is unaffected: `docker-compose.yml` declares no cloud
+posture for the backend or the voice worker, so it stays local-only with an
+empty allowlist and continues to match the `v1-local-core-web-mcp` contract. A
+deployment grants the voice lane explicitly rather than interpolating it from
+an operator's env file.
+
 A cloud provider that is registered but not allowed resolves to `degraded` with
 an **empty** voice list, exactly as every other cloud provider does. A
 provider bound to a voice profile on the Private Preview therefore does not
@@ -141,8 +157,11 @@ past the Private Preview.
 Extends [[069-codexify-beta-runtime-support-boundary|ADR-069]] without
 superseding it, and is independent of
 [[109-sandbox-execution-contract-and-kernel-enforced-storage-posture|ADR-109]].
-It does not change the local TTS microservice, the executable-backend
-registry, or the voice-profile schema.
+It amends
+[[052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]] only for the
+cloud voice egress lane of the `v1-whooshd-deepseek-web` profile. It does not
+change the local TTS microservice, the executable-backend registry, or the
+voice-profile schema.
 
 ## Current-truth boundary
 
