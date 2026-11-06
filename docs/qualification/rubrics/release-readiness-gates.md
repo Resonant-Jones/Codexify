@@ -65,6 +65,11 @@ surface_paths:
   - config/supported_profiles/v1-local-core-web-mcp.yaml
   - guardian/db/models.py
 evidence:
+  # The operator procedure that executes this rubric's checks. It is listed
+  # here so the registry pins the pairing: the rubric states the criteria, the
+  # runbook states how they are exercised, and a future edit to either one
+  # cannot quietly change what the other claims.
+  - docs/Ops/private-preview-human-qualification-sessions.md
   - docs/architecture/proofs/runtime/2026-11-05-stock-compose-migration-source-proof.md
   - docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-844b35599ed6.md
   - docs/architecture/proofs/2026-10-09-synthetic-account-import-recall-qualification.md

@@ -27,6 +27,7 @@
         "No qualification run receipt exists for this surface; the registry cannot project a qualification status without one."
       ],
       "evidence": [
+        "docs/Ops/private-preview-human-qualification-sessions.md",
         "docs/architecture/proofs/runtime/2026-11-05-stock-compose-migration-source-proof.md",
         "docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-844b35599ed6.md",
         "docs/architecture/proofs/2026-10-09-synthetic-account-import-recall-qualification.md",
