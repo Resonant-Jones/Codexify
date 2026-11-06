@@ -20,6 +20,11 @@ except Exception:  # pragma: no cover - depends on optional package
     GoogleProvider = None  # type: ignore[assignment]
     GoogleTTSProvider = None  # type: ignore[assignment]
 
+try:
+    from .deepgram_provider import DeepgramProvider
+except Exception:  # pragma: no cover - depends on optional packages/secrets
+    DeepgramProvider = None  # type: ignore[assignment]
+
 # Map of provider names to their classes
 PROVIDERS = {
     "local": LocalProvider,
@@ -32,7 +37,11 @@ if ElevenLabsProvider is not None:
 if GoogleProvider is not None:
     PROVIDERS["google"] = GoogleProvider
 
+if DeepgramProvider is not None:
+    PROVIDERS["deepgram"] = DeepgramProvider
+
 __all__ = [
+    "DeepgramProvider",
     "ElevenLabsProvider",
     "GoogleProvider",
     "GoogleTTSProvider",

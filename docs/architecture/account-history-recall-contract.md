@@ -4,6 +4,11 @@ Status: implemented
 Scope: one bounded, read-only, account-scoped historical conversation retrieval
 capability for Guardian.
 
+Durable native-message custody: **architecture accepted 2026-11-05 under
+ADR-016; schema, guarded writers, custody-aware reader integration and
+PostgreSQL proof unimplemented**.
+See [section 3.14](#314-accepted-durable-native-message-custody-2026-11-05).
+
 This document describes the implemented boundary. It does not claim live runtime
 qualification; see [Validation results](#validation-results).
 
@@ -210,20 +215,34 @@ authority. The [documentation-only message fixtures](fixtures/history-message-pr
 separate persisted evidence, trusted write custody, origin classification, and
 conditional model-visible recall eligibility.
 
-**Current truth:** finding #3 is **partially** addressed. The reader at
-`guardian/core/account_history_recall.py::_candidate_message_rows` still
-filters message owner/kind and later formats `source_platform="codexify"`
-without independently establishing each message's source. Canonical ChatGPT
-import metadata inside a native thread still passes that filter. What is now
-implemented is the **write-side boundary**: no ordinary-chat creation or
-enrichment path can establish, replace, or remove a native-origin assertion
-([section 3.10](#310-message-origin-metadata-custody-2026-11-01)), and the
-ordinary authenticated user message now *receives* a backend-authored native
-assertion at its canonical insert
-([section 3.11](#311-native-user-message-origin-stamping-2026-11-02)). The
-reader-side per-message classification, exclusion, and coverage reporting
-remain open. Earlier authorization tests below do not qualify this evidence
-boundary.
+**Current truth at mainline `5b12b46f9`:** per-message classification and
+exclusion are implemented by `guardian/core/message_origin_classification.py`
+and `guardian/core/account_history_recall.py`. `_select_message_candidates`
+loads bounded, account/thread-scoped provenance candidates without excerpts;
+`_select_trusted_assistant_witness_ids` supplies the existing exact accepted
+assistant witness. Classification precedes `_select_message_excerpts`, which
+fetches content only for eligible native message IDs. Imported, unknown and
+conflicting messages are excluded, including messages inside native threads.
+The coverage receipt preserves `excluded_imported_messages`,
+`excluded_unknown_messages` and `excluded_conflicting_messages`, separately
+from thread exclusions and through response-budget trimming. Existing grants,
+account/Project checks and scan/result bounds remain independent.
+
+That implementation uses protected persisted assertions and existing assistant
+witnesses. It does not recover a serialized capability's original creation
+authority. `tests/core/test_message_origin_classification.py` explicitly records
+that N04/N09 cannot be distinguished from identical persisted assertion bytes.
+Write-side guards and native stamping are implemented under sections 3.10–3.13;
+they do not establish independently readable custody for every legacy user row.
+
+ADR-016's [accepted November 5 amendment](adr/016-continuity-governance-surface-contract.md#accepted-durable-custody-amendment-2026-11-05)
+requires a nullable same-row discriminator to close that remaining proof gap.
+The column, migration, guarded custody writers/admission and custody-aware
+extension of the existing classifier remain unimplemented. Matching legacy JSON
+must not be retrospectively promoted; existing exact trusted assistant witnesses
+retain their separately accepted meaning. Classification/exclusion code and its
+tests are not PostgreSQL or runtime qualification of the new mechanism, nor do
+they establish current-tip live recall qualification.
 
 ### 3.10 Message-origin metadata custody (2026-11-01)
 
@@ -267,24 +286,23 @@ every unrelated metadata key and its existing update semantics unchanged.
 production: when it was written, the `NativeOriginAssertion` capability had no
 production caller. [Section 3.11](#311-native-user-message-origin-stamping-2026-11-02)
 adds the first production caller — the ordinary authenticated user message.
-Universal native stamping, per-message reader filtering, and content-free
-coverage receipts remain required follow-ups for finding #3, as described in
+Universal native stamping remains incomplete. Per-message filtering and
+content-free coverage receipts were implemented later; the remaining durable
+custody gap is distinguished in
 [section 3.9](#39-message-level-source-eligibility-prerequisite-2026-11-01).
 
 **Remaining implementation prerequisites:**
 
-- Stamp native origin at the remaining trusted creation paths — the worker
-  completion service, voice, Hosted Room, agent-result, and proof writers —
-  using the same `NativeOriginAssertion` capability rather than a
-  client-reachable parameter. The ordinary user message and the accepted
-  assistant completion are stamped; see
-  [section 3.11](#311-native-user-message-origin-stamping-2026-11-02) and
-  [section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02).
-- Evaluate each candidate message's origin independently at read time and
-  exclude imported, unknown, and conflicting messages before excerpts reach
-  the model.
-- Extend the coverage receipt with content-free per-message origin exclusion
-  counts, separate from thread exclusions.
+- Implement the accepted nullable same-row custody mechanism and its guarded
+  native-user and accepted-assistant creation operations. Current protected
+  JSON stamping in [section 3.11](#311-native-user-message-origin-stamping-2026-11-02)
+  and [section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02)
+  does not implement that durable witness. Other worker-completion, voice,
+  Hosted Room, agent-result and proof writers remain unproven; they acquire no
+  new native-creation authority through this acceptance.
+- Extend the existing per-message classifier with independently verified
+  durable custody. Preserve its existing imported/unknown/conflicting exclusions,
+  content-free message counts, authorization checks and response bounds.
 - Extend restore with trust-custody validation so an uploaded archive cannot
   present itself as a trusted native export. The generic upload path now
   refuses an archive carrying the reserved member
@@ -297,11 +315,13 @@ coverage receipts remain required follow-ups for finding #3, as described in
 
 **Required subsequent implementation, not current behavior:**
 
-- For every candidate, require positive message-level native evidence: a
-  protected, backend-assigned `extra_meta.message_origin` assertion written
-  atomically at native creation, or ADR-016's exact-message trusted historical
-  assistant-completion witness. A native thread, absent import flags, owner,
-  role, storage location, or grant is insufficient.
+- For every candidate, require positive message-level native evidence: the
+  accepted supported `native_origin_custody` discriminator paired with its
+  coherent protected assertion and exact creation binding, or ADR-016's
+  existing exact-message trusted historical assistant-completion witness.
+  Assertion-shaped JSON alone, a native thread, absent import flags, owner,
+  role, storage location or grant is insufficient. NULL legacy user custody
+  stays unproven; no retrospective backfill is permitted.
 - Preserve existing importer `origin`, profile, timestamps, source IDs, raw
   metadata, and lineage. Imported messages in native threads remain imported;
   partial, unsupported, or unproven metadata is unknown, and incompatible
@@ -411,12 +431,11 @@ over `_PostgresGuardianDB`) implements the seam.
 - A restored record is never given native provenance, and an archive that
   claims it is refused before any write.
 
-**Finding #3 is still open.** This slice establishes evidence for *new* native
-user messages. It does not establish that every historical native message is
-eligible for recall: the reader still does not classify each candidate message
-by origin, still does not exclude imported, unknown, or conflicting messages
-before excerpts reach the model, and still does not report content-free
-per-message exclusion counts.
+**Evidence limit of this original stamping slice.** It establishes write-side
+assertions for *new* native user messages, not custody for every historical
+message. Main subsequently implemented per-message classification, exclusion
+and content-free counts. The remaining #3 prerequisite is the accepted durable
+custody mechanism and its proof, as distinguished in section 3.9.
 
 **Ordinary history advertisement stays inactive.** Stamping native origin
 authorizes nothing. The history command is advertised only when a request-scoped
@@ -494,15 +513,18 @@ fallback path is not refactored into a new persistence system.
   assistant row remains unknown unless ADR-016's narrower existing witness —
   the same-account, same-thread attempt naming that exact message, with a
   non-null `accepted_at` and no failure or cancellation — independently proves
-  it. That reader-side witness is not implemented here.
-- Restore trust-custody is unchanged. An uploaded archive can still carry
-  assertion-shaped JSON; that is not proof, and restore remains a required
-  follow-up.
+  it. That witness was not implemented by this stamping slice; main now reads
+  it through `_select_trusted_assistant_witness_ids`.
+- Generic upload admission now refuses reserved assertion JSON under section
+  3.13. Admission for the newly accepted custody column is still unimplemented;
+  it must refuse untrusted non-null claims. Cross-installation proof-preserving
+  custody transfer remains separately governed and unimplemented.
 
-**Finding #3 is still open.** This slice establishes creation evidence for new
-accepted native assistant completions. It does not implement per-message origin
-classification, reader-side exclusion of imported, unknown, or conflicting
-messages, source labels, or content-free per-message coverage receipts.
+**Evidence limit of this original assistant-stamping slice.** It establishes
+creation evidence for new accepted native assistant completions. Main later
+implemented classification, exclusion, source labels and content-free message
+counts. Those existing reads do not implement the newly accepted custody column
+or prove ordinary-user creation authority; section 3.9 records that remaining gap.
 
 **Ordinary history advertisement stays inactive.** The history command is
 advertised only when a request-scoped `HistoryRecallGrant` is present.
@@ -515,8 +537,9 @@ The generic account-restore path cannot admit an archive-provided
 native-origin claim as native-origin authority.
 
 **The boundary.** ADR-016 reserves `extra_meta.message_origin` for the
-protected canonical creation operation. That member is creation evidence, not
-restored bytes. An authenticated account owner may submit an archive of
+protected canonical creation operation. That member is descriptive provenance;
+its serialized bytes do not independently prove creation custody. An
+authenticated account owner may submit an archive of
 historical conversation content, and that permission covers ownership of the
 restored records, archive integrity, and schema validity. It does not extend to
 historical message-origin evidence or to the trusted custody of native-origin
@@ -524,11 +547,13 @@ assertions.
 
 **No trusted proof-preserving restore path exists.** The archive manifest
 carries a self-authored checksum over its own members and is bound to the
-uploading account. Neither can independently authenticate the original creation
-evidence of an exact message: neither carries a signature or attestation over
-that evidence, and the canonical message id in the archive is chosen by the
-archive. No signing service, attestation format, or trusted export-custody
-mechanism exists, and none is introduced by this change.
+uploading account. Neither establishes trusted custody from the original
+canonical creation operation, and the canonical message id in the archive is
+chosen by the archive. This is an unproven custody-transfer boundary, not a
+requirement to add signatures, hashing or a signing service to runtime recall.
+ADR-016's accepted mechanism trusts Guardian and canonical PostgreSQL;
+cross-installation proof-preserving restoration remains separately governed
+and unimplemented.
 
 **The behavior.** `AccountRestoreService._parse_and_validate_archive` detects
 the reserved member on every `chat_messages` payload row and refuses the
@@ -588,15 +613,59 @@ also never overwrites an existing canonical row: an archive row that conflicts
 with persisted state fails closed rather than replacing it. The residual case
 is that a restored message may reuse a canonical message id that a deleted
 completion attempt still names. A message id matching an existing completion id
-is not proof of shared origin, so any future witness reader must establish the
-message's own creation evidence rather than rely on the id match. That
-reader-side obligation stays open under finding #3.
+is not proof of shared origin. The existing assistant-witness reader checks
+exact message/thread linkage and accepted, nonfailed attempt state; that is not
+proof-preserving cross-installation restore or ID remapping. Custody-aware
+admission and restore-collision proof remain required by the accepted amendment.
 
-**Finding #3 is still open.** This slice prevents one untrusted way of
-manufacturing native-origin evidence. It does not implement per-message origin
-classification, reader-side exclusion, source labels, or content-free
-per-message coverage receipts, and it does not change the recall reader, the
-ADR-084 grant resolver, the Command Bus, or ordinary-chat advertisement.
+**Evidence limit of this original restore-refusal slice.** It prevents one
+untrusted way of manufacturing native-origin evidence. Classification,
+exclusion, source labels and content-free message counts were implemented later
+on main; they do not close the new durable-custody prerequisite. This refusal
+adds no ADR-084 grant, Command Bus or ordinary-chat advertisement authority.
+
+### 3.14 Accepted durable native-message custody (2026-11-05)
+
+The operator approved proposal `a680ff6ed` on 2026-11-05 and explicitly amended
+[ADR-016](adr/016-continuity-governance-surface-contract.md#accepted-durable-custody-amendment-2026-11-05).
+The [accepted decision](2026-11-05-native-message-origin-custody-decision.md)
+records the rationale and next implementation boundary. ADR-016 remains the
+single governing origin authority.
+
+The accepted target is nullable `chat_messages.native_origin_custody`, default
+NULL, with `native_user_v1` and `native_assistant_attempt_v1` identifying the two
+trusted Guardian creation operations. Content, the descriptive origin assertion
+and custody must be created atomically; accepted assistant binding shares that
+transaction. PostgreSQL constraints and immutability guards must prevent invalid
+values, rebinding, erasure and post-insert promotion, including NULL-to-positive
+backfill. Generic import/restore and arbitrary metadata cannot supply custody.
+Every existing row retains NULL; a known JSON shape does not reconstruct its
+write authority. Existing exact trusted assistant witnesses remain valid under
+their narrower accepted checks and do not prove an associated user record.
+
+Guardian and canonical PostgreSQL are trusted. This mechanism proves a native
+creation operation inside that boundary; it is **not cryptographic attestation**.
+Runtime retrieval requires no signatures or hashing. No signing service,
+additional provenance store, new credentials or key management is introduced.
+Privileged SQL compromise is outside the forgery-protection claim.
+
+The reader must independently verify exact-message custody before emitting a
+native excerpt or source label, and report imported/unknown/conflicting
+candidate-message exclusions without leaking content or private metadata.
+Authentication, Project/thread access, content/kind restrictions, request-scoped
+grants and bounded execution remain independent requirements. Historical
+evidence gains no instruction authority.
+
+**The accepted custody mechanism remains unimplemented:** no custody column,
+migration, guarded custody writer/admission, custody-aware reader integration or
+PostgreSQL/live proof is supplied by acceptance. Existing classification,
+exclusion counters and accepted assistant-witness reads remain implemented;
+acceptance does not replace or qualify them.
+Generic restore must refuse untrusted custody claims; it cannot preserve trusted
+custody across installations or ID remapping. That future proof-preserving path
+remains separately governed and unimplemented. Existing JSON-assertion refusal
+is implemented; new-column admission guards still require implementation.
+Release remains HOLD, and migration work requires separate authorization.
 
 ## 4. Surfaces
 
@@ -997,6 +1066,13 @@ service converts an unexpected read failure into
 
 ## 14. Validation results
 
+The 2026-11-05 architecture acceptance supplies no runtime proof for the new
+custody column or reader. Historical results below describe their dated
+write-side JSON, authorization and retrieval surfaces. The later blocked-task
+baseline reported 122 passes and 36 setup errors for unavailable
+`TEST_DATABASE_URL`; it did not establish PostgreSQL custody proof or an
+application regression. No automated runtime tests apply to the acceptance task.
+
 The runtime results below belong to the request-authorization implementation
 at `fb06e9d96`, not to this documentation-only origin clarification. They do
 not prove message-level origin enforcement. This clarification is checked by
@@ -1080,9 +1156,9 @@ against the same disposable PostgreSQL instance:
   completion are stamped. The worker completion service, voice, Hosted Room,
   agent-result, and proof writers are **not** stamped by this work and remain
   unqualified.
-- The read-side boundary is unchanged. Per-message origin classification,
-  reader-side exclusion, and content-free per-message coverage receipts remain
-  open for finding #3.
+- That stamping slice did not implement the read side. Main later implemented
+  per-message classification, exclusion and content-free counts; section 3.9
+  distinguishes them from the remaining accepted durable-custody prerequisite.
 - The remaining direct-ORM writers (`hosted_room_messages`, `agents/store.py`,
   `core_loop_proof.py`) are **not** covered by this work. They cannot
   establish the reserved member through a client-reachable payload today, but
@@ -1273,24 +1349,27 @@ is not repaired here; it is analyzed in
 ## 16. Remaining review findings and runtime limitations
 
 The independent review of the historical-recall implementation raised five
-findings. This change closes the authorization finding. The others remain
-open, and none of them is repaired here:
+findings. Authorization is implemented. The table distinguishes subsequent
+mainline classification work from remaining custody and runtime limitations:
 
 | Finding | Status |
 | --- | --- |
 | #1 — PostgreSQL `get_session` mismatch | **Open.** Not repaired. The data-access boundary is exercised against SQLite here, not PostgreSQL. |
 | #2 — Missing ordinary-chat advertisement forwarding | **Open.** Deliberately not repaired. The ordinary-chat path resolves the grant but does not forward it, so the command stays invisible to the model there. |
-| #3 — Message-level imported provenance filtering | **Open; partially addressed.** The write-side boundary is now enforced *and* productive: no ordinary-chat creation or enrichment path can establish, replace, or remove a native-origin assertion; the ordinary authenticated user message and the accepted assistant completion each receive a backend-authored assertion at their canonical insert; and the generic account restore refuses an archive that presents itself as carrying native-origin evidence. The reader-side per-message origin classification, exclusion, and content-free per-message coverage receipts remain unimplemented, so an imported message inside a native thread still reaches the model. Thread checks and request grants do not close this defect. |
+| #3 — Message-level imported provenance filtering | **Classification/exclusion implemented; durable custody still pending.** Main implements per-message origin classification, exclusions, content-free message counts and existing exact accepted assistant-witness reads. It relies on protected persisted assertions and cannot distinguish identical serialized claims with different creation histories. ADR-016's accepted same-row column, constraints, guarded custody writers/admission, custody-aware reader integration and PostgreSQL/runtime proof remain unimplemented. Thread checks and grants cannot supply missing custody. |
 | #4 — Ownership treated as sufficient authorization | **Closed by this change.** A request-scoped, Guardian-owned authorization decision now gates both advertisement and execution. |
 | #5 — 500-thread coverage truncation | **Open.** Not repaired. |
 
-Dependency-ordered follow-on work: #3 message-level imported provenance
-exclusion — the remaining writer/custody coverage (worker completion service,
-voice, Hosted Room, agent-result, proof) and a separately accepted
-proof-preserving restore custody path, then per-message reader filtering and
-coverage receipts — followed by #1 PostgreSQL session compatibility, #5
-retrieval coverage and truncation, then #2 ordinary-chat advertisement and
-final activation.
+Dependency-ordered follow-on work: separately authorize the accepted #3
+same-row custody migration, exclusive native writers, mutation/import/restore
+guards and custody-aware integration into the existing classifier, with
+disposable PostgreSQL proof. Preserve existing content-free coverage receipts.
+Other writer coverage and cross-installation proof-preserving restore remain
+separately bounded; unsupported writers stay
+unproven, and generic untrusted restore remains refused. Then address #1
+PostgreSQL session compatibility, #5 coverage/truncation and #2 ordinary-chat
+advertisement before any separately qualified activation. Acceptance starts
+none of that work automatically.
 
 **Known documentation drift.** The `implementationStatus` string in
 `docs/architecture/fixtures/history-recall-intent.v1.json` still says that no
@@ -1302,22 +1381,14 @@ behavioral source of truth for the expectations and was deliberately left
 unmodified by this change, so the stale status line is reported here rather
 than corrected in place.
 
-The writer-coverage table in ADR-016 still describes
-`routes/chat.py::_persist_message_to_thread` as creating the row "before a
-generic metadata merge", and still reads as though no ordinary-chat path
-stamps native origin. That is now stale for the ordinary authenticated user
-message and the accepted assistant completion, which are stamped at their
-canonical inserts
-([section 3.11](#311-native-user-message-origin-stamping-2026-11-02),
-[section 3.12](#312-native-assistant-completion-origin-stamping-2026-11-02));
-it remains accurate for every other writer in that table. ADR-016 is an
-accepted contract and is not in this slice's authorized scope, so the drift is
-reported here rather than corrected in place. The same applies to the
-`implementationStatus` string in
-`docs/architecture/fixtures/history-message-provenance.v1.json`, which still
-describes native stamping as unimplemented; it is now partially implemented,
-and the remaining writers, proof-preserving restore, and per-message filtering
-are still unimplemented.
+The November 5 ADR-016 amendment distinguishes existing JSON stamping from the
+unimplemented durable custody mechanism. The `implementationStatus` string in
+`docs/architecture/fixtures/history-message-provenance.v1.json` still describes
+native stamping as unimplemented. Stamping is partially implemented, and
+per-message filtering and content-free counts are now implemented. The new
+custody column, its guarded writers and proof-preserving restore remain
+unimplemented. Those documentation-only fixture status strings are unchanged and do not override the accepted amendment or
+constitute runtime proof.
 
 **Runtime limitations of this slice:**
 

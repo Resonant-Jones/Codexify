@@ -18,6 +18,7 @@ from typing import Any
 
 import requests
 
+from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.tts.tts_manager import TTSManager
 from guardian.voice.config import VoiceRuntimeConfig, get_voice_runtime_config
 from guardian.voice.manifest import load_manifest
@@ -276,6 +277,53 @@ def _request_transcription_openai_compatible(
     return text
 
 
+def _request_transcription_deepgram(
+    *,
+    api_key: str,
+    model: str,
+    audio_bytes: bytes,
+    mime_type: str,
+    timeout_seconds: int,
+) -> str:
+    """Transcribe audio with Deepgram's prerecorded `listen` endpoint."""
+    endpoint = os.getenv(
+        "DEEPGRAM_STT_ENDPOINT", "https://api.deepgram.com/v1/listen"
+    )
+    headers = {"Authorization": f"Token {api_key}"}
+    files = {"file": ("voice-input.wav", audio_bytes, mime_type or "audio/wav")}
+    data = {
+        "model": model,
+        "smart_format": "true",
+    }
+
+    try:
+        resp = requests.post(
+            endpoint,
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=float(timeout_seconds),
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except requests.Timeout as exc:
+        raise VoiceTimeoutError("stt_timeout") from exc
+    except requests.RequestException as exc:
+        raise VoiceProviderError(f"stt_provider_error:{exc}") from exc
+    except Exception as exc:
+        raise VoiceProviderError(f"stt_parse_error:{exc}") from exc
+
+    results = payload.get("results") or {}
+    channels = results.get("channels") or []
+    alternatives = (channels[0].get("alternatives") or []) if channels else []
+    text = str(
+        (alternatives[0] if alternatives else {}).get("transcript") or ""
+    ).strip()
+    if not text:
+        raise VoiceProviderError("stt_empty_transcript")
+    return text
+
+
 def transcribe_audio(
     audio_bytes: bytes,
     mime_type: str | None,
@@ -332,6 +380,23 @@ def transcribe_audio(
             timeout_seconds=timeout,
         )
 
+    if active_provider == "deepgram":
+        try:
+            assert_egress_allowed("deepgram")
+        except EgressDeniedError as exc:
+            raise VoiceProviderError(f"stt_provider_error:{exc}") from exc
+        api_key = (os.getenv("DEEPGRAM_API_KEY") or "").strip()
+        if not api_key:
+            raise VoiceProviderError("deepgram_api_key_missing")
+        model = os.getenv("DEEPGRAM_STT_MODEL") or "nova-3"
+        return _request_transcription_deepgram(
+            api_key=api_key,
+            model=model,
+            audio_bytes=audio_bytes,
+            mime_type=mime_type or "audio/wav",
+            timeout_seconds=timeout,
+        )
+
     raise VoiceProviderError(f"unsupported_stt_provider:{active_provider}")
 
 
@@ -378,10 +443,16 @@ def _transcode_with_ffmpeg(
                 pass
 
 
-def _provider_default_format(provider: str) -> str:
-    if provider in {"elevenlabs", "minimax"}:
-        return "mp3"
-    return "wav"
+def _provider_default_format(provider: str, manager: TTSManager | None = None) -> str:
+    """
+    Resolve the native audio container a provider emits.
+
+    The container is declared by the provider itself, so this does not encode
+    provider names. Providers that predate the declaration fall back to the
+    class default.
+    """
+    resolver = manager or TTSManager()
+    return resolver.native_output_format(provider)
 
 
 def synthesize_text(
@@ -412,7 +483,7 @@ def synthesize_text(
     audio = manager.synthesize(
         text=text, voice=voice, provider_name=active_provider
     )
-    source_fmt = _provider_default_format(active_provider)
+    source_fmt = _provider_default_format(active_provider, manager)
 
     if source_fmt != fmt_requested:
         audio = _transcode_with_ffmpeg(

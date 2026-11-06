@@ -17,6 +17,14 @@ tags:
 
 Accepted
 
+Amended 2026-11-05: native-message durable custody accepted by explicit operator
+approval of proposal `a680ff6ed4c43b46c275b668703d06bb8cec10ed`.
+Architecture acceptance only; the custody-specific schema, native writers,
+reader integration and PostgreSQL/live proof remain pending. Existing
+per-message classification/exclusion and assistant-witness reads are implemented
+on main; they do not implement this new custody representation. Release remains
+HOLD.
+
 ## Date
 
 2026-04-28
@@ -212,18 +220,39 @@ restoring an existing external conversation record is not native creation.
 A native Project/thread, a trusted backend process performing an insert, or a
 valid recall grant cannot launder such a record into native evidence.
 
-### One creation authority; existing storage, not a new subsystem
+### Accepted durable custody amendment (2026-11-05)
 
-**Positive native proof is a message-associated origin assertion assigned by
-the trusted canonical backend at the creation of that native interaction,
-atomically with the message insert.** The authority is the canonical creation
-boundary, not the assertion's text. The ordinary route, assistant completion
-worker, and other permitted native entry points must converge on that same
-rule; they are not independent provenance authorities.
+The operator explicitly supplied **“Operator decision: APPROVED”** for the
+[November 5 custody decision](../2026-11-05-native-message-origin-custody-decision.md),
+originally proposed in local commit
+`a680ff6ed4c43b46c275b668703d06bb8cec10ed`. This amendment accepts that bounded
+mechanism. It revises the JSON-only representation and positive-proof test in
+the November 1 clarification; its ownership, exclusions and no-backfill rules
+remain in force. Implementation requires separate authorization.
 
-Use the existing `ChatMessage.extra_meta` JSON object. Reserve the following
-subobject for future protected backend writes (illustrative shape, not an
-already-supported client field):
+**Security boundary:** Guardian and canonical PostgreSQL are trusted. Custody
+proves an authorized native-creation operation within that boundary. It is
+**not cryptographic attestation**. Runtime historical retrieval requires no
+message signatures or hashing, signing service, additional provenance store,
+new credentials or key-management requirement. Privileged SQL compromise or
+compromise of the trusted Guardian SQL writer is outside this mechanism's
+forgery-protection claim. An untrusted actor with arbitrary writes under that
+identity invalidates the assumed boundary; a field name or caller-controlled
+trust flag cannot repair it. Cross-installation proof-preserving restoration
+remains separately governed and unimplemented.
+
+### One creation authority; same-row custody and descriptive metadata
+
+**Positive native proof for the new creation path is a supported, creation-only
+custody discriminator paired with its coherent origin assertion, assigned by
+the trusted canonical backend atomically with the exact message insert.** The
+authority is the canonical creation operation and its enforced persistence
+channel, not either field's text. The existing exact trusted assistant witness
+below remains an independent permitted proof for certain historical assistant
+records. Neither proof grants recall permission.
+
+Retain the existing `ChatMessage.extra_meta.message_origin` assertion as
+protected descriptive metadata. Its shape is not a client authority field:
 
 ```json
 {
@@ -240,23 +269,80 @@ conversation-origin value `codexify` **with message-level semantics**: original
 native interaction creation, not current storage or the latest inserting
 process. `asserted_at` is the backend's zoned creation-time assertion timestamp,
 not a replacement for `event_at` or `created_at`. Association with this exact
-canonical message row supplies the message binding; do not embed a local
+canonical message row supplies the identity binding, but association of JSON
+alone does not prove trusted creation custody. Do not embed a local
 message/thread/Project ID in the assertion and later mistake it for authority.
 These member names are the reserved metadata contract, not new values in the
 canonical protocol-token registry. No provenance database, graph, or
 cryptographic attestation infrastructure is introduced.
 
-Storage feasibility is **code-path evidence**, not present enforcement:
-`PgDB.create_message` can insert `extra_meta` with a message in one SQL statement;
-`create_assistant_message_for_completion_attempt` writes it inside the attempt
-transaction. The `guardian/core/db.py` adapter also accepts metadata. Account
-export/restore carries the JSON and remaps canonical relationship IDs without
-needing a second origin store. Thus existing storage can represent the rule.
-However, current writers do **not** universally stamp native origin, and generic
-metadata updates do **not** yet protect this reserved subobject.
+Accept one additional nullable column on the existing canonical row:
 
-A later implementation must enforce all of these prerequisites before trusting
-this shape:
+```text
+chat_messages.native_origin_custody TEXT NULL, default NULL
+
+NULL                           no new creation-custody witness
+'native_user_v1'               canonical Guardian native-user creation
+'native_assistant_attempt_v1'  canonical Guardian accepted-assistant creation
+```
+
+These versioned discriminators identify backend creation operations, not new
+conversation origins, task statuses or event tokens. The exact message PK and
+immutable row binding associate custody with this message. The column is usable
+as evidence only through the following enforced boundary, never because its
+value resembles a trusted claim:
+
+- Introduce the nullable column, CHECKs and immutability trigger atomically.
+  There is no positive default or historical data update. Every legacy row
+  remains NULL, including a row whose JSON matches the native assertion.
+- Only `PgDB.create_native_user_message`, its `_PostgresGuardianDB` equivalent,
+  and `PgDB.create_assistant_message_for_completion_attempt` may mint the
+  respective discriminator. Native-user creation verifies the authenticated
+  canonical owner/thread and user role. The accepted-assistant operation verifies
+  the exact locked canonical request/task/turn/thread identity, non-null
+  `accepted_at`, no failure/cancellation and successful exact-message binding.
+  Imported or conflicting source claims cannot mint custody.
+- Content, protected assertion and custody must be inserted together. Assistant
+  attempt binding commits in that same transaction. Insert/binding failure
+  rolls everything back. Retries return the original row and assertion without
+  refreshing or upgrading custody. Unproven fallback writers leave NULL.
+- PostgreSQL CHECKs reject unsupported discriminators, operation/role mismatch
+  and incoherent paired assertion data. Positive-path checks must coalesce SQL
+  unknown to false; missing JSON keys, wrong types and JSON null cannot pass
+  through CHECK's nullable result semantics.
+- PostgreSQL immutability protections reject every post-insert custody change,
+  including NULL-to-positive promotion and clearing. For witnessed rows they
+  also protect `id`, `thread_id`, `user_id`, `role` and the reserved assertion
+  from rebinding/replacement. Unrelated metadata and authorized content edits
+  follow existing rules without minting proof. Existing authorized deletion
+  deletes the same row/witness; no new deletion authority is created.
+- Generic writers, importers, copy paths and restore admission must refuse
+  untrusted custody claims; they cannot hydrate the column from arbitrary
+  dictionaries. Native thread placement, request references, account ownership,
+  roles, timestamps and metadata flags cannot select the trusted operation.
+  Copy/import/restore collision must not replace a witnessed record while
+  retaining its old proof. No retrospective origin backfill is permitted.
+
+The field and these constraints are **accepted architecture, unimplemented**.
+Existing guarded native user and accepted-assistant writes produce protected
+JSON, but serialize away the in-memory capability identity. Generic audit and
+request records do not resolve ordinary-user creation custody. A nullable schema
+extension is necessary; JSON storage alone does not establish that proof.
+The migration, closed writer/admission channel, custody-aware reader verification
+and disposable PostgreSQL proof all remain prerequisites. Ordinary runtime retrieval
+does not need signatures or hashing to verify this trusted persistence boundary.
+
+As of mainline `5b12b46f9`, `guardian/core/message_origin_classification.py`
+and the recall candidate/excerpt readers already implement per-message origin
+classification, exclusion and content-free counters under the prior persisted
+assertion/write-custody model. `_select_trusted_assistant_witness_ids` implements
+the existing exact accepted assistant-witness path. Its fixture tests explicitly
+record that N04/N09 cannot be separated from identical stored assertion bytes at
+read time. These implementations remain present; they are not migration, writer
+or reader proof for the new `native_origin_custody` mechanism. This amendment
+does not reopen its accepted authority or change implementation in this PR.
+
+A later implementation must enforce these additional custody requirements:
 
 - Reject model/client attempts to supply, replace, remove, or merge the reserved
   subobject, including ordinary message metadata, tools, persona instructions,
@@ -286,9 +372,9 @@ remaining implementation prerequisite, not a reason to introduce another store.
 
 | Creation path | Required origin behavior; current evidence boundary |
 | --- | --- |
-| Ordinary user message, including structured/multimodal content | Assert native interaction creation at the authenticated canonical insert; preserve role and owner semantics. `routes/chat.py::_persist_message_to_thread` currently creates the row before a generic metadata merge, so that later merge is not creation proof. |
-| Native assistant response | Use the same guarded native creation rule, never model-supplied origin. Role `assistant` alone proves nothing. |
-| Accepted worker assistant completion | Stamp in `PgDB.create_assistant_message_for_completion_attempt` and its adapter transaction, alongside the existing exact attempt-to-message binding. Preserve retry/deduplication and terminal semantics. |
+| Ordinary user message, including structured/multimodal content | The current authenticated canonical insert stamps protected JSON. The accepted same-row `native_user_v1` custody insert remains unimplemented; later metadata enrichment is not creation proof. Preserve role and owner semantics. |
+| Native assistant response | Use the same guarded creation authority, never model-supplied origin. Only the accepted attempt operation may mint the new assistant discriminator in this slice; role `assistant` alone proves nothing. |
+| Accepted worker assistant completion | The current `PgDB.create_assistant_message_for_completion_attempt` stamps JSON inside its binding transaction. Atomic `native_assistant_attempt_v1` custody and its accepted-at/immutability checks remain unimplemented. Preserve retry/deduplication and terminal semantics. |
 | Voice user/assistant | `workers/voice_worker.py` writes the transcript through `create_message` without metadata and calls the completion **service** directly. The service uses `create_chat_message_with_metadata`; this does not inherit the queue worker's exact attempt-binding guarantee. Both need the same guarded creation rule. |
 | Hosted Room human messages | `core/hosted_room_messages.py::create_human_room_message` directly inserts `ChatMessage` with participant attribution and an empty-metadata value. Preserve participant/authored-role semantics, and guard this direct insert too; account owner and human author are distinct. |
 | Agent coding results and proof helpers | `agents/store.py::_store_source_thread_result` constructs `ChatMessage(kind="coding_result")`; `core/core_loop_proof.py` creates a user row and a synthetic assistant proof-status row without origin metadata. Origin cannot be inferred from assistant role or provider output. |
@@ -296,14 +382,13 @@ remaining implementation prerequisite, not a reason to introduce another store.
 | Separate message domains | `messaging/service.py` writes `DirectMessage`, not `ChatMessage`; `chat/chat.py` writes a separate SQLite `messages` table with no active caller found in this inspection. Neither establishes origin for canonical history. |
 | External import, copy/move, or restore | Preserve original evidence. A native writer processing an existing record must not mint fresh native authority for it. |
 
-The queued worker's active compatibility implementation uses the atomic
-assistant/attempt helper when available, but fallback adapters insert first and
-enrich metadata later. Route and worker enrichment both use shallow JSONB
-concatenation (`existing || payload`), which overwrites a colliding top-level
-key. Protecting only the initial writer is therefore insufficient: those
-mutation/fallback paths and raw ORM inserts must be included in the future
-origin guard inventory. Existing payload/request correlation metadata is not
-itself an origin assertion.
+The queued worker uses the atomic assistant/attempt helper when available;
+fallback adapters insert first and enrich later. Current canonical route/worker
+enrichment subtracts the reserved origin member from incoming metadata before
+the JSONB merge. That write-side protection does not establish reader-verifiable
+ordinary-user custody. Mutation/fallback paths, import/restore admission and raw
+ORM inserts must be included in the new column's guard inventory. Existing
+payload/request correlation metadata is not itself creation proof.
 
 For **certain existing assistant records only**, persisted server-owned accepted
 completion lineage can independently prove native generation: the same-account,
@@ -329,7 +414,7 @@ canonical runtime tokens or a second authority system:
 
 | Classification | Required evidence | Ordinary native historical recall |
 | --- | --- | --- |
-| `native` | Guarded creation assertion for this message, or the exact trusted assistant witness above; no contradictory import evidence | Eligible for source screening only; all other permissions/exclusions still apply |
+| `native` | Supported same-row custody from the guarded native operation paired with a coherent assertion, or the exact trusted historical assistant witness above; no contradictory import evidence | Eligible for source screening only; all other permissions/exclusions still apply |
 | `imported` | Existing positive provider import evidence and coherent canonical import lineage | Excluded; native placement and recall permission do not change origin |
 | `unknown` | No adequate positive proof; incomplete import/native claim; unsupported/malformed metadata; unverified restore custody | Excluded, without guessing |
 | `conflicting` | Incompatible native/import claims, or contradictory account/source-message/source-thread/creation linkage | Excluded, without selecting a convenient winner |
@@ -348,6 +433,11 @@ contradiction/uncertainty is resolved under a separately authorized process.
 Missing import markers are never positive native evidence. An unmarked legacy
 row, even one whose author or owner recalls creating it, remains `unknown` unless
 an existing durable, exact-message trusted witness independently proves origin.
+The same applies to a legacy user row with native-shaped assertion JSON but
+NULL custody. P01 and N04 must be separated by actual trusted creation evidence,
+not different expected outcomes or a caller-supplied trust description. A new
+canonical native insert receives the controlled column; a generic claim does
+not. Existing rows are not upgraded to reconstruct that distinction.
 Keep it intact; no deletion, relabeling, automatic backfill, or inference from
 message text is authorized. Human record-inspection rights are separate from
 model exposure. The imported inspection reader's existing `unproven_import_records`
@@ -363,7 +453,7 @@ native status during restore.
 
 | Restored input | Required disposition |
 | --- | --- |
-| Proven native record with preserved trusted origin custody | Preserve the original assertion/witness and original assertion timestamp; do not stamp the restore as new native creation |
+| Proven native record with preserved trusted origin custody | Preserve original creation meaning, assertion/witness and assertion time only through a separately governed proof-preserving restore path; never stamp restore as native creation. That cross-installation path remains unimplemented. |
 | Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage; keep it excluded from ordinary native recall |
 | Legacy record lacking proof | Preserve unknown origin, raw metadata, role, and temporal uncertainty; no default native assertion |
 | Contradictory provenance | Fail closed for native exposure; report conflict without leaking content. A proof-preserving restore may reject contradictory proof-bearing input under its existing fail-closed validation boundary; it must never silently repair it |
@@ -377,10 +467,15 @@ restore must establish preserved custody from an already trusted canonical expor
 and validate exact-record lineage. If it cannot do so, it must refuse admission
 of the purported trusted assertion rather than silently promoting or stripping
 it. Ordinary legacy restore can preserve records as unknown without inventing
-proof. The current restore implementation is not claimed to enforce these new
-reserved-field guards, and this clarification changes neither the archive
-format nor restore code. Trust-custody handling and negative restore tests are
-runtime prerequisites, not authorization for a new signing service.
+proof. Current generic upload admission refuses the reserved JSON assertion;
+admission for the new custody column remains unimplemented. The accepted rule
+is to refuse non-null untrusted custody claims before any writes, including at
+low-level restore helpers and in every supported archive version. Exported
+custody values are data, not portable authority. Archive ID remapping, hashes
+and owner authentication cannot authorize reinsertion, nor may a canonical-ID
+collision transfer an old row's custody. No generic trusted-custody restore is
+accepted as implemented. This amendment executes no format or restore change
+and introduces no signing service, credentials or key-management dependency.
 
 ### Per-message recall and coverage consequences
 

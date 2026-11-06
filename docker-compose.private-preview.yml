@@ -94,12 +94,15 @@ services:
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      # The sandbox route is a service capability for the coding worker.
+      CODEXIFY_ENABLE_SANDBOX_ROUTES: "true"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
@@ -124,7 +127,11 @@ services:
       CHAT_WORKER_CONCURRENCY: "1"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      # One egress value for the whole profile: Guardian validates the running
+      # allowlist against the supported profile's provider contract at startup.
+      # `deepgram` is the cloud voice lane; the chat worker's own LLM lane
+      # remains DeepSeek-only.
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
@@ -134,6 +141,28 @@ services:
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
       DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+
+  worker-voice:
+    # The voice worker is where cloud voice providers are actually invoked.
+    # It gets the same posture the backend has. It does not consume the
+    # operator-owned vector store, so it mounts no chroma volume.
+    environment:
+      CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      ALLOW_CLOUD_PROVIDERS: "true"
+      CODEXIFY_LOCAL_ONLY_MODE: "false"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+
+  worker-coding:
+    environment:
+      # Hosted sandbox execution for coding runs. The provider is resolved by
+      # name on the Guardian side; the worker never names one.
+      CODEXIFY_SANDBOX_PROVIDER: "docker_cloud"
+      CODEXIFY_PI_SANDBOX_ENABLED: "true"
+      CODEXIFY_SANDBOX_API_BASE: "http://backend:8888"
+      CODEXIFY_SANDBOX_API_KEY: "${GUARDIAN_API_KEY:-}"
+      CODEXIFY_SANDBOX_WORKSPACE_ARCHIVE: "${CODEXIFY_SANDBOX_WORKSPACE_ARCHIVE:-}"
+      CODEXIFY_SANDBOX_TIMEOUT_SECONDS: "${CODEXIFY_SANDBOX_TIMEOUT_SECONDS:-900}"
 
   worker-document-embed:
     volumes:

@@ -17,6 +17,7 @@ from .providers.local_openai_compatible_provider import (
 )
 from .providers.minimax_provider import MiniMaxProvider
 from .tts_service import (
+    NATIVE_OUTPUT_FORMAT_WAV,
     AuthenticationError,
     ProviderNotFoundError,
     TTSError,
@@ -109,6 +110,16 @@ _PROVIDER_SPECS: dict[str, dict[str, Any]] = {
             "preview": False,
         },
     },
+    "deepgram": {
+        "label": "Deepgram Aura",
+        "classification": PROVIDER_CLASSIFICATION_CLOUD,
+        "capabilities": {
+            "presetVoices": True,
+            "cloning": False,
+            "promptDefinedVoice": False,
+            "preview": False,
+        },
+    },
 }
 
 
@@ -181,6 +192,11 @@ class TTSManager:
                     "base_url": os.getenv("MINIMAX_TTS_URL"),
                     "enabled": bool(os.getenv("MINIMAX_API_KEY")),
                 },
+                "deepgram": {
+                    "api_key": os.getenv("DEEPGRAM_API_KEY"),
+                    "model": os.getenv("DEEPGRAM_TTS_MODEL"),
+                    "enabled": True,
+                },
                 "coqui": {
                     "model": os.getenv("COQUI_TTS_MODEL"),
                     "enabled": os.getenv("CODEXIFY_ENABLE_COQUI", "0")
@@ -234,6 +250,11 @@ class TTSManager:
                 elif name == "local_openai_compatible":
                     provider = provider_class(
                         base_url=provider_config.get("base_url"),
+                        api_key=provider_config.get("api_key"),
+                        model=provider_config.get("model"),
+                    )
+                elif name == "deepgram":
+                    provider = provider_class(
                         api_key=provider_config.get("api_key"),
                         model=provider_config.get("model"),
                     )
@@ -361,6 +382,14 @@ class TTSManager:
                 return (
                     PROVIDER_STATE_DEGRADED,
                     "Provider credentials or endpoint settings are missing.",
+                    [],
+                )
+            if provider_name == "deepgram" and not (
+                provider_config.get("api_key")
+            ):
+                return (
+                    PROVIDER_STATE_DEGRADED,
+                    "Provider is not reachable: check credentials and egress posture.",
                     [],
                 )
             return (
@@ -536,6 +565,37 @@ class TTSManager:
                 f"Audio output too large ({len(audio)} bytes > {max_output})"
             )
         return audio
+
+    def native_output_format(self, provider_name: Optional[str] = None) -> str:
+        """
+        Resolve the native audio container a provider emits.
+
+        Providers declare their own container, so a caller never has to
+        encode a provider name to learn it.
+
+        Args:
+            provider_name: Provider to resolve (uses default if not specified)
+
+        Returns:
+            str: Container identifier (e.g. ``wav``, ``mp3``)
+        """
+        name = provider_name or self.default_provider
+        if not name:
+            return NATIVE_OUTPUT_FORMAT_WAV
+
+        declared = getattr(
+            self._provider_classes().get(name), "native_output_format", None
+        )
+        if declared:
+            return str(declared)
+
+        declared = getattr(
+            self.providers.get(name), "native_output_format", None
+        )
+        if declared:
+            return str(declared)
+
+        return NATIVE_OUTPUT_FORMAT_WAV
 
     def list_voices(self, provider_name: Optional[str] = None) -> List[str]:
         """
