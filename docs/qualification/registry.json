@@ -22,6 +22,30 @@
       "tested_commit": null,
       "title": "Onboarding and People"
     },
+    "release-readiness-gates": {
+      "blockers": [
+        "No qualification run receipt exists for this surface; the registry cannot project a qualification status without one."
+      ],
+      "evidence": [
+        "docs/architecture/proofs/runtime/2026-11-05-stock-compose-migration-source-proof.md",
+        "docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-844b35599ed6.md",
+        "docs/architecture/proofs/2026-10-09-synthetic-account-import-recall-qualification.md",
+        "docs/architecture/proofs/2026-09-23-natural-account-import-recall-proof-r4.md"
+      ],
+      "freshness": "stale",
+      "last_qualified_at": null,
+      "latest_run": null,
+      "metrics": {
+        "human_testers": 0,
+        "independent_completions": 0,
+        "run_receipts": 0
+      },
+      "rubric": "rubrics/release-readiness-gates.md",
+      "scope": "The eight release-gate behaviours of the supported local-first runtime, exercised together on one frozen evaluated tip, each judged PASS, FAIL or UNPROVEN from a named observable surface",
+      "status": "HOLD",
+      "tested_commit": null,
+      "title": "Release Readiness Gates"
+    },
     "supported-compose": {
       "blockers": [
         "The tested commit no longer describes the current tip: 18 path(s) in this qualification surface changed since the run.",
