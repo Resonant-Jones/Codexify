@@ -127,7 +127,7 @@ After the run the fixture's **tracked** working tree was unmodified (`git status
 without it the adapter's working directory is the bound root itself and the agent's mutations land
 in that working tree.
 
-## The posture gate holds, and the egress surface is still advisory
+## The posture gate holds, and `allow_network=false` did not stop the provider transport
 
 The authorised posture was `allow_shell=true, allow_write=true, allow_network=false,
 allowed_paths=["."], max_runtime_seconds=300`. A dispatch that asked for `allow_network=true` was
@@ -139,11 +139,25 @@ POST /api/agents/coding/execute  ->  403 guardian_permission_allow_network_not_a
 
 **And yet the provider was reached.** `actual_provider_id=deepseek` with
 `runtime_identity_established=true` cannot be true without a completed network call to
-`api.deepseek.com`. The profile in force declared `CODEXIFY_EGRESS_ALLOWLIST: ""`. This
-re-proves, at this tip and on a live run, the structural finding the 2026-10-20 canary recorded:
-**the network-egress surface is advisory, not enforced.** The permission posture refuses a caller
-who *asks* for egress; it does not stop the worker from making one. The canary's conclusion —
-"disagreement is structural, not a recent regression" — stands.
+`api.deepseek.com`. The profile in force declared `CODEXIFY_EGRESS_ALLOWLIST: ""`.
+
+What that establishes is narrow, and it is worth stating precisely because it is easy to
+overread. The call that happened was the **provider transport** the coding harness needs in
+order to serve the delegated task at all. ADR-077 keeps provider API traffic and
+agent-controlled network access in different authority domains, and only the first was observed
+here. So the supported claim is:
+
+> The container permission posture's `allow_network=false` is **not a prohibition on the
+> provider transport the worker's harness requires.** The posture refuses a caller who *asks*
+> for egress, and the transport still happened.
+
+**This run does not establish whether agent-controlled network access escapes isolation.** No
+agent-initiated network destination was attempted, so that question is untested by this evidence.
+The 2026-10-20 canary's corresponding observation was a CONNECT to `api.deepseek.com:443` — the
+same provider transport — and its "network egress is advisory" conclusion should be read with the
+same limit. Its wider structural point, that the disagreement between the posture and the
+enforcement is not a recent regression, still stands; what is not established is that an agent's
+own network access is unbounded.
 
 ## A supported path cannot host this run
 
@@ -220,8 +234,9 @@ inferred from that listing.
   is not made here.
 - **No crash-durability claim.** No assertion is made about acknowledged commits surviving a
   server crash.
-- **The egress surface is still not enforced.** The provider was reached with
-  `allow_network=false`; the receipt proves the gap, not its closure.
+- **Agent-controlled network access is untested.** The provider transport completed with
+  `allow_network=false`; that is a different authority domain from agent-controlled egress
+  (ADR-077), and this run makes no claim about it either way.
 - **The fixture's tracked tree was not modified by the agent** (`patch_status: no_changes`). The
   containment is proven; an agent that mutates source under isolation was not exercised.
 - **The Private Preview was paused for the duration of this run** and is restored afterwards. This
