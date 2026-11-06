@@ -8,7 +8,12 @@ services:
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek"
+      # One egress value for the whole profile: Guardian validates the running
+      # allowlist against the supported profile's provider contract at startup.
+      # `deepgram` is the cloud voice lane (ADR-052 amendment 2026-11-06);
+      # the LLM lane itself remains DeepSeek-only.
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_PROVIDER_DISPLAY_NAME: "Whoosh'd"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
