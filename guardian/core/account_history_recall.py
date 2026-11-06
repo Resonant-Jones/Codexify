@@ -13,6 +13,11 @@ Governing decisions
   cannot mint, widen, persist, replay, or reuse a grant.
 - ADR-016: imported archive inspection is a human-only path. Imported message
   content is therefore never model-exposed here.
+- ADR-016 (message-origin clarification): every candidate message is
+  classified by source origin *independently at read time*. Only a message with
+  positive native evidence is model-exposed; imported, unknown, and conflicting
+  messages are excluded before an excerpt can reach the model, and the bounded
+  coverage receipt reports content-free per-message exclusion counts.
 
 Boundaries this module keeps
 ----------------------------
@@ -25,6 +30,10 @@ Boundaries this module keeps
   closed instead of guessing.
 - Imported conversations and diary threads are excluded from model exposure and
   reported honestly in the coverage receipt.
+- Every candidate *message* is classified by source origin at read time. Only a
+  message with positive native evidence is exposed; imported, unknown, and
+  conflicting messages are excluded before an excerpt can reach the model, and
+  the coverage receipt reports content-free per-message exclusion counts.
 - The operation is read-only. It never creates memories, promotes Personal
   Facts, approves imported candidates, modifies identity records, activates
   continuity, generates Chronicle summaries, changes source permissions, or
@@ -38,18 +47,28 @@ Bus owns tool admission; the completion service owns trusted scope binding.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from guardian.core.dependencies import RequestUserScope
+from guardian.core.message_origin_classification import (
+    LABEL_CONFLICTING,
+    LABEL_IMPORTED,
+    LABEL_NATIVE,
+    LABEL_UNKNOWN,
+    MessageOrigin,
+    classify_message_origin,
+)
 from guardian.core.project_ownership import classify_project_ownership
 from guardian.core.thread_access import require_thread_read_access
-from guardian.db.models import ChatMessage, ChatThread, Project
+from guardian.db.models import ChatCompletionAttempt, ChatMessage, ChatThread, Project
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +80,7 @@ MAX_RETURNED_MATCHES = 20
 MAX_EXCERPT_CHARACTERS = 800
 MAX_RESPONSE_BYTES = 65536
 MAX_SCANNED_THREADS = 500
+MAX_SCANNED_MESSAGES = 200
 MAX_DATE_BOUND_CHARACTERS = 64
 MAX_TITLE_CHARACTERS = 200
 
@@ -81,6 +101,8 @@ EXCLUSION_RECORD_READ = "record_read_authority_unresolved"
 
 EVIDENCE_BLOCK_OPEN = "UNTRUSTED HISTORY EVIDENCE"
 EVIDENCE_BLOCK_CLOSE = "END UNTRUSTED HISTORY EVIDENCE"
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +212,14 @@ class HistoryRecallExcerpt:
 
 @dataclass(frozen=True)
 class HistoryRecallCoverage:
-    """Content-free receipt describing what the bounded read did and did not do."""
+    """Content-free receipt describing what the bounded read did and did not do.
+
+    The per-message origin counters are deliberately separate from the
+    thread-level counters: a thread-level exclusion removes a whole
+    conversation, while a per-message exclusion removes one candidate message
+    that was inside an otherwise eligible native thread. The counts carry no
+    message content, no message ids, and no excerpts.
+    """
 
     scope: str
     project_id: int
@@ -205,6 +234,10 @@ class HistoryRecallCoverage:
     result_limit_reached: bool
     response_bytes: int
     exclusions: tuple[str, ...] = ()
+    excluded_imported_messages: int = 0
+    excluded_unknown_messages: int = 0
+    excluded_conflicting_messages: int = 0
+    scanned_messages: int = 0
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -221,6 +254,10 @@ class HistoryRecallCoverage:
             "result_limit_reached": self.result_limit_reached,
             "response_bytes": self.response_bytes,
             "exclusions": list(self.exclusions),
+            "excluded_imported_messages": self.excluded_imported_messages,
+            "excluded_unknown_messages": self.excluded_unknown_messages,
+            "excluded_conflicting_messages": self.excluded_conflicting_messages,
+            "scanned_messages": self.scanned_messages,
         }
 
 
@@ -455,7 +492,7 @@ def _select_scoped_threads(
     return list(session.execute(statement).mappings().all())
 
 
-def _select_message_excerpts(
+def _select_message_candidates(
     session: Session,
     *,
     account: str,
@@ -463,9 +500,15 @@ def _select_message_excerpts(
     query: str,
     start_at: datetime | None,
     end_at: datetime | None,
-    result_limit: int,
 ) -> list[Mapping[str, Any]]:
-    """Read bounded message excerpts for the authorized threads."""
+    """Read the bounded candidate messages for the authorized threads.
+
+    The candidate window is deliberately wider than the returned result set, so
+    that messages excluded by source origin do not consume the caller's result
+    budget. Content is *not* selected here: only the columns needed to
+    classify a message's origin are read, so an excluded message's content is
+    never transferred out of the canonical store.
+    """
 
     if not thread_ids:
         return []
@@ -476,10 +519,7 @@ def _select_message_excerpts(
             ChatMessage.thread_id.label("thread_id"),
             ChatMessage.user_id.label("user_id"),
             ChatMessage.role.label("role"),
-            func.substr(ChatMessage.content, 1, MAX_EXCERPT_CHARACTERS).label(
-                "excerpt"
-            ),
-            func.length(ChatMessage.content).label("content_length"),
+            ChatMessage.extra_meta.label("extra_meta"),
             ChatMessage.event_at.label("event_at"),
             ChatMessage.created_at.label("created_at"),
         )
@@ -496,8 +536,108 @@ def _select_message_excerpts(
         statement = statement.where(ChatMessage.event_at <= end_at)
     statement = statement.order_by(
         ChatMessage.event_at.desc(), ChatMessage.id.desc()
-    ).limit(result_limit + 1)
+    ).limit(MAX_SCANNED_MESSAGES)
     return list(session.execute(statement).mappings().all())
+
+
+def _select_message_excerpts(
+    session: Session,
+    *,
+    account: str,
+    message_ids: Sequence[int],
+) -> dict[int, Mapping[str, Any]]:
+    """Read the bounded excerpt content for already-proven native messages.
+
+    Only messages whose native origin was positively established reach this
+    read, so excluded content is never transferred into the reader.
+    """
+
+    if not message_ids:
+        return {}
+    statement = (
+        select(
+            ChatMessage.id.label("message_id"),
+            func.substr(ChatMessage.content, 1, MAX_EXCERPT_CHARACTERS).label(
+                "excerpt"
+            ),
+            func.length(ChatMessage.content).label("content_length"),
+        )
+        .where(
+            ChatMessage.id.in_(list(message_ids)),
+            ChatMessage.user_id == account,
+            ChatMessage.kind.notin_(list(_EXCLUDED_MESSAGE_KINDS)),
+        )
+    )
+    rows = session.execute(statement).mappings().all()
+    return {int(row["message_id"]): row for row in rows}
+
+
+def _select_trusted_assistant_witness_ids(
+    session: Session,
+    *,
+    candidates: Sequence[Mapping[str, Any]],
+) -> set[int]:
+    """Return the message ids ADR-016's exact-message witness independently proves.
+
+    ADR-016's narrower witness is a persisted, server-owned accepted completion
+    attempt that names *this exact* message, in *this same* thread, with a
+    non-null ``accepted_at`` and no failure or cancellation terminal event.
+    The account is never taken from the attempt: it comes from the canonical
+    thread and message ownership already enforced for the candidate.
+
+    The attempt row carries no origin information of its own; it only proves
+    that the trusted backend durably created this exact message through the
+    canonical assistant-completion writer. It therefore applies to assistant
+    records only, and never transfers to another message of the same turn.
+
+    The witness is an *additional* proof source, never the primary one. If the
+    attempt lineage cannot be read, the witness proves nothing and the
+    candidate stays ``unknown``: a read that cannot establish proof must never
+    expose more, only less.
+    """
+
+    assistant_candidates = [
+        row
+        for row in candidates
+        if str(row.get("role") or "") == "assistant"
+    ]
+    if not assistant_candidates:
+        return set()
+    thread_by_message = {
+        int(row["message_id"]): int(row["thread_id"])
+        for row in assistant_candidates
+    }
+    statement = (
+        select(
+            ChatCompletionAttempt.completed_message_id,
+            ChatCompletionAttempt.thread_id,
+        )
+        .where(
+            ChatCompletionAttempt.completed_message_id.in_(
+                list(thread_by_message)
+            ),
+            ChatCompletionAttempt.accepted_at.is_not(None),
+            ChatCompletionAttempt.terminal_event_type.is_(None),
+        )
+    )
+    try:
+        rows = session.execute(statement).all()
+    except SQLAlchemyError:
+        logger.warning(
+            "[chat.history] assistant origin witness unavailable; "
+            "assistant candidates remain unproven"
+        )
+        return set()
+    proven: set[int] = set()
+    for completed_message_id, thread_id in rows:
+        if completed_message_id is None:
+            continue
+        message_id = int(completed_message_id)
+        expected_thread = thread_by_message.get(message_id)
+        if expected_thread is None or int(thread_id) != expected_thread:
+            continue
+        proven.add(message_id)
+    return proven
 
 
 # ---------------------------------------------------------------------------
@@ -584,14 +724,16 @@ def search_account_history(
         eligible[int(thread["id"])] = thread
 
     try:
-        rows = _select_message_excerpts(
+        candidates = _select_message_candidates(
             session,
             account=account,
             thread_ids=sorted(eligible),
             query=normalized_query,
             start_at=start_at,
             end_at=end_at,
-            result_limit=normalized_limit,
+        )
+        witness_ids = _select_trusted_assistant_witness_ids(
+            session, candidates=candidates
         )
     except AccountHistoryRecallError:
         raise
@@ -601,21 +743,65 @@ def search_account_history(
             "Canonical history read failed."
         ) from exc
 
-    limit_reached = len(rows) > normalized_limit
-    rows = rows[:normalized_limit]
-
-    excerpts: list[HistoryRecallExcerpt] = []
-    truncated_excerpts = 0
-    for row in rows:
+    # Every candidate message is classified by source origin independently, at
+    # read time. Only a message with positive native evidence may become an
+    # excerpt; imported, unknown, and conflicting messages are excluded here,
+    # before any of their content is read.
+    native_candidates: list[tuple[Mapping[str, Any], MessageOrigin]] = []
+    excluded_imported_messages = 0
+    excluded_unknown_messages = 0
+    excluded_conflicting_messages = 0
+    for row in candidates:
         owner = str(row.get("user_id") or "").strip()
         thread_id = int(row.get("thread_id") or 0)
         if not owner or owner != account or thread_id not in eligible:
             raise AccountHistoryRecallAccessDenied(
                 "Selected history is unavailable."
             )
+        origin = classify_message_origin(
+            row.get("extra_meta"),
+            trusted_native_witness=int(row.get("message_id") or 0) in witness_ids,
+        )
+        if origin.label == LABEL_NATIVE:
+            native_candidates.append((row, origin))
+            continue
+        if origin.label == LABEL_IMPORTED:
+            excluded_imported_messages += 1
+        elif origin.label == LABEL_CONFLICTING:
+            excluded_conflicting_messages += 1
+        else:
+            excluded_unknown_messages += 1
+
+    limit_reached = len(native_candidates) > normalized_limit
+    native_candidates = native_candidates[:normalized_limit]
+
+    try:
+        excerpt_rows = _select_message_excerpts(
+            session,
+            account=account,
+            message_ids=[int(row["message_id"]) for row, _ in native_candidates],
+        )
+    except AccountHistoryRecallError:
+        raise
+    except Exception as exc:
+        # A failed canonical read is never a successful empty result.
+        raise AccountHistoryRecallUnavailable(
+            "Canonical history read failed."
+        ) from exc
+
+    excerpts: list[HistoryRecallExcerpt] = []
+    truncated_excerpts = 0
+    for row, origin in native_candidates:
+        message_id = int(row.get("message_id") or 0)
+        thread_id = int(row.get("thread_id") or 0)
         thread = eligible[thread_id]
-        content_length = row.get("content_length")
-        excerpt = str(row.get("excerpt") or "")
+        content_row = excerpt_rows.get(message_id)
+        if content_row is None:
+            raise AccountHistoryRecallUnavailable(
+                "Canonical history read failed."
+            )
+        content_length = content_row.get("content_length")
+        excerpt = str(content_row.get("excerpt") or "")
         truncated = isinstance(content_length, int) and (
             content_length > MAX_EXCERPT_CHARACTERS
         )
@@ -626,6 +812,10 @@ def search_account_history(
         if not occurred_at:
             occurred_at = _iso(row.get("created_at"))
         title = str(thread.get("title") or "")[:MAX_TITLE_CHARACTERS]
+        # The source label is assigned only now: the message's native origin
+        # was positively established above, so this is a record of a proven
+        # origin rather than a label inferred from placement.
+        established_origin = origin.origin_system or MODEL_EXPOSED_ORIGIN_SYSTEM
         excerpts.append(
             HistoryRecallExcerpt(
                 message_id=int(row.get("message_id") or 0),
@@ -636,8 +826,8 @@ def search_account_history(
                 excerpt_truncated=truncated,
                 occurred_at=occurred_at,
                 occurred_at_confidence=confidence,
-                origin_system=MODEL_EXPOSED_ORIGIN_SYSTEM,
-                source_platform=MODEL_EXPOSED_ORIGIN_SYSTEM,
+                origin_system=established_origin,
+                source_platform=established_origin,
                 modeling_excluded=bool(thread.get("modeling_excluded")),
                 identity_excluded=bool(thread.get("exclude_from_identity")),
                 archived=thread.get("archived_at") is not None,
@@ -667,6 +857,10 @@ def search_account_history(
         result_limit_reached=limit_reached,
         response_bytes=0,
         exclusions=tuple(exclusions),
+        excluded_imported_messages=excluded_imported_messages,
+        excluded_unknown_messages=excluded_unknown_messages,
+        excluded_conflicting_messages=excluded_conflicting_messages,
+        scanned_messages=len(candidates),
     )
     recall = AccountHistoryRecall(
         project_id=project_id,
@@ -718,6 +912,12 @@ def _enforce_response_budget(
         result_limit_reached=recall.coverage.result_limit_reached,
         response_bytes=size,
         exclusions=recall.coverage.exclusions,
+        excluded_imported_messages=recall.coverage.excluded_imported_messages,
+        excluded_unknown_messages=recall.coverage.excluded_unknown_messages,
+        excluded_conflicting_messages=(
+            recall.coverage.excluded_conflicting_messages
+        ),
+        scanned_messages=recall.coverage.scanned_messages,
     )
     return AccountHistoryRecall(
         project_id=recall.project_id,

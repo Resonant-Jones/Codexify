@@ -45,6 +45,12 @@ class CodingExecutionReasoningEffortLane:
 #: rule, so Guardian does not govern its effort at all and the harness keeps
 #: its own default — exactly as before.
 #:
+#: A listed lane is governed on every mint path: the binding minted for it
+#: carries that lane's level. An ungoverned binding on such a lane would hand
+#: the harness its own default instead — a level Guardian never authorized,
+#: and on the DeepSeek lane one the harness rejects before provider
+#: execution.
+#:
 #: The DeepSeek lane is the one the live canary exercised. The Pi harness
 #: rejects a DeepSeek invocation whose effective thinking level differs from
 #: the requested one, and that model reports ``high``; only ``off`` and
@@ -218,6 +224,26 @@ class CodingExecutionBinding:
         max_attempts: int,
         reasoning_effort: str | None = None,
     ) -> "CodingExecutionBinding":
+        # A lane with a validated compatibility rule is governed by Guardian, so
+        # every binding minted for it governs the effort. Leaving it ungoverned
+        # would hand the harness its own default instead — a level Guardian
+        # never authorized, and on the validated DeepSeek lane one the harness
+        # rejects before provider execution. A lane with no validated rule
+        # stays ungoverned, and the harness keeps its own default.
+        if reasoning_effort is None:
+            lane = coding_execution_reasoning_effort_lane(provider_id, model_id)
+            if lane is not None:
+                if (
+                    lane.default not in lane.compatible
+                    or lane.default not in PI_AUTHORIZED_REASONING_EFFORTS
+                ):
+                    # A lane that cannot authorize its own default authorizes
+                    # nothing. Fail closed here rather than persist a level no
+                    # lane validated.
+                    raise ValueError(
+                        "execution_binding_reasoning_effort_unsupported"
+                    )
+                reasoning_effort = lane.default
         binding_id = f"xeb_{uuid4().hex}"
         return cls(
             binding_id=binding_id,

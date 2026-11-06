@@ -14,7 +14,10 @@ from typing import Optional
 import memoryos.prompts as prompts
 import numpy as np
 
-from guardian.utils.embed_paths import resolve_local_embed_model
+from guardian.utils.embed_paths import (
+    resolve_local_embed_dimension,
+    resolve_local_embed_model,
+)
 
 
 # ---- Common LLM Client Protocol ----
@@ -202,7 +205,13 @@ def _get_local_embed_model(*, strict: bool) -> str | None:
 
 
 def _zero_embedding() -> np.ndarray:
-    return np.zeros(_DEFAULT_EMBED_DIM, dtype=np.float32)
+    # The fallback dimension must match the configured local model's own
+    # dimension. A Chroma collection's dimension is fixed by its first write,
+    # so a zero-embedding fallback of a different width than the real model
+    # would silently fix the shared collection at the wrong dimension and make
+    # every real embedding fail closed afterwards.
+    dim = resolve_local_embed_dimension(strict=False) or _DEFAULT_EMBED_DIM
+    return np.zeros(dim, dtype=np.float32)
 
 
 def get_embedding(text, model_name: str | None = None):
