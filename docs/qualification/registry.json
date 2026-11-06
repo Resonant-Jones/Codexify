@@ -45,22 +45,22 @@
       "title": "Supported Compose Runtime"
     },
     "supported-compose-stock": {
-      "blockers": [
-        "No qualification run receipt exists for this surface; the registry cannot project a qualification status without one."
+      "blockers": [],
+      "evidence": [
+        "docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-456da46b8.md"
       ],
-      "evidence": [],
-      "freshness": "stale",
-      "last_qualified_at": null,
-      "latest_run": null,
+      "freshness": "current",
+      "last_qualified_at": "2026-11-05",
+      "latest_run": "runs/2026-11-05-supported-compose-stock-456da46b8.md",
       "metrics": {
         "human_testers": 0,
         "independent_completions": 0,
-        "run_receipts": 0
+        "run_receipts": 1
       },
       "rubric": "rubrics/supported-compose-stock.md",
       "scope": "The supported local-first Beta profile v1-local-core-web-mcp, exercised end to end on one frozen revision through stock Docker Compose startup, without the source-matched launcher",
-      "status": "HOLD",
-      "tested_commit": null,
+      "status": "FAIL",
+      "tested_commit": "456da46b8a0549ea1d2bd440971f7477efa1669b",
       "title": "Stock Compose Runtime"
     }
   },
