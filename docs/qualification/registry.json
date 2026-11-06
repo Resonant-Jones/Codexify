@@ -45,11 +45,13 @@
       "title": "Supported Compose Runtime"
     },
     "supported-compose-stock": {
-      "blockers": [],
+      "blockers": [
+        "The tested commit no longer describes the current tip: 1 path(s) in this qualification surface changed since the run."
+      ],
       "evidence": [
         "docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-456da46b8.md"
       ],
-      "freshness": "current",
+      "freshness": "stale",
       "last_qualified_at": "2026-11-05",
       "latest_run": "runs/2026-11-05-supported-compose-stock-456da46b8.md",
       "metrics": {

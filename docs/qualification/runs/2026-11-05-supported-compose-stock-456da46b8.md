@@ -60,6 +60,19 @@ this rubric an unexercised browser boundary prevents a PASS independently.
 This execution is **FAIL**, not PASS. It never silently becomes PASS, it
 qualifies no release status, and **release remains HOLD**.
 
+**Freshness note.** This receipt is bound to the evaluated commit
+`456da46b8a0549ea1d2bd440971f7477efa1669b`, which remains an ancestor of the
+branch tip. After the run, `main` advanced with a merge that changed
+`guardian/routes/music_projects.py`, which is inside this surface's declared
+`surface_paths`. The registry therefore projects `supported-compose-stock` as
+`FAIL` at `freshness: stale` against the branch tip, with the blocker *"The
+tested commit no longer describes the current tip: 1 path(s) in this
+qualification surface changed since the run."* That staleness is the designed
+behaviour of a commit-bound surface whose code moved after the run, and it is
+reported rather than suppressed. A re-run at the merged tip is required for a
+`current` verdict; it would be expected to reach the same verdict, because the
+check-4 dimension defect is inherited and unchanged by that merge.
+
 ## Check matrix
 
 | Check | Result | Assistance | Evidence | Notes |
