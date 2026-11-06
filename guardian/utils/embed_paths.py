@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -45,6 +46,62 @@ def require_local_embed_model() -> str:
     value = get_local_embed_model(strict=True)
     assert value is not None
     return value
+
+
+def resolve_local_embed_dimension(*, strict: bool = False) -> int | None:
+    """Return the configured local embedding model's own vector dimension.
+
+    The dimension is read from the model's own config (``hidden_size`` for a
+    BERT-family encoder), so it describes the model that will actually produce
+    vectors. It is deliberately derived from the model rather than hardcoded:
+    ``bge-large-en-v1.5`` is 1024-dimensional, while 384 is the dimension of
+    ``bge-small-en-v1.5`` and of Chroma's default embedding function.
+
+    Returns ``None`` when the model is not configured as a local path or its
+    config cannot be read. With ``strict=True`` an unresolvable dimension is
+    an error instead.
+    """
+
+    model_name = get_local_embed_model(strict=strict)
+    if not model_name:
+        if strict:
+            raise RuntimeError(
+                "LOCAL_EMBED_MODEL is not set, so the embedding dimension "
+                "cannot be resolved."
+            )
+        return None
+
+    config_path = Path(model_name).expanduser() / "config.json"
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+    except OSError:
+        if strict:
+            raise RuntimeError(
+                f"Could not read embedding model config at {config_path}."
+            )
+        return None
+
+    try:
+        config = json.loads(raw)
+    except ValueError:
+        if strict:
+            raise RuntimeError(
+                f"Embedding model config at {config_path} is not valid JSON."
+            )
+        return None
+
+    for key in ("hidden_size", "dim", "embedding_size"):
+        value = config.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value > 0:
+            return value
+
+    if strict:
+        raise RuntimeError(
+            f"Embedding model config at {config_path} declares no dimension."
+        )
+    return None
 
 
 def resolve_local_embed_model(
