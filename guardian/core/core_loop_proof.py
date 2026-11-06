@@ -20,7 +20,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from guardian.context.broker import ContextBroker
+from guardian.context.broker import RAG_TRACE_EVIDENCE_KEY, ContextBroker
 from guardian.context.retrieval_router_policy import (
     SOURCE_MODE_PROJECT,
 )
@@ -370,6 +370,7 @@ async def _build_retrieval_proof(
         "sources": sources,
         "source_hit_counts": source_hit_counts,
         "proof_capable": any(int(v or 0) > 0 for v in source_hit_counts.values()),
+        "evidence": dict(rag_trace.get(RAG_TRACE_EVIDENCE_KEY) or {}),
         "retrieval_summary": {
             "messages": len(context.get("messages") or []),
             "semantic": len(context.get("semantic") or []),
