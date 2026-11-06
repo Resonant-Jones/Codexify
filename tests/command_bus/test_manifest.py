@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from guardian.codex_runner_bridge import command_bus as bridge_command_bus
 from guardian.command_bus import manifest as manifest_module
 from guardian.command_bus.contracts import CommandSpec
+from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
 from guardian.routes import command_bus as command_bus_routes
 
 
@@ -36,10 +37,11 @@ def test_manifest_includes_internal_bridge_commands_and_raw_routes_unchanged() -
     ]
     raw_commands = [command for command in manifest.commands if command.layer == "raw"]
 
-    assert len(internal_commands) == 2
+    assert len(internal_commands) == 3
     assert {command.command_id for command in internal_commands} == {
         bridge_command_bus.INTERNAL_VALIDATE_PLAN_PACK_COMMAND_ID,
         bridge_command_bus.INTERNAL_ORCHESTRATE_DRY_RUN_PREFLIGHT_COMMAND_ID,
+        NATIVE_READ_FILE_COMMAND_ID,
     }
     for command in internal_commands:
         assert command.risk == "read_only"
@@ -50,6 +52,18 @@ def test_manifest_includes_internal_bridge_commands_and_raw_routes_unchanged() -
         assert command.method == "INTERNAL"
         assert command.path_template == ""
         assert command.operation_id is None
+
+    native = next(
+        command
+        for command in internal_commands
+        if command.command_id == NATIVE_READ_FILE_COMMAND_ID
+    )
+    # A native command declares its own open-world posture and carries a
+    # human-readable justification. Neither is a canonical policy reason code.
+    assert native.open_world is False
+    assert native.justification
+    # A native command is never an OpenAPI route.
+    assert NATIVE_READ_FILE_COMMAND_ID not in app.openapi().get("paths", {})
 
     health = next(
         command
@@ -80,6 +94,7 @@ def test_build_command_index_includes_internal_bridge_commands() -> None:
     assert index[
         bridge_command_bus.INTERNAL_ORCHESTRATE_DRY_RUN_PREFLIGHT_COMMAND_ID
     ].layer == "internal"
+    assert index[NATIVE_READ_FILE_COMMAND_ID].layer == "internal"
     assert index["op::health_check"].layer == "raw"
 
 

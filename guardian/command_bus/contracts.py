@@ -173,6 +173,18 @@ class CommandSpec(BaseModel):
     approval_mode: Literal["none", "blocked_phase1"]
     input_schema: dict[str, Any] = Field(default_factory=dict)
 
+    #: Declared property: the command's effect reaches beyond the local machine
+    #: and its files. This is a *declaration*, not the ``network_allowed``
+    #: permission, which is resolved per execution from the effective
+    #: permission profile. Neither axis derives from the other.
+    open_world: bool = False
+
+    #: Human-readable rationale for why the command behaves as it does. This is
+    #: *not* a canonical policy reason code: the reason codes emitted by
+    #: ``guardian.tools.policy`` are the stable machine vocabulary, and a
+    #: justification is never emitted as, or collapsed into, one.
+    justification: str = ""
+
     model_config = ConfigDict(extra="forbid")
 
 
