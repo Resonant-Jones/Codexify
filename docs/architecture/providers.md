@@ -212,4 +212,4 @@ Voice provider selection is separate from chat routing:
   one value for the whole supported profile, and Guardian validates it against
   the profile's provider contract at startup, so the allowlist and the profile
   must always agree — see
-  [[adr/052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].
+  [[adr/ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].

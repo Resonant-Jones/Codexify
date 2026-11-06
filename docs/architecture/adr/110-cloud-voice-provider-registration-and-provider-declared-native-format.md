@@ -93,7 +93,7 @@ profile's `provider_contract` changes to `deepseek,deepgram` and **every**
 deployment of that profile presents exactly that string — the Private Preview
 overlay, the Whoosh'd dual-provider overlay, and the tester env template. This
 is recorded as an amendment to
-[[052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].
+[[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]].
 
 The stock deployment is unaffected: `docker-compose.yml` declares no cloud
 posture for the backend or the voice worker, so it stays local-only with an
@@ -158,7 +158,7 @@ Extends [[069-codexify-beta-runtime-support-boundary|ADR-069]] without
 superseding it, and is independent of
 [[109-sandbox-execution-contract-and-kernel-enforced-storage-posture|ADR-109]].
 It amends
-[[052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]] only for the
+[[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]] only for the
 cloud voice egress lane of the `v1-whooshd-deepseek-web` profile. It does not
 change the local TTS microservice, the executable-backend registry, or the
 voice-profile schema.
