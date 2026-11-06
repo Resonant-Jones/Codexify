@@ -11,11 +11,11 @@ import select
 import socket
 import struct
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from redis.exceptions import TimeoutError as RedisTimeoutError
-from sqlalchemy import create_engine
+from sqlalchemy import and_, case, create_engine, or_, select as sql_select, update
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -43,6 +43,19 @@ _shutdown_requested = False
 DOCUMENT_EMBED_FINALIZATION_MARGIN_SECONDS = 40
 _DATABASE_OPERATION_SECONDS = 10
 _CHILD_REAP_SECONDS = 5
+
+# Sweeper defaults. The worker owns recovery for documents abandoned in
+# 'processing' by a killed embed process; no separate service is required.
+DEFAULT_STALE_PROCESSING_SECONDS = 900.0
+DEFAULT_SWEEP_INTERVAL_SECONDS = 60.0
+DEFAULT_SWEEP_BATCH_LIMIT = 50
+
+# Terminal reasons recorded on documents abandoned in 'processing'.
+# Recovery is intentionally NOT a re-embed: the document embed path writes
+# vector chunks under freshly generated identifiers, so a repeated embed of
+# the same document duplicates chunks instead of replacing them.
+ABANDONED_PROCESSING_REASON = "document_embed_abandoned_processing"
+ABANDONED_PROCESSING_NO_TEXT_REASON = "document_embed_abandoned_parsed_text_missing"
 
 
 class _WriterNotReaped(RuntimeError):
@@ -282,6 +295,135 @@ def _update_status(
         session.commit()
 
 
+def _sweep_settings(settings: Any) -> tuple[float, float, int]:
+    """Read sweeper settings defensively so partial settings stubs stay valid."""
+    stale = float(
+        getattr(settings, "DOCUMENT_EMBED_STALE_SECONDS", DEFAULT_STALE_PROCESSING_SECONDS)
+    )
+    interval = float(
+        getattr(settings, "DOCUMENT_EMBED_SWEEP_INTERVAL_SECONDS", DEFAULT_SWEEP_INTERVAL_SECONDS)
+    )
+    limit = int(
+        getattr(settings, "DOCUMENT_EMBED_SWEEP_BATCH_LIMIT", DEFAULT_SWEEP_BATCH_LIMIT)
+    )
+    return stale, interval, limit
+
+
+def _abandoned_processing_statement(
+    claims: list[tuple[str, datetime]],
+    *,
+    completed_at: datetime,
+):
+    """Build the atomic compare-and-set UPDATE for abandoned claims.
+
+    The claim timestamp is part of the predicate, so a document that a live
+    worker re-claimed after the candidate read is never clobbered.
+    """
+    predicate = or_(
+        *[
+            and_(
+                UploadedDocument.id == doc_id,
+                UploadedDocument.embedding_started_at == started_at,
+            )
+            for doc_id, started_at in claims
+        ]
+    )
+    return (
+        update(UploadedDocument)
+        .where(
+            UploadedDocument.embedding_status
+            == EmbeddingLifecycleStatus.PROCESSING.value,
+            predicate,
+        )
+        .values(
+            embedding_status=EmbeddingLifecycleStatus.FAILED.value,
+            embedding_error=case(
+                (
+                    or_(
+                        UploadedDocument.parsed_text.is_(None),
+                        UploadedDocument.parsed_text == "",
+                    ),
+                    ABANDONED_PROCESSING_NO_TEXT_REASON,
+                ),
+                else_=ABANDONED_PROCESSING_REASON,
+            ),
+            embedding_completed_at=completed_at,
+        )
+        .returning(UploadedDocument.id)
+        .execution_options(synchronize_session=False)
+    )
+
+
+def sweep_abandoned_processing_documents(
+    db: GuardianDB,
+    *,
+    stale_after_seconds: float,
+    batch_limit: int = DEFAULT_SWEEP_BATCH_LIMIT,
+    now: datetime | None = None,
+) -> list[str]:
+    """Terminally fail documents abandoned in 'processing' by a killed worker.
+
+    The sweeper is bounded by ``batch_limit`` and idempotent: a document that
+    is no longer claimed (re-claimed, already terminal) is never touched.
+    """
+    if batch_limit <= 0:
+        return []
+    moment = now or _utc_now()
+    cutoff = moment - timedelta(seconds=stale_after_seconds)
+    with postgres_operation_scope(_DATABASE_OPERATION_SECONDS), db.get_session() as session:
+        candidates = session.execute(
+            sql_select(
+                UploadedDocument.id,
+                UploadedDocument.embedding_started_at,
+            )
+            .where(
+                UploadedDocument.embedding_status
+                == EmbeddingLifecycleStatus.PROCESSING.value,
+                UploadedDocument.embedding_started_at.isnot(None),
+                UploadedDocument.embedding_started_at < cutoff,
+            )
+            .order_by(UploadedDocument.embedding_started_at.asc())
+            .limit(batch_limit)
+        ).all()
+        if not candidates:
+            return []
+        claims = [(row[0], row[1]) for row in candidates]
+        result = session.execute(
+            _abandoned_processing_statement(claims, completed_at=moment)
+        )
+        failed_ids = [row[0] for row in result.fetchall()]
+        session.commit()
+    if failed_ids:
+        logger.warning(
+            "[document-embed] abandoned processing documents failed ids=%s "
+            "stale_after_seconds=%s",
+            ",".join(str(doc_id) for doc_id in failed_ids),
+            stale_after_seconds,
+        )
+    return failed_ids
+
+
+def _run_abandoned_processing_sweep(
+    db: GuardianDB,
+    *,
+    stale_after_seconds: float,
+    batch_limit: int,
+) -> list[str]:
+    """Run one sweep pass; a sweep failure must never stop the worker."""
+    try:
+        return sweep_abandoned_processing_documents(
+            db,
+            stale_after_seconds=stale_after_seconds,
+            batch_limit=batch_limit,
+        )
+    except Exception as exc:  # pragma: no cover - defensive worker guard
+        logger.warning(
+            "[document-embed] abandoned processing sweep failed: %s",
+            type(exc).__name__,
+        )
+        return []
+
+
 def _build_chunk_metadata(
     doc: dict[str, Any],
     chunks: list,
@@ -429,7 +571,9 @@ def run_forever() -> None:
     _shutdown_requested = False
     signal.signal(signal.SIGTERM, _request_shutdown)
     signal.signal(signal.SIGINT, _request_shutdown)
-    timeout = get_settings().DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS
+    settings = get_settings()
+    timeout = settings.DOCUMENT_EMBED_EXECUTION_TIMEOUT_SECONDS
+    stale_seconds, sweep_interval, sweep_batch_limit = _sweep_settings(settings)
     execution = _BoundedEmbedding(timeout)
     logger.info(
         "[document-embed] worker started queue=%s execution_bound_seconds=%s "
@@ -453,7 +597,25 @@ def run_forever() -> None:
                     }, sort_keys=True),
                 )
                 raise SystemExit(1) from exc
+        # The worker owns recovery for documents abandoned in 'processing'.
+        # Sweeping here keeps the Compose topology unchanged: no extra service.
+        sweep_db = None
+        try:
+            sweep_db = _get_db()
+        except Exception as exc:
+            logger.warning(
+                "[document-embed] abandoned processing sweep unavailable: %s",
+                type(exc).__name__,
+            )
+        next_sweep_at = 0.0
         while not _shutdown_requested:
+            if sweep_db is not None and time.monotonic() >= next_sweep_at:
+                _run_abandoned_processing_sweep(
+                    sweep_db,
+                    stale_after_seconds=stale_seconds,
+                    batch_limit=sweep_batch_limit,
+                )
+                next_sweep_at = time.monotonic() + sweep_interval
             try:
                 payload = dequeue_document_embed(timeout=1)
             except RedisTimeoutError:

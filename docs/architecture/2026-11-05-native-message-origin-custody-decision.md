@@ -2,13 +2,16 @@
 
 Status: **ACCEPTED — operator decision 2026-11-05; ADR-016 amended.**
 Implementation: **pending separate authorization; no runtime or schema change.**
-Evidence baseline: `edea2690d4f3a60481e7628dc4c9fb27ab120030`, branch
+Original proposal evidence baseline: `edea2690d4f3a60481e7628dc4c9fb27ab120030`, branch
 `codex/stock-compose-migration-source`.
 Proposal commit: `a680ff6ed4c43b46c275b668703d06bb8cec10ed` (local at acceptance).
-Mainline integration baseline: `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08`, freshly
-fetched `origin/main`; this document was imported deliberately without its older
-branch current-state changes.
-Release: **HOLD**. Reader enforcement and live recall qualification remain open.
+Original acceptance integration baseline: `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08`;
+the proposal was imported without its older branch current-state changes.
+PR #1013 reconciliation baseline (2026-11-06):
+`e72464e05fbe0e0a827b93ad17161cab5d6c7475`, merged normally into acceptance
+head `8b0b2bef5857ebaf947a609db51794758a7136f7`.
+Release: **HOLD**. Existing reader classification is implemented; the accepted
+custody mechanism, its reader integration and qualification remain pending.
 
 ## Operator acceptance record
 
@@ -23,8 +26,9 @@ accepted assistant witnesses and no retrospective backfill.
 [ADR-016](./adr/016-continuity-governance-surface-contract.md#accepted-durable-custody-amendment-2026-11-05)
 is the governing accepted authority. This decision records its rationale and
 implementation boundary, rather than a second origin authority. Acceptance
-changes the authorized architecture only. Migration, reader repair, deployment,
-data rewrite and qualification still require separate authorization; no runtime,
+changes the authorized architecture only. Migration, custody-aware reader
+integration, deployment, data rewrite and qualification still require separate
+authorization; no runtime,
 fixture or database state is changed by this acceptance task.
 
 ## 1. Existing evidence: no ordinary-user witness is sufficient
@@ -64,6 +68,17 @@ was inspected, and no claim is made that a particular live row is forged.
 
 **Finding:** the inspected accepted records contain no sufficient durable
 ordinary-user native-creation witness. A reader-only repair cannot infer one.
+
+**Current-main implementation distinction (2026-11-06).**
+`guardian/core/message_origin_classification.py` already classifies candidate
+provenance. The recall reader loads scoped candidates, resolves existing exact
+accepted assistant witnesses, classifies and counts exclusions, then fetches
+only eligible excerpts. `tests/core/test_message_origin_classification.py`
+explicitly records the write-custody cases N04/N09 as indistinguishable from
+identical serialized assertion bytes. Existing classifier and recall regression
+coverage do not establish the new durable ordinary-user witness. No custody
+column, migration or guarded custody writer exists in this reconciled baseline;
+no PostgreSQL or runtime qualification of that mechanism is claimed.
 
 ## 2. Accepted representation
 
@@ -210,11 +225,15 @@ paths and this downgrade refusal on disposable PostgreSQL.
 
 ## 5. Reader verification and P01/N04 separation
 
-The future `_select_message_excerpts` query must project the custody column and
-only necessary provenance/witness fields from canonical storage. The contract's
-older `_candidate_message_rows` reference is stale at this baseline; no such
-function exists here. Use bounded queries without attempt-join row multiplication
-or an unbounded scan. Do not expose raw metadata or provider IDs in receipts.
+Extend the existing `_select_message_candidates` query to project the custody
+column and only necessary provenance/witness fields from canonical storage.
+Extend `message_origin_classification.classify_message_origin` to verify that
+custody before eligibility; preserve `_select_message_excerpts` as the later
+content fetch for eligible IDs. Reuse the existing accepted-assistant witness
+path, exclusion counters and response-budget handling. Use bounded queries
+without attempt-join row multiplication or an unbounded scan. Do not expose raw
+metadata or provider IDs in receipts. This describes the next implementation,
+not a change made by this documentation reconciliation.
 
 Verification order:
 
@@ -333,9 +352,9 @@ recall. Its required files/dependencies are concrete:
 | Native producers/persistence | `guardian/core/db.py` and `guardian/core/pgdb.py`: existing native-user seams and accepted assistant-attempt seam, typed/private insertion plumbing, atomic SQL, role/source/acceptance checks and low-level restore/collision refusal. No generic writer defaults to native. |
 | Untrusted entry points | `guardian/routes/chat.py`, `guardian/workers/chat_worker.py`: both user-message POST entry paths, the accepted assistant path and fallbacks; reject authoritative-field injection and preserve NULL on unproven paths. |
 | Import and other direct ORM writers | Inspect `backend/rag/chatgpt_migration.py`, `guardian/core/hosted_room_messages.py`, `guardian/agents/store.py`, `guardian/core/core_loop_proof.py`, `guardian/core/chat_completion_service.py`, `guardian/workers/voice_worker.py`, `guardian/workers/chat_embedding_worker.py`. They receive no new native authority in this slice; omit/default NULL and preserve guards. Change one only if an actual dictionary hydration, replacement or custody collision dependency is found, recording that reason. |
-| Reader | `guardian/core/account_history_recall.py`: `_select_message_excerpts`, classification before excerpt construction, exact assistant witness fallback, content-free message exclusion counts, preservation through response-budget trimming. No new retrieval pipeline. |
+| Reader | Extend `guardian/core/account_history_recall.py::_select_message_candidates` and `guardian/core/message_origin_classification.py::classify_message_origin` with custody verification. Preserve existing classification before `_select_message_excerpts`, exact assistant-witness fallback, content-free exclusion counts and response-budget trimming. No new retrieval pipeline. |
 | Portability/admission | `guardian/core/pgdb.py` account-export bundle and legacy projections; `guardian/services/account_export.py` version handling; `guardian/services/account_restore.py` admission. Carry claims explicitly, reject untrusted positive restore and incompatible export versions, preserve account/ID-map rules. |
-| Tests | Existing `tests/core/test_account_history_recall.py`, `tests/routes/test_account_history_recall.py`, `tests/core/test_message_origin_custody.py`, `tests/routes/test_message_origin_custody.py`, `tests/workers/test_native_assistant_origin.py`, `tests/services/test_account_restore_message_origin.py`; add a focused migration/trigger test under `tests/db/` and focused export compatibility coverage. |
+| Tests | Existing `tests/core/test_message_origin_classification.py`, `tests/core/test_account_history_recall.py`, `tests/routes/test_account_history_recall.py`, `tests/core/test_message_origin_custody.py`, `tests/routes/test_message_origin_custody.py`, `tests/workers/test_native_assistant_origin.py`, `tests/services/test_account_restore_message_origin.py`; add a focused migration/trigger test under `tests/db/` and focused export compatibility coverage. |
 | Documentation | `account-history-recall-contract.md`, `account-export-restore-contract.md`, `00-current-state.md`, and a dated implementation/proof receipt; update fixture persisted-evidence projections only if separately authorized, preserving all existing expected outcomes and trust distinctions. |
 
 Required regressions and disposable PostgreSQL proof:

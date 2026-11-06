@@ -30,7 +30,13 @@ from guardian.core.chat_postgres_deadline import require_accepted_work_budget
 from guardian.utils.embed_paths import (
     get_local_embed_model,
     require_local_embed_model,
+    resolve_local_embed_dimension,
 )
+
+#: Used only when no local model is configured and the mock backend cannot
+#: derive a dimension from one. It is bge-small-en-v1.5's dimension, which is
+#: NOT the dimension of bge-large-en-v1.5 (1024).
+_FALLBACK_EMBED_DIM = 384
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -324,8 +330,28 @@ class LocalSemanticEmbedder:
                 "MockEmbeddingBackend not available. "
                 "Ensure guardian.embeddings.mock_backend is importable."
             )
-        # Use 384 dims to match bge-large-en-v1.5 default
-        mock = MockEmbeddingBackend(dim=384, normalize=True)
+        # The mock must produce vectors of the SAME dimension as the configured
+        # local model, because a Chroma collection's dimension is fixed by its
+        # first write: whichever writer touches the shared collection first
+        # decides its dimension for the collection's life, and a later writer
+        # carrying a different dimension is refused with "Collection
+        # expecting embedding with dimension of X, got Y".
+        #
+        # The dimension is therefore derived from the configured model rather
+        # than hardcoded. bge-large-en-v1.5 is 1024-dimensional; the previous
+        # hardcoded 384 was bge-small-en-v1.5's dimension (and Chroma's default
+        # embedding function's), and silently fixed the shared collection at
+        # 384 so that every real bge-large embedding was then refused.
+        dimension = resolve_local_embed_dimension(strict=False)
+        if dimension is None:
+            dimension = _FALLBACK_EMBED_DIM
+            logger.warning(
+                "[embedder] mock backend: could not resolve the configured "
+                "model's dimension; falling back to %d. The mock's vectors may "
+                "not match the configured model's.",
+                dimension,
+            )
+        mock = MockEmbeddingBackend(dim=dimension, normalize=True)
         logger.info(
             "[embedder] backend=mock dim=%d normalize=%d",
             mock.dim,

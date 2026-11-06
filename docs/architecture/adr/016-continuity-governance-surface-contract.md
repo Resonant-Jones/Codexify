@@ -19,8 +19,11 @@ Accepted
 
 Amended 2026-11-05: native-message durable custody accepted by explicit operator
 approval of proposal `a680ff6ed4c43b46c275b668703d06bb8cec10ed`.
-Architecture acceptance only; schema, writer/reader implementation and
-PostgreSQL/live proof remain pending. Release remains HOLD.
+Architecture acceptance only; the custody-specific schema, native writers,
+reader integration and PostgreSQL/live proof remain pending. Existing
+per-message classification/exclusion and assistant-witness reads are implemented
+on main; they do not implement this new custody representation. Release remains
+HOLD.
 
 ## Date
 
@@ -325,9 +328,19 @@ Existing guarded native user and accepted-assistant writes produce protected
 JSON, but serialize away the in-memory capability identity. Generic audit and
 request records do not resolve ordinary-user creation custody. A nullable schema
 extension is necessary; JSON storage alone does not establish that proof.
-The migration, closed writer/admission channel, reader verification and
-disposable PostgreSQL proof all remain prerequisites. Ordinary runtime retrieval
+The migration, closed writer/admission channel, custody-aware reader verification
+and disposable PostgreSQL proof all remain prerequisites. Ordinary runtime retrieval
 does not need signatures or hashing to verify this trusted persistence boundary.
+
+As of mainline `e72464e05`, `guardian/core/message_origin_classification.py`
+and the recall candidate/excerpt readers already implement per-message origin
+classification, exclusion and content-free counters under the prior persisted
+assertion/write-custody model. `_select_trusted_assistant_witness_ids` implements
+the existing exact accepted assistant-witness path. Its fixture tests explicitly
+record that N04/N09 cannot be separated from identical stored assertion bytes at
+read time. These implementations remain present; they are not migration, writer
+or reader proof for the new `native_origin_custody` mechanism. This amendment
+does not reopen its accepted authority or change implementation in this PR.
 
 A later implementation must enforce these additional custody requirements:
 
