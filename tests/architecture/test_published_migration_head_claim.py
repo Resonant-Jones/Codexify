@@ -11,10 +11,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_CONFIG_PATH = REPO_ROOT / "backend" / "alembic.ini"
 CURRENT_STATE_PATH = REPO_ROOT / "docs" / "architecture" / "00-current-state.md"
 
+#: Matches the authoritative migration claim in "## Current phase". The claim
+#: is matched on its MEANING — a single Alembic head plus a revision count —
+#: rather than on one exact wording, because the weekly current-state override
+#: rewrites that sentence's connective prose while keeping the same claim.
+#: Both wordings the repository has used are accepted:
+#:   "The repository migration graph is a single Alembic head, `<head>` —
+#:    verified at this tip by resolving all `<n>` revision files"
+#:   "The migration graph is a single Alembic head, `<head>`, across
+#:    `<n>` revision files — re-verified at this tip by …"
 CURRENT_PHASE_CLAIM = re.compile(
-    r"The repository migration graph is a single Alembic head, "
-    r"`(?P<head>[0-9a-f]+)` — verified at this tip by resolving all "
-    r"(?P<revision_count>\d+) revision files"
+    r"migration graph is a single Alembic head,\s*"
+    r"`(?P<head>[0-9a-f]{12})`"
+    r"[^.]*?\b(?P<revision_count>\d+)\s+revision files"
 )
 
 
