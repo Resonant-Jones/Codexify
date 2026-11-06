@@ -16,21 +16,41 @@ version: 1
 title: Release Readiness Gates
 scope: The eight release-gate behaviours of the supported local-first runtime, exercised together on one frozen evaluated tip, each judged PASS, FAIL or UNPROVEN from a named observable surface
 surface_paths:
-  - docker-compose*.yml
-  - config/supported_profiles/**
-  - guardian/queue/**
-  - guardian/workers/**
+  # 1. queue / worker
+  - guardian/queue/redis_queue.py
+  - guardian/queue/account_import_queue.py
+  - guardian/queue/document_embed_queue.py
+  - guardian/workers/chat_worker.py
+  - guardian/workers/document_embed_worker.py
+  # 2. deadline
   - guardian/core/chat_completion_service.py
   - guardian/core/chat_postgres_deadline.py
-  - guardian/core/db.py
   - guardian/tasks/chat_deadline.py
+  # 3. graceful stop
+  - guardian/workers/coding_worker.py
+  - backend/scripts/docker/run_worker_coding.py
+  # 4. lock
+  - guardian/queue/turn_lock.py
+  - guardian/core/db.py
   - guardian/agents/store.py
-  - guardian/db/models.py
-  - guardian/db/migrations/**
-  - backend/scripts/docker/run_worker_*.py
+  # 5. migration deployment
   - backend/scripts/docker/run_migrator.py
-  - frontend/src/**
-  - guardian/services/account_import.py
+  - guardian/db/migrations/versions/**
+  # 6. browser
+  - frontend/src/features/chat/**
+  - frontend/src/components/chat/**
+  # 7. import to recall
+  - guardian/services/openai_account_import.py
+  - guardian/services/imported_history_evidence.py
+  - guardian/memoryos/**
+  # 8. scope isolation
+  - guardian/memoryos/**
+  - guardian/core/db.py
+  # the runtime the gates are exercised under
+  - docker-compose.yml
+  - docker-compose.private-preview.yml
+  - config/supported_profiles/v1-local-core-web-mcp.yaml
+  - guardian/db/models.py
 evidence:
   - docs/architecture/proofs/runtime/2026-11-05-stock-compose-migration-source-proof.md
   - docs/architecture/proofs/supported-compose/2026-11-05-supported-compose-stock-844b35599ed6.md
