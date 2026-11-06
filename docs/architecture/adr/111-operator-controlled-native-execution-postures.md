@@ -78,7 +78,7 @@ Five authorities are kept **distinct**. Collapsing any two of them is a defect i
 
 1. **Operator authentication** — *who is presenting.* Governed by ADR-092 and ADR-095. A deployment API key, an `operator_session`, and a canonical account-admin principal are different authority classes. Under ADR-105, raw API-key and `operator_session` credentials keep the operator-control lane and never produce, imply, or record a human approver identity.
 2. **Account authorization** — *what this account may do.* Governed by the account's own grants and the canonical `User` role.
-3. **Configuration ownership** — *who may change this instance's posture, and where that truth is stored.* Owned by the operator control plane under ADR-095. The Configuration Inspector remains read-only and gains no write authority here.
+3. **Configuration ownership** — *who may change this instance's posture, and where that truth is stored.* **This record does not assign ownership.** ADR-095 supplies operator authentication and a read-only inspection boundary; it is **not** the owner of the persistent configuration store. The *shape* of the answer is fixed here — one operator-owned store, carrying revisions, actor attribution, and provenance — but *which existing component owns that store* is **unresolved** and must be identified from the current system before any persistence is implemented. The Configuration Inspector remains read-only and gains no write authority here.
 4. **Execution permissions** — *what a given execution attempt may do.* Granted per attempt, never inherited from model-authored input.
 5. **Physical isolation** — *where the process actually runs.* An execution-environment property, and the one axis that can only be truthfully asserted by the executor that realizes it.
 
@@ -129,7 +129,7 @@ Executor selection is **independent of approval mode**. Three conceptual executi
 | Target | Meaning | Relationship to ADR-077 |
 | --- | --- | --- |
 | **Isolated Sandbox Provider** | Execution inside a provider that realizes the ADR-077 provider-neutral contract, including posture establishment, egress, secret isolation, resource ceilings, teardown, and bounded output | Conformant |
-| **Trusted container execution** | Execution inside a container the operator trusts, with boundaries **clearly disclosed** rather than asserted | Conformant only where the container genuinely realizes the requested posture; disclosure is mandatory either way |
+| **Trusted container execution** | Execution inside a container the operator trusts, with boundaries **clearly disclosed** rather than asserted | Conformant only where the container genuinely realizes the requested posture. A **nonconformant** container — including one that runs the Guardian application — is a deliberate exception of the same class as host-native execution |
 | **Operator-authorized host-native execution** | Execution directly on the host, in a component **separate from Guardian's application process** | **Deliberate exception. Requires explicit architectural acceptance before any implementation.** |
 
 Requirements:
@@ -162,7 +162,7 @@ Persistent operator configuration must survive: application restart, worker rest
 
 The durable record carries: a revision, actor attribution, provenance, and revocation state. An effective-policy inspector exposes the resolved posture and its provenance.
 
-**Existing configuration and persistence ownership is identified before any new storage table is proposed.** The operator control plane under ADR-095 and the existing configuration stores are the owners of truth. This decision does not authorize a parallel configuration store.
+**The owner of the persistent configuration store is unresolved by this record.** ADR-095 provides operator authentication and a read-only inspection boundary; it does not own this store, and this decision does not assign ownership to it or to any other component. The existing owner must be identified from the current system before the persistence model here is implemented or any storage table is proposed. This decision does not authorize a parallel configuration store.
 
 ### 7. Execution-time posture
 
@@ -188,12 +188,17 @@ Disabling optional diagnostic telemetry is not the same as deleting canonical ex
 
 ## Relationship to ADR-077
 
-ADR-077 remains **Accepted and normative**. This record proposes, but does not enact, a narrow exception to two of its requirements, and only for the host-native execution target:
+ADR-077 remains **Accepted and normative**. This record proposes, but does not enact, a narrow exception to two of its requirements, and only for a deliberately nonconformant execution target.
+
+The exception covers **two categories of deliberately nonconformant target**, not host-native execution alone:
+
+- **(a) Host-native execution** — there is no isolation posture to establish.
+- **(b) Nonconformant trusted-container execution** — a container was selected that does not establish the posture the operator's configuration requires. A container that runs the Guardian application is one instance of this; so is a container that cannot enforce a required resource ceiling, or that cannot enforce an egress or secret-isolation boundary. The container's real boundaries are disclosed rather than assumed.
 
 | ADR-077 requirement | Proposed exception |
 | --- | --- |
-| Security invariant 5 — "A sandbox fails closed if its requested isolation posture cannot be established or attested." | For the host-native target, there is no isolation posture to establish. The exception is that the posture is *absent by explicit operator selection* rather than *failed to establish*. The target must fail closed in a different, truthful way: it must refuse to claim any isolation it does not have. |
-| Security invariant 7 — "Tool allowlists and prompt instructions are defense in depth, not sufficient filesystem, network, or process isolation." | For the host-native target, defense in depth is the *only* layer. This is the acknowledged risk of the mode, and it is why the mode is operator-selected, never default, and never silently reached. |
+| Security invariant 5 — "A sandbox fails closed if its requested isolation posture cannot be established or attested." | Conformant Sandbox Providers fail closed as written and are **not** excepted. For a deliberately selected nonconformant target — category (a) or (b) — the posture is *absent by explicit operator selection* rather than *failed to establish*. The target must instead be truthful: it must report exactly which postures it actually established, and must refuse to claim the ones it did not. A genuine conformance failure inside a conformant provider remains a fail-closed event. |
+| Security invariant 7 — "Tool allowlists and prompt instructions are defense in depth, not sufficient filesystem, network, or process isolation." | For a deliberately selected nonconformant target, defense in depth is the *only* layer. This is the acknowledged risk of the mode, and it is why the mode is operator-selected, never default, and never silently reached. |
 | Security invariant 9 — "A sandboxed process receives no host/container administration capabilities." | Not excepted. The host-native executor is a separate component with its own host authority; it does not receive container administration capabilities from Guardian. |
 
 **All other ADR-077 requirements remain normative for every execution posture**, including the host-native target: the provider-neutral request and result contracts, the evidence-only rule, the completion-evidence rule, truthfulness of execution provenance, and the requirement that a provider never silently substitute a wider posture.
@@ -239,13 +244,15 @@ Classification: Requires new ADR. ADR-111 is **Proposed**.
 2. Persistent approval-free execution is explicitly supported as a valid operator posture.
 3. Tool, approval, filesystem, network, and executor policies are separate, independently configurable dimensions.
 4. Trusted direct execution is represented as an explicit operator-owned posture with its own host authority.
-5. Existing `CODEXIFY_POLICY_MODE` behavior is reconciled rather than duplicated.
-6. The ADR-077 conflict and the proposed exception are explicit and unaccepted.
-7. Effective policy cannot be widened by model-authored input.
-8. Operator and Project configuration boundaries are defined.
-9. Enforcement truth and audit requirements are documented.
-10. The Configuration Inspector remains read-only and no parallel configuration authority is introduced.
-11. No implementation, executor, or release-support claim is added.
+5. Nonconformant trusted-container execution is covered by the **same** proposed exception as host-native execution, and is never reported as conformant.
+6. Existing `CODEXIFY_POLICY_MODE` behavior is reconciled rather than duplicated.
+7. The ADR-077 conflict and the proposed exception are explicit and unaccepted.
+8. Effective policy cannot be widened by model-authored input.
+9. Operator and Project configuration boundaries are defined.
+10. Enforcement truth and audit requirements are documented.
+11. The Configuration Inspector remains read-only and no parallel configuration authority is introduced.
+12. Configuration ownership is recorded as **unresolved** rather than assigned.
+13. No implementation, executor, or release-support claim is added.
 
 ## Non-goals
 

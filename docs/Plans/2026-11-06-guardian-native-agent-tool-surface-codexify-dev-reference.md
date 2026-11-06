@@ -176,12 +176,17 @@ fn requires_closed_input_schema(&self) -> bool;  // default true
 | `read_only` | `risk="read_only"`, `effect="read"` | — | direct |
 | `destructive` | `risk="mutating"`, `effect="write"` | — | direct |
 | `idempotent` | `idempotency="safe"` | — | direct |
-| `open_world` | **NO EQUIVALENT** | `network_allowed` | **must add** — this is the axis that separates `git_commit` from `git_push` |
-| `justification` | **NO EQUIVALENT** | — | **must add** — becomes the approval reason code shown to the user |
+| `open_world` | **NO EQUIVALENT** | **not `network_allowed`** | **must add** — a *declared* property of the command: does its effect reach beyond the local machine and its files. **Distinct from the `network_allowed` permission axis**, which is resolved per execution. A command may declare `open_world=True` while the resolved grant is `network_allowed=False`, and the reverse is equally valid |
+| `justification` | **NO EQUIVALENT** | — | **must add** — a human-readable rationale for *why the command behaves as it does*. **Distinct from canonical policy reason codes** (`write_effect`, `risk_high`, `external_network`, `requires_confirmation`, `loopback_base_missing`), which are the stable machine vocabulary emitted by `evaluate_tool_policy`. A justification is never emitted as, or collapsed into, a reason code, and a reason code is never derived from a justification |
 | flat `input_schema` | `input_schema` (wrapped as `{path_params,query,headers,body}` by `derive.py:26-56`) | — | projection happens at `chat_exposure.py`, not in the manifest |
 | closed schema | `additionalProperties: false` | — | already the convention |
 
-**Two contract fields must be added to `guardian/command_bus/contracts.py:161-176`:** `open_world: bool` and a justification string. Without them, Guardian cannot distinguish a local read from a network push, and its approval UI cannot explain *why* a tool is gated. This is the single most important schema change in the plan.
+**Two contract fields must be added to `guardian/command_bus/contracts.py:161-176`:** `open_world: bool` and a justification string. Without `open_world`, Guardian cannot distinguish a local read from a command whose effect reaches outside the local machine. Without a justification, the approval surface cannot explain *why* a command is gated.
+
+Both are **declared properties of the command**, and both are deliberately kept separate from axes that already exist:
+
+- **`open_world` is a declaration, not a permission.** It answers "does this command's effect reach beyond the local machine and its files?" It is **not** `network_allowed`. `network_allowed` is a **permission**, resolved per execution from the effective profile. Neither derives from the other: a command can declare `open_world=True` while the resolved network grant is denied, and a command can declare `open_world=False` while running under a profile that permits network.
+- **`justification` is a human-readable rationale, not a policy reason code.** The canonical reason codes emitted by `evaluate_tool_policy` — `write_effect`, `risk_high`, `external_network`, `requires_confirmation`, `loopback_base_missing` — are the stable machine vocabulary that decisions, receipts, and tests key on. The justification explains the command's own behavior to a person reading an approval surface. A justification must never be emitted as a reason code, and a reason code must never be derived from a justification.
 
 ### 4.2 Where the tool goes: three options
 
@@ -257,13 +262,22 @@ The governance track and the tool track run **in parallel**, not in series. Conc
 |---|---|---|
 | **Governance** | ADR-111 (Proposed) → operator posture resolution → executor selection | — (it *is* the ruling) |
 | **Contract** | Stage 1 below — `CommandSpec.open_world` + justification | No |
-| **Read-only tools** | Stage 4.1, 4.2, 4.6, 4.7, 4.8, 4.9 — `read_file`, `list_directory`, `tree`, `glob`, `grep`, context, plans, skills, memory, workspace | No |
+| **Read-only tools** | Stage 4.1 (`read_file`, `list_directory`, `tree`), Stage 4.2 (`grep`), Stage 4.6 (context), Stage 4.7 (`skills_list`, `skills_read`), Stage 4.9 (`list_projects`) — **in-process only** | No — but only while each stays in-process and spawns no subprocess |
+| **Mutating or executing tools** | Stage 4.3 (`apply_patch`), Stage 4.4 (`write_file`), Stage 4.10 (`exec_command`, `write_stdin`), and the mutating members of Stage 4.5, 4.7, 4.8, 4.9 (`git_commit`, `update_plan`, `remember`, `update_memory_note`, `forget_memory_note`, `set_project_root`) | **Yes** — each changes durable state or runs a process |
 | **Exec** | Stage 4.10 — `exec_command`, `write_stdin` | **Yes** |
 | **Mutation** | Stage 4.3, 4.4 — `apply_patch`, `write_file` | **Yes** — these are filesystem mutations, which ADR-077 treats differently from reads |
 
-**The qualification that makes the read-only track safe to run early:** read-only native tools must enforce authenticated account and Project scope, filesystem path containment including symlink boundaries, and bounded output — reusing the existing ownership and path-security infrastructure (`guardian/security/path_guard.py`, project ownership authority) rather than creating parallel authority. A read-only tool cannot violate ADR-077 invariants 6 or 7 because it neither mutates nor executes a process. **Any mutating or executing tool remains gated** on the accepted execution-authority decision.
+**The qualification that makes the read-only track safe to run early.** "Read-only" is a property of the **command's declared effect**, not of how convenient it is. Three corrections to the earlier draft of this plan:
+
+1. **Plan updates, memory mutations, and workspace-root changes are not read-only.** `.Dev`'s own behavior annotations say so: `update_plan` is `read_only=false, destructive=true` (it replaces persisted plan state); `remember`, `update_memory_note`, and `forget_memory_note` are all `read_only=false` (they create, replace, or delete a durable note); `set_project_root` is `read_only=false, open_world=true` (it persists a binding and may clone or fetch an external Git repository). Only `recall` is read-only on the memory surface, and only `list_projects` is read-only on the workspace surface. **These belong to the gated track.**
+2. **Search tools must be accounted for by their execution, not by their intent.** A `grep` implemented in-process is read-only. A `grep` implemented by shelling out to `ripgrep` **executes a subprocess**; so does a `glob` or `tree` implemented with `find` or `fd`. Subprocess execution is an execution capability and inherits the executor and isolation questions of Stage 4.10. The first slice must therefore be **in-process**, or the tool must be classified as executing and gated accordingly. This is a property of the implementation choice, not of the tool's name — the classification belongs to the command spec, which is why `open_world` and the effect axes are declared rather than inferred from the tool's label.
+3. **What the read-only track may contain.** `read_file`, `list_directory`, `tree`, `glob`, `grep`, `view_image`, `git_status`, `git_log`, `show_diff`, `recall`, `skills_list`, `skills_read`, `get_project_doc`, `get_agent_brief`, `get_environment`, `list_projects`. Every one must enforce authenticated account and Project scope, filesystem path containment including symlink boundaries, and bounded output — reusing the existing ownership and path-security infrastructure (`guardian/security/path_guard.py`, project ownership authority) rather than creating parallel authority.
+
+A read-only tool that neither mutates nor executes a process cannot violate ADR-077 invariants 6 or 7. **Any mutating tool, and any tool whose implementation spawns a subprocess, remains gated** on the accepted execution-authority decision.
 
 This avoids unnecessary dependency serialization without compromising the architecture already accepted.
+
+**The first native tool ships on the existing bounded single-tool-call turn path.** Multi-call support is not a prerequisite for it: the first read-only native tool (Stage 2.5, `native::fs::read_file`) proves the existing path end to end on its own, and only then is a multi-call loop considered. That slice is also in-process, non-mutating, subprocess-free, and depends on no accepted ADR-111 exception.
 
 ### Stage 0 — Baseline (prove where we stand)
 
@@ -281,8 +295,8 @@ This avoids unnecessary dependency serialization without compromising the archit
 |---|---|---|
 | 1.1 | Add `open_world: bool` and `justification: str` to `CommandSpec`; default `open_world=False` for existing raw routes so behavior is unchanged | `guardian/command_bus/contracts.py:161-176` |
 | 1.2 | Derive `open_world` for raw routes conservatively (`/external/`, `/webhook`, `http`/`https` paths → `True`) | `guardian/command_bus/manifest.py:112-154` |
-| 1.3 | Map `open_world` → `InvokePermissionProfile.network_allowed` check at dispatch | `guardian/command_bus/permission_profiles.py`, `invoke.py:395-411` |
-| 1.4 | Thread `justification` into the policy reason code so the approval surface can explain the gate | `guardian/tools/policy.py:117-153` |
+| 1.3 | Carry `open_world` as a declared command property. **Do not** derive `network_allowed` from it, and do not derive `open_world` from it either — a command declaring `open_world=True` is gated on the separately-resolved network permission | `guardian/command_bus/contracts.py`, `guardian/command_bus/permission_profiles.py` |
+| 1.4 | Carry `justification` as a human-readable rationale on the command and surface it **alongside**, never merged with, the canonical policy reason codes | `guardian/tools/policy.py:117-153` |
 | 1.5 | **Decision record:** ADR covering Option B vs A vs C, the two-tier shell position, and the `.Dev` attribution | `docs/architecture/` (new ADR) |
 
 **Verify:** `pytest -v tests/command_bus/test_permission_profiles.py tests/command_bus/test_manifest.py`; existing routes unchanged in derived metadata except the new defaulted field.
@@ -300,6 +314,30 @@ This avoids unnecessary dependency serialization without compromising the archit
 
 **Verify:** `pytest -v tests/routes/test_command_bus_internal_surface.py` (extend) — native commands appear in the manifest, are invocable, and are auditable; a native command does **not** appear in the OpenAPI paths.
 
+### Stage 2.5 — The smallest native-tool slice (ships first)
+
+This is the **first implementation slice**, and it is deliberately smaller than Stages 3 and 4.
+
+| # | Task | Files |
+|---|---|---|
+| 2.5.1 | Add `open_world: bool` and `justification: str` to `CommandSpec`, defaulted so every existing command's derived metadata is unchanged | `guardian/command_bus/contracts.py` |
+| 2.5.2 | Declare exactly one native command — `native::fs::read_file` — as `layer="internal"`, `method="INTERNAL"`, `effect="read"`, `risk="read_only"`, `idempotency="safe"`, `approval_mode="none"`, `open_world=False`, with a justification naming its behavior | **Create** `guardian/native_tools/command_specs.py` |
+| 2.5.3 | Handler: resolve the path under the authorized Project root, refuse symlink escapes, read bounded bytes and lines, return line-numbered content | **Create** `guardian/native_tools/handlers/read_file.py` |
+| 2.5.4 | Dispatch branch in `execute_invoke` for `layer="internal"` native commands, mirroring the Codex Runner bridge branch | `guardian/command_bus/invoke.py` |
+| 2.5.5 | Model projection and admission: one flat schema, admitted only when the command's own manifest facts match, and only for the authenticated account's own Project | `guardian/tools/chat_exposure.py` |
+| 2.5.6 | Tests: path escape refused, symlink escape refused, bounds enforced, non-mutating, no subprocess spawned, admission limited to the caller's Project | **Create** `tests/native_tools/test_read_file.py` |
+
+**Constraints for this slice:**
+
+- It runs on the **existing bounded single-tool-call turn path**. No multi-call loop, no tool-turn budget, no provider-gate relocation. The existing path is proved first, not replaced.
+- It creates **no** `allowlist.py` module, **no** new permission axis, and **no** new configuration surface.
+- It is **read-only**: no mutation, no subprocess, no network. Its Project scope and path containment reuse existing ownership and path-security infrastructure rather than creating parallel authority.
+- It does **not** depend on ADR-111 being accepted, and implements no executor.
+
+**Verify:** `pytest -v tests/native_tools tests/routes/test_command_bus_internal_surface.py tests/core/test_chat_tool_exposure.py` — the command is advertised, invocable, scoped, bounded, and refused outside the caller's Project; no subprocess is spawned; nothing outside the authorized root is readable.
+
+**Release consequence to declare up front:** any change under `guardian/**` is inside the `supported-compose-stock` rubric's `surface_paths` (`docs/qualification/rubrics/supported-compose-stock.md:22-34`), so this slice makes that rubric's `freshness` **stale** and forces re-qualification of the qualified surface. That is expected and is a consequence of shipping a native tool, not a defect — but it must be declared rather than discovered later.
+
 ### Stage 3 — Model visibility and the tool loop
 
 | # | Task | Files |
@@ -307,7 +345,7 @@ This avoids unnecessary dependency serialization without compromising the archit
 | 3.1 | Replace the hardcoded 3-command allowlist with a **curated, group-gated** native tool projection, keeping the existing 3 read tools as-is | `guardian/tools/chat_exposure.py:303-366` |
 | 3.2 | Group gating: `CODEXIFY_AGENT_TOOL_GROUPS=fs,search,git,exec` (default `fs,search`) — mirrors the prior plan's `allowlist.py` groups, but backed by native specs rather than HTTP routes | `guardian/tools/allowlist.py` (**create**, as the prior plan intended) |
 | 3.3 | Provider gate: the current `deepseek`/`local`+`whooshd` restriction (`chat_exposure.py:333-345`) is a provider-capability question, not a policy question — move the capability check into `chat_with_ai` so any function-calling provider can carry native tools | `guardian/core/chat_completion_service.py:1991-1993` |
-| 3.4 | Multi-call support: the loop currently expects exactly one tool call per turn. Support N calls with a bounded turn budget (`CODEXIFY_TOOL_TURN_BUDGET`, default 5) | `guardian/core/chat_completion_service.py` tool-turn region |
+| 3.4 | **Deferred — not a prerequisite.** Multi-call support (the loop currently expects exactly one tool call per turn; N calls under a bounded turn budget, `CODEXIFY_TOOL_TURN_BUDGET`, default 5) is **deferred until after the first read-only native tool has proved the existing bounded single-call path end to end** | `guardian/core/chat_completion_service.py` tool-turn region |
 | 3.5 | Keep every turn's observability: `tool_turn_id`, `tool_turn_state`, `loop_stop_reason` | `guardian/command_bus/tool_turn_observability.py` |
 | 3.6 | **Wire the approval flow** — `approval_tokens.py` is currently dead. Bind it to the write gate so mutating native tools return `status="blocked"`, `approval_required=true`, and execute only after a valid `ToolApproveRequest` | `guardian/tools/approval_tokens.py`, `guardian/tools/policy.py` |
 
@@ -319,7 +357,7 @@ Each family is one native command group plus its handlers.
 
 | # | Family | Tools | Backing | Guardrail |
 |---|---|---|---|---|
-| 4.1 | **Files (read)** | `read_file`, `list_directory`, `tree`, `glob` | `WorkspaceRootManager.resolve_under_root` (`cli_sandbox.py:55-68`) | read-only; root containment; `maxBytes`/`maxLines` caps mirroring `.Dev` `output` config |
+| 4.1 | **Files (read) — remaining.** `read_file` ships earlier, as the Stage 2.5 slice; this stage adds `list_directory`, `tree`, `glob` | `WorkspaceRootManager.resolve_under_root` (`cli_sandbox.py:55-68`) | read-only; root containment; `maxBytes`/`maxLines` caps mirroring `.Dev` `output` config; **in-process only** — a `glob`/`tree` implemented with `find` or `fd` would spawn a subprocess and leave this stage |
 | 4.2 | **Search** | `grep` | ripgrep if present, else bounded scan (prior plan Task 2.3) | root containment; ignore rules; bounded matches — `.Dev` elides long lines around the match; replicate |
 | 4.3 | **Patch** | `apply_patch` | port `.Dev`'s Codex patch grammar + verified-then-sequential semantics | `effect="write"` → approval; root containment |
 | 4.4 | **Write** | `write_file` | new handler | `effect="write"` → approval; refuse `.env`/credential paths (prior plan Task 2.3); read-before-overwrite advisory |
