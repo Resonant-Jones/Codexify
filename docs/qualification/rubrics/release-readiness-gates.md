@@ -6,13 +6,19 @@
 
 ## Version
 
-`1`
+`2`
+
+Version 2 applies the independent review of version 1. It replaces an inert surface path with the
+files that exist, closes the gate-7 implementation blind spot, narrows the frontend surface to the
+projection the browser gate renders, and names the schema constraints that are stronger
+observables than the prose checks they replace. **No required check was added, removed, or
+re-scoped.**
 
 ## Qualification metadata
 
 ```yaml qualification-metadata
 qualification_id: release-readiness-gates
-version: 1
+version: 2
 title: Release Readiness Gates
 scope: The eight release-gate behaviours of the supported local-first runtime, exercised together on one frozen evaluated tip, each judged PASS, FAIL or UNPROVEN from a named observable surface
 surface_paths:
@@ -37,15 +43,22 @@ surface_paths:
   - backend/scripts/docker/run_migrator.py
   - guardian/db/migrations/versions/**
   # 6. browser
-  - frontend/src/features/chat/**
+  - frontend/src/features/chat/GuardianChat.tsx
+  - frontend/src/features/chat/ChatView.tsx
+  - frontend/src/features/chat/components/**
   - frontend/src/components/chat/**
   # 7. import to recall
+  - guardian/core/account_history_recall.py
+  - guardian/core/message_origin_classification.py
+  - guardian/core/repository_import.py
   - guardian/services/openai_account_import.py
   - guardian/services/imported_history_evidence.py
-  - guardian/memoryos/**
+  - guardian/queue/account_import_queue.py
+  - guardian/workers/account_import_worker.py
   # 8. scope isolation
   - guardian/memoryos/**
   - guardian/core/db.py
+  - guardian/core/message_origin_classification.py
   # the runtime the gates are exercised under
   - docker-compose.yml
   - docker-compose.private-preview.yml
@@ -91,6 +104,9 @@ formality.
    required state, not when nothing went wrong.
 5. **One failure is one bounded repair.** A FAIL becomes a repair task scoped to that gate. It does
    not license re-scoping the rubric.
+6. **A schema constraint is the strongest observable available.** Where the database already
+   enforces the property, the constraint is the observation and the prose check explains what the
+   constraint guarantees.
 
 ## Qualification identity
 
@@ -103,7 +119,10 @@ Every run of this rubric must record:
 - the live Alembic revision, read directly from PostgreSQL;
 - for each of the eight gates: its verdict, the named surface, and the value observed;
 - the browser and device used for the browser gate;
-- the account identifiers used for the scope-isolation gate;
+- the account identifiers used for the scope-isolation gate, and whether each is a human tester or
+  an agent-created account;
+- for the import-to-recall gate: whether the import was **natural** or synthetic, and the evidence
+  for that classification;
 - the durable artefact receipts collected.
 
 A run that cannot name its evaluated commit is not a qualification run. It is an observation.
@@ -122,7 +141,8 @@ This rubric cannot receive PASS if any of the following occur:
 - the migration source and the image disagreed and the migrator did not refuse;
 - a browser-observed projection disagreed with the durable state it claimed to render;
 - an imported record was retrievable by an account that did not own it;
-- the scope-isolation gate was judged without a second, distinct account.
+- the scope-isolation gate was judged without a second, distinct account;
+- the import-to-recall gate was judged on a synthetic import rather than a natural one.
 
 ## Required checks
 
@@ -136,12 +156,19 @@ observable, and the queue drains.
 - Redis list lengths for the queues in play (`codexify:queue:chat-embed`,
   `codexify:queue:coding-execution`, `codexify:queue:document-embed`,
   `codexify:queue:account-import`) read directly with `LLEN`.
-- The worker heartbeat key `codexify:worker:chat:heartbeat` and its age.
+- The worker heartbeat key and its age.
 - The durable attempt row for the submitted request in `chat_completion_attempts`.
 
 **PASS requires.** A submitted request observed at a non-zero queue depth and later at zero; a
 worker heartbeat observed fresh at the time of the read; a durable attempt row in a terminal
 state for the same request.
+
+**Liveness coverage limit.** The codebase defines exactly two worker heartbeat keys —
+`codexify:worker:chat:heartbeat` and `codexify:worker:voice:heartbeat`. **Three of the four
+queues named above have no heartbeat key at all.** A PASS on this gate therefore asserts liveness
+for the chat queue only. The document-embed, account-import and coding-execution queues can be
+judged on depth and durable outcome, but **not** on worker liveness, and a run must not report
+liveness for them.
 
 **FAIL.** Work left in a queue with no worker claiming it while the worker reports healthy; or an
 attempt row that never reached a terminal state.
@@ -153,19 +180,27 @@ attempt row that never reached a terminal state.
 **Governing behaviour.** An accepted attempt carries a terminal deadline, and an attempt that
 passes it is terminalised rather than left open.
 
-**Observable surface.**
+**Primary observable — the database enforces the pairing.**
+`chat_completion_attempts` carries a CHECK constraint requiring
+`(deadline_snapshot IS NULL AND turn_lock_token IS NULL) OR (deadline_snapshot IS NOT NULL AND
+turn_lock_token IS NOT NULL AND length(trim(turn_lock_token)) > 0)`, and requiring
+`(deadline_snapshot->>'terminal_deadline_at')::timestamptz` to be non-null wherever a snapshot
+exists. **A live attempt with a NULL `deadline_snapshot` is a writer bug, not a missing row.**
 
-- `chat_completion_attempts.deadline_snapshot` (JSONB), including `terminal_deadline_at`.
-- The attempt's terminal state and `turn_lock_token`.
+**PASS requires.**
 
-**PASS requires.** An accepted attempt observed with a non-null `deadline_snapshot` and a
-`terminal_deadline_at` in the future at acceptance; and, for the deadline path itself, an attempt
-driven past its terminal deadline observed in a terminal state with the deadline recorded.
+1. An accepted attempt observed carrying a non-null `deadline_snapshot` with a
+   `terminal_deadline_at` in the future at acceptance, and a non-null `turn_lock_token`.
+2. **An attempt observed past its own `terminal_deadline_at` and in a terminal state**, with the
+   deadline recorded. A snapshot alone proves the shape; only the second observation proves the
+   deadline was *enforced*.
 
-**FAIL.** An attempt accepted without a deadline snapshot; or an attempt past its
-`terminal_deadline_at` still carrying a live turn lock.
+**FAIL.** An accepted attempt without a deadline snapshot; or an attempt past its
+`terminal_deadline_at` still carrying a live turn lock; or an attempt whose snapshot has no
+non-null `terminal_deadline_at`.
 
-**UNPROVEN.** A deadline was configured but no attempt was observed carrying it.
+**UNPROVEN.** A deadline was configured but no attempt was observed carrying it; or a snapshot was
+observed but no attempt was driven past its deadline.
 
 ### 3. Graceful stop
 
@@ -174,17 +209,26 @@ does not leave an orphaned claim, a held lock, or a half-written attempt.
 
 **Observable surface.**
 
-- The worker's shutdown handler (`backend/scripts/docker/run_worker_coding.py`, SIGTERM
-  registration).
-- `agent_runs` rows for the worker's held run, and the ownership/heartbeat columns on them.
+- The worker's shutdown handler: `backend/scripts/docker/run_worker_coding.py` registers SIGTERM
+  and SIGINT.
+- `agent_runs.status`, constrained to
+  `('queued','running','escalated','canceled','failed','succeeded')`.
+- The ownership pair `coding_worker_instance_id` / `coding_worker_claim_id`, which a CHECK
+  constraint requires to be both NULL or both NOT NULL.
 - The Redis queue depth immediately before and after the stop.
 
-**PASS requires.** A worker stopped on SIGTERM while holding a claim, observed afterwards with no
-claim outstanding, the run's ownership either released or terminalised, and the queue depth
-unchanged.
+**PASS requires.** A worker stopped on SIGTERM **while holding a claim**, observed afterwards with
+`agent_runs.status` in `{canceled, failed, succeeded}` and **both ownership columns NULL**, and
+the queue depth unchanged.
 
-**FAIL.** A run left owned by a stopped worker with no terminal state; or work claimed and never
-returned to the queue.
+**A persisting heartbeat is not a failure.** `coding_worker_last_heartbeat_at` is tied by its own
+constraint to the presence of the ownership pair, **not** to liveness, and the schema states
+plainly that a persisted owner "is not proof that the worker is still alive -- it records that
+this instance took the claim, not that it still holds it". A reader seeing a stale
+`coding_worker_last_heartbeat_at` on a terminalised run must not call that a FAIL.
+
+**FAIL.** A run left in a non-terminal status with its ownership pair still populated by a worker
+that stopped; or work claimed and never returned to the queue.
 
 **UNPROVEN.** The worker was stopped while idle, so nothing was held.
 
@@ -193,16 +237,20 @@ returned to the queue.
 **Governing behaviour.** Mutual exclusion over a run: exactly one actor takes it, and the loser is
 refused deterministically.
 
-**Observable surface.**
-
-- `agent_runs` ownership columns, the claim identity, and the heartbeat.
-- The claim path in `guardian/agents/store.py` (`claim_run_for_acceptance`, row locks taken with
-  `with_for_update`).
+**Primary observable — the database forbids the double-claim.**
+`uq_agent_runs_coding_worker_claim_id` is UNIQUE on `coding_worker_claim_id`, and
+`claim_run_for_acceptance` takes row locks with `with_for_update()`. The schema therefore
+already prevents two rows holding the same claim id.
 
 **PASS requires.** Two concurrent claim attempts against the same run, observed with exactly one
 holding the claim and the other refused, and the refusal recorded.
 
-**FAIL.** Both actors observed holding the same run; or the refused attempt left a partial write.
+**What the FAIL clause means.** "Both actors observed holding the same run" is only reachable if
+the unique constraint is **absent**, not if the refusal path has a bug. A run that observes the
+constraint missing is a schema defect and must say so.
+
+**FAIL.** The unique constraint is absent; or both actors were observed holding the same run; or
+the refused attempt left a partial write.
 
 **UNPROVEN.** A single claim was exercised without a concurrent competitor.
 
@@ -244,6 +292,10 @@ render, and survives a reload.
 **PASS requires.** The projected element read from the DOM matching the durable value; the
 terminal state converging in the UI; and a reload preserving the projected state.
 
+**Session requirement.** The browser session must be an **authenticated account session**. An
+unauthenticated surface is not evidence for this gate, and it is not evidence for the
+scope-isolation gate either — that is gate 8's requirement, and it is a different check.
+
 **FAIL.** The DOM disagrees with the durable state; or a reload loses the projected state.
 
 **UNPROVEN.** The surface was observed by description or screenshot only, with no DOM read and no
@@ -251,25 +303,33 @@ durable comparison.
 
 ### 7. Import to recall
 
-**Governing behaviour.** A record imported from an external export becomes retrievable through the
-account's own recall path, under the account that owns it.
+**Governing behaviour.** A record imported through the product's **natural** import path becomes
+retrievable through the account's own recall path, under the account that owns it.
 
-**Observable surface.** The imported record's canonical PostgreSQL row, the materialization
-job's durable checkpoint, and the recall result that returns it.
+**Observable surface.** The imported record's canonical PostgreSQL row, the materialisation job's
+durable checkpoint, the reader-side exclusion that decides the record's retrievability, and the
+recall result that returns it.
 
-**PASS requires.** An imported record materialised canonically and then returned by recall for
-the owning account, with the durable materialisation row and the recall result observed together.
+**PASS requires.**
 
-**FAIL.** The record materialised but is not retrievable; or it is retrievable by an account that
-does not own it.
+1. An import performed through the **natural** import path — a real export produced by the
+   provider being imported, not a synthetic fixture — with the classification recorded and its
+   evidence cited.
+2. That record materialised canonically, with the durable materialisation row observed.
+3. The same record returned by recall for the owning account, with the recall result observed.
+
+**The 2026-10-09 synthetic proof cannot satisfy this gate.** That proof recorded canonical
+PostgreSQL materialisation as PASS and **natural recall as BLOCKED**, with VaultNode
+qualification BLOCKED. A run that imports through a synthetic fixture and recalls that fixture
+would be green while the product's natural import path remained exactly as broken as the standing
+proof found it. The gate therefore requires the natural path, and the synthetic proof is cited as
+standing evidence of what remains open — not as evidence this gate passed.
+
+**FAIL.** The natural import materialised but is not retrievable; or it is retrievable by an
+account that does not own it; or the import was synthetic and recorded as such.
 
 **UNPROVEN.** Only the materialisation stage was exercised, or only the retrieval stage, without
-both observed for the same record.
-
-**Standing evidence.** The synthetic import-to-recall qualification of 2026-10-09 recorded
-canonical PostgreSQL materialisation as PASS and **natural recall as BLOCKED**, with VaultNode
-qualification BLOCKED. This rubric does not inherit that verdict; it requires the import and the
-recall to be observed together for one record.
+both observed for the same record; or the import's natural/synthetic classification is unevidenced.
 
 ### 8. Scope isolation
 
@@ -285,6 +345,12 @@ recall to be observed together for one record.
 for its owner and **not** observed for the other account, with both reads made against the same
 record identifier.
 
+**This gate does not satisfy the human qualification.** The accounts used here may be
+agent-created. The `onboarding-and-people` rubric requires **2 distinct non-developer human
+tester accounts**, each on its own authenticated session, at least one completing the critical path
+unguided. A PASS on this gate contributes **nothing** to that requirement, and
+`onboarding-and-people` remains HOLD on absent evidence regardless of this gate's verdict.
+
 **FAIL.** A record owned by one account is observable by another; or the isolation boundary is
 judged from configuration rather than from two accounts' observations.
 
@@ -294,11 +360,18 @@ posture rather than observed.
 ## Freshness
 
 This surface is commit-bound. A run's evidence becomes stale when meaningful changes touch the
-eight gates' implementation — the Compose files, the supported profile manifest, the queue, the
-workers, the deadline and lock paths, the models and migrations, the migration entrypoint, the
-frontend projection, or the import path.
+eight gates' implementation — the queue and worker modules, the deadline, lock and ownership paths,
+the models and migrations, the migration entrypoint, the chat projection, and the import and
+recall paths.
 
-The registry computes this from repository history rather than by hand. See
+The surface is deliberately narrow: it lists the files that decide each gate's observable, rather
+than whole trees. A tree-wide surface would make the freshness field a measure of churn instead
+of of whether the evidence still describes the gates — the reason `supported-compose` sits
+permanently stale. **The test for narrowing is not "how few paths can be listed" but "does every
+one of the eight gates' implementation files appear"**; a gate whose implementation is outside the
+surface can move while this rubric still projects `current`.
+
+The registry computes freshness from repository history rather than by hand. See
 `scripts/qualification/lib/freshness.py`.
 
 ## Evidence
