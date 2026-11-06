@@ -1,5 +1,13 @@
 # ADR-051 — Whoosh'd Gemma and Approved DeepSeek Startup Profile
 
+> **This file is an orphaned, mis-numbered duplicate.** The canonical record of
+> this decision is
+> [[ADR-052-whooshd-deepseek-dual-provider-startup-profile|ADR-052]], which is the
+> entry in the canonical ADR index. The `ADR-051` number canonically belongs to
+> [[051-chrome-side-panel-dual-auth-client-contract|ADR-051 Chrome Side-Panel
+> Dual-Auth Client Contract]]. Read ADR-052 for the current decision; the cloud
+> voice egress lane is recorded in ADR-052's amendment of 2026-11-06.
+
 ## Status
 
 Accepted for operator-controlled load observation; not a change to the default

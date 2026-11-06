@@ -2,8 +2,12 @@
 #
 # This is an operator-controlled candidate profile for load observation. It
 # does not change the default beta profile or imply that cloud inference is
-# release-supported generally. Local remains the primary provider; DeepSeek
-# is the only cloud provider admitted by the egress allowlist.
+# release-supported generally. Local remains the primary provider. DeepSeek is
+# the only cloud *LLM* provider admitted by the egress allowlist; the voice
+# lane adds Deepgram as a second egress target (ADR-052 amendment 2026-11-06,
+# ADR-110). The egress allowlist is one value for the whole profile: Guardian
+# validates the running allowlist against this contract at startup, so every
+# deployment of this profile must carry exactly this string.
 #
 # Governing ADRs: ADR-005 (runtime mode and account boundary invariants),
 # ADR-052 (Whoosh'd Gemma and approved DeepSeek startup profile),
@@ -68,10 +72,12 @@ route_posture:
     - share
     - hosted_rooms
     - hosted_room_guest
+    - voice
   internal_only:
     - coding_work_orders
     - command_bus
     - memory_vault
+    - sandbox
   quarantined:
     - llm_overrides
     - neo
@@ -87,7 +93,6 @@ route_posture:
     - collaboration
     - connectors
     - google_connect
-    - voice
     - flows
     - tools
     - api_tools
@@ -105,7 +110,7 @@ provider_contract:
   LLM_PROVIDER: local
   ALLOW_CLOUD_PROVIDERS: true
   CODEXIFY_LOCAL_ONLY_MODE: false
-  CODEXIFY_EGRESS_ALLOWLIST: deepseek
+  CODEXIFY_EGRESS_ALLOWLIST: deepseek,deepgram
   LOCAL_BASE_URL: http://host.docker.internal:8000/v1
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd

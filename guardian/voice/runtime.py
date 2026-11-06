@@ -23,10 +23,12 @@ SUPPORTED_TTS_PROVIDERS = (
     "local_openai_compatible",
     "elevenlabs",
     "minimax",
+    "deepgram",
 )
 SUPPORTED_STT_PROVIDERS = (
     "local_openai_compatible",
     "whispercpp",
+    "deepgram",
 )
 SUPPORTED_INPUT_MIME = (
     "audio/wav",

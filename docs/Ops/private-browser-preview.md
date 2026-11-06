@@ -169,14 +169,23 @@ chmod 600 .env.private-preview
 ```
 
 Generate fresh Guardian session, JWT, and internal service-key values. Add the
-approved/admin email lists and the DeepSeek API credential. Keep:
+approved/admin email lists, the DeepSeek API credential, and the Deepgram
+voice credential. Keep:
 
 ```text
 CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
-CODEXIFY_EGRESS_ALLOWLIST=deepseek
+CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram
 ```
+
+The egress allowlist is one value for the whole profile. Guardian validates the
+running allowlist against the profile's provider contract at startup and fails
+to boot on a mismatch, so this string must match the profile exactly.
+`deepseek` is the cloud LLM lane and `deepgram` is the cloud voice lane; the
+LLM lane itself remains DeepSeek-only. `DEEPGRAM_API_KEY` may be left empty,
+in which case the voice provider registers as `degraded` with an empty voice
+list.
 
 These values belong only to this named preview lane. Do not copy them into
 `v1-local-core-web-mcp`.
