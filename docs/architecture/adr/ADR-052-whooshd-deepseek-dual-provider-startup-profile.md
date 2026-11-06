@@ -40,3 +40,41 @@ entries. If discovery is degraded, routing retains only the configured default
 as a bounded compatibility fallback. This amendment changes catalog/model
 selection authority only; it does not admit another provider or establish live
 provider execution or release support.
+
+## Amendment — cloud voice egress lane (2026-11-06)
+
+This amendment admits a **cloud voice egress lane** to the `v1-whooshd-deepseek-web`
+profile. It does **not** admit a second cloud *LLM* provider: DeepSeek remains
+the only cloud inference lane, and the local selector remains unable to be
+redirected to another configured local model.
+
+The profile's `CODEXIFY_EGRESS_ALLOWLIST` changes from `deepseek` to
+`deepseek,deepgram`. `deepgram` is the voice lane that
+[[110-cloud-voice-provider-registration-and-provider-declared-native-format|ADR-110]]
+registers, and it is reachable only from the two cloud voice paths — the
+provider adapter's construction check and the STT request path. Every other
+egress target in the allowlist continues to require its own code path to ask
+for it, so adding a voice target grants no other capability.
+
+The egress allowlist is **one value for the whole profile**. Guardian validates
+the running allowlist against the profile's provider contract at startup and
+raises `LLMConfigError` on a mismatch, so a service that presents a different
+allowlist fails to boot instead of degrading. Every deployment of this profile
+must therefore present exactly `deepseek,deepgram`:
+
+- the Private Preview overlay (`docker-compose.private-preview.yml`),
+- the Whoosh'd dual-provider overlay (`docker-compose.whooshd-deepseek.yml`),
+- the tester env template (`.env.tester.example`), and
+- the supported profile's own `provider_contract`.
+
+The stock deployment is **not** affected. `docker-compose.yml` does not declare
+a cloud posture for the backend or the voice worker, so the stock deployment
+stays local-only with an empty allowlist and continues to match the
+`v1-local-core-web-mcp` profile contract. A deployment grants the voice lane
+explicitly; it is never interpolated from an operator's env file, because an
+interpolated value would drift from the active profile's contract.
+
+This amendment does not widen `docs/architecture/00-current-state.md` release
+claims, does not qualify default Beta, and does not establish live provider
+execution or release support.
+

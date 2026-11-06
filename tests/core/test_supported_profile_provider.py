@@ -74,7 +74,7 @@ def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
     settings = _supported_profile_settings(
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
-        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_BASE_URL="http://host.docker.internal:8000/v1",
         LOCAL_PROVIDER_VENDOR="whooshd",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
@@ -95,7 +95,7 @@ def test_validate_llm_config_accepts_tester_operator_selected_local_model(
     settings = _supported_profile_settings(
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
-        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_CHAT_MODEL=_WHOOSHD_MODEL,
         LOCAL_LLM_MODEL=_WHOOSHD_MODEL,
         LLM_MODEL=_WHOOSHD_MODEL,
@@ -111,7 +111,7 @@ def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
     settings = _supported_profile_settings(
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
-        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="test-deepseek-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
@@ -176,7 +176,7 @@ def test_supported_profile_keeps_deepseek_posture_under_restored_authority(
     settings = _supported_profile_settings(
         ALLOW_CLOUD_PROVIDERS=True,
         CODEXIFY_LOCAL_ONLY_MODE=False,
-        CODEXIFY_EGRESS_ALLOWLIST="deepseek",
+        CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="test-deepseek-key",
         DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",

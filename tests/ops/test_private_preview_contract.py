@@ -23,7 +23,7 @@ EXPECTED_ENV = {
     "LLM_PROVIDER": "local",
     "ALLOW_CLOUD_PROVIDERS": "true",
     "CODEXIFY_LOCAL_ONLY_MODE": "false",
-    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek",
+    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram",
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
@@ -33,6 +33,12 @@ EXPECTED_ENV = {
     "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS": "3",
     "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
 }
+# The egress allowlist is one value for the whole supported profile: Guardian
+# validates the running allowlist against the profile's provider contract at
+# startup, so every service that carries the profile must present exactly this
+# string. `deepseek` is the cloud LLM lane and `deepgram` is the cloud voice
+# lane (ADR-052 amendment 2026-11-06, ADR-110).
+EXPECTED_EGRESS_ALLOWLIST = "deepseek,deepgram"
 EXPECTED_GUARDIAN_POSTURE = {
     "CODEXIFY_SUPPORTED_PROFILE": "v1-whooshd-deepseek-web",
     "GUARDIAN_EXPOSURE_MODE": "private_preview",
@@ -170,6 +176,49 @@ def _run_guardian_posture_check(
         capture_output=True,
         text=True,
     )
+
+
+def test_private_preview_egress_grant_is_one_value_for_the_whole_profile() -> None:
+    """Every service carrying the supported profile must present the same
+    egress allowlist.
+
+    Guardian validates the running allowlist against the profile's provider
+    contract at startup, so a service that drifts from the declared value
+    fails to boot rather than degrading. This pins the value and the fact
+    that no service silently carries a different one.
+    """
+    config = _render_compose()
+
+    # The one-shot posture guard carries the profile so it can assert the
+    # deployment's posture, but it never runs the Guardian runtime and must
+    # hold no cloud egress grant of its own.
+    guard = config["services"]["private-preview-auth-posture"]
+    assert (guard.get("environment") or {}).get("CODEXIFY_EGRESS_ALLOWLIST") is None
+
+    carrying = {
+        name: service
+        for name, service in config["services"].items()
+        if name != "private-preview-auth-posture"
+        and (service.get("environment") or {}).get("CODEXIFY_SUPPORTED_PROFILE")
+        == "v1-whooshd-deepseek-web"
+    }
+    assert carrying, "the private preview must mount profile-carrying services"
+
+    for name, service in sorted(carrying.items()):
+        environment = service.get("environment") or {}
+        assert (
+            environment.get("CODEXIFY_EGRESS_ALLOWLIST") == EXPECTED_EGRESS_ALLOWLIST
+        ), name
+
+    # The cloud voice lane is the reason the allowlist is not DeepSeek-only,
+    # and it must be admitted for the voice callers.
+    assert "deepgram" in EXPECTED_EGRESS_ALLOWLIST
+    for name in ("backend", "worker-voice"):
+        assert name in carrying, name
+        assert (
+            (carrying[name].get("environment") or {}).get("DEEPGRAM_API_KEY")
+            is not None
+        ), name
 
 
 def test_private_preview_compose_selects_dual_provider_contract() -> None:
@@ -474,7 +523,7 @@ def test_private_preview_tracked_files_contain_no_secret_literals() -> None:
     assert "GUARDIAN_SESSION_SECRET: \"${GUARDIAN_SESSION_SECRET:?" in compose_text
     assert "GUARDIAN_JWT_SECRET: \"${GUARDIAN_JWT_SECRET:?" in compose_text
     assert "DEEPSEEK_API_KEY=<set-in-untracked-private-preview-env>" in template_text
-    assert "CODEXIFY_EGRESS_ALLOWLIST=deepseek" in template_text
+    assert "CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram" in template_text
     assert "CODEXIFY_EGRESS_ALLOWLIST=*" not in template_text
 
 

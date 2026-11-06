@@ -555,6 +555,7 @@ from guardian.routes.personal_facts import router as personal_facts_router
 from guardian.routes.projects import api_router as api_projects_router
 from guardian.routes.projects import ensure_default_project
 from guardian.routes.projects import router as projects_router
+from guardian.routes.sandbox import router as sandbox_router
 from guardian.routes.saved_widgets import router as saved_widgets_router
 from guardian.routes.scout_auth import router as scout_auth_router
 from guardian.routes.user_profile import router as user_profile_router
@@ -1504,6 +1505,12 @@ _include_router(
     label="worktrees",
     flag_name="CODEXIFY_ENABLE_WORKTREE_ROUTES",
     include_fn=lambda: app.include_router(worktrees_router),
+    default_enabled=False,
+)
+_include_router(
+    label="sandbox",
+    flag_name="CODEXIFY_ENABLE_SANDBOX_ROUTES",
+    include_fn=lambda: app.include_router(sandbox_router),
     default_enabled=False,
 )
 _include_router(

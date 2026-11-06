@@ -16,6 +16,7 @@ CLOUD_EGRESS_TARGETS = {
     "groq",
     "deepseek",
     "minimax",
+    "deepgram",
 }
 
 
