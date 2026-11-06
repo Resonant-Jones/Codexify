@@ -215,7 +215,7 @@ authority. The [documentation-only message fixtures](fixtures/history-message-pr
 separate persisted evidence, trusted write custody, origin classification, and
 conditional model-visible recall eligibility.
 
-**Current truth at mainline `e72464e05`:** per-message classification and
+**Current truth at mainline `5b12b46f9`:** per-message classification and
 exclusion are implemented by `guardian/core/message_origin_classification.py`
 and `guardian/core/account_history_recall.py`. `_select_message_candidates`
 loads bounded, account/thread-scoped provenance candidates without excerpts;

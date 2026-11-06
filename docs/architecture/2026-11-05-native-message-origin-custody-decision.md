@@ -9,7 +9,10 @@ Original acceptance integration baseline: `c28bc8f46e6896b9dec22d6cc7ba7696260c2
 the proposal was imported without its older branch current-state changes.
 PR #1013 reconciliation baseline (2026-11-06):
 `e72464e05fbe0e0a827b93ad17161cab5d6c7475`, merged normally into acceptance
-head `8b0b2bef5857ebaf947a609db51794758a7136f7`.
+head `8b0b2bef5857ebaf947a609db51794758a7136f7`. Main advanced during
+reconciliation; a second normal merge preserves final mainline
+`5b12b46f9ffe1c113afb55757abb5632fc97607c`, including its newer delegated
+execution proof and evidence limits.
 Release: **HOLD**. Existing reader classification is implemented; the accepted
 custody mechanism, its reader integration and qualification remain pending.
 

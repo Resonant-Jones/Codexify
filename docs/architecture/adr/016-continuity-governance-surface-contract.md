@@ -332,7 +332,7 @@ The migration, closed writer/admission channel, custody-aware reader verificatio
 and disposable PostgreSQL proof all remain prerequisites. Ordinary runtime retrieval
 does not need signatures or hashing to verify this trusted persistence boundary.
 
-As of mainline `e72464e05`, `guardian/core/message_origin_classification.py`
+As of mainline `5b12b46f9`, `guardian/core/message_origin_classification.py`
 and the recall candidate/excerpt readers already implement per-message origin
 classification, exclusion and content-free counters under the prior persisted
 assertion/write-custody model. `_select_trusted_assistant_witness_ids` implements
