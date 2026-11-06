@@ -234,10 +234,34 @@ not validate links in unrelated README sections in this task.
    trap restore_corrected EXIT
 
    printf '\n<!-- mutation probe -->\npip install -r requirements/nonexistent.txt\n' >> README.md
-   python -m pytest -q tests/architecture/test_readme_claims.py   # must FAIL
+
+   mut_output="$(python -m pytest -q tests/architecture/test_readme_claims.py 2>&1)" || mut_code=$?
+   mut_code="${mut_code:-0}"
+   printf '%s\n' "$mut_output"
+
+   # The mutation must be DETECTED by a failing assertion.
+   # Exit code 1 = tests failed. 2 = interrupted/collection error, 3 = internal
+   # error, 4 = usage error, 5 = no tests collected. Anything other than 1 means
+   # the run did not prove detection, and an environmental or collection failure
+   # must NOT be counted as successful mutation detection.
+   if [ "$mut_code" -ne 1 ]; then
+     echo "STOP: mutation probe did not fail as an assertion (exit=$mut_code)"
+     echo "  1=tests failed 2=interrupted/collection error 3=internal error 4=usage error 5=no tests collected"
+     exit 1
+   fi
+
+   # The failure must name the deliberately injected path, proving the validator
+   # failed for the intended reason rather than an unrelated one.
+   if ! printf '%s' "$mut_output" | grep -q 'requirements/nonexistent.txt'; then
+     echo "STOP: the failure did not identify the injected path — the validator failed for the wrong reason"
+     exit 1
+   fi
 
    restore_corrected
-   python -m pytest -q tests/architecture/test_readme_claims.py   # must PASS
+   python -m pytest -q tests/architecture/test_readme_claims.py || {
+     echo "STOP: validator did not pass after restoring the corrected README"
+     exit 1
+   }
 
    trap - EXIT
    rm -f "$corrected"
@@ -246,6 +270,11 @@ not validate links in unrelated README sections in this task.
    The `trap restore_corrected EXIT` is required: if the first pytest run fails for
    an unexpected reason, or the shell aborts mid-step, the corrected README is still
    restored. Cleanup must not depend on the mutation check passing.
+
+   **Both gates are mandatory.** A non-zero exit from the first run is not sufficient
+   on its own — it must be exit code **1** (an assertion failure) and the output must
+   name `requirements/nonexistent.txt`. A collection error (exit 2) means the test
+   never ran; that is an environmental failure, not detection.
 
    **Verify the restore actually happened** before continuing:
    ```bash
@@ -260,12 +289,20 @@ not validate links in unrelated README sections in this task.
     ```bash
     python -m pytest -q tests/architecture tests/evidence_packets
     ```
-11. Confirm no stale references remain:
+11. Confirm no stale references remain. The `/upload-chat` check must use the same
+    path-segment boundary as the validator, so that future documentation of the live
+    `/upload-chatgpt-export` endpoint stays legitimate:
     ```bash
     grep -n 'pip install -r requirements.txt' README.md   # must return nothing
     grep -n '/Users/' README.md                            # must return nothing
-    grep -n 'upload-chat' README.md                        # must return nothing
+    if grep -nE '/upload-chat([^A-Za-z0-9_-]|$)' README.md; then
+      echo 'STOP: removed /upload-chat route is still referenced'
+      exit 1
+    fi
+    echo 'ok: no bare /upload-chat reference'
     ```
+    The boundary `([^A-Za-z0-9_-]|$)` matches `/upload-chat` followed by a
+    non-path character or end of line, and does **not** match `/upload-chatgpt-export`.
 12. Stage and commit:
     ```bash
     git add README.md tests/architecture/test_readme_claims.py
@@ -286,7 +323,9 @@ Findings: AD-06, AD-07, AD-08, AD-09"
 - Every Documentation Map entry points at an existing tracked file, or has been
   removed with the removal recorded in the closeout.
 - `tests/architecture/test_readme_claims.py` exists, passes, and has been shown to
-  fail against a mutated README (step 9).
+  fail against a mutated README (step 9) with **exit code 1** and with the failure
+  output naming `requirements/nonexistent.txt`. A non-1 exit, or a failure that does
+  not name the injected path, does not satisfy this requirement.
 - `tests/architecture` and `tests/evidence_packets` still pass.
 - One commit containing exactly the two allowed files.
 
