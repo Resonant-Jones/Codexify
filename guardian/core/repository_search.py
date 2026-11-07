@@ -27,6 +27,11 @@ from guardian.core.repository_authority import (
     ResolvedRepositoryBinding,
     resolve_project_repository_binding,
 )
+from guardian.core.repository_containment import (
+    MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+    is_sensitive_path,
+    resolve_contained_regular_file,
+)
 
 
 MAX_QUERY_CHARACTERS = 256
@@ -36,7 +41,6 @@ MAX_GIT_FILE_LIST_BYTES = 2 * 1024 * 1024
 MAX_INDIVIDUAL_FILE_BYTES = 1 * 1024 * 1024
 MAX_AGGREGATE_FILE_BYTES = 32 * 1024 * 1024
 MAX_SNIPPET_CHARACTERS = 400
-MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS = 512
 MAX_SEARCH_SECONDS = 5.0
 _LISTING_READ_CHUNK_BYTES = 64 * 1024
 _PROCESS_WAIT_SECONDS = 0.25
@@ -57,29 +61,6 @@ STOP_REASONS = frozenset(
         STOP_REASON_TIMEOUT_REACHED,
     }
 )
-
-_SENSITIVE_BASENAMES = frozenset(
-    {
-        ".env",
-        ".netrc",
-        ".npmrc",
-        ".pypirc",
-        ".git-credentials",
-        "id_rsa",
-        "id_dsa",
-        "id_ecdsa",
-        "id_ed25519",
-    }
-)
-_SENSITIVE_SUFFIXES = (
-    ".pem",
-    ".key",
-    ".p12",
-    ".pfx",
-    ".jks",
-    ".keystore",
-)
-
 
 class RepositorySearchError(Exception):
     """Base class for bounded repository-search failures."""
@@ -404,32 +385,6 @@ def _enumerate_repository_paths(
     )
 
 
-def _is_sensitive_path(relative_path: str) -> bool:
-    basename = PurePosixPath(relative_path).name.casefold()
-    return (
-        basename in _SENSITIVE_BASENAMES
-        or basename.startswith(".env.")
-        or basename.endswith(_SENSITIVE_SUFFIXES)
-    )
-
-
-def _resolved_regular_file(
-    root: Path, relative_path: str
-) -> tuple[Path | None, bool]:
-    """Return a contained regular file and whether a symlink was rejected."""
-    candidate = root.joinpath(*PurePosixPath(relative_path).parts)
-    try:
-        if candidate.is_symlink():
-            return None, True
-        resolved = candidate.resolve(strict=True)
-        resolved.relative_to(root)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError):
-        return None, False
-    if not resolved.is_file():
-        return None, False
-    return resolved, False
-
-
 def _casefold_match_span(
     line: str, query_casefold: str
 ) -> tuple[int, int] | None:
@@ -516,11 +471,11 @@ def _search_bound_repository(
         if _remaining_seconds(resolved_deadline, monotonic) <= 0:
             stop_reason = STOP_REASON_TIMEOUT_REACHED
             break
-        if _is_sensitive_path(relative_path):
+        if is_sensitive_path(relative_path):
             skipped_sensitive_files += 1
             continue
 
-        candidate, rejected_symlink = _resolved_regular_file(
+        candidate, rejected_symlink = resolve_contained_regular_file(
             binding.canonical_root, relative_path
         )
         if rejected_symlink:

@@ -17,10 +17,14 @@ from guardian.core.account_history_recall import (
     MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
     HistoryRecallGrant,
 )
+from guardian.core.repository_containment import (
+    MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+)
 from guardian.core.repository_search import (
     MAX_QUERY_CHARACTERS,
     MAX_RETURNED_MATCHES,
 )
+from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
 from guardian.providers.whooshd_tool_capability import (
     WhooshdToolCapabilityProjection,
 )
@@ -300,6 +304,93 @@ def _history_search_model_tool() -> dict[str, Any]:
     }
 
 
+def _has_exact_native_read_file_body_schema(command: CommandSpec | dict[str, Any]) -> bool:
+    """Require the fixed native read-file body contract.
+
+    The bus-level body carries the model-chosen ``path`` and the server-scoped
+    ``scope``. The model-facing projection exposes only ``path``.
+    """
+
+    input_schema = _command_value(command, "input_schema")
+    if not isinstance(input_schema, dict):
+        return False
+    body = input_schema.get("body")
+    if not isinstance(body, dict):
+        return False
+    properties = body.get("properties")
+    if not isinstance(properties, dict):
+        return False
+    if set(properties) != {"path", "scope"}:
+        return False
+    if body.get("required") != ["path"]:
+        return False
+    if body.get("additionalProperties") is not False:
+        return False
+    path_schema = properties.get("path")
+    if not isinstance(path_schema, dict):
+        return False
+    if path_schema.get("type") != "string":
+        return False
+    if path_schema.get("minLength") != 1:
+        return False
+    if path_schema.get("maxLength") != MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS:
+        return False
+    return True
+
+
+def _is_safe_native_read_file_command(
+    command: CommandSpec | dict[str, Any],
+) -> bool:
+    """Allow only the fixed native read-file projection.
+
+    The native command executes in process, so it is checked against the
+    manifest's own safety facts rather than an HTTP route.
+    """
+
+    return (
+        _command_value(command, "command_id") == NATIVE_READ_FILE_COMMAND_ID
+        and _command_value(command, "layer") == "internal"
+        and _command_value(command, "method") == "INTERNAL"
+        and _command_value(command, "effect") == "read"
+        and _command_value(command, "risk") == "read_only"
+        and _command_value(command, "idempotency") == "safe"
+        and _command_value(command, "approval_mode") == "none"
+        and _command_value(command, "open_world") is False
+        and _has_exact_native_read_file_body_schema(command)
+    )
+
+
+def _native_read_file_model_tool() -> dict[str, Any]:
+    """Return the fixed model projection for the native read-file command.
+
+    Only ``path`` crosses the projection. The Project scope is injected
+    server-side by the tool-turn handler and re-verified by the handler
+    against the authenticated account.
+    """
+
+    return {
+        "command_id": NATIVE_READ_FILE_COMMAND_ID,
+        "description": (
+            "Read one file from the current Project as text, with line "
+            "numbers. The path is relative to the Project root. Use this to "
+            "inspect source code, configuration, or documents before "
+            "changing anything."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    }
+
+
 def resolve_ordinary_chat_tools(
     *,
     provider: str | None,
@@ -354,6 +445,20 @@ def resolve_ordinary_chat_tools(
             repository_command
         ):
             tools.append(_repository_search_model_tool())
+    # The native read-file command is advertised on the DeepSeek lane only.
+    # The Whoosh'd strict structured transport supports exactly one advertised
+    # tool and requires every argument to be an enum-constrained string, so a
+    # free-form file path cannot be carried on that lane. The command itself
+    # is provider-neutral; only its advertisement is lane-scoped.
+    if normalized_provider == "deepseek" and repository_search_eligible:
+        native_command = _find_command(
+            commands,
+            expected_command_id=NATIVE_READ_FILE_COMMAND_ID,
+        )
+        if native_command is not None and _is_safe_native_read_file_command(
+            native_command
+        ):
+            tools.append(_native_read_file_model_tool())
     if isinstance(history_recall_grant, HistoryRecallGrant):
         history_command = _find_command(
             commands,
@@ -372,6 +477,16 @@ def repository_search_is_advertised(tools: Any) -> bool:
     return isinstance(tools, list) and any(
         isinstance(tool, dict)
         and tool.get("command_id") == REPOSITORY_SEARCH_COMMAND_ID
+        for tool in tools
+    )
+
+
+def native_read_file_is_advertised(tools: Any) -> bool:
+    """Return whether the native read-file command is in an automatic subset."""
+
+    return isinstance(tools, list) and any(
+        isinstance(tool, dict)
+        and tool.get("command_id") == NATIVE_READ_FILE_COMMAND_ID
         for tool in tools
     )
 
