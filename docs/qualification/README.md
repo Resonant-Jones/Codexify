@@ -387,6 +387,13 @@ A missing or malformed metadata block is an error. It is never silently
 skipped, because a qualification surface that disappears from the registry
 is indistinguishable from one that was never qualified.
 
+Every declared `surface_paths` entry must resolve to at least one tracked path
+in the repository. A path that matches nothing makes the surface *vacuous*:
+no change to the real code can ever mark a run stale, so the registry would
+project `current` for a receipt whose subject had moved. That invariant is
+enforced by
+`tests/qualification/test_qualification_registry.py::test_every_rubric_surface_path_matches_a_tracked_path`.
+
 ### How freshness is computed
 
 Freshness is computed from repository history, not asserted by hand.
