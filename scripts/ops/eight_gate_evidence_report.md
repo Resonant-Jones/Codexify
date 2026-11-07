@@ -3,7 +3,54 @@
 **Date:** 2026-11-06
 **Repository:** Codexify, worktree `feat-auto-20261105-c8c1dc20`
 **Evaluated checkout:** `e0022ba8f` (worktree HEAD); `origin/main` tip observed as `fba6e4dac`
-**Rubric:** `docs/qualification/rubrics/release-readiness-gates.md` version 2
+**Rubric:** `docs/qualification/rubrics/release-readiness-gates.md` version 3
+
+## Precondition — pause the Private Preview for the duration of the run
+
+**The Private Preview must be stopped before the eight-gate run, and stay stopped until it
+finishes.** This is a precondition of running the harness, not a preference.
+
+This host runs Docker Desktop with a **7.7 GiB guest** on a host that was, on 2026-11-07,
+down to **~130 MiB of free pages with 16 GiB of compressed memory**. Under that pressure the
+host killed Docker Desktop itself and took the Private Preview's thirteen containers with it —
+including a concurrently running proof, whose work was lost with the VM.
+
+Two of these gates are the heaviest thing anyone will run here: gate 3 sends a real SIGTERM at a
+real worker holding a real claim, and gate 2 needs an attempt older than 780 seconds against a
+live stack. Running that beside a live Preview on this host is the exact condition that killed
+Docker.
+
+**Two heavy Docker workloads must never run concurrently on this host.** The Preview is the
+largest single consumer, so pausing it is also the cheapest way to protect any other run in
+flight.
+
+Pause and restore, using the operator's own reconciler (the desired-up marker cannot be removed
+in place on this host, so the pause is done by pointing the serving-source pin at a root the
+reconciler rejects):
+
+```sh
+# pause: stop the project, then point the pin where the reconciler will not act
+GOOD=/Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261106
+REPO=/Volumes/Dev_SSD/Codexify-main
+PIN="$HOME/Library/Application Support/Codexify/private-preview/serving-source"
+
+docker compose --project-directory "$REPO" --env-file "$REPO/.env.private-preview" \
+  -p codexify_private_preview \
+  -f "$GOOD/docker-compose.yml" \
+  -f "$GOOD/docker-compose.private-preview.yml" \
+  -f "$GOOD/docker-compose.private-preview-serving.yml" stop
+printf '%s\n' "$REPO" > "$PIN"
+
+# restore: point the pin back at the serving worktree and reconcile
+printf '%s\n' "$GOOD" > "$PIN"
+bash "$HOME/Library/Application Support/Codexify/private-preview/codexify_private_preview_autostart.sh" auto-start
+```
+
+Volumes are preserved by the pause; the restore brings the stack back in about a minute.
+
+The **self-check** is safe to run with the Preview up: it launches no containers and no
+subprocesses. The **runtime** is not — `eight_gate_runtime.py` drives the real stack through
+`docker exec` into the Preview's own `db` and `redis` containers.
 
 ## Result
 
