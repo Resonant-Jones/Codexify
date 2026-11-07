@@ -81,7 +81,12 @@ def runtime(monkeypatch):
             mode = observed["mode"]
             try:
                 if mode == "headers":
-                    if observed["abort"].wait(0.7):
+                    # How long the fixture waits for the abort signal before
+                    # giving up and answering anyway. It must comfortably
+                    # exceed the abort path's elapsed bound below, so that
+                    # "the abort arrived" is decided by the abort and not by
+                    # which side of a tight clock ran out first.
+                    if observed["abort"].wait(6.0):
                         return
                 status = (
                     500
@@ -149,7 +154,11 @@ def runtime(monkeypatch):
         LOCAL_PROVIDER_VENDOR="whooshd",
         LOCAL_API_KEY="synthetic",
         LOCAL_COMPAT_FIRST=True,
-        LLM_REQUEST_TIMEOUT_SECONDS=2,
+        # The provider timeout must not be able to win the race against the
+        # deadline/cancel abort. At 2s it was: on a loaded runner the abort
+        # path took 1.855s, so the provider timeout could plausibly fire
+        # first and turn a deadline abort into a provider timeout.
+        LLM_REQUEST_TIMEOUT_SECONDS=30,
     )
     monkeypatch.setattr(chat_completion_service, "get_settings", lambda: settings)
     monkeypatch.setattr(supported_profile, "get_active_supported_profile", lambda: None)
@@ -211,7 +220,11 @@ def test_absolute_deadline_interrupts_real_http(runtime, mode):
         error.value.detail["failure_code"]
         == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
     )
-    assert time.monotonic() - start < 0.6
+    # The elapsed bound. It must stay below the fixture's abort wait (6.0s
+    # above) so that "the abort arrived" is decided by the abort rather than
+    # by the fixture giving up first, and comfortably above the abort path's
+    # measured cost so a contended runner does not fail a correct abort.
+    assert time.monotonic() - start < 5.0
     assert "answer" not in chunks
     assert chunks == (["early "] if mode == "partial" else [])
     assert error.value.detail["completion_truth"]["completed"] is False
@@ -262,8 +275,11 @@ def test_explicit_cancellation_remains_distinct_and_closes_io(runtime):
     observed["mode"] = "silent"
     start = time.monotonic()
     with pytest.raises(chat_completion_service.ChatTaskCancelled):
+        # The cancel has to be observed *during* the attempt, so this stays
+        # small: the attempt lasts ~0.26s unloaded and longer on a loaded
+        # runner, and a larger threshold would let the attempt finish first.
         execute(10, cancel_check=lambda: time.monotonic() - start >= 0.12)
-    assert time.monotonic() - start < 0.6
+    assert time.monotonic() - start < 5.0
     assert observed["abort_paths"] == ["/runtime/requests/fixture-remote/cancel"]
 
 
@@ -309,5 +325,5 @@ def test_abort_body_has_absolute_child_bound_and_preserves_deadline(runtime):
         error.value.detail["failure_code"]
         == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
     )
-    assert time.monotonic() - start < 2.6
+    assert time.monotonic() - start < 15.0
     assert observed["abort_paths"] == ["/runtime/requests/fixture-remote/cancel"]
