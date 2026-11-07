@@ -80,7 +80,6 @@ This README reflects what is actually wired today. No vaporware fog machine, no 
 | Connector worker | Wired but off | Requires `ENABLE_CONNECTOR_WORKER=true`. |
 | ChatGPT import | Profiled/off | CLI/Compose profile path, export file, Neo4j, and embeddings required. |
 | Backfill workers | Profiled/off | Compose `backfill` profile. |
-| RAG upload endpoint | Incomplete | `/upload-chat` depends on missing `codexify.rag.enhanced_rag` and returns `503`. |
 | Embeddings API | Guarded | Dummy vectors only when explicitly requested or fallback is enabled. |
 | Image generation | Deferred | Local/Stability paths may return `503`. |
 | TTS | Partially wired | API mock provider exists; HuggingFace TTS service is separate and not integrated into main API. |
@@ -162,7 +161,6 @@ If you want to **contribute code**, start with:
 
 ### Experimental, Stubbed, or Partially Wired
 
-- **RAG upload endpoint** `/upload-chat` requires a missing module (`codexify.rag.enhanced_rag`), so it currently returns `503`.
 - **RAG trace debug endpoint** is in-memory only and clears on restart.
 - **Embeddings API** `/api/embeddings` returns dummy vectors only when explicitly requested (`embedder=dummy`) or when fallback is enabled. Otherwise it returns `503` until a real backend is configured.
 - **Local/Stability image generation** is intentionally deferred for MVP and is non-blocking. Selecting those providers can return `503` until implementations are added.
@@ -317,7 +315,7 @@ Compose is the reference setup. If running locally:
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements/all.txt
 ```
 
 ### 2. Set Environment Variables
@@ -428,12 +426,26 @@ These do not start unless enabled:
 
 - `guardian/` - Main backend package: FastAPI app, routes, DB logic, workers, plugins, providers.
 - `backend/` - Dockerfile, Alembic config, RAG embedder, and separate TTS microservice.
-- `frontend/` - React + Vite app. Source lives in `frontend/src`.
+- `frontend/` - React + Vite app; source lives in `frontend/src`.
 - `src-tauri/` - Tauri desktop shell, macOS-first local parity flow, manual packaging gate.
 - `guardian/db/migrations/` - Alembic migrations and authoritative schema path.
-- `scripts/` - CLI tools, ChatGPT import, maintenance scripts.
-- `models/` - Local embedding model files mounted into containers.
+- `tests/` - Backend test suite.
+- `codex_runner/` - Campaign engine and CLI, plus the vendored Pi runtime under `codex_runner/vendor/`.
+- `browser_host/` - Browser host runtime, attachment grants, and negotiation surfaces.
+- `mobile/` - Mobile app source.
+- `edge/` - Cloudflare worker; `edge/cloudflare-worker` is a declared pnpm workspace package.
+- `flows/` - Prefect flow definitions for ETL and sync jobs.
+- `config/` - Supported profile definitions, launchd templates, and operator config examples.
+- `docs/` - Documentation corpus; `docs/architecture/00-current-state.md` is the canonical release-truth document.
+- `schemas/` - JSON schemas for audit evidence, live proof receipts, and the knowledge graph.
+- `services/` - External service adapters; `services/mlx_server` is the OpenAI-compatible MLX inference server.
+- `tools/` - Auxiliary CLI tooling; `tools/codex-runner` is the standalone codex-runner package.
+- `skills/` - Agent skill definitions.
+- `sql/` - Raw SQL inputs maintained outside the Alembic migration graph.
+- `docker/` - Container entrypoint scripts and the Private Preview nginx configuration.
 - `plugins/` and `guardian/plugins/` - Plugin scaffolding and example plugins.
+- `scripts/` - CLI tools, ChatGPT import, maintenance scripts.
+- `.github/` - CI workflows.
 
 ## Configuration Reality
 
@@ -484,7 +496,7 @@ Required tools:
 Verify:
 
 ```bash
-cd /Users/resonant_jones/Keep/Resonant_Constructs/Codexify
+cd /path/to/Codexify
 
 python --version
 python -m pip --version
@@ -503,7 +515,7 @@ Remediation with Homebrew:
 ```bash
 brew install python
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements/all.txt
 python -m pip install pytest
 
 brew install node
@@ -519,7 +531,7 @@ Optional isolated Python environment:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements/all.txt
 python -m pip install pytest
 ```
 
@@ -605,7 +617,6 @@ alembic -c backend/alembic.ini upgrade head
 ## Explicit Non-Goals / Deferred Systems
 
 - Full graph context is off by default and requires explicit env flags.
-- The `/upload-chat` RAG endpoint is effectively disabled due to the missing module noted above.
 - Embeddings API returns mock vectors only when explicitly requested. Otherwise it fails closed until configured.
 - Local/Stability image generation is deferred for MVP and may return `503` until implemented.
 - TTS microservice exists but is not integrated into the main API.
@@ -617,45 +628,44 @@ Codexify has extensive documentation. You do **not** need to read everything. St
 
 ### 1. High-level System Understanding
 
-- **Codexify-System-Specification.md** - what Codexify is, what problems it solves, and what it intentionally does not do.
+- [Codexify-System-Specification.md](docs/Codexify/Codexify-System-Specification.md) - what Codexify is, what problems it solves, and what it intentionally does not do.
 
 ### 2. Architectural Truth
 
-- **Codexify-Master-Architecture-Report.md** - end-to-end runtime topology, services, data flow, and container roles.
+- [Codexify-Master-Architecture-Report.md](docs/Codexify/Codexify-Master-Architecture-Report.md) - end-to-end runtime topology, services, data flow, and container roles.
 
 ### 3. Backend Internals
 
-- **system_architecture.md** - Guardian internals, lifecycle, DB wiring, workers, and event flow.
+- [system_architecture.md](docs/infra/system_architecture.md) - Guardian internals, lifecycle, DB wiring, workers, and event flow.
 
 ### 4. Data, Memory, and Cognition
 
-- **Event_Graph.md**
-- **Thread-Artifact-Lineage.md**
-- **context-report.md**
+- [Event_Graph.md](docs/Future-Features/Event_Graph.md)
+- [context-report.md](docs/infra/context-report.md)
 
 These cover how memory, threads, artifacts, and context interact over time.
 
 ### 5. UI + Perceptual Layer
 
-- **Codexify-UI-Rendering-Protocol.md**
-- **CODEXIFY-PERCEPTUAL-STACK-SPEC.md**
+- [Codexify-UI-Rendering-Protocol.md](docs/dev/ARTIFACT3—Codexify-UI-Rendering-Protocol.md)
+- [CODEXIFY-PERCEPTUAL-STACK-SPEC.md](docs/dev/ARTIFACT7--CODEXIFY-PERCEPTUAL-STACK-SPEC.md)
 
 These cover UI state, rendering, and agent perception.
 
 ### 6. Security and Integrity
 
-- **docs/SECURITY.md**
-- **docs/CONFIGURATION.md**
-- **docs/security/auth-boundary-decision.md**
-- **docs/dev/SECURITY_HARDENING_PLAN.md**
+- [SECURITY.md](SECURITY.md)
+- [CONFIGURATION.md](docs/Codexify/CONFIGURATION.md)
+- [auth-boundary-decision.md](docs/security/auth-boundary-decision.md)
+- [SECURITY_HARDENING_PLAN.md](docs/dev/SECURITY_HARDENING_PLAN.md)
 
 These cover threat model, guardrails, and non-goals.
 
 ### 7. Contributing
 
-- **CONTRIBUTING.md** - expectations, safe areas, and how to avoid stepping on landmines.
+- [CONTRIBUTING.md](CONTRIBUTING.md) - expectations, safe areas, and how to avoid stepping on landmines.
 
-If you are unsure where to start, read **Codexify-System-Specification.md** and then open the code.
+If you are unsure where to start, read [Codexify-System-Specification.md](docs/Codexify/Codexify-System-Specification.md) and then open the code.
 
 ## Contribution Entry Point
 
