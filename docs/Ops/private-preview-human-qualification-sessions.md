@@ -20,6 +20,12 @@ Do not start sessions until both are true.
   tested commit and runtime profile. Record both before the first session starts. A candidate
   that changes mid-qualification invalidates the sessions: the evidence then describes a
   revision that is not the one it claims.
+- **That candidate is the same revision the eight-gate evidence describes.** The human receipt
+  and the `release-readiness-gates` run receipt must name one candidate revision. Two lanes
+  that each describe their own tip cannot together establish that the release criteria were
+  met at a single evaluated revision, and the registry will not bind them: qualification is
+  commit-bound, per receipt. Name the candidate once, and hold it fixed until both lanes have
+  filed their receipts.
 - **The runtime is up and healthy**, and the tester accounts are provisioned and can log in.
 
 ## 2. Which runtime
