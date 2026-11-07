@@ -8,8 +8,19 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: guardian-ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A manual dispatch gets its own group, so an explicit request to verify is
+  # never cancelled by a later push landing on the same ref.
+  group: guardian-ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}
+  # Cancel a superseded run only where the newest state supersedes the older
+  # one and only the newest matters — pull requests.
+  #
+  # On `main`, never cancel. The suite takes ~40 minutes, and each new push
+  # was cancelling the run in flight, so `main` could go an entire day without
+  # executing it at all: on 2026-11-07, 19 merges and 37 commits landed after
+  # the last real execution at 09:03Z, and every run since was `cancelled` or
+  # a green no-op whose pytest step was `skipped`. A queued run instead waits,
+  # and the superseded-revision check below keeps the queue cheap.
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' || github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -67,6 +78,22 @@ jobs:
               - '**/migrations/**'
               - '.github/scripts/create-ci-env.sh'
 
+      - name: Detect a superseded revision on main
+        id: superseded
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -uo pipefail
+          tip="$(git ls-remote origin refs/heads/main 2>/dev/null | cut -f1)"
+          if [ -z "$tip" ]; then
+            # Fail open: if the tip cannot be resolved, treat this revision as
+            # current and run the suite rather than silently skipping it.
+            echo "Could not resolve the tip of main; treating this revision as current."
+          elif [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "Superseded: main is now ${tip}; this revision is not the tip."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compute run matrix
         id: compute
         shell: bash
@@ -82,13 +109,21 @@ jobs:
             # backend path so that dispatching on a documentation-only commit
             # cannot report a successful no-op in place of execution.
             echo "run_backend=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.superseded.outputs.superseded }}" = "true" ]; then
+            # This revision is no longer the tip of main. The run for the tip
+            # is queued behind this one and will test it, so running the suite
+            # here would spend forty minutes of runner time on a revision
+            # nobody will ship.
+            echo "run_backend=false" >> "$GITHUB_OUTPUT"
           elif [ "$backend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
             echo "run_backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_backend=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "$frontend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
+          if [ "${{ steps.superseded.outputs.superseded }}" = "true" ]; then
+            echo "run_frontend=false" >> "$GITHUB_OUTPUT"
+          elif [ "$frontend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
             echo "run_frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_frontend=false" >> "$GITHUB_OUTPUT"
@@ -102,6 +137,7 @@ jobs:
           echo "shared_changed=${{ steps.filter.outputs.shared }}"
           echo "run_backend=${{ steps.compute.outputs.run_backend }}"
           echo "run_frontend=${{ steps.compute.outputs.run_frontend }}"
+          echo "superseded=${{ steps.superseded.outputs.superseded }}"
 
   backend-tests:
     name: Backend Tests (Python 3.11)
