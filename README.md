@@ -426,12 +426,26 @@ These do not start unless enabled:
 
 - `guardian/` - Main backend package: FastAPI app, routes, DB logic, workers, plugins, providers.
 - `backend/` - Dockerfile, Alembic config, RAG embedder, and separate TTS microservice.
-- `frontend/` - React + Vite app. Source lives in `frontend/src`.
+- `frontend/` - React + Vite app; source lives in `frontend/src`.
 - `src-tauri/` - Tauri desktop shell, macOS-first local parity flow, manual packaging gate.
 - `guardian/db/migrations/` - Alembic migrations and authoritative schema path.
-- `scripts/` - CLI tools, ChatGPT import, maintenance scripts.
-- `models/` - Local embedding model files mounted into containers.
+- `tests/` - Backend test suite.
+- `codex_runner/` - Campaign engine and CLI, plus the vendored Pi runtime under `codex_runner/vendor/`.
+- `browser_host/` - Browser host runtime, attachment grants, and negotiation surfaces.
+- `mobile/` - Mobile app source.
+- `edge/` - Cloudflare worker; `edge/cloudflare-worker` is a declared pnpm workspace package.
+- `flows/` - Prefect flow definitions for ETL and sync jobs.
+- `config/` - Supported profile definitions, launchd templates, and operator config examples.
+- `docs/` - Documentation corpus; `docs/architecture/00-current-state.md` is the canonical release-truth document.
+- `schemas/` - JSON schemas for audit evidence, live proof receipts, and the knowledge graph.
+- `services/` - External service adapters; `services/mlx_server` is the OpenAI-compatible MLX inference server.
+- `tools/` - Auxiliary CLI tooling; `tools/codex-runner` is the standalone codex-runner package.
+- `skills/` - Agent skill definitions.
+- `sql/` - Raw SQL inputs maintained outside the Alembic migration graph.
+- `docker/` - Container entrypoint scripts and the Private Preview nginx configuration.
 - `plugins/` and `guardian/plugins/` - Plugin scaffolding and example plugins.
+- `scripts/` - CLI tools, ChatGPT import, maintenance scripts.
+- `.github/` - CI workflows.
 
 ## Configuration Reality
 
