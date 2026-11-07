@@ -1143,6 +1143,47 @@ class MusicProject(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class MusicJob(Base):
+    """The host's own record of which project a music job belongs to.
+
+    The Agent-DAW service echoes back the context it was handed, and the
+    route used to read the project and thread out of that echo. That made
+    the host's attribution depend on the engine's age: an engine that
+    predates the echo hands back files the host cannot place, and the host
+    reports success anyway -- files produced, none registered.
+
+    So the host keeps its own copy. It sent the context, so it already
+    knows what the work belongs to without asking anyone. The row is
+    written once, when the job handle is minted, and the first write
+    wins: a job belongs to one project, and a later write cannot move it.
+
+    The table is deliberately minimal. ``user_id`` is not here because
+    the asset row already carries it, and it comes from the scope of the
+    request that registers the files rather than from the job.
+
+    ``thread_id`` is attribution rather than a requirement -- a thread
+    that is deleted leaves the job attributed to its project alone --
+    so it is nullable and set to null instead of taking the row with it.
+    The project is the hard requirement, and it cascades: a project that
+    is deleted takes its jobs with it.
+    """
+
+    __tablename__ = "music_jobs"
+
+    job_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __mapper_args__ = {"eager_defaults": True}
+
+
 # =========================
 # Repository Bindings (Stage 2K.1 / ADR-065)
 # =========================

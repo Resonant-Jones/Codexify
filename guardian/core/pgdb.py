@@ -1504,6 +1504,71 @@ class PgDB(ChatDB):
                 )
                 return [dict(row) for row in cur.fetchall()]
 
+    # ------------------------------------------------------------------
+    # Music Jobs
+    #
+    # The host's own record of which project a music job belongs to. It
+    # keeps this so the attribution does not depend on the service
+    # remembering the context it was handed.
+    # ------------------------------------------------------------------
+
+    def record_music_job(
+        self,
+        job_id: str,
+        *,
+        project_id: int,
+        thread_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Record which project a music job belongs to.
+
+        The host sent the context, so it knows the answer without asking
+        the service. The write happens once, when the job handle is
+        minted, and the first write wins: a job belongs to one project,
+        and a later write cannot move it.
+        """
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO music_jobs (
+                        job_id, project_id, thread_id, created_at
+                    )
+                    VALUES (%s, %s, %s, now())
+                    ON CONFLICT (job_id) DO NOTHING
+                    RETURNING job_id, project_id, thread_id, created_at
+                    """,
+                    (job_id, project_id, thread_id),
+                )
+                row = cur.fetchone()
+                if row is not None:
+                    return dict(row)
+                # The job was already recorded. The first write stands.
+                cur.execute(
+                    """
+                    SELECT job_id, project_id, thread_id, created_at
+                    FROM music_jobs
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def get_music_job(self, job_id: str) -> dict[str, Any] | None:
+        """Return the host's record of a music job, or None."""
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT job_id, project_id, thread_id, created_at
+                    FROM music_jobs
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cur.fetchone()
+                return dict(row) if row else None
+
     def ensure_project(self, name: str, description: str = "") -> int:
         with self._connect() as conn:
             with conn.cursor() as cur:
