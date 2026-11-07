@@ -25,8 +25,8 @@ started, recreated or removed; no database was migrated, dumped or restored; no
 scratch volume or container was created; no backup artifact exists. The
 Private Preview was read throughout and remains healthy and unmodified.
 
-> **Re-verified 2026-11-07.** The determination was re-run against a deployment
-> that had since been redeployed and a branch that had since advanced. The
+> **Re-verified 2026-11-07.** The determination was re-run against a branch
+> that had since advanced and a deployment that had since been restarted. The
 > verdict is **unchanged**, and the re-verification sharpened it: the helper's
 > **failure path** also mutates the Preview's serving runtime (§4.3), and the
 > `origin/main` Compose files have now moved away from the serving root's, so
@@ -99,6 +99,19 @@ inspection**.
 | Helper blob on `origin/main` | `ec7f6bbe…` | `ec7f6bbe…` | **`ec7f6bbe…` (unchanged)** |
 | Serving overlay tracked on `origin/main` | absent | absent | **still absent** |
 
+The two 2026-11-07 events are different in kind and are recorded separately so
+that neither is misread as the other:
+
+- **2026-11-06** — the serving root moved from `…-20261029` @ `c8e72ef86` to
+  `…-20261106` @ `dece01821` and the live schema advanced
+  `3a91d7c4e8b2` → `a7d4c9e2f1b3`. Containers were **recreated**; this was a
+  deliberate deployment, and it is what closed the schema-compatibility gap.
+- **2026-11-07 ~02:25 EST** — the Docker Desktop VM was killed by **host
+  memory pressure**. The Preview's **existing** containers were restarted
+  (`Created` unchanged, `StartedAt` = `2026-11-07T07:25:27Z`) with no
+  recreation and no revision change. The deployment's identity survived the
+  crash unchanged.
+
 Every identity claim in this receipt is taken from the **measured** live state
 at the stated timestamp, never from the branch name or from `origin/main`. The
 live revision was read directly from the database; the serving revision was
@@ -117,12 +130,16 @@ Three consequences follow, and they are the substance of this receipt:
    independent of which revision is deployed. The 2026-11-07 re-verification
    confirms this: the helper blob is unchanged, the serving overlay is still
    untracked, and the same two Requirement-2 conditions still fail.
-3. **The deployment is redeployed from time to time by other threads.** During
-   the re-verification the Preview was redeployed again (containers restarted,
-   `migrator` re-run). The *observable* state was unchanged — same revision,
-   same 18 config-hashes, same 9 volumes — which is itself evidence that the
-   operator's serving lifecycle is reproducible. But any future measurement
-   must be taken fresh, not carried forward.
+3. **The deployment's identity is durable across restarts, but it does move.**
+   During the 2026-11-07 re-verification the Private Preview was **restarted**:
+   the Docker Desktop VM was killed by host memory pressure at ~02:25 EST and
+   came back with the **same containers** (creation timestamps unchanged —
+   `db` 2026-10-30, `backend` 2026-11-06) re-started at `07:25:27Z`. The
+   *observable* state was identical — same revision, same 18 config-hashes,
+   same 9 volumes, same serving root — which is evidence that the deployment's
+   identity survives a host-level crash and is not quietly re-pointed by one.
+   Any future measurement must still be taken fresh, not carried forward, and
+   the serving root must be re-read from the pin file each time (§2.1).
 
 ### 2.2 Identity record
 
@@ -607,6 +624,16 @@ repository (the helper rejects a backup root inside `REPO_ROOT`, lines
 318–320), and not one of the broad roots the helper refuses (lines 321–325).
 Required capacity ≈ 6.5 GB against 57 GiB free.
 
+**A fourth precondition would have to be met alongside the approval: host
+memory headroom.** On 2026-11-07 the Docker Desktop VM was killed by host
+memory pressure at ~02:25 EST while the Preview's 13 containers were up, and
+the Preview only returned after a relaunch. The checkpoint procedure is
+Docker-heavy by construction — a `pg_dump` of an 845 MB database, a `tar` of
+5.6 GB of media, and an isolated scratch PostgreSQL restore — so running it
+with the Preview up on this host risks repeating that crash. Any approval
+should state whether the Preview is to be paused for the window, and the
+window's expected duration, alongside the interruption and recovery procedure.
+
 ## 9. Validation results
 
 Read-only validation, run at the receipt branch:
@@ -645,6 +672,13 @@ interrupted.
 | Backup artifacts created | **0** |
 | Schema changes applied | **none** |
 | Application code deployed | **none** |
+
+The only change in the Preview's runtime during the re-verification window was
+the **restart** at `2026-11-07T07:25:27Z` that followed the Docker Desktop
+host memory-pressure crash (§2.1). It was performed by the operator's own
+recovery path, not by this task: no container was created, removed or
+recreated by this work, and the deployment's identity — revision, 18
+config-hashes, 9 named volumes, serving root — was unchanged across it.
 
 ## 11. Closeout
 
