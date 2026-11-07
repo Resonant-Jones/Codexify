@@ -36,7 +36,7 @@ Version 3 corrects three things version 2 got wrong:
 
 ```yaml qualification-metadata
 qualification_id: release-readiness-gates
-version: 2
+version: 3
 title: Release Readiness Gates
 scope: The eight release-gate behaviours of the supported local-first runtime, exercised together on one frozen evaluated tip, each judged PASS, FAIL or UNPROVEN from a named observable surface
 surface_paths:
