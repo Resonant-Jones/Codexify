@@ -8,7 +8,8 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, defer
 
 from guardian.core import event_bus
 from guardian.core.ai_router import chat_with_ai
@@ -28,6 +29,7 @@ router = APIRouter()
 _ALLOWED_DOC_FORMATS = {"markdown", "plain"}
 _FORMAT_STORAGE_MAP = {"markdown": "md", "plain": "txt"}
 _ALLOWED_LLM_PROVIDERS = {"local", "groq", "openai", "minimax"}
+_DOCUMENT_PREVIEW_BYTES = 8 * 1024
 
 
 class AutosaveRequest(BaseModel):
@@ -116,6 +118,7 @@ class UploadedDocumentDetailResponse(BaseModel):
     mime_type: str
     source_tag: str | None = None
     parsed_text: str | None = None
+    text_preview_truncated: bool | None = None
     embedding_status: str | None = None
     embedding_error: str | None = None
     embedding_started_at: str | None = None
@@ -264,6 +267,8 @@ def _resolve_uploaded_document_for_scope(
     session: Session,
     document_identity: str,
     request_user_scope: RequestUserScope,
+    *,
+    preview: bool = False,
 ):
     identity = (document_identity or "").strip()
     if not identity:
@@ -271,9 +276,15 @@ def _resolve_uploaded_document_for_scope(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
-    document = (
-        session.query(models.UploadedDocument)
-        .filter(
+    query = session.query(models.UploadedDocument)
+    if preview:
+        # Read only enough characters to produce a UTF-8 page and detect overflow.
+        text = models.UploadedDocument.parsed_text
+        query = query.options(defer(text)).add_columns(
+            func.substr(text, 1, _DOCUMENT_PREVIEW_BYTES + 1)
+        )
+    result = (
+        query.filter(
             models.UploadedDocument.deleted_at.is_(None),
             (
                 (models.UploadedDocument.id == identity)
@@ -286,11 +297,12 @@ def _resolve_uploaded_document_for_scope(
         )
         .first()
     )
-    if not document:
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
+    document = result[0] if preview else result
     if request_user_scope.multi_user_enabled:
         account_id = _request_account_id(request_user_scope)
         owner_id = str(getattr(document, "user_id", "") or "").strip()
@@ -299,7 +311,7 @@ def _resolve_uploaded_document_for_scope(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Document does not belong to the authenticated account",
             )
-    return document
+    return document, result[1] if preview else document.parsed_text
 
 
 @router.post("/api/documents/notes", response_model=WorkspaceNoteSaveResponse)
@@ -871,18 +883,22 @@ async def get_thread_documents(
 @router.get(
     "/api/documents/{document_id}",
     response_model=UploadedDocumentDetailResponse,
+    response_model_exclude_unset=True,
 )
 async def get_uploaded_document_detail(
     document_id: str,
     _api_key: str = Depends(require_api_key),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+    *,
+    preview: bool = False,
 ) -> dict[str, Any]:
+    """Read document details, optionally limiting parsed text to its first page."""
     db = _get_db()
     with db.get_session() as session:
-        document = _resolve_uploaded_document_for_scope(
-            session, document_id, request_user_scope
+        document, parsed_text = _resolve_uploaded_document_for_scope(
+            session, document_id, request_user_scope, preview=preview
         )
-        return {
+        detail = {
             "id": document.id,
             "document_id": document.id,
             "media_asset_id": document.asset_id,
@@ -893,7 +909,7 @@ async def get_uploaded_document_detail(
             "filesize": document.filesize,
             "mime_type": document.mime_type,
             "source_tag": document.source_tag,
-            "parsed_text": document.parsed_text,
+            "parsed_text": parsed_text,
             "embedding_status": document.embedding_status,
             "embedding_error": document.embedding_error,
             "embedding_started_at": (
@@ -910,3 +926,14 @@ async def get_uploaded_document_detail(
                 document.created_at.isoformat() if document.created_at else ""
             ),
         }
+
+        if preview:
+            encoded = parsed_text.encode("utf-8") if parsed_text is not None else b""
+            truncated = len(encoded) > _DOCUMENT_PREVIEW_BYTES
+            detail["text_preview_truncated"] = truncated
+            if truncated:
+                # Discard only an incomplete scalar at the end of this valid UTF-8 prefix.
+                detail["parsed_text"] = encoded[:_DOCUMENT_PREVIEW_BYTES].decode(
+                    "utf-8", errors="ignore"
+                )
+        return detail
