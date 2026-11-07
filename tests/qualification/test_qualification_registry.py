@@ -446,6 +446,91 @@ def test_projection_marks_a_run_current_when_the_surface_is_untouched(
     assert entry["blockers"] == []
 
 
+def test_a_run_earned_under_an_older_rubric_version_is_not_current(
+    tmp_path: Path,
+) -> None:
+    """A run demonstrates the criteria it was earned under, not later ones.
+
+    The rubric version is what a receipt binds to. If the rubric's criteria
+    are revised after a run, that run cannot be read as describing the new
+    criteria even when its subject has not moved and the surface is intact.
+    """
+    commit = "7" * 40
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+
+    _init_git_repo(tmp_path)
+    history = GitHistory(tmp_path)
+    tip = history.resolve_commit("HEAD")
+    assert tip is not None
+
+    # The rubric's criteria are revised after the run: version 2, same surface.
+    revised_rubric = parse_rubric(
+        _write_rubric(tmp_path, RUBRIC_METADATA.replace("version: 1", "version: 2")),
+        tmp_path,
+    )
+    assert revised_rubric.version == 2
+    assert receipt.rubric_version == 1
+
+    # The receipt tested the tip itself, so nothing in the subject moved.
+    receipt_at_tip = RunReceipt(
+        qualification_id=receipt.qualification_id,
+        rubric_version=receipt.rubric_version,
+        verdict=receipt.verdict,
+        commit=tip,
+        date=receipt.date,
+        path=receipt.path,
+        repo_root=tmp_path,
+        evidence=receipt.evidence,
+    )
+
+    freshness, reasons, blockers = compute_freshness(
+        revised_rubric, receipt_at_tip, history, tip
+    )
+
+    assert freshness == "stale"
+    assert reasons == ["rubric_version_mismatch"]
+    assert any("rubric version 1" in blocker for blocker in blockers)
+    assert any("now version 2" in blocker for blocker in blockers)
+
+
+def test_a_run_earned_under_the_current_rubric_version_is_current(
+    tmp_path: Path,
+) -> None:
+    """The version check must not stale a run earned under the same criteria."""
+    commit = "7" * 40
+    rubric = parse_rubric(_write_rubric(tmp_path), tmp_path)
+    receipt = parse_run_receipt(
+        _write_receipt(tmp_path, RECEIPT_METADATA.format(commit=commit)), tmp_path
+    )
+    assert receipt.rubric_version == rubric.version
+
+    _init_git_repo(tmp_path)
+    history = GitHistory(tmp_path)
+    tip = history.resolve_commit("HEAD")
+    assert tip is not None
+
+    receipt_at_tip = RunReceipt(
+        qualification_id=receipt.qualification_id,
+        rubric_version=receipt.rubric_version,
+        verdict=receipt.verdict,
+        commit=tip,
+        date=receipt.date,
+        path=receipt.path,
+        repo_root=tmp_path,
+        evidence=receipt.evidence,
+    )
+
+    freshness, reasons, blockers = compute_freshness(
+        rubric, receipt_at_tip, history, tip
+    )
+
+    assert freshness == "current"
+    assert reasons == []
+    assert blockers == []
+
+
 # ── Validator ────────────────────────────────────────────────────────────
 
 

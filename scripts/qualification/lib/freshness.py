@@ -199,48 +199,63 @@ def compute_freshness(
     checkout: exit 0 for an ancestor, non-zero for both a known
     non-ancestor and an unresolvable revision.
     """
+    reasons: list[str] = []
+    blockers: list[str] = []
+
+    if receipt.rubric_version != rubric.version:
+        # The rubric's criteria were revised after this run was earned. A run
+        # demonstrates the criteria it was earned under, so it cannot describe
+        # criteria it never saw. This is checked before the surface diff
+        # because it is the more fundamental failure: a matching surface says
+        # the code did not move, not that the criteria are the same ones.
+        reasons.append("rubric_version_mismatch")
+        blockers.append(
+            f"This run was earned under rubric version {receipt.rubric_version}, "
+            f"but the rubric is now version {rubric.version}. A run does not "
+            "qualify criteria it was not earned under, so it cannot be read "
+            "as describing the current criteria."
+        )
+
     if receipt.commit == tip_sha:
+        if reasons:
+            return "stale", reasons, blockers
         return "current", [], []
 
     if not history.is_ancestor(receipt.commit, tip_sha):
         # Either the tested commit is not part of the tip's lineage, or it
         # cannot be resolved at all. Both mean the same thing for a reader:
         # this run cannot be shown to describe the code the tip contains.
-        return (
-            "stale",
-            ["tested_commit_not_in_tip_lineage"],
-            [
-                f"The tested commit {receipt.commit} is not an ancestor of the "
-                "current tip, so this run cannot be shown to describe the "
-                "code the tip contains. A qualification run must test a "
-                "revision that is part of the lineage it qualifies."
-            ],
+        reasons.append("tested_commit_not_in_tip_lineage")
+        blockers.append(
+            f"The tested commit {receipt.commit} is not an ancestor of the "
+            "current tip, so this run cannot be shown to describe the "
+            "code the tip contains. A qualification run must test a "
+            "revision that is part of the lineage it qualifies."
         )
+        return "stale", reasons, blockers
 
     changed = history.changed_paths(receipt.commit, tip_sha)
     if changed is None:
         # The comparison could not be performed. Treating this as current
         # would assert freshness that was never demonstrated.
-        return (
-            "stale",
-            ["freshness_comparison_unavailable"],
-            [
-                "Freshness could not be computed for this run because the "
-                "comparison against the current tip failed. The run is "
-                "treated as not current."
-            ],
+        reasons.append("freshness_comparison_unavailable")
+        blockers.append(
+            "Freshness could not be computed for this run because the "
+            "comparison against the current tip failed. The run is "
+            "treated as not current."
         )
+        return "stale", reasons, blockers
 
     touched = match_surface(changed, rubric.surface_paths)
-    if not touched:
-        return "current", [], []
-
-    return (
-        "stale",
-        sorted(touched),
-        [
+    if touched:
+        reasons.extend(sorted(touched))
+        blockers.append(
             "The tested commit no longer describes the current tip: "
             f"{len(touched)} path(s) in this qualification surface changed "
             "since the run."
-        ],
-    )
+        )
+
+    if not reasons:
+        return "current", [], []
+
+    return "stale", reasons, blockers
