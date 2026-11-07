@@ -298,6 +298,31 @@ def generate_markdown(
     )
 
 
+#: A dated section heading in the beta changelog.
+SECTION_HEADING = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+
+#: The header used when the changelog does not exist yet.
+DEFAULT_CHANGELOG_HEADER = "# Beta Changelog\n\nEvidence-led beta readiness changes only."
+
+
+def split_changelog_sections(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Split a changelog into its preamble and its dated sections.
+
+    Returns ``(preamble, [(date, body), ...])`` where ``date`` is the section's
+    ``YYYY-MM-DD`` heading and ``body`` is the section including its heading.
+    """
+    matches = list(SECTION_HEADING.finditer(text))
+    if not matches:
+        return text.rstrip(), []
+
+    preamble = text[: matches[0].start()].rstrip()
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((match.group(1), text[match.start() : end].rstrip()))
+    return preamble, sections
+
+
 def update_changelog(
     path: Path,
     date_str: str,
@@ -305,21 +330,46 @@ def update_changelog(
     blockers: list[str],
     warnings: list[str],
 ) -> None:
-    if path.exists():
-        existing = read_text(path).rstrip()
-    else:
-        existing = "# Beta Changelog\n\nEvidence-led beta readiness changes only.\n"
+    """Write a dated section into the beta changelog, newest section first.
 
-    lines = [existing, "", f"## {date_str}", "", "### Evidence"]
-    lines.extend(f"- {item}" for item in items or ["No new commit subjects discovered for this sentinel window."])
-    lines.append("")
-    lines.append("### Blockers")
-    lines.extend(f"- {item}" for item in blockers or ["None."])
-    lines.append("")
-    lines.append("### Warnings")
-    lines.extend(f"- {item}" for item in warnings or ["None."])
-    lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+    The section is **inserted**, not appended. Appending puts the newest date
+    last, so a reader looking for the most recent change has to read to the
+    end of the file, and every run leaves the changelog sorted wrong. A section
+    for a date that is already present replaces it, so re-running on the same
+    day updates the record instead of duplicating it.
+    """
+    if path.exists():
+        preamble, sections = split_changelog_sections(read_text(path))
+    else:
+        preamble, sections = DEFAULT_CHANGELOG_HEADER, []
+
+    body: list[str] = [f"## {date_str}", "", "### Evidence"]
+    body.extend(f"- {item}" for item in items or ["No new commit subjects discovered for this sentinel window."])
+    body.append("")
+    body.append("### Blockers")
+    body.extend(f"- {item}" for item in blockers or ["None."])
+    body.append("")
+    body.append("### Warnings")
+    body.extend(f"- {item}" for item in warnings or ["None."])
+    body.append("")
+    new_section = "\n".join(body).rstrip()
+
+    # A section for the same date is replaced, not duplicated.
+    remaining = [(date, text) for date, text in sections if date != date_str]
+
+    # ISO dates compare correctly as strings, so the first section older than
+    # this one is where the new section belongs.
+    index = next(
+        (i for i, (date, _) in enumerate(remaining) if date < date_str),
+        len(remaining),
+    )
+    remaining.insert(index, (date_str, new_section))
+
+    lines = [preamble, ""]
+    for _, section in remaining:
+        lines.append(section)
+        lines.append("")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
