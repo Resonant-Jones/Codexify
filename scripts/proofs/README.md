@@ -149,6 +149,37 @@ naming the test that caught it.
 | 2 | `PRECONDITION_FAILED` | No database URL |
 | 3 | `MUTATION_NOT_CAUGHT` | A mutation was not caught, or could not be applied |
 
+### `mutate_local_node_identity_tests.py`
+
+**Seam:** the local-node identity tests themselves -- not the runtime.
+
+**What it proves:** that each of four mutations to the real source is caught
+by the test that names it. A test that passes with and without the fix
+proves nothing, so this harness applies each mutation in turn, runs the one
+test, and asserts that it fails.
+
+Each mutation starts from the pristine file, so one mutation cannot mask or
+compose with the next. It restores every file it touches from a
+byte-verified backup whether the mutation was caught or not, so the working
+tree is left as it was found.
+
+**Required services:** pytest only. The tests build their own in-memory
+SQLite engine.
+
+**Command:**
+```bash
+python scripts/proofs/mutate_local_node_identity_tests.py
+```
+
+**Success means:** the script exits 0 and prints one line per mutation
+naming the test that caught it.
+
+**Failure classes:**
+
+| Exit code | Category | Meaning |
+|---|---|---|
+| 1 | `MUTATION_NOT_CAUGHT` | A mutation was not caught, or could not be applied |
+
 ## Release-Evidence Workflow
 
 1. Start from a clean `main` checkout.
