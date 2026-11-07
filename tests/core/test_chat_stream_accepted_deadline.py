@@ -220,6 +220,10 @@ def test_absolute_deadline_interrupts_real_http(runtime, mode):
         error.value.detail["failure_code"]
         == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
     )
+    # The elapsed bound. It must stay below the fixture's abort wait (6.0s
+    # above) so that "the abort arrived" is decided by the abort rather than
+    # by the fixture giving up first, and comfortably above the abort path's
+    # measured cost so a contended runner does not fail a correct abort.
     assert time.monotonic() - start < 5.0
     assert "answer" not in chunks
     assert chunks == (["early "] if mode == "partial" else [])
