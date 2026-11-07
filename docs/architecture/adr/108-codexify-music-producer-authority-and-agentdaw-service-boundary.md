@@ -59,8 +59,11 @@ All paths are relative to `main` unless a revision is stated.
 
 External:
 
-- `Resonant-Jones/Agent-DAW` — the producer engine, referenced at tag `v0.1.2`
-  by `docker-compose.yml` via `CODEXIFY_AGENTDAW_BUILD_CONTEXT`
+- `Resonant-Jones/Agent-DAW` — the producer engine. The authoritative
+  default build tag is the `CODEXIFY_AGENTDAW_BUILD_CONTEXT` fallback in
+  `docker-compose.yml`, not this ADR. PR #1005 moved that default to `v0.1.6`
+  on 2026-11-05 so async jobs retain the project context needed for artifact
+  registration. This dated provenance note is not a separate version pin.
 - `spec/Brief.schema.json`, `spec/SessionSpec.schema.json`,
   `spec/PatchSpec.schema.json`, `spec/Macros.schema.json` — the published
   specification contract
@@ -87,8 +90,9 @@ parties with four different kinds of authority:
    MIDI, rendered stems, and a mix.
 
 The engine is a separate repository and a separate container. `docker-compose.yml`
-builds `agentdaw` from `https://github.com/Resonant-Jones/Agent-DAW.git#v0.1.2`
-behind the optional `music` Compose profile, bind-mounting its output root so
+builds `agentdaw` from the tagged Agent-DAW release declared by the
+`CODEXIFY_AGENTDAW_BUILD_CONTEXT` default (or an explicitly configured override),
+behind the optional `music` Compose profile. Its output root is bind-mounted so
 the host DAW can open what the service produced. Codexify never imports
 Agent-DAW; the dependency runs in the other direction, over HTTP, on the
 canonical service-plugin protocol (`POST {base_url}/invoke` with a versioned
