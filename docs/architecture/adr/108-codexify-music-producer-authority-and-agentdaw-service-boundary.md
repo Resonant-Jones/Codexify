@@ -64,6 +64,9 @@ External:
   `docker-compose.yml`, not this ADR. PR #1005 moved that default to `v0.1.6`
   on 2026-11-05 so async jobs retain the project context needed for artifact
   registration. This dated provenance note is not a separate version pin.
+  As of 2026-11-07 the host records the job's attribution itself, so the
+  engine's echo is a fallback rather than the only channel; the pin is still
+  the right default, but the host's attribution no longer depends on it.
 - `spec/Brief.schema.json`, `spec/SessionSpec.schema.json`,
   `spec/PatchSpec.schema.json`, `spec/Macros.schema.json` — the published
   specification contract
@@ -260,6 +263,18 @@ durable home; the Thread is provenance.
 Registration must therefore never depend on a thread lookup succeeding. The
 shipped implementation warns explicitly when files were produced without a
 project, and refuses to register artifacts against a non-numeric project id.
+
+**Dated note (2026-11-07): the host now owns the job's attribution.** The
+attribution used to be read back out of the context the service echoed on a
+finished job, which made it depend on the engine's age: an engine that does
+not echo the context returned files the host could not place, and the host
+reported success anyway. The host now records which project a music job
+belongs to in its own `music_jobs` table, written when the job handle is
+minted, and the first write wins. The service's echo is the fallback for a job
+the host never recorded, and using it is logged. This strengthens decision 7
+rather than changing it — the Project remains the durable home, and the host
+rather than the service is what knows it. The ADR is unchanged in substance
+and remains Proposed.
 
 ### 8. The Producer is a skill, not an agent
 

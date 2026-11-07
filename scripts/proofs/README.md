@@ -64,6 +64,91 @@ BASE=http://localhost:8888 \
 | 7 | `RETRIEVAL_EVIDENCE_FAILED` | Retrieval posture missing workspace signal |
 | 8 | `ABORT_MISSING_ENV` | `GUARDIAN_API_KEY` not set and dev-key fallback failed |
 
+### `prove_music_job_attribution.py`
+
+**Seam:** the Music Producer's job attribution, end to end against a real
+PostgreSQL and a real Agent-DAW service.
+
+**What it proves:**
+1. An async compose starts and returns a job handle.
+2. The host records the job's project and thread in its own `music_jobs`
+   row, written when the handle is minted.
+3. The job is polled until it is terminal.
+4. The host's own registration path runs.
+5. The `media_assets` rows name the right project and thread.
+
+**What it does NOT prove:**
+- That the music surface is a supported path. It is behind a quarantining
+  profile; `v1-music-producer` is not a qualified supported path.
+- Anything about the live Private Preview database, which this harness
+  does not advance.
+- The engine's quality, its output, or the produced music itself.
+
+**The pass condition is the invariant:** the files are attributed against
+the right project and thread, *for every engine exercised*. Whether the
+engine echoed the context back is reported as an observation, because that
+is a property of the engine and not of the host. Running it against an
+engine that discards the context is the point: before the host owned the
+attribution, that engine produced files and registered none of them.
+
+**Required services:**
+- PostgreSQL, migrated to head, at `DATABASE_URL`
+- One or more Agent-DAW services, reachable over HTTP
+
+**Env requirements:**
+| Variable | Required | Default |
+|---|---|---|
+| `DATABASE_URL` | Yes | -- |
+| `MUSIC_ATTRIBUTION_ENGINES` | No | `AGENTDAW_SERVICE_URL`, default `http://127.0.0.1:8000` |
+| `MUSIC_ATTRIBUTION_JOB_TIMEOUT` | No | `300` seconds |
+
+**Command:**
+```bash
+DATABASE_URL=postgresql://... \
+MUSIC_ATTRIBUTION_ENGINES='v0.1.6=http://127.0.0.1:8771,v0.1.2=http://127.0.0.1:8772' \
+  python scripts/proofs/prove_music_job_attribution.py
+```
+
+**Success means:** the script exits 0 and prints a `VERDICT` table naming
+each engine, its job status, and whether it echoed a context.
+
+**Failure classes:**
+
+| Exit code | Category | Meaning |
+|---|---|---|
+| 2 | `PRECONDITION_FAILED` | No database URL, or no engine was reachable |
+| 3 | `ATTRIBUTION_FAILED` | An engine's files were produced but not attributed |
+
+### `mutate_music_attribution_tests.py`
+
+**Seam:** the attribution tests themselves -- not the runtime.
+
+**What it proves:** that each of five mutations to the real source is
+caught by the test that names it. A test that passes with and without the
+fix proves nothing, so this harness applies each mutation in turn, runs
+the one test, and asserts that it fails.
+
+It restores every file it touches from a byte-verified backup whether the
+mutation was caught or not, so the working tree is left as it was found.
+
+**Required services:** PostgreSQL at `TEST_DATABASE_URL`, and pytest.
+
+**Command:**
+```bash
+TEST_DATABASE_URL=postgresql://... \
+  python scripts/proofs/mutate_music_attribution_tests.py
+```
+
+**Success means:** the script exits 0 and prints one line per mutation
+naming the test that caught it.
+
+**Failure classes:**
+
+| Exit code | Category | Meaning |
+|---|---|---|
+| 2 | `PRECONDITION_FAILED` | No database URL |
+| 3 | `MUTATION_NOT_CAUGHT` | A mutation was not caught, or could not be applied |
+
 ## Release-Evidence Workflow
 
 1. Start from a clean `main` checkout.
