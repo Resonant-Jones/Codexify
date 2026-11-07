@@ -60,6 +60,7 @@ Since the 2026-11-06 audit (`acd22095`), `main` took 72 commits, 39 of them non-
 
 ## Not yet true / do not assume
 
+- Capabilities without current-main qualification are not default Beta support.
 - **Do not read any qualification surface as current.** `supported-compose` and `supported-compose-stock` are both `PASS` but both `stale`; `onboarding-and-people` and `release-readiness-gates` have no run receipt at all. Qualification is commit-bound, and a green receipt does not travel forward.
 - **Do not read one qualified surface as a qualified release.** A receipt for one surface does not qualify another, and a proof artifact the registry cannot read does not qualify it either. The release gate remains `HOLD`.
 - **Do not read the eight-gate rubric or its harness as a qualification.** The rubric fixes the judgement rules in advance — UNPROVEN is not PASS, and a gate not exercised at the run's own revision is UNPROVEN — and the harness self-test passes 54/54, but no integrated run against a frozen tip has been executed. The harness report states plainly that no gate reached PASS.
@@ -75,7 +76,7 @@ Since the 2026-11-06 audit (`acd22095`), `main` took 72 commits, 39 of them non-
 
 ## Active blockers
 
-- **No tracked qualification surface is `current` against this tip.** Both `PASS` surfaces are `stale` and both `HOLD` surfaces have no receipt. The re-qualification that would restore `current` for the stock surface is the outstanding release-lane work.
+- **No tracked qualification surface is `current` against this tip.** Both `PASS` surfaces are `stale` and both `HOLD` surfaces have no receipt. The re-qualification that would restore `current` for the stock surface is the outstanding release-lane work, and the supported-compose qualification against this tip is missing: a qualification is commit-bound, so no supported-compose qualification describes the current tip.
 - `onboarding-and-people` has no qualification run receipt at all, so the registry reports `HOLD` on absent evidence. **It needs two independent non-developer testers; no agent-run can close it.**
 - **The eight-gate integrated run has not been executed.** The rubric and harness exist and are self-tested; the run against one frozen tip, isolated from the Private Preview, is what remains.
 - **The host killed Docker Desktop under memory pressure on 2026-11-07**, taking the Preview's containers and a concurrent proof with it. The pause precondition is now recorded, but a heavy run beside a live Preview on this host is the condition that killed the VM.
