@@ -6,13 +6,31 @@
 
 ## Version
 
-`2`
+`3`
 
-Version 2 applies the independent review of version 1. It replaces an inert surface path with the
-files that exist, closes the gate-7 implementation blind spot, narrows the frontend surface to the
-projection the browser gate renders, and names the schema constraints that are stronger
-observables than the prose checks they replace. **No required check was added, removed, or
-re-scoped.**
+Version 3 corrects three defects found while building the evidence harness against this rubric.
+**No required check was added, removed, or re-scoped.**
+
+Version 2 applied the independent review of version 1: it replaced an inert surface path with the
+files that exist, closed the gate-7 implementation blind spot, narrowed the frontend surface to the
+projection the browser gate renders, and named the schema constraints that are stronger
+observables than the prose checks they replace.
+
+Version 3 corrects three things version 2 got wrong:
+
+- **Gate 1 named the wrong queue.** It listed `chat-embed`, `coding-execution`,
+  `document-embed` and `account-import`. A chat completion actually lands on
+  `codexify:queue:chat` (`guardian/core/chat_completion_service.py:248`), and
+  without that queue the gate's own PASS condition — a submitted request
+  observed at a non-zero depth — is not exercisable.
+- **Gate 2 implied a configurable deadline.** The budgets are hardcoded constants with no
+  environment knob, so the gate must be driven by an attempt that has actually lived past the
+  budget rather than by shortening one.
+- **Gate 3's PASS bar was unsatisfiable.** It required both ownership columns to be NULL after a
+  stop, and **no code path NULLs them**: the claim writes both columns and the terminal paths
+  write only `status`, `ended_at` and `error`. The claim is durable correlation material for
+  fencing, so a populated ownership pair after a stop is expected rather than a failure. The
+  release signal is the run's terminal status.
 
 ## Qualification metadata
 
@@ -158,9 +176,11 @@ observable, and the queue drains.
 
 **Observable surface.**
 
-- Redis list lengths for the queues in play (`codexify:queue:chat-embed`,
-  `codexify:queue:coding-execution`, `codexify:queue:document-embed`,
-  `codexify:queue:account-import`) read directly with `LLEN`.
+- Redis list lengths for the queues in play, read directly with `LLEN`. **`codexify:queue:chat`
+  is the queue a chat completion actually lands on** (`guardian/core/chat_completion_service.py:248`)
+  and is the one this gate's PASS condition depends on; `codexify:queue:chat-embed`,
+  `codexify:queue:coding-execution`, `codexify:queue:document-embed` and
+  `codexify:queue:account-import` are the other queues in play.
 - The worker heartbeat key and its age.
 - The durable attempt row for the submitted request in `chat_completion_attempts`.
 
@@ -200,6 +220,14 @@ exists. **A live attempt with a NULL `deadline_snapshot` is a writer bug, not a 
    deadline recorded. A snapshot alone proves the shape; only the second observation proves the
    deadline was *enforced*.
 
+**The budget is not configurable.** The budgets are module constants with no environment knob:
+`ACCEPTED_CHAT_TASK_WORK_BUDGET_SECONDS = 720`,
+`ACCEPTED_CHAT_TASK_TERMINAL_BUDGET_SECONDS = 60`,
+`ACCEPTED_CHAT_TASK_TOTAL_BUDGET_SECONDS = 780`, and a turn-lock lease of 840s. Neither deadline
+module reads the environment. The second PASS observation therefore has to come from an attempt that
+has actually lived past the budget — a run must not shorten the deadline by configuration and must
+not report PASS without one.
+
 **FAIL.** An accepted attempt without a deadline snapshot; or an attempt past its
 `terminal_deadline_at` still carrying a live turn lock; or an attempt whose snapshot has no
 non-null `terminal_deadline_at`.
@@ -223,17 +251,25 @@ does not leave an orphaned claim, a held lock, or a half-written attempt.
 - The Redis queue depth immediately before and after the stop.
 
 **PASS requires.** A worker stopped on SIGTERM **while holding a claim**, observed afterwards with
-`agent_runs.status` in `{canceled, failed, succeeded}` and **both ownership columns NULL**, and
-the queue depth unchanged.
+`agent_runs.status` in the store's own terminal set `{succeeded, failed, escalated, canceled}` —
+reached either by the worker's own terminalisation or by the recovery path that escalates a stale
+run — and the queue depth unchanged.
 
-**A persisting heartbeat is not a failure.** `coding_worker_last_heartbeat_at` is tied by its own
-constraint to the presence of the ownership pair, **not** to liveness, and the schema states
+**The ownership pair is expected to persist, and a cleared pair is not achievable.** The claim is
+durable correlation material for fencing. **No code path NULLs the ownership columns**: the claim
+writes both columns (`guardian/agents/store.py`), and the terminal paths write only `status`,
+`ended_at` and `error`. A run carrying its ownership pair after a stop is therefore the expected
+shape, not a defect, and it is not a FAIL.
+
+**A persisting heartbeat is not a failure either.** `coding_worker_last_heartbeat_at` is tied by its
+own constraint to the presence of the ownership pair, **not** to liveness, and the schema states
 plainly that a persisted owner "is not proof that the worker is still alive -- it records that
 this instance took the claim, not that it still holds it". A reader seeing a stale
 `coding_worker_last_heartbeat_at` on a terminalised run must not call that a FAIL.
 
-**FAIL.** A run left in a non-terminal status with its ownership pair still populated by a worker
-that stopped; or work claimed and never returned to the queue.
+**FAIL.** The run is still non-terminal and still claimed by the stopped worker **after the
+recovery path has run** — a stranded run, not a slow one; or work claimed and never returned to
+the queue.
 
 **UNPROVEN.** The worker was stopped while idle, so nothing was held.
 
