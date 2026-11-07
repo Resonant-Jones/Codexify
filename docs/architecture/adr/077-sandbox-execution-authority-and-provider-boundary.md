@@ -458,6 +458,27 @@ later bridge and supported-path proof are complete and
 [`00-current-state.md`](../00-current-state.md) is separately updated under its
 release-truth process.
 
+## Relationship to ADR-111
+
+[ADR-111: Operator-Controlled Native Execution Postures](./111-operator-controlled-native-execution-postures.md)
+is **Proposed**. It does not amend, reinterpret, or supersede this record, and
+nothing in it changes any requirement above.
+
+It proposes one narrow, explicitly unaccepted exception for a single operator-
+selectable execution target — operator-authorized host-native execution — to
+security invariants 5 and 7, and it preserves every other requirement of this
+ADR for every execution posture, including that target. The exception becomes
+implementable only through a separate, explicitly accepted human architecture
+decision. Accepting ADR-111 alone activates no runtime behavior.
+
+ADR-111 does not treat a container that runs the Guardian application as a
+Sandbox Provider, and does not permit any posture to be reported as isolated,
+read-only, network-denied, or credential-protected unless the selected executor
+actually enforces it.
+
+This ADR's security invariants remain normative for all execution targets
+until an explicit human architecture decision accepts the proposed exception.
+
 ## Failure modes and required mitigations
 
 | Failure mode | Required response |
