@@ -83,11 +83,22 @@ def get_or_create_local_node(session) -> ThreadSpaceNode:
     The row is persisted in Postgres, so the local Node_ID is stable across
     backend restarts without deriving from hostname, IP, endpoint, or
     container identity.  Concurrency is handled by retrying on the unique
-    primary-key conflict.
+    partial index that admits at most one local node.
+
+    The local node is **identified** by its ``is_local`` flag, not inferred
+    from being the oldest row.  An age-based selection cannot deliver what
+    ADR-079 asks for -- one stable canonical local node row -- because the
+    oldest row is only the local node while nothing else was recorded
+    earlier or in the same clock tick.  Two rows created in the same second
+    tie, and the old tie-break was the node id, so a foreign row whose id
+    sorted first would be adopted as "local"; that is exactly what made
+    ``tests/routes/test_people_search_discoverability.py`` fail about one
+    run in sixteen, and it would silently widen a search's scope to a
+    remote node in production.
     """
     node = session.scalar(
         select(ThreadSpaceNode)
-        .order_by(ThreadSpaceNode.created_at.asc(), ThreadSpaceNode.node_id.asc())
+        .where(ThreadSpaceNode.is_local.is_(True))
         .limit(1)
     )
     if node is not None:
@@ -98,15 +109,19 @@ def get_or_create_local_node(session) -> ThreadSpaceNode:
         node_id=_new_node_id(),
         name=name,
         status="active",
+        is_local=True,
     )
     session.add(node)
     try:
         session.commit()
     except IntegrityError:
+        # Another first-use request minted the local node concurrently. The
+        # partial unique index refuses the second one, so the row that
+        # survived is the canonical local node.
         session.rollback()
         node = session.scalar(
             select(ThreadSpaceNode)
-            .order_by(ThreadSpaceNode.created_at.asc(), ThreadSpaceNode.node_id.asc())
+            .where(ThreadSpaceNode.is_local.is_(True))
             .limit(1)
         )
         if node is None:  # pragma: no cover - defensive
