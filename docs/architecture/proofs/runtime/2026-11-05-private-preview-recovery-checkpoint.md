@@ -25,31 +25,40 @@ started, recreated or removed; no database was migrated, dumped or restored; no
 scratch volume or container was created; no backup artifact exists. The
 Private Preview was read throughout and remains healthy and unmodified.
 
+> **Re-verified 2026-11-07.** The determination was re-run against a deployment
+> that had since been redeployed and a branch that had since advanced. The
+> verdict is **unchanged**, and the re-verification sharpened it: the helper's
+> **failure path** also mutates the Preview's serving runtime (§4.3), and the
+> `origin/main` Compose files have now moved away from the serving root's, so
+> the required correction is narrower than first recorded (§6.1). See §2.1.
+
 | Requirement | Condition | Disposition |
 | --- | --- | --- |
 | 1 | Exact Preview schema identity established | **PASS** — serving revision `dece01821`, live PostgreSQL head `a7d4c9e2f1b3` |
 | 2.1 | Candidate checkout's Alembic head matches live head | **PASS** for `origin/main`; **FAIL** for the operator checkout (`3a91d7c4e8b2`) |
 | 2.2 | Helper present and its safety tests pass at that checkout | **PASS** — blob identical, `bash -n` clean, 6/6 pytest green |
 | 2.3 | Resolved Compose project matches the intended project | **PASS** — resolves to `codexify_private_preview` |
-| 2.4 | Image references and mounts cannot mutate another deployment | **FAIL** — the helper's resolution diverges from live on 13/18 services and would **recreate the Preview's own containers** |
+| 2.4 | Image references and mounts cannot mutate another deployment | **FAIL** — the helper's resolution diverges from live on 13/18 services and would **recreate the Preview's own containers**, **including on its failure path** (§4.3) |
 | 2.5 | Backup directory resolves outside `Docker.raw` | **PASS** — `/Volumes/Dev_SSD/codexify-backups` resolves outside `Docker.raw` |
 | 2.6 | Expected backup size fits the destination | **PASS** — ≈ 6.5 GB required vs 57 GiB free |
-| 2.7 | Checkout cannot trigger an implicit migration or image rebuild | **FAIL** — the `migrator` service is in the helper's recreate set, with a *different* migration-source posture than live |
+| 2.7 | Checkout cannot trigger an implicit migration or image rebuild | **FAIL** — the `migrator` service is in the helper's success-path recreate set, with a *different* migration-source posture than live |
 | 3 | Explicit operator approval precedes interruption | **NOT REACHED** — the gate was never approached; no approval was requested or assumed |
 | 4 | A retained PostgreSQL/media checkpoint exists | **NOT MET** — no artifact was produced; producing one is unsafe under the present helper |
 | 5 | Backup scope and uncovered data documented | **PASS** — §7, recorded prospectively |
 | 6 | No release or qualification claim promoted | **PASS** — release posture unchanged at **HOLD** |
 
 An additional defect, independent of the two failed conditions above, was found
-and is recorded in §6.3: the helper's `START_SERVICES` set covers 8 of the
+and is recorded in §4.4: the helper's `START_SERVICES` set covers 8 of the
 deployment's 13 long-running services.
 
 ## 1. Scope and boundary
 
 - **Starting repository SHA:** `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08`
-  (`origin/main`). PRs #991 (stock Compose migration-source repair), #1000
-  (frontend test stabilization), #1001 (Docker capacity readiness), #1002 and
-  #1004 are merged into it.
+  (`origin/main` at first measurement). Re-verification on 2026-11-07 was
+  performed against `origin/main` = `fba6e4dacbd24687d1cebce16a13f926607173c2`.
+  PRs #991 (stock Compose migration-source repair), #1000 (frontend test
+  stabilization), #1001 (Docker capacity readiness), #1002, #1004, #1022 and
+  #1023 are merged into the latter.
 - **Branch:** `docs/private-preview-recovery-checkpoint-20261105`, created from
   `origin/main` in an isolated worktree at `.worktrees/pc01-proof`. The only
   file staged by this task is this receipt.
@@ -64,9 +73,9 @@ deployment's 13 long-running services.
   its tests, qualification rubrics or registry, release-authority documents,
   Docker configuration, the Private Preview deployment, and every other
   agent's worktree.
-- **Measurement window:** all live measurements were taken on **2026-11-06**
-  (host clock 2026-11-06 14:34–14:40 EST / 19:34–19:40 UTC). See §2.1 for why
-  the date matters.
+- **Measurement windows:** live measurements were taken on **2026-11-06**
+  (14:34–14:40 EST) and re-verified on **2026-11-07** (02:29–02:47 EST).
+  §2.1 explains why the timestamp is load-bearing.
 
 ## 2. Current identity
 
@@ -77,13 +86,18 @@ progress**, and the task's own starting premise (that `origin/main` and the
 live database disagree on schema) **stopped being true partway through the
 inspection**.
 
-| Observation | At task start | At measurement time (2026-11-06 19:34 UTC) |
-| --- | --- | --- |
-| Live PostgreSQL Alembic revision | `3a91d7c4e8b2` | **`a7d4c9e2f1b3`** |
-| Serving checkout | `.worktrees/private-preview-serving-20261029` @ `c8e72ef86` | **`.worktrees/private-preview-serving-20261106` @ `dece01821`** |
-| Pinned serving source (`serving-source`) | `…-20261029` | **`…-20261106`** |
-| Live container config-hashes | matched the 20261029 overlay resolution | **match the 20261106 overlay resolution (18/18)** |
-| `origin/main` Alembic head | `a7d4c9e2f1b3` (≠ live) | **`a7d4c9e2f1b3` (== live)** |
+| Observation | At task start | 2026-11-06 19:34 UTC | 2026-11-07 02:29 EST (re-verification) |
+| --- | --- | --- | --- |
+| Live PostgreSQL Alembic revision | `3a91d7c4e8b2` | **`a7d4c9e2f1b3`** | **`a7d4c9e2f1b3`** (unchanged) |
+| Serving checkout | `.worktrees/private-preview-serving-20261029` @ `c8e72ef86` | `.worktrees/private-preview-serving-20261106` @ `dece01821` | **unchanged** |
+| Pinned serving source (`serving-source`) | `…-20261029` | **`…-20261106`** | **unchanged** |
+| Live container config-hashes | matched the 20261029 overlay resolution | match the 20261106 overlay resolution (18/18) | **byte-identical** to the 2026-11-06 measurement |
+| `origin/main` Alembic head | `a7d4c9e2f1b3` (≠ live) | **`a7d4c9e2f1b3` (== live)** | **`a7d4c9e2f1b3` (== live)** |
+| `origin/main` SHA | `68c9e5236` | `c28bc8f46` | **`fba6e4dac`** |
+| `origin/main` `docker-compose.yml` | — | `ce39e889a5e6…` | **`74b2f9e8b7a3…` (moved)** |
+| `origin/main` `docker-compose.private-preview.yml` | — | `f4e722540343…` | **`b751f319a8d6…` (moved)** |
+| Helper blob on `origin/main` | `ec7f6bbe…` | `ec7f6bbe…` | **`ec7f6bbe…` (unchanged)** |
+| Serving overlay tracked on `origin/main` | absent | absent | **still absent** |
 
 Every identity claim in this receipt is taken from the **measured** live state
 at the stated timestamp, never from the branch name or from `origin/main`. The
@@ -91,7 +105,7 @@ live revision was read directly from the database; the serving revision was
 read from the operator's own serving-source pin and from the live containers'
 own Compose labels and bind mounts.
 
-Two consequences follow, and they are the substance of this receipt:
+Three consequences follow, and they are the substance of this receipt:
 
 1. **Requirement 2.1 is now satisfiable.** `origin/main`'s Alembic head
    (`a7d4c9e2f1b3`) now equals the live database head. The schema-compatibility
@@ -100,13 +114,21 @@ Two consequences follow, and they are the substance of this receipt:
 2. **The remaining blockers are structural and do not move with the
    deployment.** The helper's Compose file set and its service-restart set are
    out of sync with the operator's own serving lifecycle, and that mismatch is
-   independent of which revision is deployed.
+   independent of which revision is deployed. The 2026-11-07 re-verification
+   confirms this: the helper blob is unchanged, the serving overlay is still
+   untracked, and the same two Requirement-2 conditions still fail.
+3. **The deployment is redeployed from time to time by other threads.** During
+   the re-verification the Preview was redeployed again (containers restarted,
+   `migrator` re-run). The *observable* state was unchanged — same revision,
+   same 18 config-hashes, same 9 volumes — which is itself evidence that the
+   operator's serving lifecycle is reproducible. But any future measurement
+   must be taken fresh, not carried forward.
 
 ### 2.2 Identity record
 
 | Property | Value |
 | --- | --- |
-| `origin/main` | `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08` |
+| `origin/main` | `fba6e4dacbd24687d1cebce16a13f926607173c2` |
 | Preview serving revision | `dece0182163970b7d5de1b849306b52ac56030b7` |
 | Serving checkout path | `/Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261106` |
 | Serving revision's Alembic head | `a7d4c9e2f1b3` |
@@ -118,7 +140,7 @@ Two consequences follow, and they are the substance of this receipt:
 | One-shot services (exited 0) | **5** — `migrator`, `model-prep`, `graph-init`, `private-preview-auth-posture`, `e2e` |
 | Named volumes | **9** (see §2.4) |
 | Backup helper version | `SCRIPT_VERSION=1`, blob `ec7f6bbeab6c10b5b879b417b0eb1d400f78c2dd` |
-| Helper blob on `origin/main` | **identical** (`ec7f6bbe…`) — the helper is unchanged between the operator checkout and `main` |
+| Helper blob on `origin/main` | **identical** (`ec7f6bbe…`) — unchanged since the first measurement |
 | Docker Desktop / engine / Compose | 4.98.0 / 29.9.2 client+server / v5.6.1 |
 | Docker context | `desktop-linux` (`unix:///Users/chriscastillo/.docker/run/docker.sock`) |
 
@@ -194,7 +216,7 @@ com.docker.compose.project.environment_file = /Volumes/Dev_SSD/Codexify-main/.en
 **Verification.** Resolving that exact invocation and comparing its
 `docker compose config --hash='*'` output against the live containers' own
 `com.docker.compose.config-hash` labels reproduces **all 18 services
-exactly**:
+exactly** — confirmed on 2026-11-06 and again on 2026-11-07:
 
 ```
 ALL_MATCH=YES (18/18)
@@ -263,7 +285,20 @@ Running the helper from the serving root instead fails immediately: that
 checkout has no `.env.private-preview`, no `data/media`, no `data/imports` and
 no `.venv/bin/python`.
 
-### 4.2 The dry-run consequence (the decisive test)
+Running it from an `origin/main` checkout is **inert but not executable**: the
+Compose resolution fails before it can reach the deployment —
+
+```
+env file …/.worktrees/pc01-proof/.env.private-preview not found
+```
+
+— because the service-level `env_file: .env.private-preview` resolves relative
+to `--project-directory`. The helper's own precondition at line 306
+(`[[ -f "${ENV_FILE}" ]] || fail "Private-preview env file is missing"`) would
+abort it before any mutation. So of the three candidate roots, **only the
+operator checkout is executable at all — and it is the one that mutates.**
+
+### 4.2 The success path would recreate the Preview's own containers
 
 `docker compose up -d --dry-run` over the helper's `START_SERVICES`, resolved
 the way the helper resolves it, reports `Recreate` for **ten** of the
@@ -308,7 +343,99 @@ reasons:
 Under the authoritative three-file invocation (§3), the same dry-run reports
 **0 `Recreate`**.
 
-### 4.3 `REPO_ROOT` couples four independent things
+### 4.3 The failure path also mutates the serving runtime
+
+This is the sharper finding, established on 2026-11-07. The task specification
+notes that the revision guard "occurs after the script has stopped the Preview
+stack and started its database in isolation" — confirmed in the source:
+
+| Line | Statement |
+| --- | --- |
+| 394 | `compose stop` — the whole project stops |
+| 396 | `compose up -d --no-deps db` — only the database comes back, in isolation |
+| 416–422 | the revision guard runs, and `fail`s when the heads differ |
+
+So on the operator checkout — the one root where the helper is executable — the
+guard **does** fire, and the script aborts *after* the Preview has been
+stopped. What happens next is the problem. The `EXIT` trap calls
+`restore_original_service_state` (lines 250–267):
+
+```bash
+restore_original_service_state() {
+  …
+  compose stop >/dev/null 2>&1 || true
+  …
+  while IFS= read -r original_service; do
+    compose up -d --no-deps "${original_service}" >/dev/null 2>&1 || true
+  done <"${original_services_file}"
+}
+```
+
+It replays **every service that was running** (recorded at line 386, before the
+stop) with `up -d --no-deps`. `--no-deps` skips *dependencies* — it does **not**
+skip the recreate check. Measured, one service at a time, under the helper's
+2-file resolution:
+
+| Service | Recreated by the failure path? |
+| --- | --- |
+| `backend`, `frontend`, `private-preview-origin` | **yes** |
+| `worker-account-import`, `worker-chat`, `worker-chat-embed`, `worker-coding`, `worker-document-embed`, `worker-voice`, `worker-warmup` | **yes** |
+| `db`, `neo4j`, `redis` | no |
+
+**Ten of the Preview's thirteen running containers would be recreated** — even
+though the procedure *failed safely* at the revision guard and produced no
+backup. `worker-coding` and `worker-voice` are recreated here; on the success
+path they are not even in `START_SERVICES` and would simply stay down (§4.4).
+
+And the recreated containers would be **serving the wrong code**. Resolved bind
+sources for `backend`:
+
+```
+LIVE:     …/.worktrees/private-preview-serving-20261106/guardian -> /app/guardian
+RESOLVED: /Volumes/Dev_SSD/Codexify-main/guardian               -> /app/guardian
+```
+
+The Preview would come back running the **operator checkout's** `guardian` and
+`backend` trees instead of the **pinned serving root's** — a change to the
+Preview's serving runtime, which the task explicitly forbids ("without …
+altering its serving runtime"), and a break of the source-isolation posture the
+operator's serving lifecycle exists to enforce.
+
+**The revision guard protects the schema. It does not protect the serving
+runtime.** A safe-looking abort of the helper is still a deployment mutation.
+
+### 4.4 The service-restart set is incomplete
+
+```bash
+START_SERVICES=(
+  backend frontend worker-chat worker-chat-embed worker-document-embed
+  worker-warmup worker-account-import private-preview-origin
+)
+```
+
+Eight services. The deployment has **thirteen** long-running services. Missing
+from the list: **`worker-coding`** and **`worker-voice`** (plus `db`, `neo4j`
+and `redis`, which come up only transitively).
+
+The helper calls `compose stop` with no service list (line 394) — that stops
+**all** services — and then restarts only `START_SERVICES` (line 553). On the
+success path, **`worker-coding` and `worker-voice` would be stopped and never
+brought back.** The Preview would not return to its original posture, and the
+task's acceptance criterion 8 ("Preview returns to its original healthy
+posture") would fail on a completed run.
+
+### 4.5 The serving overlay is not in the repository
+
+`docker-compose.private-preview-serving.yml` is **absent from `origin/main`**.
+It exists only as an **untracked** file inside the serving worktree
+(sha256 `678e8cf1f04d4e2f94a6d79c812961d4d5819946eabd7bc85fb899be74a9e1cf`).
+Tracked history for it exists only on the `codex/private-preview-*` branches
+(`5cfe3efb9`, `5057c6b39`), neither of which is an ancestor of `origin/main`.
+
+So even a corrected helper running from `origin/main` has no tracked way to
+name the third Compose file.
+
+### 4.6 `REPO_ROOT` couples four independent things
 
 `REPO_ROOT` is derived from the script's own location (line 9) and then
 determines, with no override:
@@ -329,36 +456,15 @@ helper's own guard at lines 304–308 would stop it before any mutation in that
 case, which is the correct behaviour, but it means the checkpoint **cannot be
 produced at all** today.
 
-### 4.4 The service-restart set is incomplete
+A sixth coupling was found on re-verification: the **base Compose files** must
+also come from a checkout whose copies match the serving root's, and no longer
+coincide with `origin/main`'s either:
 
-```bash
-START_SERVICES=(
-  backend frontend worker-chat worker-chat-embed worker-document-embed
-  worker-warmup worker-account-import private-preview-origin
-)
-```
-
-Eight services. The deployment has **thirteen** long-running services. Missing
-from the list: **`worker-coding`** and **`worker-voice`** (plus `db`, `neo4j`
-and `redis`, which come up only transitively).
-
-The helper calls `compose stop` with no service list (line 394) — that stops
-**all** services — and then restarts only `START_SERVICES` (line 553). Under
-either resolution, **`worker-coding` and `worker-voice` would be stopped and
-never brought back.** The Preview would not return to its original posture, and
-the task's acceptance criterion 8 ("Preview returns to its original healthy
-posture") would fail on a completed run.
-
-### 4.5 The serving overlay is not in the repository
-
-`docker-compose.private-preview-serving.yml` is **absent from `origin/main`**.
-It exists only as an **untracked** file inside the serving worktree
-(sha256 `678e8cf1f04d4e2f94a6d79c812961d4d5819946eabd7bc85fb899be74a9e1cf`).
-Tracked history for it exists only on the `codex/private-preview-*` branches
-(`5cfe3efb9`, `5057c6b39`), neither of which is an ancestor of `origin/main`.
-
-So even a corrected helper running from `origin/main` has no tracked way to
-name the third Compose file.
+| `docker-compose.yml` | sha256 |
+| --- | --- |
+| serving root (`dece01821`) | `ce39e889a5e6bfef4c1141aa4d6b28d70efb709064af8d530833c803bfb12403` |
+| `origin/main` (`fba6e4dac`) | `74b2f9e8b7a3f0ff3360836443e92d409d8eb3b12b2807df29b5b49c759741c8` |
+| operator checkout (`45f1cac86`) | `48d34f36022182d7389dfde6be63e2604c362651319caa3662bf99eaa2d512b6` |
 
 ## 5. What the guard did and did not do
 
@@ -370,13 +476,15 @@ The guard was **not** the blocker. Measured outcomes:
 
 | Checkout | Repository head | Live head | Guard verdict |
 | --- | --- | --- | --- |
-| `origin/main` @ `c28bc8f4` | `a7d4c9e2f1b3` | `a7d4c9e2f1b3` | would **pass** |
+| `origin/main` @ `fba6e4dac` | `a7d4c9e2f1b3` | `a7d4c9e2f1b3` | would **pass** |
 | Serving root @ `dece01821` | `a7d4c9e2f1b3` | `a7d4c9e2f1b3` | would **pass** |
 | Operator checkout @ `45f1cac86` | `3a91d7c4e8b2` | `a7d4c9e2f1b3` | would **fail** (correctly) |
 
 The guard remains exactly as written and was not exercised in either direction,
 because no run was attempted. The blockers are the Compose file set, the
-`REPO_ROOT` coupling and the service-restart set — **not** the guard.
+`REPO_ROOT` coupling and the service-restart set — **not** the guard. And, as
+§4.3 shows, the guard's own abort path is itself a mutation, so it cannot be
+relied on as a safety net.
 
 > **Method note.** Alembic heads in this receipt were computed with the real
 > Alembic CLI (`python -m alembic -c backend/alembic.ini heads`), not by
@@ -395,34 +503,43 @@ modified.**
 
 Add the pinned serving root as a third `-f` and export the source root, so
 that the helper resolves the deployment exactly as the operator's own autostart
-script does. Measured, this single change is what closes Requirement 2.4 and
-2.7:
+script does. Verified against the live deployment, this closes Requirement 2.4
+and 2.7:
 
 ```
 docker compose --project-directory /Volumes/Dev_SSD/Codexify-main \
   --env-file /Volumes/Dev_SSD/Codexify-main/.env.private-preview \
   -p codexify_private_preview \
-  -f <checkout-at-live-head>/docker-compose.yml \
-  -f <checkout-at-live-head>/docker-compose.private-preview.yml \
+  -f <base-files-checkout>/docker-compose.yml \
+  -f <base-files-checkout>/docker-compose.private-preview.yml \
   -f /Volumes/Dev_SSD/Codexify-main/.worktrees/private-preview-serving-20261106/docker-compose.private-preview-serving.yml
 ```
 
-with `CODEXIFY_PRIVATE_PREVIEW_SOURCE_ROOT` set to the serving root. Verified
-against the live deployment: **18/18 config-hashes match, 0 `Recreate`.**
+with `CODEXIFY_PRIVATE_PREVIEW_SOURCE_ROOT` set to the serving root.
 
-The base files must come from a checkout at the live head: `origin/main`'s
-`docker-compose.yml` and the serving root's are byte-identical
-(`ce39e889a5e6…`), but the **operator checkout's working-tree copy is not**
-(`48d34f360221…`) — it predates the stock migration-source repair, which is
-exactly the `migrator`/`backend` divergence measured in §4.1.
+Measured on 2026-11-07:
 
-### 6.2 Decouple `REPO_ROOT` from the data, env and interpreter roots
+| Base-files source | Config-hash divergence vs live | `Recreate` lines |
+| --- | --- | --- |
+| `origin/main` checkout (`fba6e4dac`) | **0 / 18** | **0** |
+| serving root (`dece01821`) — mirrors the autostart script exactly | **0 / 18** | **0** |
+| operator checkout (`45f1cac86`) | **2 / 18** (`backend`, `migrator`) | **4** |
 
-`MEDIA_ROOT`, `IMPORT_ROOT`, `ENV_FILE` and `PYTHON_BIN` need independent
-overrides (mirroring the existing `PRIVATE_PREVIEW_ENV_FILE` and
-`CODEXIFY_PRIVATE_PREVIEW_BACKUP_DIR` patterns), so the helper can run from a
-checkout at the live schema head while archiving the live `data/media` and
-`data/imports`. Without this, §4.3 leaves the checkpoint unreachable.
+**The base files must therefore come from a checkout at the live schema head,
+not from `REPO_ROOT` when `REPO_ROOT` is the operator checkout.** On
+2026-11-06 `origin/main`'s base files happened to be byte-identical to the
+serving root's; by 2026-11-07 they had moved apart on both files, so the
+correction must source them independently rather than rely on coincidence.
+
+### 6.2 Decouple `REPO_ROOT` from the data, env, interpreter **and Compose** roots
+
+`MEDIA_ROOT`, `IMPORT_ROOT`, `ENV_FILE`, `PYTHON_BIN` and the **base Compose
+file paths** need independent overrides (mirroring the existing
+`PRIVATE_PREVIEW_ENV_FILE` and `CODEXIFY_PRIVATE_PREVIEW_BACKUP_DIR`
+patterns), so the helper can run from a checkout at the live schema head while
+archiving the live `data/media` and `data/imports` and resolving the base
+Compose files from a checkout that matches the serving root. Without this,
+§4.6 leaves the checkpoint unreachable.
 
 ### 6.3 Extend `START_SERVICES` to the full long-running set
 
@@ -440,7 +557,7 @@ runtime. Today it exists only as an untracked file in one worktree (§4.5).
 | Correction | Changes | ADR adjudication |
 | --- | --- | --- |
 | 6.1 Compose file set | **Recovery authority**: the helper would take its Compose file set and source root from the operator's serving lifecycle rather than from its own checkout | **Requires separate architectural adjudication** — this is a change to backup authority and to how persistent state is addressed |
-| 6.2 `REPO_ROOT` decoupling | **Persistent-state ownership**: the helper would archive the live data roots from a different checkout than the one it runs from | **Requires separate architectural adjudication** — same clause |
+| 6.2 `REPO_ROOT` decoupling | **Persistent-state ownership**: the helper would archive the live data roots and resolve Compose from a different checkout than the one it runs from | **Requires separate architectural adjudication** — same clause |
 | 6.3 `START_SERVICES` | Recovery procedure completeness | Within the existing recovery doctrine; no new authority |
 | 6.4 Tracking the overlay | Source-isolation posture made durable | Aligned with ADR-069's source-isolation boundary; a repository-tracked copy of an operator-owned overlay should be reviewed on its own merits |
 
@@ -492,13 +609,13 @@ Required capacity ≈ 6.5 GB against 57 GiB free.
 
 ## 9. Validation results
 
-Read-only validation, run at the receipt branch (`origin/main` base):
+Read-only validation, run at the receipt branch:
 
 | Command | Outcome |
 | --- | --- |
 | `bash -n scripts/ops/private_preview_backup_restore_proof.sh` | **PASS** (no output) |
-| `python -m pytest -v tests/ops/test_private_preview_backup_restore_proof.py` | **PASS** — `6 passed in 0.34s` |
-| `python scripts/validate_docs.py` | **PASS** (recorded in §11) |
+| `python -m pytest -v tests/ops/test_private_preview_backup_restore_proof.py` | **PASS** — `6 passed` |
+| `python scripts/validate_docs.py` | **PASS** — *"Docs validation passed: required architecture docs, README links, and source headings verified."* |
 | `git diff --check` | **PASS** (no whitespace errors) |
 
 The helper's own safety tests pass at `origin/main`. Their passing is a
@@ -520,7 +637,7 @@ interrupted.
 | Check | Result |
 | --- | --- |
 | Long-running services | **13 / 13 running**; `db`, `backend`, `worker-coding`, `neo4j`, `redis` report healthy |
-| One-shot services | **5 / 5 exited 0** |
+| One-shot services | **5 / 5 exited 0** (`migrator`, `model-prep`, `graph-init`, `private-preview-auth-posture`, `e2e`) |
 | Live PostgreSQL revision | `a7d4c9e2f1b3` (read directly from `alembic_version`) |
 | Named volumes | 9 present, identities as recorded in §2.4 |
 | Container config-hashes | unchanged, 18/18 matching the authoritative invocation (§3) |
@@ -531,10 +648,10 @@ interrupted.
 
 ## 11. Closeout
 
-1. **Starting SHA** — `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08` (`origin/main`).
+1. **Starting SHA** — `c28bc8f46e6896b9dec22d6cc7ba7696260c2b08` at first measurement; re-verified against `origin/main` = `fba6e4dacbd24687d1cebce16a13f926607173c2` on 2026-11-07.
 2. **Preview serving revision** — `dece0182163970b7d5de1b849306b52ac56030b7`, checkout `.worktrees/private-preview-serving-20261106`, pinned by the operator's `serving-source` file and corroborated by the live containers' Compose labels and bind mounts.
 3. **Live PostgreSQL head** — `a7d4c9e2f1b3` (equals the serving revision's head and `origin/main`'s head).
-4. **Compatible backup checkout** — **none exists.** `origin/main` is schema-compatible but lacks the live env file, data roots and virtualenv; the operator checkout holds those but is behind the live head (`3a91d7c4e8b2`). The helper additionally cannot express the deployment's third Compose file. See §4 and §6.
+4. **Compatible backup checkout** — **none exists.** `origin/main` is schema-compatible but lacks the live env file, data roots and virtualenv; the operator checkout holds those but is behind the live head (`3a91d7c4e8b2`) and its base Compose files differ from the serving root's. The helper additionally cannot express the deployment's third Compose file, and its abort path mutates the serving runtime. See §4 and §6.
 5. **Backup scope** — none produced. The helper's prospective scope is PostgreSQL + durable media only; Neo4j, Chroma, Redis, the remaining named volumes and import-staging *content* would be unprotected (§7).
 6. **Approval status** — **NOT REACHED.** No operator approval was requested or granted; no Preview interruption occurred.
 7. **Backup artifact location and hash** — **none.** No artifact was created.
@@ -582,6 +699,14 @@ CODEXIFY_PRIVATE_PREVIEW_SOURCE_ROOT=$WT26 docker compose --project-directory $P
   up -d --dry-run backend frontend worker-chat worker-chat-embed \
   worker-document-embed worker-warmup worker-account-import private-preview-origin
 #   -> 0 Recreate lines
+
+# the failure path: what the EXIT trap would replay (lines 250-267 of the helper)
+docker compose --project-directory $P -p codexify_private_preview \
+  --env-file $P/.env.private-preview \
+  -f $P/docker-compose.yml -f $P/docker-compose.private-preview.yml \
+  up -d --no-deps --dry-run backend frontend worker-coding worker-voice
+#   -> Recreate, under a configuration that binds the operator checkout,
+#      not the pinned serving root
 ```
 
 `docker compose config --hash='*'` plus `up -d --dry-run` is the read-only
