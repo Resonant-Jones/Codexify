@@ -398,9 +398,23 @@ enforced by
 
 Freshness is computed from repository history, not asserted by hand.
 
-A run is `current` when the tested commit is an ancestor of the tip and no
-path in its rubric's `surface_paths` changed between them. It is `stale`
-otherwise. A surface with no run receipt is never `current`.
+A run is `current` when the tested commit is an ancestor of the tip, no path in
+its rubric's `surface_paths` changed between them, **and the rubric's version
+is the one the run was earned under**. It is `stale` otherwise. A surface with
+no run receipt is never `current`.
+
+The rubric version is part of the binding, not decoration. A run demonstrates
+the criteria it was earned under, so a receipt whose `rubric_version` differs
+from the rubric's own `version` cannot describe criteria it never saw — even
+when its subject has not moved at all and the surface is untouched. Revising a
+rubric's criteria therefore requires re-running the qualification:
+**bump the rubric's version when its criteria change, and the receipts earned
+under the old version stop being current.** The invariant is enforced by
+`tests/qualification/test_qualification_registry.py::test_a_run_earned_under_an_older_rubric_version_is_not_current`.
+
+Both version numbers must agree, and `tests/qualification/test_rubric_version_consistency.py`
+asserts that a rubric's `## Version` heading and its metadata `version:` are
+the same number, because the metadata block is what a receipt binds to.
 
 The comparison runs against `git diff --name-only <tested> <tip>`, so it
 answers a concrete question: *did meaningful changes to this surface land
