@@ -15,6 +15,7 @@ from guardian.command_bus.contracts import (
     CommandSpec,
     ManifestResponse,
 )
+from guardian.native_tools.command_specs import build_native_command_specs
 
 _HTTP_METHODS = {"get", "head", "post", "put", "patch", "delete", "options"}
 
@@ -60,6 +61,7 @@ def build_manifest(app: FastAPI) -> ManifestResponse:
             )
 
     commands.extend(build_guardian_bridge_command_specs())
+    commands.extend(build_native_command_specs())
     _validate_command_collisions(commands)
 
     generated_at = datetime.now(tz=timezone.utc).isoformat()

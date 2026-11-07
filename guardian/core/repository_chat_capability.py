@@ -7,7 +7,6 @@ Repository roots and binding metadata remain inside the Stage 2K.1 resolver.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +14,7 @@ from guardian.core.repository_authority import (
     RepositoryAuthorityError,
     resolve_project_repository_binding,
 )
+from guardian.core.repository_session import read_only_session_factory
 
 
 @dataclass(frozen=True)
@@ -40,27 +40,6 @@ def _positive_int(value: Any) -> int | None:
     return value
 
 
-def _read_only_session_factory(chatlog_db: Any) -> Any:
-    """Return the existing session seam without inheriting PgDB auto-commit."""
-
-    get_session = getattr(chatlog_db, "get_session", None)
-    if callable(get_session):
-        return get_session
-    session_factory = getattr(chatlog_db, "_SessionLocal", None)
-    if not callable(session_factory):
-        return None
-
-    @contextmanager
-    def _open_session() -> Any:
-        session = session_factory()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    return _open_session
-
-
 def resolve_repository_chat_capability(
     chatlog_db: Any,
     *,
@@ -80,7 +59,7 @@ def resolve_repository_chat_capability(
         return None
 
     get_chat_thread = getattr(chatlog_db, "get_chat_thread", None)
-    get_session = _read_only_session_factory(chatlog_db)
+    get_session = read_only_session_factory(chatlog_db)
     if not callable(get_chat_thread) or not callable(get_session):
         return None
 

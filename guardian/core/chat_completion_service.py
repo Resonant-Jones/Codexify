@@ -103,10 +103,12 @@ from guardian.providers.whooshd_control_plane import (
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
+from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
 from guardian.tools.chat_exposure import (
     HISTORY_SEARCH_COMMAND_ID,
     REPOSITORY_SEARCH_COMMAND_ID,
     history_search_is_advertised,
+    native_read_file_is_advertised,
     repository_search_is_advertised,
     resolve_ordinary_chat_tools,
 )
@@ -155,6 +157,9 @@ from guardian.core.llm_catalog import first_enabled_provider
 from guardian.core.repository_chat_capability import (
     RepositoryChatCapabilityContext,
     resolve_repository_chat_capability,
+)
+from guardian.core.repository_containment import (
+    MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
 )
 from guardian.core.repository_search import (
     MAX_QUERY_CHARACTERS,
@@ -6300,6 +6305,63 @@ def _hydrate_repository_search_arguments(
     )
 
 
+def _hydrate_native_read_file_arguments(
+    raw_arguments: Any,
+    *,
+    project_id: int,
+) -> InvokeArguments:
+    """Validate the model's path and inject only Guardian-derived scope.
+
+    The model chooses the relative path and nothing else. The Project scope is
+    written server-side here, so a model-supplied scope is discarded rather
+    than merged, and the handler re-verifies the scope against the
+    authenticated account before it resolves any filesystem root.
+    """
+
+    if (
+        not isinstance(project_id, int)
+        or isinstance(project_id, bool)
+        or project_id <= 0
+        or not isinstance(raw_arguments, Mapping)
+    ):
+        raise ValueError("native_read_file_arguments_invalid")
+    arguments = dict(raw_arguments)
+    if set(arguments) - {"path"}:
+        raise ValueError("native_read_file_arguments_invalid")
+    raw_path = arguments.get("path")
+    if not isinstance(raw_path, str):
+        raise ValueError("native_read_file_arguments_invalid")
+    if "\x00" in raw_path or "\r" in raw_path or "\n" in raw_path:
+        raise ValueError("native_read_file_arguments_invalid")
+    path = raw_path.strip()
+    if not path or len(path) > MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS:
+        raise ValueError("native_read_file_arguments_invalid")
+    return InvokeArguments(
+        path_params={},
+        query={},
+        headers={},
+        body={"path": path, "scope": {"project_id": project_id}},
+    )
+
+
+def _native_read_file_blocked_error(
+    *,
+    task: ChatCompletionTask,
+    tool_turn_id: str,
+) -> ToolLoopExecutionError:
+    return ToolLoopExecutionError(
+        ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+        metadata=_tool_loop_identity_fields(
+            task=task,
+            tool_turn_id=tool_turn_id,
+            tool_turn_state=ToolTurnState.FAILED.value,
+            loop_stop_reason=ToolLoopStopReason.TOOL_COMMAND_BLOCKED.value,
+            command_run_id=None,
+        )
+        | {"command_id": NATIVE_READ_FILE_COMMAND_ID},
+    )
+
+
 def _repository_search_blocked_error(
     *,
     task: ChatCompletionTask,
@@ -6606,10 +6668,19 @@ def _prepare_chat_tool_exposure(
         )
     else:
         supplied_tools = task.tools
+        # A caller-supplied tool list may never advertise a command that
+        # carries a request-scoped grant or a server-resolved scope. The
+        # native read-file command is scoped by Guardian, so it is stripped
+        # here exactly as the two existing scoped commands are.
+        scoped_command_ids = {
+            REPOSITORY_SEARCH_COMMAND_ID,
+            HISTORY_SEARCH_COMMAND_ID,
+            NATIVE_READ_FILE_COMMAND_ID,
+        }
         if isinstance(supplied_tools, list) and any(
             isinstance(tool, dict)
             and tool.get("command_id")
-            in {REPOSITORY_SEARCH_COMMAND_ID, HISTORY_SEARCH_COMMAND_ID}
+            in scoped_command_ids
             for tool in supplied_tools
         ):
             task.tools = [
@@ -6618,7 +6689,7 @@ def _prepare_chat_tool_exposure(
                 if not (
                     isinstance(tool, dict)
                     and tool.get("command_id")
-                    in {REPOSITORY_SEARCH_COMMAND_ID, HISTORY_SEARCH_COMMAND_ID}
+                    in scoped_command_ids
                 )
             ]
     evidence = _build_tool_exposure_evidence(
@@ -6630,6 +6701,11 @@ def _prepare_chat_tool_exposure(
         and repository_search_is_advertised(task.tools)
     ):
         evidence["_repository_chat_context"] = repository_context
+    if (
+        repository_context is not None
+        and native_read_file_is_advertised(task.tools)
+    ):
+        evidence["_native_read_file_context"] = repository_context
     if history_context is not None and history_search_is_advertised(task.tools):
         evidence["_history_recall_context"] = history_context
     if history_grant is not None and history_search_is_advertised(task.tools):
@@ -7003,6 +7079,47 @@ def _execute_bounded_tool_turn_completion(
         )
         auth_subject = task.user_id
         inbound_headers = {"X-API-Key": local_api_key}
+
+    if command_id == NATIVE_READ_FILE_COMMAND_ID:
+        # The native command executes in process, so it carries no transport
+        # credential. Its scope is still resolved from the trusted request and
+        # re-verified by the handler against the authenticated account.
+        advertised_context = tool_exposure.get("_native_read_file_context")
+        if not isinstance(advertised_context, RepositoryChatCapabilityContext):
+            raise _native_read_file_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        current_context = resolve_repository_chat_capability(
+            getattr(dependencies, "chatlog_db", None),
+            authenticated_account_id=task.user_id,
+            thread_id=task.thread_id,
+        )
+        if (
+            current_context is None
+            or current_context.project_id != advertised_context.project_id
+        ):
+            raise _native_read_file_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        try:
+            arguments = _hydrate_native_read_file_arguments(
+                normalized_first_output.arguments,
+                project_id=current_context.project_id,
+            )
+        except ValueError as exc:
+            raise _native_read_file_blocked_error(
+                task=task,
+                tool_turn_id=tool_turn_id,
+            )
+        actor = ActorSpec(
+            kind="system",
+            id=request_id or tool_turn_id,
+            session_id=tool_turn_id,
+            delegated_by=task.user_id,
+        )
+        auth_subject = task.user_id
 
     if command_id == HISTORY_SEARCH_COMMAND_ID:
         # The recall account is the trusted account of the accepted chat

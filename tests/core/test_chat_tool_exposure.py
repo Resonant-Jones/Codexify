@@ -43,6 +43,10 @@ from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 from guardian.providers.whooshd_tool_capability import (
     project_whooshd_tool_capability,
 )
+from guardian.core.repository_containment import (
+    MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+)
+from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
 from guardian.routes import chat, health, projects
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask
@@ -401,6 +405,21 @@ def test_other_providers_and_local_runtimes_receive_no_automatic_tools(
     )
 
 
+def _native_read_file_model_tool() -> dict[str, Any]:
+    tools = resolve_ordinary_chat_tools(
+        provider="deepseek",
+        model="deepseek-model",
+        provider_vendor=None,
+        manifest_commands=_repository_manifest_commands(),
+        repository_search_eligible=True,
+    )
+    assert tools is not None
+    for tool in tools:
+        if tool["command_id"] == NATIVE_READ_FILE_COMMAND_ID:
+            return tool
+    raise AssertionError("the native read-file command was not advertised")
+
+
 def test_repository_search_manifest_projection_is_exact_and_authority_free() -> None:
     commands = _repository_manifest_commands()
     repository_command = next(
@@ -428,7 +447,24 @@ def test_repository_search_manifest_projection_is_exact_and_authority_free() -> 
     assert [tool["command_id"] for tool in tools] == [
         HEALTH_COMMAND_ID,
         REPOSITORY_SEARCH_COMMAND_ID,
+        NATIVE_READ_FILE_COMMAND_ID,
     ]
+    native_projection = tools[2]
+    # The model-facing projection exposes the path and nothing else. The
+    # Project scope is injected server-side, so it never crosses to the model.
+    assert native_projection["input_schema"] == {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+            },
+        },
+        "required": ["path"],
+        "additionalProperties": False,
+    }
+    assert "scope" not in repr(native_projection)
     projection = tools[1]
     assert projection["description"] == (
         "Search the current Project's authorized repository for literal text. "
@@ -1876,3 +1912,231 @@ def test_ordinary_chat_history_advertisement_stays_inactive_without_a_grant(
     assert tools is not None
     assert [tool["command_id"] for tool in tools] == [HEALTH_COMMAND_ID]
     assert not history_search_is_advertised(tools)
+
+
+def test_native_read_file_tool_turn_runs_on_the_existing_single_call_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first native tool rides the existing bounded tool-turn path.
+
+    No multi-call loop, no tool-turn budget, and no relocated provider gate
+    are required: the model emits one tool call, Guardian re-validates the
+    scope from the trusted request, hydrates the arguments, and dispatches the
+    native command in process.
+    """
+
+    _seed_completion(
+        monkeypatch,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(LOCAL_PROVIDER_VENDOR=None),
+    )
+    task = _task(provider="deepseek", model="deepseek-model")
+    advertised_context = RepositoryChatCapabilityContext(project_id=42)
+    native_tool = _native_read_file_model_tool()
+    invocations: list[dict[str, Any]] = []
+    provider_calls: list[dict[str, Any]] = []
+
+    def _prepare(
+        prepared_task: ChatCompletionTask,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        prepared_task.tools = [native_tool]
+        evidence = chat_completion_service._build_tool_exposure_evidence(
+            automatic=True,
+            tools=prepared_task.tools,
+        )
+        evidence["_native_read_file_context"] = advertised_context
+        return evidence
+
+    monkeypatch.setattr(
+        chat_completion_service, "_prepare_chat_tool_exposure", _prepare
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: advertised_context,
+    )
+
+    def _invoke(**kwargs: Any) -> dict[str, Any]:
+        invocations.append(kwargs)
+        return {
+            "run_id": "run-native-read-file",
+            "status": "completed",
+            "inline_result": {"path": "app.py", "content": "1\talpha\n"},
+            "policy_warnings": [],
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _invoke)
+
+    def _chat(messages: list[dict[str, Any]], **kwargs: Any) -> DeepSeekResponse:
+        provider_calls.append({"messages": messages, "tools": kwargs.get("tools")})
+        if len(provider_calls) == 1:
+            return DeepSeekResponse(
+                content="",
+                reasoning_content=None,
+                tool_calls=[
+                    {
+                        "command_id": NATIVE_READ_FILE_COMMAND_ID,
+                        "tool_call_id": "call-native-read-file",
+                        "arguments": {"path": "app.py"},
+                    }
+                ],
+                raw_assistant_message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call-native-read-file",
+                            "type": "function",
+                            "function": {
+                                "name": NATIVE_READ_FILE_COMMAND_ID,
+                                "arguments": json.dumps({"path": "app.py"}),
+                            },
+                        }
+                    ],
+                },
+                raw_payload={},
+            )
+        return DeepSeekResponse(
+            content="The file is read.",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={
+                "role": "assistant",
+                "content": "The file is read.",
+            },
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat)
+    result = chat_completion_service.run_chat_completion_task(
+        task,
+        persist_assistant_message=False,
+    )
+
+    assert len(invocations) == 1
+    payload = invocations[0]["payload"]
+    assert payload.command_id == NATIVE_READ_FILE_COMMAND_ID
+    # The model chose the path and nothing else. The scope is written
+    # server-side, so the model could not have widened its own grant.
+    assert payload.arguments.model_dump() == {
+        "path_params": {},
+        "query": {},
+        "headers": {},
+        "body": {"path": "app.py", "scope": {"project_id": 42}},
+    }
+    assert payload.actor.kind == "system"
+    assert payload.actor.delegated_by == task.user_id
+    assert invocations[0]["auth_subject"] == task.user_id
+    # A native command executes in process and needs no transport credential.
+    assert invocations[0]["inbound_headers"] == {}
+    assert len(provider_calls) == 2
+    assert result["payload_summary"]["toolTurnState"] == "completed"
+    assert result["payload_summary"]["loopStopReason"] == "tool_turn_completed"
+
+
+def test_native_read_file_tool_turn_refuses_a_model_supplied_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model-supplied scope is discarded, not merged."""
+
+    _seed_completion(
+        monkeypatch,
+        provider="deepseek",
+        model="deepseek-model",
+        settings=SimpleNamespace(LOCAL_PROVIDER_VENDOR=None),
+    )
+    task = _task(provider="deepseek", model="deepseek-model")
+    advertised_context = RepositoryChatCapabilityContext(project_id=42)
+    invocations: list[dict[str, Any]] = []
+    provider_calls: list[dict[str, Any]] = []
+
+    def _prepare(
+        prepared_task: ChatCompletionTask,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        prepared_task.tools = [_native_read_file_model_tool()]
+        evidence = chat_completion_service._build_tool_exposure_evidence(
+            automatic=True,
+            tools=prepared_task.tools,
+        )
+        evidence["_native_read_file_context"] = advertised_context
+        return evidence
+
+    monkeypatch.setattr(
+        chat_completion_service, "_prepare_chat_tool_exposure", _prepare
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "resolve_repository_chat_capability",
+        lambda *_args, **_kwargs: advertised_context,
+    )
+
+    def _invoke(**kwargs: Any) -> dict[str, Any]:
+        invocations.append(kwargs)
+        return {
+            "run_id": "run-native-read-file",
+            "status": "completed",
+            "inline_result": {"path": "app.py", "content": "1\talpha\n"},
+            "policy_warnings": [],
+        }
+
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _invoke)
+
+    def _chat(messages: list[dict[str, Any]], **kwargs: Any) -> DeepSeekResponse:
+        provider_calls.append({"messages": messages, "tools": kwargs.get("tools")})
+        if len(provider_calls) == 1:
+            return DeepSeekResponse(
+                content="",
+                reasoning_content=None,
+                tool_calls=[
+                    {
+                        "command_id": NATIVE_READ_FILE_COMMAND_ID,
+                        "tool_call_id": "call-native-read-file",
+                        "arguments": {
+                            "path": "app.py",
+                            "scope": {"project_id": 9999},
+                        },
+                    }
+                ],
+                raw_assistant_message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call-native-read-file",
+                            "type": "function",
+                            "function": {
+                                "name": NATIVE_READ_FILE_COMMAND_ID,
+                                "arguments": json.dumps(
+                                    {
+                                        "path": "app.py",
+                                        "scope": {"project_id": 9999},
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                },
+                raw_payload={},
+            )
+        return DeepSeekResponse(
+            content="The file is read.",
+            reasoning_content=None,
+            tool_calls=[],
+            raw_assistant_message={
+                "role": "assistant",
+                "content": "The file is read.",
+            },
+            raw_payload={},
+        )
+
+    monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat)
+
+    with pytest.raises(chat_completion_service.ToolLoopExecutionError):
+        chat_completion_service.run_chat_completion_task(
+            task,
+            persist_assistant_message=False,
+        )
+
+    # The forged scope never reached the bus.
+    assert invocations == []

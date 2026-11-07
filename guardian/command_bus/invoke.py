@@ -34,6 +34,7 @@ from guardian.command_bus.loopback_http_adapter import (
     is_recursion_blocked,
     render_path,
 )
+from guardian.command_bus.internal_dispatch import execute_internal_command
 from guardian.command_bus.manifest import build_command_index
 from guardian.command_bus.redaction_policy import (
     canonical_json,
@@ -41,10 +42,6 @@ from guardian.command_bus.redaction_policy import (
     redact_arguments,
 )
 from guardian.command_bus.store import CommandBusStore, IdempotencyConflictError
-from guardian.codex_runner_bridge.command_bus import (
-    execute_guardian_bridge_command,
-    is_guardian_bridge_command,
-)
 from guardian.protocol_tokens import ErrorCode
 from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline
 from guardian.tools.policy import (
@@ -431,10 +428,9 @@ async def execute_invoke(
             )
 
     args_redacted = redact_arguments(command.command_id, args_dict)
-    is_guardian_bridge_internal = (
-        command.layer == "internal"
-        and is_guardian_bridge_command(command.command_id)
-    )
+    # Internal commands execute in process rather than over the loopback HTTP
+    # transport, so they neither render a path nor need a transport base.
+    is_internal_command = command.layer == "internal"
 
     # ── Work-order linkage validation (before execution) ─────
     wo_id = (payload.work_order_id or "").strip() or None
@@ -538,7 +534,7 @@ async def execute_invoke(
     blocked_reason: str | None = pre_dispatch_blocked_reason
 
     # Explicit recursion guard, including future alias paths.
-    if blocked_reason is None and not is_guardian_bridge_internal:
+    if blocked_reason is None and not is_internal_command:
         try:
             rendered = render_path(
                 command.path_template, args_dict.get("path_params") or {}
@@ -556,7 +552,7 @@ async def execute_invoke(
         blocked_reason = f"policy_{invoke_policy.decision}:{reasons}"
 
     if (
-        not is_guardian_bridge_internal
+        not is_internal_command
         and not (
             command.effect == "read"
             and command.method in {
@@ -643,11 +639,12 @@ async def execute_invoke(
         },
     )
 
-    if is_guardian_bridge_internal:
+    if is_internal_command:
         try:
-            execution_result = execute_guardian_bridge_command(
+            execution_result = execute_internal_command(
                 command_id=command.command_id,
                 arguments=payload.arguments,
+                auth_subject=auth_subject,
             )
         except Exception as exc:
             error_text = str(exc)
