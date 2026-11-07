@@ -640,7 +640,7 @@ These cover UI state, rendering, and agent perception.
 
 ### 6. Security and Integrity
 
-- [SECURITY.md](docs/Codexify/SECURITY.md)
+- [SECURITY.md](SECURITY.md)
 - [CONFIGURATION.md](docs/Codexify/CONFIGURATION.md)
 - [auth-boundary-decision.md](docs/security/auth-boundary-decision.md)
 - [SECURITY_HARDENING_PLAN.md](docs/dev/SECURITY_HARDENING_PLAN.md)
