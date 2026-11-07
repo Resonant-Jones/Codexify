@@ -6,20 +6,32 @@
 
 ## Version
 
-`1`
+`2`
+
+Version 2 replaces four `surface_paths` entries that matched no path in the
+repository (`frontend/src/components/people/**`, `frontend/src/features/people/**`,
+`guardian/routes/people*`, `guardian/routes/relationships*`) with the paths that
+actually carry the onboarding and People surface. A surface path that matches
+nothing can never be marked stale, so a receipt under version 1 would have
+projected `current` regardless of what moved. No required check, blocking
+criterion, or measurement changed.
 
 ## Qualification metadata
 
 ```yaml qualification-metadata
 qualification_id: onboarding-and-people
-version: 1
+version: 2
 title: Onboarding and People
 scope: Authenticated private-preview onboarding and same-node People messaging
 surface_paths:
-  - frontend/src/components/people/**
-  - frontend/src/features/people/**
-  - guardian/routes/people*
-  - guardian/routes/relationships*
+  # Onboarding experience: API and wizard UI.
+  - guardian/routes/onboarding.py
+  - frontend/src/features/onboarding/**
+  # People: profile search, username claim, durable messaging, display profile.
+  - guardian/routes/direct_messages.py
+  - guardian/routes/user_profile.py
+  - guardian/messaging/**
+  - frontend/src/features/contacts/**
 evidence:
   - docs/architecture/proofs/2026-09-01-people-messaging-runtime-qualification-proof.md
 ```

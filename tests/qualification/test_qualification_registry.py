@@ -209,6 +209,38 @@ def test_match_surface_returns_only_matching_paths() -> None:
     assert matched == ["guardian/routes/chat.py"]
 
 
+def test_every_rubric_surface_path_matches_a_tracked_path() -> None:
+    """Every declared surface path must resolve to at least one tracked file.
+
+    A surface path that matches nothing makes the qualification surface
+    vacuous: no change to the real code can ever mark a run stale, so the
+    registry would project `current` for a receipt whose subject had moved.
+    This is a property of the repository's own rubrics, not of a fixture, so
+    it is checked against the tracked file list.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+
+    dead: list[str] = []
+    rubrics_dir = ROOT / "docs/qualification/rubrics"
+    for path in sorted(rubrics_dir.glob("*.md")):
+        try:
+            rubric = parse_rubric(path, ROOT)
+        except QualificationParseError:
+            # The rubrics README is a template, not a rubric.
+            continue
+        for pattern in rubric.surface_paths:
+            if not match_surface(tracked, [pattern]):
+                dead.append(f"{path.name}: {pattern}")
+
+    assert not dead, "surface paths matching no tracked path: " + "; ".join(dead)
+
+
 # ── Projection ───────────────────────────────────────────────────────────
 
 
