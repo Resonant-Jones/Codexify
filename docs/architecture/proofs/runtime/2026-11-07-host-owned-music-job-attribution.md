@@ -26,6 +26,11 @@ Files belonging to this change:
   the schema.
 - `tests/routes/test_music_projects.py` — six tests, five of them
   mutation-proven.
+- `scripts/proofs/prove_music_job_attribution.py` — the live proof harness,
+  committed so the receipt can be reproduced.
+- `scripts/proofs/mutate_music_attribution_tests.py` — the mutation check,
+  committed for the same reason.
+- `scripts/proofs/README.md` — the harnesses' documentation.
 - `docs/architecture/00-current-state.md` — publishes the new head, and
   names the host's ownership of the attribution.
 - `docs/architecture/adr/108-codexify-music-producer-authority-and-agentdaw-service-boundary.md`
@@ -82,8 +87,9 @@ real source and the named test was run against it.
 | A later record moves the job | `test_a_job_is_not_moved_by_a_later_record` | **failed (caught)** |
 | A refused record write fails the compose | `test_a_record_that_cannot_be_written_does_not_cost_the_files` | **failed (caught)** |
 
-The mutation harness is `.work/proof/mutation_attribution.py`. It restores
-each file from a byte-verified backup after every mutation.
+The mutation harness is `scripts/proofs/mutate_music_attribution_tests.py`. It
+restores each file it touches from a byte-verified backup after every
+mutation, whether the mutation was caught or not.
 
 ## Live proof
 
@@ -124,7 +130,25 @@ media_assets:     5 new row(s) — every one project_id=7, thread_id=1
 Before this change, that leg produced five files and zero registrations,
 and the host reported success.
 
-The harness is `.work/proof/live_attribution_proof.py`.
+The committed harness was then run again against both engines from this
+checkout — project `8`, chat thread `2` — and reproduced the same result:
+
+```
+VERDICT
+-------
+engine                       status       echoed a context
+v0.1.6                       succeeded    yes
+v0.1.2                       succeeded    no
+
+PASS: every engine's files were attributed against the right project and thread
+```
+
+The harness is `scripts/proofs/prove_music_job_attribution.py`. It is
+committed, so this receipt can be reproduced rather than taken on trust.
+Its pass condition is the invariant — the files are attributed against the
+right project and thread, for every engine exercised — and whether the
+engine echoed the context back is reported as an observation, because that
+is a property of the engine and not of the host.
 
 ## Automated coverage
 
