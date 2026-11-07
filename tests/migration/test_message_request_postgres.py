@@ -1,10 +1,14 @@
 """Real PostgreSQL migrations and independent-connection race proof."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Barrier
+import importlib.util
 import uuid
 
 import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy.orm import Session
 
 from guardian.db.models import (
@@ -26,6 +30,54 @@ from tests.migration.test_direct_messaging_migration import (
 
 PREVIOUS = "8d41a0c2b7ef"
 REVISION = "9e52b1d3c8fa"
+
+# The current service identifies the canonical local node with the
+# ``is_local`` marker, and ``PREVIOUS`` predates that marker.  The fixture
+# applies the marker's own migration to the pinned schema so the schema
+# matches what the current service expects; the message-request migration
+# under test is unaffected by the marker, and the marker is applied from the
+# migration's own DDL rather than from a copy of it.
+_LOCAL_NODE_MARKER_REVISION = "b3f8c2d1e907"
+_LOCAL_NODE_MARKER_FILE = (
+    Path(__file__).resolve().parents[2]
+    / "guardian"
+    / "db"
+    / "migrations"
+    / "versions"
+    / f"{_LOCAL_NODE_MARKER_REVISION}_identify_the_canonical_local_node.py"
+)
+
+
+def _apply_local_node_marker(engine) -> None:
+    """Give the pinned schema the local-node marker the current service needs."""
+    columns = {
+        column["name"]
+        for column in sa.inspect(engine).get_columns("threadspace_nodes")
+    }
+    assert "is_local" not in columns, (
+        "the pinned revision must predate the local-node marker for this "
+        "fixture to be meaningful"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "local_node_marker_migration", _LOCAL_NODE_MARKER_FILE
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.revision == _LOCAL_NODE_MARKER_REVISION
+    connection = engine.connect()
+    context = MigrationContext.configure(connection)
+    try:
+        with Operations.context(context):
+            with context.begin_transaction():
+                module.upgrade()
+    finally:
+        connection.close()
+    columns = {
+        column["name"]
+        for column in sa.inspect(engine).get_columns("threadspace_nodes")
+    }
+    assert "is_local" in columns, "the local-node marker was not applied"
 
 
 def _pair(engine, suffix):
@@ -87,6 +139,9 @@ def test_postgres_migration_and_concurrent_consent(temporary_postgres):
         connect_args={"options": "-c statement_timeout=15000 -c lock_timeout=10000"},
     )
     try:
+        # The current service identifies the canonical local node with the
+        # local-node marker, which this pinned revision predates.
+        _apply_local_node_marker(engine)
         # Honest pre-migration Conversation, not a synthetic request.
         pa, pb = _pair(engine, "historical")
         with Session(engine) as session:

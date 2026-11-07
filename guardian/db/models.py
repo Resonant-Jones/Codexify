@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -410,6 +411,13 @@ class ThreadSpaceNode(Base):
 
     ``node_id`` identifies the Codexify node authority.  It is never an
     endpoint, hostname, IP, URL, container identity, account, or profile.
+
+    ``is_local`` marks **the** canonical local node.  It is an explicit
+    property of the row, not a property of the row's age: the local node is
+    identified, never inferred from which row happens to be oldest.  ADR-079
+    requires the resolver to ensure one stable canonical local node row, and
+    an age-based selection cannot promise that — a row created in the same
+    clock tick, or a remote row recorded earlier, would both be eligible.
     """
 
     __tablename__ = "threadspace_nodes"
@@ -418,6 +426,9 @@ class ThreadSpaceNode(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="active", server_default="active"
+    )
+    is_local: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
@@ -437,6 +448,16 @@ class ThreadSpaceNode(Base):
         CheckConstraint(
             "length(trim(name)) > 0",
             name="threadspace_nodes_name_check",
+        ),
+        # At most one local node, enforced by the database rather than by the
+        # resolver's cooperation. Without it two concurrent first-use
+        # requests could each mint a local row.
+        Index(
+            "threadspace_nodes_one_local_idx",
+            "is_local",
+            unique=True,
+            sqlite_where=text("is_local = 1"),
+            postgresql_where=text("is_local IS true"),
         ),
     )
 
