@@ -416,6 +416,23 @@ Both version numbers must agree, and `tests/qualification/test_rubric_version_co
 asserts that a rubric's `## Version` heading and its metadata `version:` are
 the same number, because the metadata block is what a receipt binds to.
 
+**Bump the version when the rubric's contract changes, not for editorial
+revisions.** The contract is a required check, a blocking criterion, the PASS
+gate, the metric set, the scope statement, or `surface_paths`. Wording,
+formatting, an added example, a typo, or extra explanation that changes no
+requirement is none of those, and must not bump. With this binding live the
+version is a claim about *what the run had to clear*, so a bump has to mean
+"the bar moved" — otherwise the version stops being evidence and becomes a
+formality, which is the failure the binding exists to catch.
+
+**A version correction is retroactive, so enumerate the receipts first.**
+Correcting a rubric's version metadata to a number the rubric has really
+carried all along is not a bump, but under this binding it still makes a
+receipt that declared the old number non-current, even though no criterion
+changed when the correction was made. Before correcting a rubric's version,
+enumerate that surface's receipts and record in the change whether any earned
+evidence is affected: **a correction must never silently invalidate a run.**
+
 The comparison runs against `git diff --name-only <tested> <tip>`, so it
 answers a concrete question: *did meaningful changes to this surface land
 after the evidence was gathered?*
