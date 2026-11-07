@@ -71,6 +71,20 @@ BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
 #: A bullet in the section: a leading dash, then the path the bullet names.
 BULLET = re.compile(r"^\s*-\s+")
 
+#: A token in a section line: either a backtick-quoted span or a bare word.
+SPAN_OR_WORD = re.compile(r"`[^`\n]+`|[^\s]+")
+
+#: A path token: one or more segments joined by "/", with an optional trailing
+#: "/". A path must contain a separator — that is what distinguishes a path
+#: from an ordinary word, so prose is never read as a path.
+PATH_TOKEN = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*/?")
+
+#: Tokens that may join the paths of one bullet's leading declaration.
+DECLARATION_JOINERS = frozenset({"and", "&"})
+
+#: Punctuation that may trail a path token in prose.
+TRAILING_PUNCTUATION = ".,;:"
+
 #: A numeric quantity immediately followed by a count noun. A bare number in
 #: prose is not a count claim and is deliberately not matched.
 #:
@@ -133,25 +147,85 @@ def _first_party_surfaces(tracked: set[str]) -> set[str]:
     return surfaces
 
 
-def _path_claims(section: str) -> list[str]:
-    """Return every path the section names.
+def _is_path_token(token: str) -> bool:
+    """True when a token names a path rather than ordinary prose.
 
-    A claim is any backtick-quoted span that contains a path separator, plus
-    the first backtick-quoted span of each bullet (the subject of the bullet,
-    which may be written without a trailing separator).
+    A path is one or more segments joined by "/", with an optional trailing
+    separator, so ``guardian/``, ``guardian/db/migrations/`` and
+    ``docs/architecture/00-current-state.md`` all qualify.
+
+    A path must carry a separator. That is what distinguishes a path from an
+    ordinary word: "models/" names a directory, "Local" is prose. Requiring
+    the separator is what keeps the rule from reading prose as a path.
+    """
+    return "/" in token and bool(PATH_TOKEN.fullmatch(token))
+
+
+def _leading_declaration(line: str) -> list[str]:
+    """Return the paths a bullet declares in its leading position.
+
+    A bullet declares its subject in the text that follows the leading dash,
+    before any prose begins. The declaration may be quoted (`` `guardian/` ``)
+    or unquoted (``guardian/``); both are read, because a contributor who
+    writes an unquoted path is naming a path and the validator must see it.
+
+    A declaration may name more than one path, joined by "and".
+
+    Returns an empty list when the bullet declares no path, which the caller
+    reports as a malformed bullet rather than skipping.
+    """
+    body = BULLET.sub("", line, count=1).strip()
+    if not body:
+        return []
+
+    declared: list[str] = []
+    for token in SPAN_OR_WORD.findall(body):
+        plain = token.strip("`").strip().rstrip(TRAILING_PUNCTUATION)
+        if not plain:
+            continue
+        if plain.lower() in DECLARATION_JOINERS and declared:
+            # A joiner continues the declaration only when another path follows.
+            continue
+        if not _is_path_token(plain):
+            break
+        declared.append(plain)
+    return declared
+
+
+def _path_claims(section: str) -> tuple[list[str], list[str]]:
+    """Return (path claims, malformed bullets) for the section.
+
+    Every path the section names is a claim and is checked for existence:
+
+    * the paths a bullet declares in its leading position, and
+    * any further backtick-quoted path the bullet mentions.
+
+    A bullet that declares no path at all is returned as malformed. It is not
+    skipped: a bullet whose subject cannot be read is a bullet whose claims
+    cannot be checked, so the caller must fail on it explicitly.
     """
     claims: list[str] = []
+    malformed: list[str] = []
+
     for line in section.splitlines():
-        if not BULLET.match(line):
+        stripped = line.strip()
+        if not stripped or not BULLET.match(line):
             continue
-        spans = BACKTICK_SPAN.findall(line)
-        if not spans:
+
+        declared = _leading_declaration(line)
+        if not declared:
+            malformed.append(stripped)
             continue
-        first = spans[0].strip()
-        if first:
-            claims.append(first)
-        claims.extend(span.strip() for span in spans[1:] if "/" in span)
-    return claims
+
+        claims.extend(declared)
+
+        # Further quoted paths in the same bullet are additional claims.
+        for span in BACKTICK_SPAN.findall(line):
+            span = span.strip()
+            if span and span not in declared and _is_path_token(span):
+                claims.append(span)
+
+    return claims, malformed
 
 
 def _exists_as_path(tracked: set[str], claim: str) -> bool:
@@ -174,7 +248,14 @@ def test_repo_structure_named_paths_exist() -> None:
     )
 
     tracked = _tracked_files()
-    claims = _path_claims(section)
+    claims, malformed = _path_claims(section)
+
+    assert not malformed, (
+        f"`{STRUCTURE_HEADING}` has bullets that declare no path: {malformed}. "
+        "Every bullet must begin with the path it names, quoted or not, so its "
+        "claims can be checked."
+    )
+
     assert claims, (
         f"`{STRUCTURE_HEADING}` names no paths — this check must not pass vacuously"
     )
@@ -183,6 +264,51 @@ def test_repo_structure_named_paths_exist() -> None:
     assert not missing, (
         f"`{STRUCTURE_HEADING}` names paths that do not exist in the repository: "
         f"{sorted(set(missing))}. Remove the entry or point it at a real path."
+    )
+
+
+def test_repo_structure_claims_parse_valid_and_malformed_bullets() -> None:
+    """The claim parser must read a declared path and reject an undeclared one.
+
+    A parser-backed rule is only as good as the inputs it is exercised with.
+    Testing one valid input alone leaves a malformed input silently skipped —
+    which is how a bullet that names a directory the validator never reads
+    reaches the document. Both shapes are therefore pinned here.
+    """
+    # A valid bullet: the leading declaration is the subject, and a further
+    # quoted path in the same bullet is an additional claim.
+    claims, malformed = _path_claims(
+        "- `guardian/` - Main backend package, see `guardian/routes/`.\n"
+    )
+    assert not malformed, f"a well-formed bullet was reported malformed: {malformed}"
+    assert claims == ["guardian/", "guardian/routes/"], (
+        f"expected the declared path and the further quoted path, got {claims}"
+    )
+
+    # A bullet whose leading text is not a path declaration names no path.
+    # It must be reported, not silently dropped.
+    claims, malformed = _path_claims("- Local model storage\n")
+    assert claims == [], f"a prose-only bullet produced claims: {claims}"
+    assert malformed == ["- Local model storage"], (
+        f"a prose-only bullet must be reported as malformed, got {malformed}"
+    )
+
+    # An unquoted path is still a path. It must be read as the subject so
+    # that its existence is checked.
+    claims, malformed = _path_claims("- models/ - Local model storage\n")
+    assert not malformed, f"an unquoted path bullet was reported malformed: {malformed}"
+    assert claims == ["models/"], (
+        f"an unquoted leading path must be read as the subject, got {claims}"
+    )
+
+    # A later quoted path is an additional claim, never a replacement for the
+    # subject.
+    claims, malformed = _path_claims(
+        "- models/ - Local model storage, see `backend/`\n"
+    )
+    assert not malformed, f"an unquoted path bullet was reported malformed: {malformed}"
+    assert claims == ["models/", "backend/"], (
+        f"expected the subject and the additional claim, got {claims}"
     )
 
 
@@ -201,7 +327,7 @@ def test_repo_structure_accounts_for_every_first_party_surface() -> None:
         "pass vacuously"
     )
 
-    named = {claim.split("/")[0] for claim in _path_claims(section)}
+    named = {claim.split("/")[0] for claim in _path_claims(section)[0]}
     excluded = {key.strip("/") for key in EXCLUDED_SURFACES}
 
     unaccounted = sorted(surfaces - named - excluded)
