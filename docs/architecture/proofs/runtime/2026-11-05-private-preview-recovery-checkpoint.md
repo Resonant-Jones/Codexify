@@ -658,27 +658,58 @@ approval that was never reached.
 
 ## 10. Preview integrity readback
 
-The Private Preview was **read only** throughout this task and was not
-interrupted.
+The Private Preview was **read only** throughout this task. This task issued no
+`up`, `stop`, `down`, `restart`, `rm` or `create` against it; every Compose
+invocation was `config --hash` or `up --dry-run`, neither of which acts.
+
+Two changes to the Preview's runtime occurred during the re-verification
+window. **Neither was caused by this task**, and both are recorded here so the
+readback is not read as a claim of an undisturbed deployment.
+
+| Time (UTC) | Event | Attributed to |
+| --- | --- | --- |
+| `07:25:27Z` | Docker Desktop VM killed by host memory pressure; the Preview's **existing** containers restarted (`Created` timestamps unchanged — `db` 2026-10-30, `backend` 2026-11-06) | host memory pressure; recovered by the operator's own path |
+| `07:35:44Z`–`07:35:51Z` | all 18 Preview containers stopped via an explicit `docker compose stop` (`ContainerStopComposeLinux` ×18; exit codes 143 / 137 / 0) | operator-side action |
+| `07:39:35Z` | the `serving-source` pin was rewritten from `…/.worktrees/private-preview-serving-20261106` to `/Volumes/Dev_SSD/Codexify-main` | operator-side action |
+
+**State at the time of writing (2026-11-07 07:41 UTC): the Private Preview is
+DOWN — 0 of 13 long-running services.** The operator's new pin points the
+Preview at the operator checkout, and the autostart script's source-isolation
+guard refuses it:
+
+```
+Private Preview must use an existing, independent serving checkout.
+```
+
+(`codexify_private_preview_autostart.sh:48` — `if [[ ! -d "$source_root" ||
+"$source_root" == "$REPO_ROOT" ]]`.) Because the `enabled` desired-up marker
+is still present and the LaunchAgent reconciles on a 300-second interval, each
+reconcile now fails the same way and the stack cannot come back up on its own.
+Two independent serving checkouts that would satisfy the guard exist and are
+unchanged (`…-20261106` @ `dece01821`, `…-20261029` @ `c8e72ef86`, both with
+the serving overlay present); the prior pin is also preserved at
+`serving-source.bak-20261106`.
+
+This task did **not** attempt to restore the stack: the pin is the operator's,
+the change is in flight, and correcting it would be a mutation of a live
+deployment that this task's authority does not cover.
 
 | Check | Result |
 | --- | --- |
-| Long-running services | **13 / 13 running**; `db`, `backend`, `worker-coding`, `neo4j`, `redis` report healthy |
-| One-shot services | **5 / 5 exited 0** (`migrator`, `model-prep`, `graph-init`, `private-preview-auth-posture`, `e2e`) |
-| Live PostgreSQL revision | `a7d4c9e2f1b3` (read directly from `alembic_version`) |
-| Named volumes | 9 present, identities as recorded in §2.4 |
-| Container config-hashes | unchanged, 18/18 matching the authoritative invocation (§3) |
+| Long-running services | **0 / 13 running at 07:41 UTC** (13 / 13 running at 07:34 UTC, before the operator-side stop) |
+| One-shot services | all 18 project containers exited |
+| Live PostgreSQL revision | `a7d4c9e2f1b3` (read from `alembic_version` at 07:34 UTC, while the database was up) |
+| Named volumes | **9 present and intact**, identities as recorded in §2.4; `pg_data` mountpoint unchanged — **no data loss** |
+| Container config-hashes | unchanged, 18/18 matching the authoritative invocation (§3), measured at 07:34 UTC |
 | Restore containers / volumes created by this task | **0** |
 | Backup artifacts created | **0** |
 | Schema changes applied | **none** |
 | Application code deployed | **none** |
 
-The only change in the Preview's runtime during the re-verification window was
-the **restart** at `2026-11-07T07:25:27Z` that followed the Docker Desktop
-host memory-pressure crash (§2.1). It was performed by the operator's own
-recovery path, not by this task: no container was created, removed or
-recreated by this work, and the deployment's identity — revision, 18
-config-hashes, 9 named volumes, serving root — was unchanged across it.
+**A checkpoint must not be attempted against a deployment in this state.** The
+pin is in flux, the stack is down, and the identity this receipt records is a
+**dated snapshot** — it must be re-measured (revision, config-hashes, serving
+root, volume identities) immediately before any approved interruption.
 
 ## 11. Closeout
 
@@ -690,7 +721,7 @@ config-hashes, 9 named volumes, serving root — was unchanged across it.
 6. **Approval status** — **NOT REACHED.** No operator approval was requested or granted; no Preview interruption occurred.
 7. **Backup artifact location and hash** — **none.** No artifact was created.
 8. **Isolated restore results** — **not performed.** No scratch database, container or volume was created.
-9. **Preview health and integrity readback** — 13/13 long-running services up and healthy, 5/5 one-shots exited 0, revision `a7d4c9e2f1b3` unchanged, 9 named volumes intact, 18/18 config-hashes unchanged, 0 restore artifacts created, no schema change, no deployment (§10).
+9. **Preview health and integrity readback** — at 07:34 UTC: 13/13 long-running services up and healthy, 5/5 one-shots exited 0, revision `a7d4c9e2f1b3` unchanged, 9 named volumes intact, 18/18 config-hashes unchanged, 0 restore artifacts created, no schema change, no deployment. At 07:41 UTC the stack is **down** following an operator-side `compose stop` and a serving-source pin change that the source-isolation guard refuses (§10) — volumes intact, no data loss, and **not** caused by this task.
 10. **Remaining unprotected data** — Neo4j (516 MB), Chroma (1.8 GB), Redis, `hf_cache` (3.7 GB), `e2e_pnpm_store` (630 MB) and the remaining caches/tool volumes; import staging content (53,870 files — count recorded only) (§7).
 11. **Validation results** — `bash -n` PASS; `pytest` 6 passed; `validate_docs.py` PASS; `git diff --check` PASS (§9).
 12. **ADR impact** — this receipt claims none. The **required** corrections in §6.1 (recovery authority: Compose file set and source root) and §6.2 (persistent-state ownership: `REPO_ROOT` decoupling) require **separate architectural adjudication**; §6.3 and §6.4 do not. No release or qualification claim is promoted; posture remains **HOLD**.
