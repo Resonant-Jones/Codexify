@@ -409,3 +409,71 @@ docker compose ... up -d --force-recreate backend worker-chat worker-chat-embed 
 # 6. confirm the pin names the new source, or the LaunchAgent reverts the deployment
 cat ~/Library/Application\ Support/Codexify/private-preview/serving-source
 ```
+
+# Amendment — 2026-11-07: the reconciler advanced the live database past `a7d4c9e2f1b3`
+
+Everything above records the advance to `a7d4c9e2f1b3` and is unchanged. This
+section records what happened afterwards, and is appended rather than folded
+into the text above.
+
+**What happened.** The serving-source pin moved to a new serving worktree
+(`private-preview-serving-20261107`, at `b85036b02`), whose migration head is
+`c4f7a9e2b810` — the `music_jobs` table added by the Music Producer work. The
+`LaunchAgent` reconciler rebuilt the image and applied that revision to the
+live database. It did so **without** an operator present, and nothing in this
+receipt predicted it: the three current-state claims in
+`docs/architecture/00-current-state.md` still said the live database sat at
+`a7d4c9e2f1b3`. They were false.
+
+**The mechanism, stated once.** The live Preview database tracks the **serving
+source's** head, not `main`'s. The reconciler advances it to whatever the
+pinned serving checkout contains, and `main` moves independently. So the
+distance between the live database and `main`'s published head is not a property
+of `main` — it is the gap between what the serving source has adopted and what
+`main` has published, and it changes whenever either moves. **That distance is
+therefore a dated observation, not a value bound to a tip**, and the release
+truth now states the mechanism instead of copying the number.
+
+**Measured on the live database, directly:**
+
+```text
+alembic_version      : c4f7a9e2b810        (exactly one row)
+public tables        : 141                 (140 at a7d4c9e2f1b3, plus music_jobs)
+music_jobs           : 0 rows              (new table, empty)
+chat_messages        : 113554 rows         (113547 at the advance above — grew by 7)
+```
+
+`c4f7a9e2b810` was the repository's single migration head on 2026-11-07, when the
+reconciler applied it. It has since been superseded by `b3f8c2d1e907` (the
+local-node marker), so the live Preview database is **one revision behind** the
+published head — and would close that gap the moment the serving source adopts
+the newer revision.
+
+**The current state was proven restorable.** The live database was dumped,
+restored into a disposable PostgreSQL, and compared with the live database it
+was dumped from — the schema revision, the table count, and the row count of
+**every** public table, not only the tables the read-state contract names:
+
+```text
+live      : revision=c4f7a9e2b810 tables=141
+restored  : revision=c4f7a9e2b810 tables=141
+RESTORE_EQUIVALENCE: EQUIVALENT
+tables compared: 141
+```
+
+**The image's provenance still holds.** The migration files baked into the
+running backend image and the migration files in the served checkout were
+compared by content hash — 136 files on each side:
+
+```text
+MIGRATION_SOURCE_PROVENANCE: BYTE_IDENTICAL
+```
+
+**What this does not change.** The reconciler applied a schema revision on its
+own; the *recovery path* that this receipt proves is the operator-driven one.
+The two are different acts. What is proven here is that the state the
+reconciler produced is intact and fully restorable, not that the reconciler
+exercised a proven recovery path.
+
+**What this does not establish.** Nothing about the product's qualification.
+The Preview remains one live surface; the `release_hold` flag is still `true`.
