@@ -115,6 +115,26 @@ jobs:
             # here would spend forty minutes of runner time on a revision
             # nobody will ship.
             echo "run_backend=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            # This revision IS the tip of main. The tip is what ships, so it
+            # executes the suite even when the change is documentation-only.
+            #
+            # Without this, a documentation-only push to main produced a green
+            # "Backend Tests" check whose pytest step never ran: the job's only
+            # executed step was the "No-op (no backend-relevant changes)" echo.
+            # The dispatch branch above forces the same thing for the same
+            # reason — a no-op must never stand in for an execution.
+            #
+            # This also closes a false-negative class. The path filter is a
+            # heuristic, and it does not cover every path a backend-relevant
+            # change can land on (scripts/knowledge_graph/** and most of
+            # scripts/** are outside it). A change confined to one of those
+            # paths, landing on main, skipped the suite and still reported
+            # success. Forcing the tip removes that failure mode entirely:
+            # every revision that becomes the tip of main is executed, and the
+            # superseded check above keeps the cost bounded, because a
+            # superseded revision still no-ops and only the tip runs the suite.
+            echo "run_backend=true" >> "$GITHUB_OUTPUT"
           elif [ "$backend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
             echo "run_backend=true" >> "$GITHUB_OUTPUT"
           else
@@ -123,6 +143,11 @@ jobs:
 
           if [ "${{ steps.superseded.outputs.superseded }}" = "true" ]; then
             echo "run_frontend=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            # Same rule as the backend path above: a green "Frontend Quality"
+            # check on the tip of main must mean the checks ran, not that they
+            # were skipped because nothing under frontend/** changed.
+            echo "run_frontend=true" >> "$GITHUB_OUTPUT"
           elif [ "$frontend" = "true" ] || [ "$ci" = "true" ] || [ "$shared" = "true" ]; then
             echo "run_frontend=true" >> "$GITHUB_OUTPUT"
           else
