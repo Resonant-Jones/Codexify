@@ -81,7 +81,7 @@ def test_validate_llm_config_accepts_whooshd_deepseek_contract(monkeypatch):
         LOCAL_LLM_MODEL=_LOCAL_CHAT_ROUTE,
         LLM_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="test-deepseek-key",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        DEEPSEEK_CHAT_MODEL="deepseek-flash",
     )
 
     config_module.validate_llm_config(settings)
@@ -100,7 +100,7 @@ def test_validate_llm_config_accepts_tester_operator_selected_local_model(
         LOCAL_LLM_MODEL=_WHOOSHD_MODEL,
         LLM_MODEL=_WHOOSHD_MODEL,
         DEEPSEEK_API_KEY="test-deepseek-key",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        DEEPSEEK_CHAT_MODEL="deepseek-flash",
     )
 
     config_module.validate_llm_config(settings)
@@ -114,7 +114,7 @@ def test_whooshd_deepseek_profile_keeps_local_model_authoritative(monkeypatch):
         CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="test-deepseek-key",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        DEEPSEEK_CHAT_MODEL="deepseek-flash",
     )
 
     assert _local_chat_model_is_authoritative(settings) is True
@@ -179,7 +179,7 @@ def test_supported_profile_keeps_deepseek_posture_under_restored_authority(
         CODEXIFY_EGRESS_ALLOWLIST="deepseek,deepgram",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="test-deepseek-key",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        DEEPSEEK_CHAT_MODEL="deepseek-flash",
     )
 
     assert _local_chat_model_is_authoritative(settings) is True

@@ -677,7 +677,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--deepseek-model",
         default=os.getenv(
-            "PRIVATE_PREVIEW_DEEPSEEK_MODEL", "deepseek-v4-flash"
+            "PRIVATE_PREVIEW_DEEPSEEK_MODEL", "deepseek-flash"
         ),
     )
     parser.add_argument(

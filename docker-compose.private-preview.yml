@@ -106,7 +106,7 @@ services:
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
-      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+      DEEPSEEK_CHAT_MODEL: "deepseek-flash"
       GUARDIAN_SESSION_SECRET: "${GUARDIAN_SESSION_SECRET:?set GUARDIAN_SESSION_SECRET in .env.private-preview}"
       GUARDIAN_JWT_SECRET: "${GUARDIAN_JWT_SECRET:?set GUARDIAN_JWT_SECRET in .env.private-preview}"
       CODEXIFY_PREVIEW_APPROVED_EMAILS: "${CODEXIFY_PREVIEW_APPROVED_EMAILS:?set approved preview emails}"
@@ -140,7 +140,7 @@ services:
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
-      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+      DEEPSEEK_CHAT_MODEL: "deepseek-flash"
 
   worker-voice:
     # The voice worker is where cloud voice providers are actually invoked.

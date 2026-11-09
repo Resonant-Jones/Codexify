@@ -156,6 +156,31 @@ def test_resolve_thread_completion_settings_prefers_thread_config_over_request_v
     assert result.has_thread_config is True
 
 
+@pytest.mark.parametrize(
+    ("saved_model", "expected_model"),
+    [
+        ("default", "deepseek-flash"),
+        (None, "deepseek-flash"),
+        ("deepseek-v4-pro", "deepseek-v4-pro"),
+    ],
+)
+def test_saved_deepseek_thread_uses_configured_default_without_overriding_explicit_model(
+    saved_model, expected_model
+):
+    result = resolve_thread_completion_settings(
+        {"thread_config": {"providerId": "deepseek", "modelId": saved_model}},
+        requested_provider="local",
+        requested_model="local-chat",
+        settings=SimpleNamespace(
+            LLM_PROVIDER="local", DEEPSEEK_CHAT_MODEL="deepseek-flash"
+        ),
+    )
+
+    assert result.provider == "deepseek"
+    assert result.model == expected_model
+    assert result.has_thread_config
+
+
 def test_resolve_thread_completion_settings_null_thread_config_uses_legacy_fallbacks():
     settings = SimpleNamespace(
         LLM_PROVIDER="groq",

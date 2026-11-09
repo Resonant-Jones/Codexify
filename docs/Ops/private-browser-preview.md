@@ -418,7 +418,7 @@ curl --fail --silent \
 ```
 
 Confirm DeepSeek alone is authorized among cloud providers, its credential is
-recognized, `deepseek-v4-flash` is present, and egress is not denied. Do not
+recognized, `deepseek-flash` is present, and egress is not denied. Do not
 print `.env.private-preview` or resolved container environments.
 
 Queue/worker:
