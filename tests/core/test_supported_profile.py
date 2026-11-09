@@ -140,7 +140,7 @@ def test_whooshd_deepseek_profile_pins_provider_lanes_and_logical_route() -> Non
         "LOCAL_API_KEY": "local",
         "LOCAL_PROVIDER_VENDOR": "whooshd",
         "LOCAL_CHAT_MODEL": _LOCAL_CHAT_ROUTE,
-        "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
+        "DEEPSEEK_CHAT_MODEL": "deepseek-flash",
     }
 
 
@@ -224,7 +224,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
         LOCAL_PROVIDER_VENDOR="whooshd",
         LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
         DEEPSEEK_API_KEY="inert-deepseek-test-key",
-        DEEPSEEK_CHAT_MODEL="deepseek-v4-flash",
+        DEEPSEEK_CHAT_MODEL="deepseek-flash",
         OPENAI_API_KEY=None,
         GROQ_API_KEY=None,
         MINIMAX_API_KEY=None,
@@ -236,7 +236,7 @@ def test_whooshd_deepseek_registry_authorizes_only_bounded_cloud_lane(
     assert provider_authorized("local", settings) is True
     assert provider_authorized("deepseek", settings) is True
     assert provider_availability("deepseek", settings) == (True, None)
-    assert default_model_for_provider("deepseek", settings) == "deepseek-v4-flash"
+    assert default_model_for_provider("deepseek", settings) == "deepseek-flash"
     for provider in {
         "openai",
         "groq",

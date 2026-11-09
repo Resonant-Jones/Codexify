@@ -31,7 +31,7 @@ EXPECTED_ENV = {
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
     "DEEPSEEK_MODEL_DISCOVERY_URL": "",
     "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS": "3",
-    "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
+    "DEEPSEEK_CHAT_MODEL": "deepseek-flash",
 }
 # The egress allowlist is one value for the whole supported profile: Guardian
 # validates the running allowlist against the profile's provider contract at

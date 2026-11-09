@@ -159,7 +159,7 @@ def test_tester_lifecycle_is_pinned_to_dual_provider_profile() -> None:
     assert "dual-provider" in script
     assert "v1-whooshd-deepseek-web" in env_template
     assert "LOCAL_CHAT_MODEL=local-chat" in env_template
-    assert "DEEPSEEK_CHAT_MODEL=deepseek-v4-flash" in env_template
+    assert "DEEPSEEK_CHAT_MODEL=deepseek-flash" in env_template
 
 
 def test_tester_status_accepts_a_running_account_import_worker(tmp_path: Path) -> None:
@@ -201,4 +201,4 @@ def test_whooshd_deepseek_overlay_keeps_non_chat_models_independent() -> None:
 
 def test_whooshd_deepseek_overlay_preserves_deepseek_posture() -> None:
     block = _whooshd_deepseek_environment_block()
-    assert 'DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"' in block
+    assert 'DEEPSEEK_CHAT_MODEL: "deepseek-flash"' in block
