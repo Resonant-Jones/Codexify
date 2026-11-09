@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspacePane from "../WorkspacePane";
@@ -305,7 +305,10 @@ describe("WorkspacePane preview surface", () => {
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent("Image");
   });
 
-  it("shows an explicit fallback for unsupported file types", () => {
+  it("offers an authenticated download for unsupported private files", () => {
+    setRuntimeApiKey("preview-secret");
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 } as Response);
+
     render(
       <WorkspacePane
         activeDoc={buildDocument({
@@ -327,10 +330,20 @@ describe("WorkspacePane preview surface", () => {
       "unsupported"
     );
     expect(
-      screen.getByRole("link", { name: "Open in a new tab" })
-    ).toHaveAttribute("target", "_blank");
+      screen.queryByRole("link", { name: "Open in a new tab" })
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("workspace-metadata")).toHaveTextContent(
       "Unsupported (.zip)"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Download document" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      normalizeMediaUrl("/media/documents/archive.zip"),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ "X-API-Key": "preview-secret" }),
+      })
     );
   });
 
