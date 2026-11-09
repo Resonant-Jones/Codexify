@@ -4117,6 +4117,7 @@ export default function AppShell({
                           extColors={extColors}
                           onOpenInThread={openDocInThread}
                           onDeleteDocument={deleteDocument}
+                          peopleState={peopleMessagingState}
                           projectId={documentsUploadScope.projectId}
                           threadId={documentsUploadScope.threadId}
                           loading={documentsLoading}

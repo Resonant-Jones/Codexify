@@ -22,22 +22,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from guardian.db.models import (
+    ChatThread,
     DirectMessage,
+    DirectMessageConsent,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
-    DirectMessageConsent,
+    DirectMessageDocumentShare,
     DirectMessageReadCursor,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
     Project,
-    ChatThread,
     ThreadSpaceNode,
     UserProfile,
 )
-from guardian.messaging.envelope import (
-    build_message_envelope,
-    envelope_payload,
-)
+from guardian.messaging.envelope import build_message_envelope, envelope_payload
 from guardian.messaging.tokens import (
     MessageRequestError,
     normalize_username,
@@ -1459,8 +1457,10 @@ def create_message(
     sender_profile: UserProfile,
     body: Any,
     client_message_key: str | None = None,
+    *,
+    document_share: tuple[str, str] | None = None,
 ) -> tuple[DirectMessage, bool]:
-    """Durably persist one plain-text message and update activity.
+    """Persist a message, its optional document grant, and activity atomically.
 
     Returns ``(message, replayed)`` where ``replayed=True`` means an
     identical idempotency-keyed message already existed and was returned
@@ -1524,6 +1524,16 @@ def create_message(
     conversation.latest_activity_at = now
     session.add(message)
     try:
+        if document_share is not None:
+            document_id, recipient_account_id = document_share
+            session.flush()
+            session.add(
+                DirectMessageDocumentShare(
+                    message_id=message.id,
+                    document_id=document_id,
+                    recipient_account_id=recipient_account_id,
+                )
+            )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -1536,7 +1546,17 @@ def create_message(
         )
         if existing is None:  # pragma: no cover - defensive
             raise _err(500, "message_unavailable", "Message unavailable")
-        if existing.body != text or existing.content_type != "text/plain":
+        existing_share = session.get(DirectMessageDocumentShare, existing.id)
+        existing_target = (
+            (existing_share.document_id, existing_share.recipient_account_id)
+            if existing_share is not None
+            else None
+        )
+        if (
+            existing.body != text
+            or existing.content_type != "text/plain"
+            or existing_target != document_share
+        ):
             raise _err(
                 409,
                 "client_message_key_conflict",

@@ -83,6 +83,7 @@ from guardian.core.dependencies import (
     RequestUserScope,
     allowed_origins,
     get_account_user_scope,
+    get_document_media_user_scope,
     get_single_user_id,
     get_vector_store,
     init_database,
@@ -91,6 +92,11 @@ from guardian.core.dependencies import (
     require_api_key,
     require_operator_auth,
     require_task_event_read_principal,
+)
+from guardian.core.document_delivery import (
+    INLINE_DOCUMENT_TYPES,
+    PRIVATE_DOCUMENT_HEADERS,
+    resolve_media_file,
 )
 from guardian.core.media_signing import verify_media_signature
 from guardian.core.outbox import (
@@ -117,6 +123,7 @@ from guardian.core.task_event_access import (
     cancel_account_task,
 )
 from guardian.core.user_manager import get_or_create_default_user
+from guardian.db.models import UploadedDocument
 from guardian.diagnostics.startup_failure_receipt import (  # noqa: E402
     STARTUP_PHASE_APPLICATION_LIFESPAN,
     startup_failure_receipt_boundary,
@@ -1871,6 +1878,7 @@ def get_graph(
 
 @app.get("/media/{file_path:path}", include_in_schema=False)
 def serve_signed_media(
+    request: Request,
     file_path: str,
     sig: Optional[str] = Query(None),
 ):
@@ -1878,14 +1886,34 @@ def serve_signed_media(
     if not verify_media_signature(requested_path, sig):
         raise HTTPException(status_code=401, detail="Invalid media signature")
 
-    try:
-        candidate = (media_storage_path / file_path).resolve()
-        candidate.relative_to(media_storage_path)
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid media path")
-
-    if not candidate.is_file():
-        raise HTTPException(status_code=404, detail="Media not found")
+    candidate = resolve_media_file(media_storage_path, file_path)
+    relative = candidate.relative_to(media_storage_path)
+    if Path(file_path).parts[:1] == ("documents",) or relative.parts[:1] == (
+        "documents",
+    ):
+        scope = get_document_media_user_scope(request)
+        if chatlog_db is None:
+            raise HTTPException(status_code=503, detail="Document database unavailable")
+        with chatlog_db.get_session() as session:
+            document = session.query(UploadedDocument.mime_type).filter(
+                UploadedDocument.src_url == f"/media/{relative.as_posix()}",
+                UploadedDocument.deleted_at.is_(None),
+            )
+            if scope.multi_user_enabled:
+                document = document.filter(UploadedDocument.user_id == scope.account_id)
+            match = document.first()
+            if match is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+        mime_type = match[0]
+        return FileResponse(
+            candidate,
+            media_type=(
+                mime_type
+                if mime_type in INLINE_DOCUMENT_TYPES
+                else "application/octet-stream"
+            ),
+            headers=PRIVATE_DOCUMENT_HEADERS,
+        )
 
     return FileResponse(candidate)
 

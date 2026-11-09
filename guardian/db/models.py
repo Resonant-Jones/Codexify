@@ -2583,6 +2583,27 @@ class DirectMessage(Base):
     __mapper_args__ = {"eager_defaults": True}
 
 
+class DirectMessageDocumentShare(Base):
+    """One revocable grant for an uploaded document sent in a private message."""
+
+    __tablename__ = "direct_message_document_shares"
+
+    message_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("direct_messages.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("uploaded_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recipient_account_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
 class DirectMessageReadCursor(Base):
     """Recipient-local read cursor for one direct Conversation.
 

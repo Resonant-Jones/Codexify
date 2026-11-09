@@ -306,6 +306,29 @@ describe("ShareSheet", () => {
     expect(screen.getByTestId("share-person-result")).toHaveTextContent("Bob Tester");
   });
 
+  it("sends an uploaded document to the chosen person without creating a share link", async () => {
+    const user = userEvent.setup();
+    const { state } = renderSheet({
+      targetType: "document",
+      targetId: "fixture-document-id",
+      shareCapabilityState: "unavailable",
+    });
+
+    expect(screen.queryByText("Copy Link")).not.toBeInTheDocument();
+    await openSendToPerson(user);
+    await user.click(await screen.findByTestId("share-choice-c1"));
+    await user.click(screen.getByRole("button", { name: "Send document" }));
+
+    expect(await screen.findByText("Document sent in the conversation.")).toBeInTheDocument();
+    expect(share.createShareLink).not.toHaveBeenCalled();
+    expect(dm.sendDirectMessage).toHaveBeenCalledWith(
+      "c1", "", expect.any(String), "fixture-document-id"
+    );
+    expect(state.appendServerMessage).toHaveBeenCalledWith(
+      "c1", expect.objectContaining({ message_id: "m1" })
+    );
+  });
+
   it("resolves the canonical Relationship and lists every existing Conversation distinctly", async () => {
     const user = userEvent.setup();
     renderSheet();
