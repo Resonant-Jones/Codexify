@@ -26,18 +26,21 @@ from guardian.core.supported_profile import load_supported_profile
 from guardian.db.models import (
     Base,
     DirectMessage,
+    DirectMessageConsent,
     DirectMessageConversation,
     DirectMessageConversationPlacement,
-    DirectMessageConsent,
+    DirectMessageDocumentShare,
     DirectMessageReadCursor,
     DirectMessageRelationship,
     DirectMessageRelationshipParticipant,
+    MediaAsset,
     MessageRequest,
     MessageRequestAttempt,
     MessageRequestPreferences,
     MessageRequestSuppression,
     MessageRequestVisibility,
     ThreadSpaceNode,
+    UploadedDocument,
     User,
     UserProfile,
 )
@@ -54,6 +57,9 @@ TABLE_ORDER = (
     DirectMessageConversation.__table__,
     DirectMessageConversationPlacement.__table__,
     DirectMessage.__table__,
+    MediaAsset.__table__,
+    UploadedDocument.__table__,
+    DirectMessageDocumentShare.__table__,
     DirectMessageReadCursor.__table__,
     MessageRequest.__table__,
     MessageRequestAttempt.__table__,
@@ -1629,3 +1635,127 @@ def test_private_preview_mounts_messaging_and_request_username_routes(
     finally:
         monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-local-core-web-mcp")
         importlib.reload(guardian_api)
+
+
+def test_document_share_is_account_bound_and_revocable(seeded, monkeypatch, tmp_path):
+    """Exercise the signed legacy URL and the new attachment with real account sessions."""
+    import fakeredis
+
+    from guardian import guardian_api
+    from guardian.core import auth, session_store
+    from guardian.core.media_signing import sign_media_url
+
+    _, _, _, _, conversation = _started_conversation(seeded)
+    alice, bob, charlie = (
+        "user-a@example.com",
+        "user-b@example.com",
+        "user-c@example.com",
+    )
+    media = tmp_path / "media"
+    (media / "documents").mkdir(parents=True)
+    path = "/media/documents/fixture.txt"
+    content = b"Private file for Bob"
+    (media / "documents" / "fixture.txt").write_bytes(content)
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+    monkeypatch.setenv(
+        "CODEXIFY_PREVIEW_APPROVED_EMAILS", ",".join((alice, bob, charlie))
+    )
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "synthetic-document-share-session")
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "synthetic-document-share-media")
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(media))
+    monkeypatch.setattr(guardian_api, "media_storage_path", media.resolve())
+    # The production chat adapter has no SQLAlchemy session interface.
+    monkeypatch.setattr(guardian_api, "chatlog_db", object())
+    monkeypatch.setattr(
+        guardian_api, "load_guardian_db_from_env", lambda: _FakeDb(seeded)
+    )
+    store = session_store.SessionStore(fakeredis.FakeRedis())
+    monkeypatch.setattr(session_store, "_SESSION_STORE", store)
+
+    with _FakeDb(seeded).get_session() as session:
+        document = UploadedDocument(
+            id=uuid.uuid4().hex,
+            user_id=alice,
+            filename="fixture.txt",
+            filesize=len(content),
+            mime_type="text/plain",
+            src_url=path,
+        )
+        session.add(document)
+        session.commit()
+        document_id = document.id
+
+    app = FastAPI()
+    app.include_router(dm_router)
+    app.add_api_route(
+        "/media/{file_path:path}", guardian_api.serve_signed_media, methods=["GET"]
+    )
+    client = TestClient(app)
+
+    def credentials(account):
+        token, _ = auth.issue_session_token(
+            subject=account, purpose=auth.ACCOUNT_SESSION_PURPOSE
+        )
+        store.store(token, account, 300)
+        return {"Authorization": f"Bearer {token}"}
+
+    owner = credentials(alice)
+    recipient = credentials(bob)
+    outsider = credentials(charlie)
+    legacy_url = sign_media_url(path)
+    assert client.get(legacy_url).status_code == 401
+    assert client.get(legacy_url, headers=recipient).status_code == 404
+    assert client.get(legacy_url, headers=owner).content == content
+
+    messages = (
+        f"/api/direct-messages/conversations/{conversation['conversation_id']}/messages"
+    )
+    request = {
+        "document_id": document_id,
+        "client_message_key": "document-share-fixture",
+    }
+    assert client.post(messages, headers=recipient, json=request).status_code == 404
+    created = client.post(messages, headers=owner, json=request)
+    assert created.status_code == 200, created.text
+    message = created.json()["message"]
+    assert message["document_attachment"] == {
+        "filename": "fixture.txt",
+        "available": True,
+        "can_revoke": True,
+    }
+    assert legacy_url not in created.text and bob not in created.text
+    url = f"{messages}/{message['message_id']}/document"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers={**outsider, "X-User-Id": bob}).status_code == 404
+    assert client.get(url, headers=owner).content == content
+    opened = client.get(url, headers=recipient)
+    assert opened.status_code == 200
+    assert opened.content == content
+    assert opened.headers["cache-control"] == "private, no-store"
+    partial = client.get(url, headers={**recipient, "Range": "bytes=0-6"})
+    assert partial.status_code == 206 and partial.content == content[:7]
+    assert client.get(legacy_url, headers=recipient).status_code == 404
+    assert client.delete(url, headers=recipient).status_code == 404
+    readback = client.get(messages, headers=recipient).json()["messages"]
+    assert readback[0]["document_attachment"]["can_revoke"] is False
+
+    assert client.delete(url, headers=owner).status_code == 200
+    assert client.delete(url, headers=owner).status_code == 200
+    assert (
+        client.get(url, headers={**recipient, "Range": "bytes=0-6"}).status_code == 404
+    )
+    assert client.get(legacy_url, headers=recipient).status_code == 404
+    assert client.get(legacy_url, headers=owner).content == content
+    replay = client.post(messages, headers=owner, json=request).json()
+    assert (
+        replay["replayed"] is True
+        and replay["message"]["message_id"] == message["message_id"]
+    )
+    assert replay["message"]["document_attachment"]["available"] is False
+    assert client.get(url, headers=recipient).status_code == 404
+    readback = client.get(messages, headers=recipient).json()["messages"]
+    assert readback[0]["document_attachment"] == {
+        "filename": None,
+        "available": False,
+        "can_revoke": False,
+    }

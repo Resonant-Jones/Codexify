@@ -10,6 +10,7 @@
  */
 
 import api from "@/lib/api";
+import { resolveApiUrl } from "@/lib/runtimeConfig";
 
 /**
  * Shortest username query worth sending.
@@ -104,6 +105,11 @@ export type DirectMessageEnvelope = {
   source: { node_id: string; profile_id: string };
   destination: { node_id: string; profile_id: string };
   content: { type: string; body: string };
+  document_attachment?: {
+    filename: string | null;
+    available: boolean;
+    can_revoke: boolean;
+  };
   created_at: string;
 };
 
@@ -387,8 +393,9 @@ export async function sendDirectMessage(
   conversationId: string,
   body: string,
   clientMessageKey?: string,
+  documentId?: string,
 ): Promise<DirectMessageSendResult> {
-  const payloadBody: Record<string, unknown> = { body };
+  const payloadBody: Record<string, unknown> = documentId ? { document_id: documentId } : { body };
   if (clientMessageKey) payloadBody.client_message_key = clientMessageKey;
   try {
     const response = await api.post<DirectMessageSendResult>(
@@ -396,6 +403,24 @@ export async function sendDirectMessage(
       payloadBody,
     );
     return response.data;
+  } catch (error) {
+    throw normalizeDirectMessageError(error);
+  }
+}
+
+function sharedDocumentPath(message: DirectMessageEnvelope): string {
+  const conversationId = encodeURIComponent(message.conversation_id);
+  const messageId = encodeURIComponent(message.message_id);
+  return `/api/direct-messages/conversations/${conversationId}/messages/${messageId}/document`;
+}
+
+export function sharedDocumentDownloadUrl(message: DirectMessageEnvelope): string {
+  return resolveApiUrl(sharedDocumentPath(message));
+}
+
+export async function revokeSharedDocument(message: DirectMessageEnvelope): Promise<void> {
+  try {
+    await api.delete(sharedDocumentPath(message));
   } catch (error) {
     throw normalizeDirectMessageError(error);
   }

@@ -15,19 +15,28 @@ quarantined.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+from sqlalchemy.orm import defer
 
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import (
-    RequestUserScope,
-    get_account_user_scope as get_request_user_scope,
+from guardian.core.dependencies import RequestUserScope
+from guardian.core.dependencies import get_account_user_scope as get_request_user_scope
+from guardian.core.document_delivery import deliver_document, document_media_path
+from guardian.core.storage import ensure_storage_base_path
+from guardian.db.models import (
+    DirectMessage,
+    DirectMessageDocumentShare,
+    UploadedDocument,
+    User,
+    UserProfile,
 )
-from guardian.db.models import User
-from guardian.messaging import service
 from guardian.messaging import requests as message_requests
+from guardian.messaging import service
 from guardian.messaging.tokens import MessageRequestState
 
 logger = logging.getLogger(__name__)
@@ -103,7 +112,8 @@ class ConversationPlacementRequest(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    body: str
+    body: str | None = None
+    document_id: str | None = Field(default=None, min_length=1, max_length=36)
     client_message_key: str | None = Field(default=None, max_length=128)
 
     model_config = ConfigDict(extra="forbid")
@@ -545,6 +555,46 @@ def mark_conversation_read(
         }
 
 
+def _project_document_shares(
+    session, messages: list[dict[str, Any]], caller: UserProfile
+) -> None:
+    if not messages:
+        return
+    by_id = {message["message_id"]: message for message in messages}
+    shares = session.execute(
+        select(
+            DirectMessageDocumentShare,
+            UploadedDocument.filename,
+            UploadedDocument.deleted_at,
+            UploadedDocument.user_id,
+        )
+        .join(
+            UploadedDocument,
+            UploadedDocument.id == DirectMessageDocumentShare.document_id,
+        )
+        .join(DirectMessage, DirectMessage.id == DirectMessageDocumentShare.message_id)
+        .join(UserProfile, UserProfile.profile_id == DirectMessage.sender_profile_id)
+        .where(DirectMessageDocumentShare.message_id.in_(by_id))
+        .where(UploadedDocument.user_id == UserProfile.user_id)
+    )
+    for share, filename, deleted_at, owner_id in shares:
+        message = by_id[share.message_id]
+        is_sender = (
+            owner_id == caller.user_id
+            and message["source"]["profile_id"] == caller.profile_id
+        )
+        available = (
+            share.revoked_at is None
+            and deleted_at is None
+            and (is_sender or caller.user_id == share.recipient_account_id)
+        )
+        message["document_attachment"] = {
+            "filename": filename if available else None,
+            "available": available,
+            "can_revoke": available and is_sender,
+        }
+
+
 @router.get("/api/direct-messages/conversations/{conversation_id}/messages")
 def read_messages(
     conversation_id: str,
@@ -575,6 +625,8 @@ def read_messages(
             limit=limit,
             before_id=before_id,
         )
+        if request_user_scope.subject_id:
+            _project_document_shares(session, messages, profile)
         return {"ok": True, "messages": messages}
 
 
@@ -584,7 +636,7 @@ def send_message(
     body: SendMessageRequest = Body(...),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ) -> dict[str, Any]:
-    """Durably persist one plain-text message.
+    """Persist a private message with an optional recipient document grant.
 
     Sender authority is derived from the authenticated user's owned profile
     only.  Persistence is synchronous Postgres truth — an HTTP success means
@@ -605,21 +657,11 @@ def send_message(
                     "message": "conversation not found",
                 },
             )
-        message, replayed = service.create_message(
-            session,
-            conversation,
-            profile,
-            body.body,
-            body.client_message_key,
-        )
+        sender_address = _profile_address(profile)
+        service.require_participant(session, conversation, *sender_address)
         addresses = service.participant_addresses(session, conversation)
         recipient = next(
-            (
-                address
-                for address in addresses
-                if address[1] != message.sender_profile_id
-            ),
-            None,
+            (address for address in addresses if address != sender_address), None
         )
         if recipient is None:  # pragma: no cover - defensive
             raise HTTPException(
@@ -630,17 +672,140 @@ def send_message(
                 },
             )
         destination_node_id, destination_profile_id = recipient
-        return {
-            "ok": True,
-            "replayed": replayed,
-            "message": service.message_payload(
-                message,
-                message.sender_node_id,
-                message.sender_profile_id,
-                destination_node_id,
-                destination_profile_id,
-            ),
-        }
+        document_share = None
+        text = body.body or ""
+        if body.document_id is not None:
+            _require_document_account(request_user_scope)
+            if text.strip() or not body.client_message_key:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Document shares require a message key and no message body",
+                )
+            document = session.get(
+                UploadedDocument,
+                body.document_id,
+                options=[defer(UploadedDocument.parsed_text)],
+            )
+            if (
+                document is None
+                or document.deleted_at is not None
+                or document.user_id != owner_id
+                or not document_media_path(document.src_url)
+            ):
+                raise HTTPException(status_code=404, detail="Document not found")
+            peer = session.scalar(
+                select(UserProfile).where(
+                    UserProfile.node_id == destination_node_id,
+                    UserProfile.profile_id == destination_profile_id,
+                )
+            )
+            if (
+                peer is None
+                or destination_node_id != profile.node_id
+                or peer.user_id == owner_id
+            ):
+                raise HTTPException(status_code=404, detail="Recipient not found")
+            document_share = (document.id, peer.user_id)
+            text = "Shared a document."
+
+        message, replayed = service.create_message(
+            session,
+            conversation,
+            profile,
+            text,
+            body.client_message_key,
+            document_share=document_share,
+        )
+        payload = service.message_payload(
+            message,
+            message.sender_node_id,
+            message.sender_profile_id,
+            destination_node_id,
+            destination_profile_id,
+        )
+        if document_share is not None:
+            _project_document_shares(session, [payload], profile)
+        return {"ok": True, "replayed": replayed, "message": payload}
+
+
+def _require_document_account(scope: RequestUserScope) -> None:
+    if not scope.multi_user_enabled or not scope.subject_id:
+        raise HTTPException(status_code=401, detail="Account session required")
+
+
+def _document_share(session, conversation_id: str, message_id: str):
+    row = session.execute(
+        select(DirectMessageDocumentShare, UploadedDocument, UserProfile.user_id)
+        .join(DirectMessage, DirectMessage.id == DirectMessageDocumentShare.message_id)
+        .join(
+            UploadedDocument,
+            UploadedDocument.id == DirectMessageDocumentShare.document_id,
+        )
+        .join(
+            UserProfile,
+            (UserProfile.profile_id == DirectMessage.sender_profile_id)
+            & (UserProfile.node_id == DirectMessage.sender_node_id),
+        )
+        .where(
+            DirectMessage.id == message_id,
+            DirectMessage.conversation_id == conversation_id,
+        )
+        .options(defer(UploadedDocument.parsed_text))
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Shared document unavailable")
+    return row
+
+
+@router.get(
+    "/api/direct-messages/conversations/{conversation_id}/messages/{message_id}/document"
+)
+def open_shared_document(
+    conversation_id: str,
+    message_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    _require_document_account(request_user_scope)
+    with _db().get_session() as session:
+        account_id = _require_owner_id(request_user_scope, session)
+        share, document, sender_id = _document_share(
+            session, conversation_id, message_id
+        )
+        if (
+            document.deleted_at is not None
+            or document.user_id != sender_id
+            or (
+                account_id != sender_id
+                and (
+                    account_id != share.recipient_account_id
+                    or share.revoked_at is not None
+                )
+            )
+        ):
+            raise HTTPException(status_code=404, detail="Shared document unavailable")
+        return deliver_document(document, ensure_storage_base_path().resolve())
+
+
+@router.delete(
+    "/api/direct-messages/conversations/{conversation_id}/messages/{message_id}/document"
+)
+def revoke_shared_document(
+    conversation_id: str,
+    message_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    _require_document_account(request_user_scope)
+    with _db().get_session() as session:
+        account_id = _require_owner_id(request_user_scope, session)
+        share, document, sender_id = _document_share(
+            session, conversation_id, message_id
+        )
+        if account_id != sender_id or account_id != document.user_id:
+            raise HTTPException(status_code=404, detail="Shared document unavailable")
+        if share.revoked_at is None:
+            share.revoked_at = datetime.now(timezone.utc)
+            session.commit()
+        return {"ok": True}
 
 
 __all__ = ["router"]

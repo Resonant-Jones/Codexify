@@ -1269,6 +1269,14 @@ def _account_scope_gate(
         verify_account_session(request, None, authorization, gc_session)
 
 
+def get_document_media_user_scope(request: Request) -> RequestUserScope:
+    """Resolve the document account at the legacy media delivery boundary."""
+    authorization = request.headers.get("authorization")
+    gc_session = request.cookies.get("gc_session")
+    _account_scope_gate(request, authorization, gc_session)
+    return get_request_user_scope(request, None, authorization, gc_session)
+
+
 def get_account_user_id(
     _account_gate: None = Depends(_account_scope_gate),
     user_id: str = Depends(get_request_user_id),

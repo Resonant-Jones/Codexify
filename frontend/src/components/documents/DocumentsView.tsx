@@ -1,6 +1,8 @@
 import { BookOpen, ChevronRight, FileText } from "lucide-react";
 import React, { useMemo } from "react";
 
+import { ShareButton } from "@/components/ShareButton";
+import type { PeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import DocumentTile from "@/components/documents/DocumentTile";
 import { DocumentEmbeddingStatusBadge } from "@/components/documents/documentEmbeddingStatus";
 import { useMobileShellProfile } from "@/components/persona/layout/mobileShellProfile";
@@ -16,6 +18,7 @@ interface DocumentsViewProps {
   extColors: ExtColors;
   onOpenInThread?: (doc: DocumentLike) => void;
   onDeleteDocument?: (doc: DocumentLike) => void;
+  peopleState?: PeopleMessagingState;
   projectId?: number | string | null;
   threadId?: number | string | null;
   loading?: boolean;
@@ -162,6 +165,7 @@ export default function DocumentsView({
   extColors,
   onOpenInThread,
   onDeleteDocument,
+  peopleState,
   projectId,
   threadId,
   loading = false,
@@ -397,6 +401,14 @@ export default function DocumentsView({
                         }
                       />
                     )}
+                    {peopleState && d.id && !d.mock && d.type !== "codex_entry" && d.artifactType !== "generated" ? (
+                      <ShareButton
+                        targetType="document"
+                        targetId={d.id}
+                        peopleState={peopleState}
+                        isPhoneShell={isPhoneShell}
+                      />
+                    ) : null}
                     {d.mock ? (
                       <span
                         className="absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[10px]"

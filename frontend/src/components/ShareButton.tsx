@@ -9,7 +9,7 @@ import { useRuntimeRouteCapability } from "@/lib/runtimeRouteCapabilities";
 
 type ShareButtonProps = {
   targetType: "thread" | "document";
-  targetId: number;
+  targetId: number | string;
   className?: string;
   style?: CSSProperties;
   dataState?: "active" | "inactive";
@@ -65,7 +65,7 @@ export function ShareButton({
         })}
         data-state={dataState}
       >
-        Share
+        {targetType === "document" ? "Share document" : "Share"}
       </button>
 
       <ShareSheet

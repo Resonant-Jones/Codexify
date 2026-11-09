@@ -17,7 +17,6 @@ from guardian.core.dependencies import (
     get_account_user_scope as get_request_user_scope,
     require_account_session as require_api_key,
 )
-from guardian.core.media_signing import sign_media_url
 from guardian.db import models
 
 logger = logging.getLogger(__name__)
@@ -124,18 +123,11 @@ async def create_share_link(
                         detail=f"Thread {request.target_id} not found",
                     )
             else:  # document
-                # Check both GeneratedDocument and UploadedDocument
                 target = (
                     session.query(models.GeneratedDocument)
                     .filter_by(id=str(request.target_id), user_id=owner_id)
                     .first()
                 )
-                if not target:
-                    target = (
-                        session.query(models.UploadedDocument)
-                        .filter_by(id=str(request.target_id), user_id=owner_id)
-                        .first()
-                    )
 
                 if not target:
                     logger.warning(
@@ -304,20 +296,11 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                 }
 
             elif shared_link.target_type == "document":
-                # Try GeneratedDocument first
                 document = (
                     session.query(models.GeneratedDocument)
                     .filter_by(id=str(shared_link.target_id))
                     .first()
                 )
-
-                if not document:
-                    # Try UploadedDocument
-                    document = (
-                        session.query(models.UploadedDocument)
-                        .filter_by(id=str(shared_link.target_id))
-                        .first()
-                    )
 
                 if not document:
                     logger.warning(
@@ -328,43 +311,18 @@ async def retrieve_share_content(token: str) -> dict[str, Any]:
                         detail="Shared document has been deleted",
                     )
 
-                # Extract content based on document type
-                # Check for GeneratedDocument (has 'content' and 'format' attributes)
-                if hasattr(document, "content") and hasattr(document, "format"):
-                    content = {
-                        "id": document.id,
-                        "title": document.title,
-                        "content": document.content,
-                        "format": document.format,
-                        "created_at": (
-                            document.created_at.isoformat()
-                            if document.created_at
-                            else None
-                        ),
-                        "updated_at": (
-                            document.updated_at.isoformat()
-                            if document.updated_at
-                            else None
-                        ),
-                    }
-                else:  # UploadedDocument (has 'filename' and 'mime_type' attributes)
-                    content = {
-                        "id": document.id,
-                        "filename": document.filename,
-                        "filesize": document.filesize,
-                        "mime_type": document.mime_type,
-                        "src_url": sign_media_url(document.src_url),
-                        "created_at": (
-                            document.created_at.isoformat()
-                            if document.created_at
-                            else None
-                        ),
-                        "updated_at": (
-                            document.updated_at.isoformat()
-                            if document.updated_at
-                            else None
-                        ),
-                    }
+                content = {
+                    "id": document.id,
+                    "title": document.title,
+                    "content": document.content,
+                    "format": document.format,
+                    "created_at": (
+                        document.created_at.isoformat() if document.created_at else None
+                    ),
+                    "updated_at": (
+                        document.updated_at.isoformat() if document.updated_at else None
+                    ),
+                }
 
             # Emit event (don't let event failures break the response)
             try:

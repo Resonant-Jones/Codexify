@@ -3,7 +3,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodexEntry } from "@/api/codex";
 import { buildAuthenticatedFetchInit } from "@/lib/api";
-import { resolveMediaSrc } from "@/lib/mediaUrl";
+import { downloadAsset, notifyAssetActionError } from "@/lib/assetActions";
+import { extractBackendMediaPath, resolveMediaSrc } from "@/lib/mediaUrl";
 import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import { DocumentLike } from "@/types/documents";
 
@@ -515,6 +516,38 @@ export default function WorkspaceViewer({
     [previewUrl]
   );
 
+  const protectedDocumentUrl = useMemo(() => {
+    if (!normalizedPreviewUrl || !isTrustedPreviewUrl(normalizedPreviewUrl)) return "";
+    const path = extractBackendMediaPath(previewUrl);
+    return path?.startsWith("/media/documents/") ? normalizedPreviewUrl : "";
+  }, [normalizedPreviewUrl, previewUrl]);
+  const [pdfPreview, setPdfPreview] = useState<{ source: string; objectUrl: string } | null>(null);
+  const [pdfError, setPdfError] = useState("");
+  useEffect(() => {
+    if (previewKind !== "pdf" || !protectedDocumentUrl) return;
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setPdfError("");
+    void fetch(protectedDocumentUrl, buildPreviewFetchInit(protectedDocumentUrl, controller.signal))
+      .then((response) => {
+        if (!response.ok) throw new Error("Unable to open document.");
+        return response.blob();
+      })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+        setPdfPreview({ source: protectedDocumentUrl, objectUrl });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPdfError("Unable to open document.");
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setPdfPreview(null);
+    };
+  }, [previewKind, protectedDocumentUrl]);
+
   const [fetchedText, setFetchedText] = useState<string | null>(null);
   const [fetchPhase, setFetchPhase] = useState<PreviewPhase>("idle");
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -682,9 +715,15 @@ export default function WorkspaceViewer({
     }
 
     if (previewKind === "pdf") {
+      const pdfUrl = protectedDocumentUrl
+        ? (pdfPreview?.source === protectedDocumentUrl ? pdfPreview.objectUrl : "")
+        : normalizedPreviewUrl || previewUrl;
+      if (protectedDocumentUrl && !pdfUrl) {
+        return <PreviewMessage title={pdfError || "Loading preview…"} />;
+      }
       return (
         <div className="codexifyWorkspaceMediaPreview">
-          <iframe title={title} src={normalizedPreviewUrl || previewUrl || undefined} />
+          <iframe title={title} src={pdfUrl || undefined} />
         </div>
       );
     }
@@ -787,7 +826,16 @@ export default function WorkspaceViewer({
             : undefined
         }
         action={
-          normalizedPreviewUrl || previewUrl ? (
+          protectedDocumentUrl ? (
+            <button
+              type="button"
+              className="codexifyWorkspaceLink"
+              onClick={() => void downloadAsset({ url: protectedDocumentUrl, filename: title })
+                .catch(() => notifyAssetActionError("download", "document"))}
+            >
+              Download document
+            </button>
+          ) : normalizedPreviewUrl || previewUrl ? (
             <a
               href={normalizedPreviewUrl || previewUrl || undefined}
               className="codexifyWorkspaceLink"

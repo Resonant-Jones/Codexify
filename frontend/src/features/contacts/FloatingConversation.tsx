@@ -18,6 +18,7 @@ import {
 } from "@/lib/direct-messages";
 import type { DirectMessageConversation } from "@/lib/direct-messages";
 
+import DirectMessageDocument from "./DirectMessageDocument";
 import { useDirectMessageTranscript } from "./useDirectMessageTranscript";
 import type { PeopleMessagingState } from "./usePeopleMessagingState";
 
@@ -348,7 +349,11 @@ export default function FloatingConversation({
           ) : (
             transcript.messages.map((message) => (
               <article key={message.message_id} className="people-message">
-                <p className="people-message-body">{message.content.body}</p>
+                {message.document_attachment ? (
+                  <DirectMessageDocument message={message} />
+                ) : (
+                  <p className="people-message-body">{message.content.body}</p>
+                )}
                 <time className="people-message-time" dateTime={message.created_at}>
                   {new Date(message.created_at).toLocaleTimeString(undefined, {
                     hour: "2-digit",

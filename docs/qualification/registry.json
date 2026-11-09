@@ -49,7 +49,7 @@
     },
     "supported-compose": {
       "blockers": [
-        "The tested commit no longer describes the current tip: 31 path(s) in this qualification surface changed since the run.",
+        "The tested commit no longer describes the current tip: 36 path(s) in this qualification surface changed since the run.",
         "1 earlier run receipt(s) for this surface were superseded by a later run."
       ],
       "evidence": [
@@ -71,7 +71,7 @@
     },
     "supported-compose-stock": {
       "blockers": [
-        "The tested commit no longer describes the current tip: 50 path(s) in this qualification surface changed since the run.",
+        "The tested commit no longer describes the current tip: 67 path(s) in this qualification surface changed since the run.",
         "1 earlier run receipt(s) for this surface were superseded by a later run."
       ],
       "evidence": [

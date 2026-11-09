@@ -1,22 +1,9 @@
 /**
- * Share Sheet — person-aware routing for Thread/Document shares.
+ * Share Sheet for thread links and private document attachments.
  *
- * Orchestrates two existing authority-bearing contracts without adding
- * authority of its own:
- *   1. the tokenized read-only share-link contract (POST /api/share);
- *   2. the direct-message Relationship → Conversation contract.
- *
- * Truth rules enforced here:
- * - Opening/closing the sheet creates nothing (no token, no Relationship,
- *   no Conversation, no Message).
- * - Exactly one share token per submission attempt; the generated URL is
- *   preserved across all downstream retry states.
- * - An existing Conversation's origin/placement are never touched.
- * - A new Conversation captures canonical Project/Thread origin only when
- *   the shell provides it — never guessed from labels or DOM text.
- * - A share URL is token-authorized for anyone who holds it; sending it in
- *   a Conversation does NOT make it recipient-exclusive.  The UI copy says
- *   so.
+ * Uses the existing Relationship and Conversation selection for both flows.
+ * Thread sharing uses a transferable link. A private document send writes a
+ * recipient grant with its message and uses the same key on retry.
  */
 import { Check, Copy, Link2, Loader2, Search, Send, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +37,7 @@ import "./ShareSheet.css";
 
 export type ShareSheetProps = {
   targetType: "thread" | "document";
-  targetId: number;
+  targetId: number | string;
   open: boolean;
   onClose: () => void;
   /** Capability posture for `direct_messages`; Send to Person requires
@@ -159,10 +146,11 @@ export default function ShareSheet({
   const submissionInFlight = useRef(false);
   const interactionGeneration = useRef(0);
 
-  const linkSharingEnabled = shareCapabilityState === "available";
+  const privateDocument = targetType === "document";
+  const linkSharingEnabled = !privateDocument && shareCapabilityState === "available";
   const messagingEnabled =
     capabilityState === "available" &&
-    linkSharingEnabled &&
+    (privateDocument || linkSharingEnabled) &&
     peopleState != null;
 
   // Invalidate async work whenever this open instance or its share target
@@ -201,7 +189,7 @@ export default function ShareSheet({
     if (!linkSharingEnabled) return;
     setCopyState({ phase: "copying", url: null, message: null });
     try {
-      const result = await createShareLink(targetType, targetId);
+      const result = await createShareLink(targetType, Number(targetId));
       const fullUrl = resolveSharePublicUrl(String(result.url || ""));
       const method: CopyMethod = await copyTextWithFallback(fullUrl);
       setCopyState({
@@ -330,9 +318,8 @@ export default function ShareSheet({
 
   /**
    * Runs the composite operation for one destination choice.
-   * - Creates the share link at most once per submission (per choice).
-   * - Sends the same URL with one stable client message key, so retries
-   *   replay idempotently on the backend.
+   * Creates a link once for a thread share. Both flows reuse the message key
+   * on retry so the server can return the original delivery.
    */
   const submitChoice = useCallback(
     async (choice: string | null, choiceIsNew: boolean) => {
@@ -400,14 +387,14 @@ export default function ShareSheet({
 
         // Share-link creation: exactly once per submission attempt.
         let link = flow.link;
-        if (!link) {
+        if (!privateDocument && !link) {
           setFlow((current) => ({
             ...current,
             phase: "creating_link",
             error: null,
           }));
           try {
-            link = await createShareLink(targetType, targetId);
+            link = await createShareLink(targetType, Number(targetId));
             if (!isCurrentInteraction()) return;
             setFlow((current) => ({
               ...current,
@@ -427,8 +414,8 @@ export default function ShareSheet({
             return;
           }
         }
-        if (!link || conversationId == null) return;
-        const fullUrl = resolveSharePublicUrl(String(link.url || ""));
+        if (conversationId == null) return;
+        const fullUrl = link ? resolveSharePublicUrl(String(link.url || "")) : "";
 
         const key = flow.clientMessageKey ?? crypto.randomUUID();
         setFlow((current) => ({
@@ -438,7 +425,9 @@ export default function ShareSheet({
           clientMessageKey: key,
         }));
         try {
-          await sendDirectMessage(conversationId, fullUrl, key);
+          const result = privateDocument
+            ? await sendDirectMessage(conversationId, "", key, String(targetId))
+            : await sendDirectMessage(conversationId, fullUrl, key);
           if (!isCurrentInteraction()) return;
           setFlow((current) => ({
             ...current,
@@ -446,6 +435,9 @@ export default function ShareSheet({
             sentMessageBody: fullUrl,
           }));
           setStage("result");
+          if (privateDocument) {
+            peopleState.appendServerMessage(conversationId, result.message);
+          }
           peopleState.openConversation(conversationId, undefined);
           peopleState.openPeople();
         } catch (error) {
@@ -473,6 +465,7 @@ export default function ShareSheet({
       flow.link,
       flow.relationship,
       peopleState,
+      privateDocument,
       targetId,
       targetType,
     ]
@@ -483,7 +476,7 @@ export default function ShareSheet({
   if (!target) return null;
 
   const sourceLabel = targetType === "thread" ? "Thread" : "Document";
-  const showRetrySend = flow.phase === "send_failed" && flow.linkUrl != null;
+  const showRetrySend = flow.phase === "send_failed" && (privateDocument || flow.linkUrl != null);
   const showRetryLink =
     flow.phase === "link_failed" &&
     (flow.choice != null || flow.createdConversationId != null);
@@ -521,7 +514,7 @@ export default function ShareSheet({
 
         {stage === "actions" ? (
           <div className="share-sheet-actions">
-            {linkSharingEnabled ? (
+            {!privateDocument && (linkSharingEnabled ? (
               <button
                 type="button"
                 className="share-sheet-action"
@@ -547,7 +540,7 @@ export default function ShareSheet({
                   <small>Link sharing is unavailable in this profile.</small>
                 </span>
               </div>
-            )}
+            ))}
 
             {messagingEnabled ? (
               <button
@@ -564,8 +557,9 @@ export default function ShareSheet({
                 <span>
                   <strong>Send to Person</strong>
                   <small>
-                    Creates a secure share link and sends it in this
-                    conversation. Anyone with the link can view it.
+                    {privateDocument
+                      ? "Send a private attachment the recipient can open with their account."
+                      : "Sends a share link. Anyone with the link can view it."}
                   </small>
                 </span>
               </button>
@@ -581,7 +575,7 @@ export default function ShareSheet({
                   <small>
                     {capabilityState !== "available"
                       ? "Direct messages are unavailable in this profile."
-                      : shareCapabilityState !== "available"
+                      : !privateDocument && shareCapabilityState !== "available"
                         ? "Link sharing is unavailable in this profile."
                         : "Open People to send a direct message."}
                   </small>
@@ -727,9 +721,9 @@ export default function ShareSheet({
                   ))}
                 </div>
                 <p className="share-sheet-privacy">
-                  A share link is secure but not exclusive: anyone with the
-                  link can view the shared content. Sending it here keeps the
-                  conversation private.
+                  {privateDocument
+                    ? "The recipient can download this document while you grant access. You can revoke access from the conversation."
+                    : "Anyone with the share link can view the shared content."}
                 </p>
                 <button
                   type="button"
@@ -743,7 +737,7 @@ export default function ShareSheet({
                     void submitChoice(flow.choice, flow.choiceIsNew)
                   }
                 >
-                  Send share link
+                  {privateDocument ? "Send document" : "Send share link"}
                 </button>
                 <button
                   type="button"
@@ -766,13 +760,15 @@ export default function ShareSheet({
             {flow.phase === "complete" ? (
               <p className="share-sheet-status share-sheet-status-ok">
                 <Check size={13} aria-hidden="true" />
-                Share link sent in the conversation.
+                {privateDocument ? "Document sent in the conversation." : "Share link sent in the conversation."}
               </p>
             ) : null}
             {showRetrySend ? (
               <>
                 <p className="share-sheet-status share-sheet-status-error">
-                  Share link created, but the message was not sent.
+                  {privateDocument
+                    ? "The document could not be sent."
+                    : "Share link created, but the message was not sent."}
                 </p>
                 <button
                   type="button"
