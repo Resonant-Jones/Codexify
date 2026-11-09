@@ -1892,9 +1892,10 @@ def serve_signed_media(
         "documents",
     ):
         scope = get_document_media_user_scope(request)
-        if chatlog_db is None:
+        guardian_db = load_guardian_db_from_env()
+        if guardian_db is None:
             raise HTTPException(status_code=503, detail="Document database unavailable")
-        with chatlog_db.get_session() as session:
+        with guardian_db.get_session() as session:
             document = session.query(UploadedDocument.mime_type).filter(
                 UploadedDocument.src_url == f"/media/{relative.as_posix()}",
                 UploadedDocument.deleted_at.is_(None),

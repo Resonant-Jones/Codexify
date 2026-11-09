@@ -1664,7 +1664,11 @@ def test_document_share_is_account_bound_and_revocable(seeded, monkeypatch, tmp_
     monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "synthetic-document-share-media")
     monkeypatch.setenv("STORAGE_BASE_PATH", str(media))
     monkeypatch.setattr(guardian_api, "media_storage_path", media.resolve())
-    monkeypatch.setattr(guardian_api, "chatlog_db", _FakeDb(seeded))
+    # The production chat adapter has no SQLAlchemy session interface.
+    monkeypatch.setattr(guardian_api, "chatlog_db", object())
+    monkeypatch.setattr(
+        guardian_api, "load_guardian_db_from_env", lambda: _FakeDb(seeded)
+    )
     store = session_store.SessionStore(fakeredis.FakeRedis())
     monkeypatch.setattr(session_store, "_SESSION_STORE", store)
 
