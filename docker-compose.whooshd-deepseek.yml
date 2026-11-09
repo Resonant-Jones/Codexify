@@ -1,4 +1,4 @@
-# Dual-provider startup overlay: Whoosh'd local model + approved DeepSeek V4 Flash.
+# Dual-provider startup overlay: Whoosh'd local model + approved DeepSeek Flash.
 # Secrets remain in the selected env file; this overlay contains no credentials.
 
 services:
@@ -25,7 +25,7 @@ services:
       LLM_MODEL: "${LOCAL_CHAT_MODEL}"
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
       DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS: "${DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS:-3}"
-      DEEPSEEK_CHAT_MODEL: "deepseek-v4-flash"
+      DEEPSEEK_CHAT_MODEL: "deepseek-flash"
       LLM_REQUEST_TIMEOUT_SECONDS: "600"
       # ADR-074: Compose transports the one operator-selected chat model.
       # Vision and GGUF are independent model domains.

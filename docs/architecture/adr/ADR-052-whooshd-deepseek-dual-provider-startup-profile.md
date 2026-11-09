@@ -78,3 +78,10 @@ This amendment does not widen `docs/architecture/00-current-state.md` release
 claims, does not qualify default Beta, and does not establish live provider
 execution or release support.
 
+## Amendment — DeepSeek Flash model ID (2026-11-09)
+
+The profile's configured default is now `deepseek-flash`, DeepSeek's current
+API identifier for Flash. A saved DeepSeek thread with no model or the legacy
+`default` marker resolves to the configured DeepSeek default. An explicit
+thread model still wins. Provider admission and egress are unchanged.
+

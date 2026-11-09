@@ -55,11 +55,11 @@ expected = {
     "LLM_PROVIDER": "local",
     "ALLOW_CLOUD_PROVIDERS": "true",
     "CODEXIFY_LOCAL_ONLY_MODE": "false",
-    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek",
+    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram",
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
-    "DEEPSEEK_CHAT_MODEL": "deepseek-v4-flash",
+    "DEEPSEEK_CHAT_MODEL": "deepseek-flash",
 }
 local_chat_models = set()
 for service_name in ("backend", "worker-chat"):

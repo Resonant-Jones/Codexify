@@ -3127,6 +3127,8 @@ def _runtime_model_for_provider(provider: str, settings: Any) -> str:
             or normalize_model_id(getattr(settings, "LLM_MODEL", None))
             or ""
         )
+    if provider == "deepseek":
+        return default_model_for_provider(provider, settings)
     return normalize_model_id(getattr(dependencies, "DEFAULT_MODEL", None)) or ""
 
 
@@ -3155,7 +3157,7 @@ def resolve_thread_completion_settings(
 
         model_text = _thread_config_value(thread_config, _THREAD_CONFIG_MODEL_KEYS)
         model = normalize_model_id(model_text) if model_text else ""
-        if not model:
+        if not model or (provider == "deepseek" and model.lower() == "default"):
             model = _runtime_model_for_provider(provider, settings)
 
         reasoning_mode = _normalize_reasoning_mode(

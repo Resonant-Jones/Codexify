@@ -115,7 +115,7 @@ provider_contract:
   LOCAL_API_KEY: local
   LOCAL_PROVIDER_VENDOR: whooshd
   LOCAL_CHAT_MODEL: local-chat
-  DEEPSEEK_CHAT_MODEL: deepseek-v4-flash
+  DEEPSEEK_CHAT_MODEL: deepseek-flash
 criticality:
   tier0:
     services:

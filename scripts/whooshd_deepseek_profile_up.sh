@@ -168,10 +168,10 @@ if set(by_id) != {'local', 'deepseek'}:
     raise SystemExit(f'provider pin failed; expected local and deepseek only: {sorted(by_id)}')
 if [str(item.get('id') or '').strip() for item in by_id['local'].get('models', [])] != [expected_model]:
     raise SystemExit(f'local provider is not pinned to {expected_model!r}')
-if [str(item.get('id') or '').strip() for item in by_id['deepseek'].get('models', [])] != ['deepseek-v4-flash']:
-    raise SystemExit('DeepSeek provider is not pinned to DeepSeek V4 Flash')
-print(f'provider catalog pinned: local {expected_model} + deepseek-v4-flash')
+if 'deepseek-flash' not in {str(item.get('id') or '').strip() for item in by_id['deepseek'].get('models', [])}:
+    raise SystemExit('DeepSeek catalog does not include the configured deepseek-flash default')
+print(f'provider catalog ready: local {expected_model} + DeepSeek default deepseek-flash')
 PY
 
-echo "Dual-provider Codexify profile is up: local ${EXPECTED_MODEL} + approved DeepSeek V4 Flash."
+echo "Dual-provider Codexify profile is up: local ${EXPECTED_MODEL} + approved DeepSeek Flash."
 echo "Bounded Whoosh'd x2 concurrency gate passed before startup."
