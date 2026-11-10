@@ -85,3 +85,16 @@ API identifier for Flash. A saved DeepSeek thread with no model or the legacy
 `default` marker resolves to the configured DeepSeek default. An explicit
 thread model still wins. Provider admission and egress are unchanged.
 
+## Amendment — Private Preview OpenAI inference (2026-11-10)
+
+The browser Private Preview deployment may use OpenAI for Composer chat.
+With `GUARDIAN_EXPOSURE_MODE=private_preview`, the profile validates the
+exact egress allowlist `deepseek,deepgram,openai`. The Tester deployment of
+this same profile retains `deepseek,deepgram`. Whoosh’d remains the default.
+
+Guardian projects its existing OpenAI chat catalog when the operator supplies
+a server-side `OPENAI_API_KEY`. The backend and chat worker use OpenAI’s API
+endpoint and the existing per-thread model selection and routing contracts.
+The credential is configured in the untracked preview env file. This
+amendment authorizes Preview configuration and leaves live provider
+qualification and release status to their respective evidence gates.

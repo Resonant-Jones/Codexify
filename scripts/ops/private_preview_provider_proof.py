@@ -19,7 +19,6 @@ EXPECTED_PROFILE = "v1-whooshd-deepseek-web"
 LOCAL_PROVIDER = "local"
 DEEPSEEK_PROVIDER = "deepseek"
 UNRELATED_CLOUD_PROVIDERS = {
-    "openai",
     "groq",
     "minimax",
     "alibaba",
