@@ -1,12 +1,11 @@
-# Dual-provider private browser preview
+# Private browser preview
 
 This is an opt-in friends-and-family demonstration lane, not a new supported
 public product surface. Its supported profile is
 `v1-whooshd-deepseek-web`: local Whoosh'd remains the default provider and
-DeepSeek is the only admitted cloud lane. The selector reads DeepSeek's live
-chat-model roster while the configured model remains the degraded-discovery
-fallback. The global beta posture
-remains local-first and local-only.
+DeepSeek and OpenAI are the approved cloud inference vendors. Composer
+shows DeepSeek's live chat-model roster and OpenAI's configured chat catalog.
+The global Beta posture remains local-first and local-only.
 
 ## Mandatory private-preview authentication posture
 
@@ -115,19 +114,19 @@ The complete recorded run, with per-step verdicts and limitations, is in
 - Whoosh'd serves `qwen3.8-27b-4bit` from a loopback-bound host process.
   Docker reaches it at `http://host.docker.internal:8000/v1`; Compose, Nginx,
   and Cloudflare do not publish port 8000.
-- Guardian reaches DeepSeek outbound at `https://api.deepseek.com`. The
-  provider policy token and entire egress allowlist are exactly `deepseek`.
-  Never use wildcard egress.
+- Guardian and its chat worker reach DeepSeek and OpenAI through their
+  server-side adapters. The preview pins OpenAI to `https://api.openai.com`.
+  The exact egress grant is `deepseek,deepgram,openai`.
 - The sole host-published application origin is
   `http://127.0.0.1:8081`. It serves the frontend and Guardian through the
   bounded path-ownership contract below; task and domain events remain on that
   same origin.
 - The future approved hostname is `preview.codexify.space`. Cloudflare Tunnel
   terminates only at `127.0.0.1:8081`; it never connects directly to Whoosh'd
-  or DeepSeek.
+  or cloud providers.
 - Guardian remote/session authentication remains authoritative behind
   Cloudflare Access. The browser receives neither a Guardian API key nor a
-  DeepSeek credential.
+  cloud-provider credential.
 - The preview `worker-chat` has one execution slot. This matches the installed
   MLX-VLM runtime's single provider slot; additional accepted local turns wait
   in the durable Redis chat queue rather than becoming transient provider
@@ -176,19 +175,19 @@ voice credential. Keep:
 CODEXIFY_SUPPORTED_PROFILE=v1-whooshd-deepseek-web
 ALLOW_CLOUD_PROVIDERS=true
 CODEXIFY_LOCAL_ONLY_MODE=false
-CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram
+CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram,openai
 ```
 
-The egress allowlist is one value for the whole profile. Guardian validates the
-running allowlist against the profile's provider contract at startup and fails
-to boot on a mismatch, so this string must match the profile exactly.
-`deepseek` is the cloud LLM lane and `deepgram` is the cloud voice lane; the
-LLM lane itself remains DeepSeek-only. `DEEPGRAM_API_KEY` may be left empty,
-in which case the voice provider registers as `degraded` with an empty voice
-list.
+Guardian checks the exact allowlist for the Private Preview exposure mode.
+`deepgram` is the voice lane. With an empty `DEEPGRAM_API_KEY`, that provider
+registers as degraded.
 
-These values belong only to this named preview lane. Do not copy them into
-`v1-local-core-web-mcp`.
+To enable OpenAI, add `OPENAI_API_KEY` to the untracked
+`.env.private-preview` on the preview host and recreate the backend and chat
+worker from the updated preview deployment. Sign in and choose **OpenAI** in
+the Composer model picker. The existing catalog includes GPT-4o and GPT-4.1
+Mini. An optional `OPENAI_MODEL` adds an operator-selected chat model that
+must work with the Chat Completions adapter and be available to the API key.
 
 For new-human onboarding, first authorize the recipient in the existing
 private-preview access configuration. Then issue a one-time ADR-088 activation
@@ -417,9 +416,11 @@ curl --fail --silent \
   http://127.0.0.1:8081/api/llm/catalog?include=all
 ```
 
-Confirm DeepSeek alone is authorized among cloud providers, its credential is
-recognized, `deepseek-flash` is present, and egress is not denied. Do not
-print `.env.private-preview` or resolved container environments.
+Confirm DeepSeek is selectable and `deepseek-flash` is present. With an
+OpenAI API key configured, confirm OpenAI and its chat models are selectable,
+then send a turn and verify the executed provider is OpenAI. The existing
+provider proof helper exercises Whoosh’d and DeepSeek. Keep resolved
+container environments and `.env.private-preview` private.
 
 Queue/worker:
 

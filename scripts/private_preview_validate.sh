@@ -55,7 +55,9 @@ expected = {
     "LLM_PROVIDER": "local",
     "ALLOW_CLOUD_PROVIDERS": "true",
     "CODEXIFY_LOCAL_ONLY_MODE": "false",
-    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram",
+    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram,openai",
+    "GUARDIAN_EXPOSURE_MODE": "private_preview",
+    "OPENAI_BASE_URL": "https://api.openai.com",
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
@@ -91,6 +93,7 @@ for key in ("VITE_GUARDIAN_API_KEY", "VITE_GUARDIAN_DEV_API_KEY"):
         raise SystemExit(f"frontend.{key} must remain empty")
 for server_field in (
     "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
     "GUARDIAN_API_KEY",
     "GUARDIAN_SESSION_SECRET",
     "GUARDIAN_JWT_SECRET",

@@ -278,7 +278,7 @@ def test_unauthorized_deepseek_fails() -> None:
 
 def test_unrelated_authorized_cloud_provider_fails() -> None:
     transport = FakeTransport()
-    transport.unrelated_authorized = "openai"
+    transport.unrelated_authorized = "groq"
 
     with pytest.raises(ProofError) as error:
         _proof(transport).run()

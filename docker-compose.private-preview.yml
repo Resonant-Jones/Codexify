@@ -94,11 +94,13 @@ services:
       LLM_PROVIDER: "local"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram,openai"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "https://api.openai.com"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       # The sandbox route is a service capability for the coding worker.
@@ -120,6 +122,7 @@ services:
     environment:
       <<: *private_preview_chroma_env
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      GUARDIAN_EXPOSURE_MODE: "private_preview"
       LLM_PROVIDER: "local"
       # The installed MLX-VLM runtime has one execution slot. Keep burst
       # absorption in the durable Redis chat queue instead of accepting a
@@ -127,15 +130,14 @@ services:
       CHAT_WORKER_CONCURRENCY: "1"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      # One egress value for the whole profile: Guardian validates the running
-      # allowlist against the supported profile's provider contract at startup.
-      # `deepgram` is the cloud voice lane; the chat worker's own LLM lane
-      # remains DeepSeek-only.
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
+      # Match the backend's Private Preview provider contract.
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram,openai"
       LOCAL_BASE_URL: "http://host.docker.internal:8000/v1"
       LOCAL_RUNTIME_PRESET: "whooshd-mlx"
       LOCAL_PROVIDER_VENDOR: "whooshd"
       LOCAL_CHAT_MODEL: "${LOCAL_CHAT_MODEL:-local-chat}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "https://api.openai.com"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
       DEEPSEEK_MODEL_DISCOVERY_URL: "${DEEPSEEK_MODEL_DISCOVERY_URL:-}"
@@ -148,9 +150,10 @@ services:
     # operator-owned vector store, so it mounts no chroma volume.
     environment:
       CODEXIFY_SUPPORTED_PROFILE: "v1-whooshd-deepseek-web"
+      GUARDIAN_EXPOSURE_MODE: "private_preview"
       ALLOW_CLOUD_PROVIDERS: "true"
       CODEXIFY_LOCAL_ONLY_MODE: "false"
-      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram"
+      CODEXIFY_EGRESS_ALLOWLIST: "deepseek,deepgram,openai"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
 
   worker-coding:
