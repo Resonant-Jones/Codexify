@@ -183,11 +183,12 @@ Guardian checks the exact allowlist for the Private Preview exposure mode.
 registers as degraded.
 
 To enable OpenAI, add `OPENAI_API_KEY` to the untracked
-`.env.private-preview` on the preview host and recreate the backend and chat
-worker from the updated preview deployment. Sign in and choose **OpenAI** in
-the Composer model picker. The existing catalog includes GPT-4o and GPT-4.1
-Mini. An optional `OPENAI_MODEL` adds an operator-selected chat model that
-must work with the Chat Completions adapter and be available to the API key.
+`.env.private-preview` on the preview host and use the
+[serial rollout](#roll-out-one-service-at-a-time). Sign in and choose
+**OpenAI** in the Composer model picker. The existing catalog includes GPT-4o
+and GPT-4.1 Mini. An optional `OPENAI_MODEL` adds an operator-selected chat
+model that must work with the Chat Completions adapter and be available to the
+API key.
 
 For new-human onboarding, first authorize the recipient in the existing
 private-preview access configuration. Then issue a one-time ADR-088 activation
@@ -365,6 +366,120 @@ requirement after backend replacement. An `exit 137` or `OOMKilled=true` state
 is a resource failure; this nginx change does not increase Docker memory or
 repair backend OOM pressure.
 
+### Roll out one service at a time
+
+Use this procedure for a running, pinned Private Preview. Keep the Compose
+project directory and `.env.private-preview` in the operator checkout. Use
+the base, Private Preview, and serving overlays from the candidate worktree
+so source mounts, images, and the serving pin identify the same revision.
+The serial rollout uses prebuilt local images.
+
+1. Record the current pin, image IDs, healthy service inventory, and database
+   revision. Verify Docker is responsive and the loopback origin's
+   `/health` and `/health/chat` return HTTP 200. Check that the candidate's
+   migration files and database revision match the serving deployment. Use the
+   [database migration prerequisite](#database-migration-prerequisite) for a
+   schema change.
+2. Confirm the candidate images are available locally and the candidate
+   Compose configuration preserves project volumes, networks, and the
+   `db`, `redis`, and `neo4j` service configuration. For OpenAI, confirm
+   the backend and `worker-chat` both resolve a nonempty `OPENAI_API_KEY`,
+   `OPENAI_BASE_URL=https://api.openai.com`, and
+   `CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram,openai`. Check only key
+   presence and keep resolved service environments out of terminal output.
+3. Move the desired-up marker aside for the maintenance window. Wait until
+   the Preview LaunchAgent reports `state = not running` or `state = waiting`
+   with no top-level `pid`. Recheck that the old serving pin is still in
+   place. Keep the saved marker available for recovery.
+
+Run the following in Bash from the operator checkout. Substitute the absolute
+candidate worktree path. Use an unused hold filename and check the LaunchAgent
+state before replacing any container.
+
+```bash
+preview_project_dir="$PWD"
+preview_state="$HOME/Library/Application Support/Codexify/private-preview"
+preview_previous="$(cat "$preview_state/serving-source")"
+preview_candidate='/absolute/path/to/candidate-serving-worktree'
+preview_env="$preview_project_dir/.env.private-preview"
+
+preview_compose() {
+  local source="$1"
+  shift
+  env -u OPENAI_API_KEY \
+    CODEXIFY_PRIVATE_PREVIEW_SOURCE_ROOT="$source" \
+    CODEXIFY_RUNTIME_ENV_FILE="$preview_env" \
+    docker compose --project-directory "$preview_project_dir" \
+    --env-file "$preview_env" -p codexify_private_preview \
+    -f "$source/docker-compose.yml" \
+    -f "$source/docker-compose.private-preview.yml" \
+    -f "$source/docker-compose.private-preview-serving.yml" "$@"
+}
+
+preview_compose "$preview_candidate" config --quiet &&
+  test -f "$preview_state/enabled" &&
+  test ! -e "$preview_state/enabled.serial-rollout" &&
+  mv "$preview_state/enabled" "$preview_state/enabled.serial-rollout"
+launchctl print "gui/$(id -u)/com.resonant.codexify-private-preview"
+```
+
+Use a separate Compose invocation for each service and verify it before
+proceeding. During the November 10 rollout, Docker stalled while replacing
+several services in a single invocation. The successful rollout used this
+order:
+
+| Order | Services |
+| --- | --- |
+| Startup jobs | `private-preview-auth-posture`, `migrator`, `model-prep`, `e2e` |
+| API and chat | `backend`, `worker-chat` |
+| Other workers | `worker-voice`, `worker-chat-embed`, `worker-document-embed`, `worker-account-import`, `worker-warmup`, `worker-coding` |
+| Browser | `frontend`, `private-preview-origin` |
+
+Replace `preview_service` with one service name per invocation:
+
+```bash
+preview_service=backend
+test -f "$preview_state/enabled.serial-rollout" &&
+  test ! -e "$preview_state/enabled" &&
+  test "$(cat "$preview_state/serving-source")" = "$preview_previous" &&
+  preview_compose "$preview_candidate" up -d --no-deps --no-build --pull never "$preview_service" &&
+  preview_compose "$preview_candidate" ps --all "$preview_service"
+```
+
+Check that the replacement has the expected image and source binds. Docker
+Desktop may prefix host bind paths with `/host_mnt`. A startup job must exit
+with code 0. A long-running service must be running and healthy where it has a
+health check. After the backend replacement, check `/health` and confirm
+`/api/llm/catalog?include=all` reports OpenAI enabled with `gpt-4.1-mini`.
+After `worker-chat` starts, wait for a fresh worker heartbeat in
+`/health/chat`. After the origin replacement, verify the app loads, both
+health checks pass, the Preview profile is valid, and the backing services
+retain their container and volume identities.
+
+On success, confirm the old pin still matches `preview_previous`. Replace it
+atomically with the candidate path, then restore the marker:
+
+```bash
+test -f "$preview_state/enabled.serial-rollout" &&
+  test ! -e "$preview_state/enabled" &&
+  test "$(cat "$preview_state/serving-source")" = "$preview_previous" &&
+  preview_pin_tmp="$(mktemp "$preview_state/serving-source.XXXXXX")" &&
+  printf '%s\n' "$preview_candidate" > "$preview_pin_tmp" &&
+  mv "$preview_pin_tmp" "$preview_state/serving-source" &&
+  mv "$preview_state/enabled.serial-rollout" "$preview_state/enabled"
+```
+
+If a replacement times out or fails verification, stop advancing. Confirm
+the Compose operation has ended and Docker responds before issuing another
+command. Keep the old pin and reapply the previous worktree's configuration
+to each touched service, one at a time, using the same command with
+`"$preview_previous"`. Verify the original origin and chat health, then move
+the saved marker back to `enabled`. If the rollout was interrupted, inspect
+for leftover containers from the candidate before resuming recovery. Compose
+can leave a container under a temporary name. Identify it by project and
+service labels, image, mounts, and state before removing an unstarted
+replacement. Preserve the project's data volumes.
+
 ## Validation levels
 
 Static configuration proof:
@@ -396,6 +511,47 @@ user turn in each, waits for canonical terminal task events, reads the durable
 transcript, requires exactly one assistant message per thread, and compares
 attempted/final provider and model evidence. It never prints the token or
 credential-bearing response fields.
+
+### Verify GPT-4.1 Mini in the hosted Composer
+
+1. Sign in at [Private Preview](https://preview.codexify.space/chat) and start
+   a fresh conversation. Select **OpenAI** as the provider and **GPT-4.1 Mini**
+   as the model. Use **Shallow** retrieval and a synthetic prompt such as
+   “What is 7 + 5?” Send it and wait for a reply in Composer.
+2. Record the test thread ID. Check the saved assistant message for
+   `final_provider=openai`, `final_model=gpt-4.1-mini`, an empty
+   `fallback_reason`, and a completion attempt linked to that message. A
+   visible answer and matching saved execution establish this Composer proof
+   together.
+
+For a read-only check of the latest assistant message in that test thread,
+enter the observed thread ID:
+
+```bash
+read -r -p "Preview test thread ID: " preview_thread_id
+docker exec -i codexify_private_preview-db-1 \
+  sh -c 'exec psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' \
+  sh -v "preview_thread_id=$preview_thread_id" <<'SQL'
+BEGIN READ ONLY;
+SELECT m.id, m.extra_meta->>'final_provider' AS provider,
+       m.extra_meta->>'final_model' AS model,
+       COALESCE(m.extra_meta->>'fallback_reason', '') = '' AS no_fallback,
+       EXISTS (
+         SELECT 1 FROM chat_completion_attempts a
+         WHERE a.thread_id = m.thread_id AND a.completed_message_id = m.id
+       ) AS recorded_completion
+FROM chat_messages m
+WHERE m.thread_id = :'preview_thread_id'::bigint AND m.role = 'assistant'
+ORDER BY m.id DESC LIMIT 1;
+ROLLBACK;
+SQL
+```
+
+On November 10, 2026, the serial rollout pinned `dcc76558a` (tree
+`4ce9d7a8`) and passed origin and chat health checks. In the hosted Composer,
+GPT-4.1 Mini answered “The sum of 7 and 5 is 12.” The saved assistant message
+recorded `openai/gpt-4.1-mini`, no fallback, and a linked completion attempt.
+PostgreSQL remained at Alembic revision `ab71d5ce9604`.
 
 ## Independent failure diagnosis
 
@@ -490,6 +646,7 @@ reused as proof and are superseded for this recovery gate by the fresh
   or persistence.
 - Fallback completion is not proof for the requested provider.
 - Static tests and Compose rendering do not prove a running preview.
-- This runbook does not prove Cloudflare Tunnel, Access, DNS, public-host
-  behavior, guest isolation, rate limiting, backup restoration, reboot
-  recovery, or general cloud-provider beta support.
+- The hosted GPT-4.1 Mini receipt covers one signed-in Composer conversation.
+  Cloudflare Tunnel, Access, DNS, guest isolation, rate limiting, backup
+  restoration, reboot recovery, and general cloud-provider Beta support
+  require separate qualification.
