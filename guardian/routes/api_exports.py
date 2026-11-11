@@ -25,6 +25,8 @@ router = APIRouter(
     tags=["exports"],
 )
 
+preview_account_export_router = APIRouter(prefix="/api/exports")
+
 
 def _serialize_chunk(row: Any) -> bytes:
     """
@@ -285,6 +287,8 @@ def export_threads(user: AuthenticatedUser = Depends(require_user)):
         raise HTTPException(status_code=500, detail="Failed to start export") from exc
 
 
+# Preview exposes this account-session route separately from the legacy export router.
+@preview_account_export_router.get("/account.zip", include_in_schema=False)
 @router.get(
     "/account.zip",
     summary="Download the authenticated user's canonical account export ZIP",
@@ -312,6 +316,7 @@ def export_account_zip(user: AuthenticatedUser = Depends(require_user)):
         zip_path,
         media_type="application/zip",
         filename=ZIP_FILENAME,
+        headers={"Cache-Control": "private, no-store"},
         background=BackgroundTask(_cleanup_export_file, zip_path),
     )
 

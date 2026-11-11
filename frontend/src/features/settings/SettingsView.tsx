@@ -49,6 +49,7 @@ import {
   invokeTauriCommand,
   isTauriRuntime,
   openExternalUrl,
+  resolveApiUrl,
   resolveBackendUrl,
   saveDesktopConnectionSettings,
 } from "@/lib/runtimeConfig";
@@ -62,6 +63,7 @@ import {
   setRuntimeApiKey,
 } from "@/lib/api";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { downloadAsset, notifyAssetActionError } from "@/lib/assetActions";
 import { GuardianEventSource } from "@/lib/guardianEventSource";
 import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
@@ -422,6 +424,8 @@ export function SettingsView({
   const [runtimeConfigSnapshot, setRuntimeConfigSnapshot] =
     useState<RuntimeConfig | null>(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const privatePreview = import.meta.env.VITE_PRIVATE_PREVIEW === "true";
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [importTaskId, setImportTaskId] = useState<string | null>(null);
@@ -918,6 +922,20 @@ export function SettingsView({
 
   async function handleDownloadExport() {
     if (typeof window === "undefined") return;
+    if (privatePreview) {
+      setExportBusy(true);
+      try {
+        await downloadAsset({
+          url: resolveApiUrl("/exports/account.zip"),
+          filename: "Codexify-Export.zip",
+        });
+      } catch {
+        notifyAssetActionError("download", "your account export. Please try again or contact Preview support.");
+      } finally {
+        setExportBusy(false);
+      }
+      return;
+    }
     const exportUrl = resolveBackendUrl("/exports/chatgpt.zip");
     if (desktopMode) {
       const opened = await openExternalUrl(exportUrl);
@@ -1750,9 +1768,12 @@ export function SettingsView({
                   type="button"
                   variant="ghost"
                   onClick={handleDownloadExport}
+                  disabled={exportBusy}
                   className="rounded-[var(--tile-radius,19px)] w-full"
                 >
-                  Download Codexify ZIP export
+                  {exportBusy ? "Preparing export…" : privatePreview
+                    ? "Download full account export (ZIP)"
+                    : "Download Codexify ZIP export"}
                 </Button>
               </div>
 

@@ -736,3 +736,50 @@ def test_account_export_zip_refuses_a_foreign_owned_project(
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to build account export"
+
+
+def test_preview_export_uses_the_signed_account_session(fake_db, monkeypatch):
+    from guardian.core.auth import ACCOUNT_SESSION_PURPOSE, issue_session_token
+    from guardian.core import session_store
+
+    owner = "owner@example.test"
+    db, calls = fake_db
+    for rows in db.fetch_account_export_bundle_for_user(USER_ID).values():
+        for row in rows:
+            if row.get("user_id") == USER_ID:
+                row["user_id"] = owner
+    calls.clear()
+
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", "private_preview")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "preview-export-test-secret")
+    monkeypatch.setenv("CODEXIFY_PREVIEW_APPROVED_EMAILS", owner)
+    token, _ = issue_session_token(
+        subject=owner, purpose=ACCOUNT_SESSION_PURPOSE, ttl_seconds=60
+    )
+    monkeypatch.setattr(
+        session_store,
+        "get_session_store",
+        lambda: SimpleNamespace(verify=lambda value: owner if value == token else None),
+    )
+    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", None)
+    monkeypatch.setattr(api_exports, "_resolve_account_export_pgdb", lambda: db)
+    app = FastAPI()
+    app.include_router(api_exports.preview_account_export_router)
+    client = TestClient(app)
+
+    endpoint = "/api/exports/account.zip"
+    assert client.get(endpoint, headers={"X-API-Key": "test-key"}).status_code == 401
+    assert client.get("/api/exports/chatgpt.zip").status_code == 404
+
+    response = client.get(
+        endpoint,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Guardian-Identity": "another-account@example.test",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert calls == [owner]
+    with _read_archive(response.content) as archive:
+        assert _load_json(archive, "manifest.json")["user_id"] == owner

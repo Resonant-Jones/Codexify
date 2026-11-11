@@ -365,6 +365,20 @@ requirement after backend replacement. An `exit 137` or `OOMKilled=true` state
 is a resource failure; this nginx change does not increase Docker memory or
 repair backend OOM pressure.
 
+### Download a full-account export
+
+Sign in to Private Preview and open **Settings → Data → Download full account
+export (ZIP)**. The browser downloads `Codexify-Export.zip` using your
+current Guardian account session. The ZIP includes the account export manifest
+and its inventory of included data and any unresolved files. Store the ZIP
+somewhere private.
+
+The Preview button calls `GET /api/exports/account.zip`. The endpoint uses the
+existing full-account exporter and requires an approved account session.
+The legacy export family retains its existing profile policy. The exporter
+refuses foreign-owned Project relationships under ADR-081. If a download fails,
+contact Preview support without attaching an account archive.
+
 ## Validation levels
 
 Static configuration proof:

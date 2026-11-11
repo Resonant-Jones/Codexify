@@ -538,6 +538,7 @@ from guardian.routes import obsidian, research, share, threads
 from guardian.routes import tts as tts_routes
 from guardian.routes import ui_session
 from guardian.routes import websocket as websocket_routes
+from guardian.routes.api_exports import preview_account_export_router
 from guardian.routes.api_exports import router as exports_router
 from guardian.routes.chat import api_chat_router
 from guardian.routes.chat import router as chat_router
@@ -1156,14 +1157,22 @@ _include_router(
     include_fn=lambda: app.include_router(account_observability.router),
     core_surface=True,
 )
+def _include_auth_surface() -> None:
+    from guardian.core.preview_access import is_private_preview
+
+    app.include_router(auth_routes.router)
+    app.include_router(auth_routes.api_router)
+    app.include_router(scout_auth_router)
+    if is_private_preview():
+        # This is an account-session self-service download in Private Preview.
+        # The supported profile still quarantines the legacy exports family.
+        app.include_router(preview_account_export_router)
+
+
 _include_router(
     label="auth",
     flag_name="CODEXIFY_ENABLE_AUTH_ROUTES",
-    include_fn=lambda: (
-        app.include_router(auth_routes.router),
-        app.include_router(auth_routes.api_router),
-        app.include_router(scout_auth_router),
-    ),
+    include_fn=_include_auth_surface,
     core_surface=True,
 )
 _include_router(
