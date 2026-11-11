@@ -64,6 +64,50 @@ BASE=http://localhost:8888 \
 | 7 | `RETRIEVAL_EVIDENCE_FAILED` | Retrieval posture missing workspace signal |
 | 8 | `ABORT_MISSING_ENV` | `GUARDIAN_API_KEY` not set and dev-key fallback failed |
 
+### `mutate_eight_gate_head_check.py`
+
+**Seam:** the eight-gate self-check's migration-head comparison -- not the
+runtime.
+
+**What it proves:** that the self-check's assertion about the harness's
+Alembic head can actually fail, and that it does not go stale. The
+self-check used to expect a *pinned* revision literal, so it failed with
+53/54 at every tip whose head had moved, while the harness under test was
+reading the real head correctly. The expected head is now computed from the
+migration source, independently of the harness, so it follows the source
+and a harness that computes the wrong head still disagrees with it.
+
+The harness proves four properties:
+
+1. Mutating `eight_gate_evidence._read_checkout_head` to return a stale
+   revision makes the self-check fail and exit non-zero.
+2. A revision that supersedes the current head moves the expected head with
+   it -- the property a pinned literal cannot have.
+3. A source with two heads reports no head rather than picking one, so the
+   check fails closed.
+4. The independent source-level computation names the same head and the same
+   revision count as Alembic's own revision map.
+
+Each mutation starts from the pristine file, so one cannot mask or compose
+with the next. Every file is restored byte-for-byte whether the mutation was
+caught or not.
+
+**Required services:** Python and Alembic only. The self-check needs no
+running stack.
+
+**Command:**
+```bash
+python scripts/proofs/mutate_eight_gate_head_check.py
+```
+
+**Success means:** the script exits 0 and prints a tally line.
+
+**Failure classes:**
+
+| Exit code | Category | Meaning |
+|---|---|---|
+| 1 | `MUTATION_NOT_CAUGHT` | A mutation was not caught, or a property did not hold |
+
 ### `prove_music_job_attribution.py`
 
 **Seam:** the Music Producer's job attribution, end to end against a real
