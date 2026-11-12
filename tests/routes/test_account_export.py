@@ -533,6 +533,136 @@ def test_account_export_zip_writes_archive_to_temp_file(fake_db) -> None:
             os.unlink(zip_path)
 
 
+def test_account_export_writes_streamed_messages_and_unique_media(rows, monkeypatch):
+    from guardian.core.storage import LocalStorageProvider
+
+    def forbid_download(*args):
+        pytest.fail("export must use the disk-backed storage reader")
+
+    monkeypatch.setattr(LocalStorageProvider, "download", forbid_download)
+
+    # Distinct asset IDs can point to the same bytes. Both rows retain the
+    # reference, but restore rejects a ZIP with duplicate member names.
+    original = rows["uploaded_images"][0]
+    rows["uploaded_images"].append(
+        {**original, "id": "ui-copy", "asset_id": "asset-copy"}
+    )
+    message_rows = rows.pop("chat_messages")
+
+    def zip_reader(user_id, *, include_unified_memory, write_chat_messages):
+        assert user_id == USER_ID
+        assert not include_unified_memory
+        write_chat_messages(iter(message_rows))
+        return rows
+
+    path = build_account_export_zip(
+        SimpleNamespace(fetch_account_export_bundle_for_zip=zip_reader),
+        SimpleNamespace(id=USER_ID),
+    )
+    try:
+        with zipfile.ZipFile(path) as archive:
+            assert archive.testzip() is None
+            assert len(archive.namelist()) == len(set(archive.namelist()))
+            messages = _load_json(archive, "entities/chat_messages.json")
+            assert [row["id"] for row in messages] == [
+                row["id"] for row in message_rows
+            ]
+            images = _load_json(archive, "entities/uploaded_images.json")
+            by_id = {row["id"]: row["export"]["blob"] for row in images}
+            first, second = by_id[original["id"]], by_id["ui-copy"]
+            assert first["bundle_path"] == second["bundle_path"]
+            assert archive.read(first["bundle_path"]) == b"uploaded-image-bytes"
+            manifest = _load_json(archive, "manifest.json")
+            assert manifest["entity_counts"]["chat_messages"] == len(message_rows)
+            for member, expected in manifest["integrity"]["files"].items():
+                body = archive.read(member)
+                assert hashlib.sha256(body).hexdigest() == expected["sha256"]
+                assert len(body) == expected["size_bytes"]
+    finally:
+        Path(path).unlink()
+
+
+@pytest.mark.parametrize("project_owner", [USER_ID, "another-account"])
+def test_postgres_zip_message_cursor_uses_owned_snapshot(monkeypatch, project_owner):
+    from guardian.core import pgdb
+
+    statements = []
+
+    class Cursor:
+        def __init__(self, name=None):
+            self.name = name
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            statements.append((self.name, sql, params))
+
+        def __iter__(self):
+            assert self.name == "account_export_messages"
+            assert self.itersize == 128
+            yield {"id": 8, "thread_id": 11, "content": "one message"}
+
+    class Connection:
+        closed = False
+
+        def cursor(self, name=None):
+            assert not self.closed
+            return Cursor(name)
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+
+    def read_metadata(cursor, sql, params=()):
+        assert cursor.name is None
+        if "FROM chat_threads" in sql:
+            assert params == (USER_ID,)
+            return [{"id": 11, "project_id": 7}]
+        if "FROM projects" in sql:
+            return [{"id": 7, "user_id": project_owner}]
+        assert "FROM chat_messages" not in sql
+        return []
+
+    monkeypatch.setattr(pgdb, "_resolve_dsn", lambda: "postgresql://unused")
+    monkeypatch.setattr(pgdb.psycopg, "connect", lambda *a, **kw: connection)
+    monkeypatch.setattr(pgdb, "_export_rows", read_metadata)
+
+    written = []
+
+    def read_zip_snapshot():
+        return pgdb.fetch_account_export_bundle_for_zip(
+            USER_ID, include_unified_memory=False, write_chat_messages=written.extend
+        )
+
+    if project_owner == USER_ID:
+        bundle = read_zip_snapshot()
+        assert bundle["chat_messages"] == []
+        assert written == [{"id": 8, "thread_id": 11, "content": "one message"}]
+        name, sql, params = statements[1]
+        assert name == "account_export_messages"
+        assert "ORDER BY COALESCE(event_at, created_at) ASC, id ASC" in sql
+        assert params == ([11],)
+    else:
+        with pytest.raises(
+            RuntimeError, match="account_export_project_ownership_mismatch"
+        ):
+            read_zip_snapshot()
+        assert not written
+        assert len(statements) == 1
+
+    assert statements[0] == (
+        None,
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        (),
+    )
+    assert connection.closed
+
+
 def test_account_export_zip_returns_truthful_manifest(
     client: TestClient,
     fake_db,

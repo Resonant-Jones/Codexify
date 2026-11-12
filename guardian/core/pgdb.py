@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -5442,11 +5443,14 @@ def fetch_account_export_bundle_for_user(
     user_id: str,
     *,
     include_unified_memory: bool = False,
+    write_chat_messages: Callable[[Iterable[dict[str, Any]]], None] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Return the complete canonical account export payload bundle for a user.
 
     The bundle is keyed by logical family name and keeps user scoping explicit.
+    A ZIP writer can consume messages from a bounded cursor in the same snapshot
+    instead of receiving them in the returned bundle.
     """
     payload_order = ACCOUNT_EXPORT_PAYLOAD_ORDER
     if include_unified_memory:
@@ -5458,6 +5462,8 @@ def fetch_account_export_bundle_for_user(
     conn = psycopg.connect(dsn, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
+            if write_chat_messages is not None:
+                cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             bundles: dict[str, list[dict[str, Any]]] = {
                 family: [] for family in payload_order
             }
@@ -5485,23 +5491,6 @@ def fetch_account_export_bundle_for_user(
                     for row in bundles["chat_threads"]
                     if row.get("project_id") is not None
                 ],
-            )
-
-            bundles["chat_messages"] = (
-                _export_rows(
-                    cur,
-                    """
-                    SELECT
-                        id, thread_id, user_id, role, content, event_at,
-                        kind, extra_meta, created_at
-                    FROM chat_messages
-                    WHERE thread_id = ANY(%s)
-                    ORDER BY COALESCE(event_at, created_at) ASC, id ASC
-                    """,
-                    ([thread_id for thread_id in thread_ids if thread_id is not None],),
-                )
-                if thread_ids
-                else []
             )
 
             document_scope_clause, document_scope_params = _export_scope_clause(
@@ -5997,9 +5986,30 @@ def fetch_account_export_bundle_for_user(
                     if project_scope
                     else []
                 )
-                _require_canonical_project_ownership(
-                    bundles["projects"], owner=user_id
-                )
+                _require_canonical_project_ownership(bundles["projects"], owner=user_id)
+
+            message_query = """
+                SELECT id, thread_id, user_id, role, content, event_at,
+                       kind, extra_meta, created_at
+                FROM chat_messages
+                WHERE thread_id = ANY(%s)
+                ORDER BY COALESCE(event_at, created_at) ASC, id ASC
+            """
+            message_params = (
+                [thread_id for thread_id in thread_ids if thread_id is not None],
+            )
+            if write_chat_messages is None:
+                if thread_ids:
+                    bundles["chat_messages"] = _export_rows(
+                        cur, message_query, message_params
+                    )
+            elif thread_ids:
+                with conn.cursor(name="account_export_messages") as messages:
+                    messages.itersize = 128
+                    messages.execute(message_query, message_params)
+                    write_chat_messages(_normalize_export_row(row) for row in messages)
+            else:
+                write_chat_messages(())
 
             return bundles
     finally:
@@ -6011,6 +6021,20 @@ def fetch_account_export_bundle_for_user(
                 conn_err,
                 exc_info=True,
             )
+
+
+def fetch_account_export_bundle_for_zip(
+    user_id: str,
+    *,
+    include_unified_memory: bool,
+    write_chat_messages: Callable[[Iterable[dict[str, Any]]], None],
+) -> dict[str, list[dict[str, Any]]]:
+    """Read a ZIP export snapshot, writing messages through a bounded cursor."""
+    return fetch_account_export_bundle_for_user(
+        user_id,
+        include_unified_memory=include_unified_memory,
+        write_chat_messages=write_chat_messages,
+    )
 
 
 def _bundle_family_rows(
@@ -6393,6 +6417,7 @@ def _make_pgdb_account_export_instance_method(name):
 
 for _pgdb_account_export_fetcher_name in (
     "fetch_account_export_bundle_for_user",
+    "fetch_account_export_bundle_for_zip",
     "iter_account_export_payloads_for_user",
     "fetch_account_export_projects_for_user",
     "fetch_account_export_chat_threads_for_user",

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import importlib.metadata
 import json
-import logging
 import mimetypes
 import os
+import shutil
 import tempfile
 import zipfile
-from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -29,8 +29,6 @@ from guardian.services.memory_purge import (
     PURGED_RECORD_FINGERPRINT_VERSION,
     SOURCE_ATOM_FINGERPRINT_VERSION,
 )
-
-logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "account-export.v3"
 STAGED_MANIFEST_SCHEMA_VERSION = "account-export.v4"
@@ -311,7 +309,6 @@ OMITTED_FAMILIES = (
 class _PayloadArtifact:
     family: str
     path: str
-    body: bytes
     row_count: int
     size_bytes: int
     sha256: str
@@ -319,13 +316,9 @@ class _PayloadArtifact:
 
 @dataclass(slots=True)
 class _BlobArtifact:
-    canonical_key: str
     path: str
-    body: bytes
     size_bytes: int
     sha256: str
-    family: str
-    mime_type: str | None
 
 
 @dataclass(slots=True)
@@ -333,12 +326,9 @@ class _BlobGroup:
     canonical_key: str
     rows: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     path: str | None = None
-    body: bytes | None = None
     sha256: str | None = None
     size_bytes: int | None = None
     mime_type: str | None = None
-    source_locator: str | None = None
-    source_family: str | None = None
     status: str = "unresolved"
     missing_reason: str | None = None
 
@@ -388,11 +378,19 @@ def _load_rows_by_family(
     *,
     payload_order: tuple[tuple[str, str, str], ...],
     include_unified_memory: bool,
+    write_chat_messages: Callable[[Iterable[dict[str, Any]]], None],
 ) -> dict[str, list[dict[str, Any]]]:
     payload_families = tuple(entry[0] for entry in payload_order)
+    zip_reader = getattr(db, "fetch_account_export_bundle_for_zip", None)
     bundle_reader = getattr(db, "fetch_account_export_bundle_for_user", None)
-    if callable(bundle_reader):
-        if include_unified_memory:
+    if callable(zip_reader) or callable(bundle_reader):
+        if callable(zip_reader):
+            bundle = zip_reader(
+                user.id,
+                include_unified_memory=include_unified_memory,
+                write_chat_messages=write_chat_messages,
+            )
+        elif include_unified_memory:
             bundle = bundle_reader(user.id, include_unified_memory=True)
         else:
             bundle = bundle_reader(user.id)
@@ -1227,81 +1225,95 @@ def _canonical_blob_key(family: str, row: dict[str, Any]) -> str:
     return f"row:{family}:{row.get('id')}"
 
 
-def _resolve_blob_candidate(
-    family: str, row: dict[str, Any], storage: Any
-) -> tuple[bytes, str | None, str, str] | None:
-    if family == "generated_documents":
-        data = str(row.get("content") or "").encode("utf-8")
-        mime_type = _generated_document_mime_type(row)
-        locator = _source_locator(family, row)
-        extension = _blob_extension(family, row, mime_type)
-        return data, mime_type, locator, extension
-
+def _stage_blob_candidate(
+    family: str, row: dict[str, Any], storage: Any, destination: Path
+) -> tuple[str | None, str] | None:
     locator = _source_locator(family, row)
+    if family == "generated_documents":
+        destination.write_bytes(str(row.get("content") or "").encode("utf-8"))
+        mime_type = _generated_document_mime_type(row)
+        return mime_type, _blob_extension(family, row, mime_type)
     if not locator:
         return None
 
-    try:
-        data = storage.download_file(extract_media_path(locator))
-    except (StorageFileNotFoundError, StorageError, FileNotFoundError):
-        return None
-    except Exception:
-        logger.warning(
-            "Failed to resolve blob for %s row %s from %s",
-            family,
-            row.get("id"),
-            locator,
-            exc_info=True,
-        )
-        return None
+    download_to_path = getattr(storage, "download_to_path", None)
+    if callable(download_to_path):
+        try:
+            download_to_path(extract_media_path(locator), destination)
+        except (StorageFileNotFoundError, FileNotFoundError):
+            return None
+        except StorageError as exc:
+            if isinstance(exc.__cause__, OSError) and exc.__cause__.errno in (
+                errno.ENOSPC,
+                errno.EDQUOT,
+            ):
+                raise
+            return None
+    else:
+        # Legacy storage adapters can supply one object as bytes.
+        try:
+            body = storage.download_file(extract_media_path(locator))
+        except (StorageFileNotFoundError, StorageError, FileNotFoundError):
+            return None
+        destination.write_bytes(body)
 
     mime_type = str(row.get("mime_type") or "").strip() or None
-    extension = _blob_extension(family, row, mime_type)
-    return data, mime_type, locator, extension
+    return mime_type, _blob_extension(family, row, mime_type)
 
 
-def _build_blob_groups(
+def _write_blob_groups(
+    archive: zipfile.ZipFile,
     rows_by_family: dict[str, list[dict[str, Any]]],
     storage: Any,
     *,
     payload_families: tuple[str, ...],
-) -> dict[str, _BlobGroup]:
-    groups: OrderedDict[str, _BlobGroup] = OrderedDict()
-    for family, row in _family_rows(
-        rows_by_family,
-        payload_families=payload_families,
-    ):
-        if family not in BINARY_FAMILIES:
-            continue
-        key = _canonical_blob_key(family, row)
-        group = groups.get(key)
-        if group is None:
-            group = _BlobGroup(canonical_key=key)
-            groups[key] = group
-        group.rows.append((family, row))
+) -> tuple[dict[str, _BlobGroup], list[_BlobArtifact]]:
+    groups: dict[str, _BlobGroup] = {}
+    for family, row in _family_rows(rows_by_family, payload_families=payload_families):
+        if family in BINARY_FAMILIES:
+            key = _canonical_blob_key(family, row)
+            if key not in groups:
+                groups[key] = _BlobGroup(canonical_key=key)
+            groups[key].rows.append((family, row))
 
-    for group in groups.values():
-        for family, row in group.rows:
-            resolved = _resolve_blob_candidate(family, row, storage)
-            if resolved is None:
-                continue
+    artifacts: dict[str, _BlobArtifact] = {}
+    with tempfile.TemporaryDirectory(prefix="codexify-export-media-") as temporary:
+        staged = Path(temporary) / "object"
+        for group in groups.values():
+            for family, row in group.rows:
+                try:
+                    resolved = _stage_blob_candidate(family, row, storage, staged)
+                    if resolved is None:
+                        continue
 
-            body, mime_type, locator, extension = resolved
-            digest = hashlib.sha256(body).hexdigest()
-            group.path = f"{_blob_root(family, row)}/{digest}.{extension}"
-            group.body = body
-            group.sha256 = digest
-            group.size_bytes = len(body)
-            group.mime_type = mime_type
-            group.source_locator = locator
-            group.source_family = family
-            group.status = "bundled"
-            break
+                    mime_type, extension = resolved
+                    with staged.open("rb") as source:
+                        digest = hashlib.file_digest(source, "sha256").hexdigest()
+                        size_bytes = staged.stat().st_size
+                        path = f"{_blob_root(family, row)}/{digest}.{extension}"
+                        if path not in artifacts:
+                            source.seek(0)
+                            with archive.open(path, "w", force_zip64=True) as member:
+                                shutil.copyfileobj(source, member, length=1024 * 1024)
+                            artifacts[path] = _BlobArtifact(
+                                path=path,
+                                size_bytes=size_bytes,
+                                sha256=digest,
+                            )
 
-        if group.status != "bundled":
-            group.missing_reason = "blob could not be resolved from current storage"
+                    group.path = path
+                    group.sha256 = digest
+                    group.size_bytes = size_bytes
+                    group.mime_type = mime_type
+                    group.status = "bundled"
+                    break
+                finally:
+                    staged.unlink(missing_ok=True)
 
-    return dict(groups)
+            if group.status != "bundled":
+                group.missing_reason = "blob could not be resolved from current storage"
+
+    return dict(groups), [artifacts[path] for path in sorted(artifacts)]
 
 
 def _decorate_binary_row(
@@ -1529,6 +1541,41 @@ def _build_manifest(
     }
 
 
+def _write_json_payload(
+    archive: zipfile.ZipFile,
+    family: str,
+    path: str,
+    rows: Iterable[dict[str, Any]],
+) -> _PayloadArtifact:
+    """Write the existing JSON array format and hash the bytes as they are written."""
+    digest = hashlib.sha256()
+    size_bytes = 0
+    row_count = 0
+    with archive.open(path, "w", force_zip64=True) as member:
+
+        def write(data: bytes) -> None:
+            nonlocal size_bytes
+            member.write(data)
+            digest.update(data)
+            size_bytes += len(data)
+
+        write(b"[")
+        for row in rows:
+            if row_count:
+                write(b",")
+            write(_dump_json(row))
+            row_count += 1
+        write(b"]")
+
+    return _PayloadArtifact(
+        family=family,
+        path=path,
+        row_count=row_count,
+        size_bytes=size_bytes,
+        sha256=digest.hexdigest(),
+    )
+
+
 def build_account_export_zip(
     db: Any,
     user: AuthenticatedUser,
@@ -1548,24 +1595,7 @@ def build_account_export_zip(
         LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
         PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
     )
-    rows_by_family = _load_rows_by_family(
-        db,
-        user,
-        payload_order=payload_order,
-        include_unified_memory=include_unified_memory,
-    )
-    _validate_persona_profile_export(rows_by_family, user_id=user.id)
-    if include_unified_memory:
-        _validate_unified_memory_export(rows_by_family, user_id=user.id)
-    storage = create_storage_from_env()
-    blob_groups = _build_blob_groups(
-        rows_by_family,
-        storage,
-        payload_families=payload_families,
-    )
-
-    payload_files: list[_PayloadArtifact] = []
-    blob_files: list[_BlobArtifact] = []
+    payload_files: dict[str, _PayloadArtifact] = {}
     decorated_binary_rows: dict[str, list[dict[str, Any]]] = {
         family: [] for family in BINARY_FAMILIES
     }
@@ -1584,14 +1614,45 @@ def build_account_export_zip(
             with zipfile.ZipFile(
                 temp_zip, mode="w", compression=zipfile.ZIP_DEFLATED
             ) as archive:
+                message_path = next(
+                    path
+                    for family, path, _ in payload_order
+                    if family == "chat_messages"
+                )
+
+                def write_chat_messages(rows: Iterable[dict[str, Any]]) -> None:
+                    payload_files["chat_messages"] = _write_json_payload(
+                        archive,
+                        "chat_messages",
+                        message_path,
+                        rows,
+                    )
+
+                rows_by_family = _load_rows_by_family(
+                    db,
+                    user,
+                    payload_order=payload_order,
+                    include_unified_memory=include_unified_memory,
+                    write_chat_messages=write_chat_messages,
+                )
+                _validate_persona_profile_export(rows_by_family, user_id=user.id)
+                if include_unified_memory:
+                    _validate_unified_memory_export(rows_by_family, user_id=user.id)
+                blob_groups, blob_files = _write_blob_groups(
+                    archive,
+                    rows_by_family,
+                    create_storage_from_env(),
+                    payload_families=payload_families,
+                )
+
                 for family, path, _reader in payload_order:
+                    if family in payload_files:
+                        continue
                     source_rows = rows_by_family.get(family, [])
-                    payload_rows: list[dict[str, Any]] = []
-                    for row in source_rows:
-                        if family in BINARY_FAMILIES:
+                    if family in BINARY_FAMILIES:
+                        for row in source_rows:
                             group = blob_groups[_canonical_blob_key(family, row)]
                             decorated = _decorate_binary_row(family, row, group)
-                            payload_rows.append(decorated)
                             decorated_binary_rows[family].append(decorated)
                             blob = decorated["export"]["blob"]
                             if blob["status"] == "unresolved":
@@ -1604,51 +1665,18 @@ def build_account_export_zip(
                                         "reason": blob["missing_reason"],
                                     }
                                 )
-                        else:
-                            payload_rows.append(dict(row))
-
-                    body = _dump_json(payload_rows)
-                    archive.writestr(path, body)
-                    payload_files.append(
-                        _PayloadArtifact(
-                            family=family,
-                            path=path,
-                            body=body,
-                            row_count=len(payload_rows),
-                            size_bytes=len(body),
-                            sha256=hashlib.sha256(body).hexdigest(),
-                        )
-                    )
-
-                for group in sorted(
-                    blob_groups.values(),
-                    key=lambda item: (item.path or "", item.canonical_key),
-                ):
-                    if (
-                        group.status != "bundled"
-                        or group.path is None
-                        or group.body is None
-                    ):
-                        continue
-                    archive.writestr(group.path, group.body)
-                    blob_files.append(
-                        _BlobArtifact(
-                            canonical_key=group.canonical_key,
-                            path=group.path,
-                            body=group.body,
-                            size_bytes=group.size_bytes or len(group.body),
-                            sha256=group.sha256
-                            or hashlib.sha256(group.body).hexdigest(),
-                            family=group.source_family or "media",
-                            mime_type=group.mime_type,
-                        )
+                        source_rows = decorated_binary_rows[family]
+                    payload_files[family] = _write_json_payload(
+                        archive, family, path, source_rows
                     )
 
                 manifest = _build_manifest(
                     user=user,
                     created_at=created_at,
                     app_version=resolved_app_version,
-                    payload_files=payload_files,
+                    payload_files=[
+                        payload_files[family] for family in payload_families
+                    ],
                     blob_files=blob_files,
                     rows_by_family=rows_by_family,
                     decorated_binary_rows=decorated_binary_rows,
