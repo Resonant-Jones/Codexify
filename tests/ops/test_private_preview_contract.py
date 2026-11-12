@@ -23,22 +23,20 @@ EXPECTED_ENV = {
     "LLM_PROVIDER": "local",
     "ALLOW_CLOUD_PROVIDERS": "true",
     "CODEXIFY_LOCAL_ONLY_MODE": "false",
-    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram",
+    "CODEXIFY_EGRESS_ALLOWLIST": "deepseek,deepgram,openai",
     "LOCAL_BASE_URL": "http://host.docker.internal:8000/v1",
     "LOCAL_RUNTIME_PRESET": "whooshd-mlx",
     "LOCAL_PROVIDER_VENDOR": "whooshd",
     "LOCAL_CHAT_MODEL": "local-chat",
+    "GUARDIAN_EXPOSURE_MODE": "private_preview",
+    "OPENAI_BASE_URL": "https://api.openai.com",
     "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
     "DEEPSEEK_MODEL_DISCOVERY_URL": "",
     "DEEPSEEK_MODEL_DISCOVERY_TIMEOUT_SECONDS": "3",
     "DEEPSEEK_CHAT_MODEL": "deepseek-flash",
 }
-# The egress allowlist is one value for the whole supported profile: Guardian
-# validates the running allowlist against the profile's provider contract at
-# startup, so every service that carries the profile must present exactly this
-# string. `deepseek` is the cloud LLM lane and `deepgram` is the cloud voice
-# lane (ADR-052 amendment 2026-11-06, ADR-110).
-EXPECTED_EGRESS_ALLOWLIST = "deepseek,deepgram"
+# All Private Preview services carrying the profile share the preview grant.
+EXPECTED_EGRESS_ALLOWLIST = "deepseek,deepgram,openai"
 EXPECTED_GUARDIAN_POSTURE = {
     "CODEXIFY_SUPPORTED_PROFILE": "v1-whooshd-deepseek-web",
     "GUARDIAN_EXPOSURE_MODE": "private_preview",
@@ -93,6 +91,7 @@ def _render_compose(
         "CODEXIFY_PREVIEW_APPROVED_EMAILS": "guest@example.com",
         "CODEXIFY_PREVIEW_ADMIN_EMAILS": "admin@example.com",
         "DEEPSEEK_API_KEY": "inert-deepseek-key",
+        "OPENAI_API_KEY": "inert-openai-key",
         "LOCAL_CHAT_MODEL": "local-chat",
         "NEO4J_PASS": "inert-neo4j-password",
     }
@@ -210,8 +209,7 @@ def test_private_preview_egress_grant_is_one_value_for_the_whole_profile() -> No
             environment.get("CODEXIFY_EGRESS_ALLOWLIST") == EXPECTED_EGRESS_ALLOWLIST
         ), name
 
-    # The cloud voice lane is the reason the allowlist is not DeepSeek-only,
-    # and it must be admitted for the voice callers.
+    # Deepgram must be admitted for both voice callers.
     assert "deepgram" in EXPECTED_EGRESS_ALLOWLIST
     for name in ("backend", "worker-voice"):
         assert name in carrying, name
@@ -221,7 +219,7 @@ def test_private_preview_egress_grant_is_one_value_for_the_whole_profile() -> No
         ), name
 
 
-def test_private_preview_compose_selects_dual_provider_contract() -> None:
+def test_private_preview_compose_selects_preview_provider_contract() -> None:
     config = _render_compose()
 
     for service_name in ("backend", "worker-chat"):
@@ -229,6 +227,8 @@ def test_private_preview_compose_selects_dual_provider_contract() -> None:
         for key, expected in EXPECTED_ENV.items():
             assert str(environment[key]).lower() == expected.lower()
         assert environment["DEEPSEEK_API_KEY"] == "inert-deepseek-key"
+        assert environment["OPENAI_API_KEY"] == "inert-openai-key"
+    assert "OPENAI_API_KEY" not in config["services"]["frontend"]["environment"]
 
     assert config["services"]["worker-chat"]["environment"][
         "CHAT_WORKER_CONCURRENCY"
@@ -523,7 +523,7 @@ def test_private_preview_tracked_files_contain_no_secret_literals() -> None:
     assert "GUARDIAN_SESSION_SECRET: \"${GUARDIAN_SESSION_SECRET:?" in compose_text
     assert "GUARDIAN_JWT_SECRET: \"${GUARDIAN_JWT_SECRET:?" in compose_text
     assert "DEEPSEEK_API_KEY=<set-in-untracked-private-preview-env>" in template_text
-    assert "CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram" in template_text
+    assert "CODEXIFY_EGRESS_ALLOWLIST=deepseek,deepgram,openai" in template_text
     assert "CODEXIFY_EGRESS_ALLOWLIST=*" not in template_text
 
 

@@ -208,3 +208,38 @@ def test_non_strict_alias_fallback_keeps_one_operator_selected_model(monkeypatch
     resolution = resolve_local_execution_model(settings=settings)
     assert resolution.ok
     assert resolution.model == _WHOOSHD_MODEL
+
+
+@pytest.mark.parametrize(
+    ("exposure_mode", "allowlist", "api_key", "expected_selectable"),
+    [
+        ("private_preview", "deepseek,deepgram,openai", "test-openai-key", True),
+        ("private_preview", "deepseek,deepgram,openai", "", False),
+        ("local_safe", "deepseek,deepgram", "test-openai-key", False),
+        ("local_safe", "deepseek,deepgram,openai", "test-openai-key", False),
+    ],
+)
+def test_openai_catalog_respects_private_preview_provider_contract(
+    monkeypatch, exposure_mode, allowlist, api_key, expected_selectable
+):
+    from guardian.core.llm_catalog import _provider_entry
+
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("GUARDIAN_EXPOSURE_MODE", exposure_mode)
+    manifest = load_supported_profile("v1-whooshd-deepseek-web")
+    settings = _supported_profile_settings(
+        ALLOW_CLOUD_PROVIDERS=True,
+        CODEXIFY_LOCAL_ONLY_MODE=False,
+        CODEXIFY_EGRESS_ALLOWLIST=allowlist,
+        LOCAL_CHAT_MODEL=_LOCAL_CHAT_ROUTE,
+        DEEPSEEK_CHAT_MODEL=manifest.provider_contract["DEEPSEEK_CHAT_MODEL"],
+        OPENAI_API_KEY=api_key,
+    )
+
+    entry = _provider_entry("openai", settings, include_all=False)
+    assert (entry is not None and entry["enabled"]) is expected_selectable
+    if expected_selectable:
+        assert entry["displayName"] == "OpenAI"
+        assert {"gpt-4o", "gpt-4.1-mini"} <= {
+            model["id"] for model in entry["models"]
+        }

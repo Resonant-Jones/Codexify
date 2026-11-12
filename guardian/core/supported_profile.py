@@ -35,6 +35,19 @@ class SupportedProfileManifest:
     provider_contract: dict[str, Any]
     criticality: dict[str, dict[str, tuple[str, ...]]]
 
+    private_preview_egress_allowlist: str | None = None
+
+    def expected_provider_contract(self) -> dict[str, Any]:
+        if (
+            self.private_preview_egress_allowlist is not None
+            and os.getenv("GUARDIAN_EXPOSURE_MODE") == "private_preview"
+        ):
+            return {
+                **self.provider_contract,
+                "CODEXIFY_EGRESS_ALLOWLIST": self.private_preview_egress_allowlist,
+            }
+        return self.provider_contract
+
     def route_status(self, label: str) -> str:
         normalized = str(label or "").strip()
         if normalized in self.quarantined_routes:
@@ -178,6 +191,14 @@ def _manifest_from_payload(payload: dict[str, Any]) -> SupportedProfileManifest:
             f"route_posture contains overlapping labels: {sorted(overlap)!r}"
         )
 
+    preview_egress = payload.get("private_preview_egress_allowlist")
+    if preview_egress is not None and (
+        not isinstance(preview_egress, str) or not preview_egress.strip()
+    ):
+        raise SupportedProfileError(
+            "private_preview_egress_allowlist must be a non-empty string"
+        )
+
     return SupportedProfileManifest(
         name=name,
         version=version,
@@ -201,6 +222,7 @@ def _manifest_from_payload(payload: dict[str, Any]) -> SupportedProfileManifest:
             payload.get("provider_contract")
         ),
         criticality=_normalize_criticality(payload.get("criticality")),
+        private_preview_egress_allowlist=preview_egress,
     )
 
 
@@ -309,7 +331,7 @@ def validate_supported_profile_runtime(
 ) -> list[str]:
     mismatches: list[str] = []
     actual_contract = supported_profile_actual_provider_contract(settings)
-    for key, expected in manifest.provider_contract.items():
+    for key, expected in manifest.expected_provider_contract().items():
         actual = actual_contract.get(key)
         if _is_explicit_operator_model_selection(key, actual):
             continue
@@ -365,7 +387,7 @@ def build_supported_profile_runtime_state(
         "public_extensions": list(manifest.public_extensions),
         "internal_extensions": list(manifest.internal_extensions),
         "provider_contract": {
-            "expected": dict(manifest.provider_contract),
+            "expected": dict(manifest.expected_provider_contract()),
             "actual": actual_contract,
         },
         "criticality": {
