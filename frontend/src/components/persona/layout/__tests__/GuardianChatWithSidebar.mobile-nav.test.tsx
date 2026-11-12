@@ -4,6 +4,8 @@ import * as React from "react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import codexifySidebarMarkSrc from "@/assets/brands/codexify/codexify-sidebar-mark.png";
+
 import GuardianChatWithSidebar, {
   type GuardianApplicationDestination,
 } from "../GuardianChatWithSidebar";
@@ -281,6 +283,7 @@ describe("Guardian mobile application navigation", () => {
       screen.getByTestId("guardian-primary-frame").parentElement
     ).toHaveAttribute("data-guardian-frame-shell", "frame-first");
     const mark = screen.getByTestId("mobile-app-sidebar-codexify-mark");
+    expect(mark).toHaveAttribute("src", codexifySidebarMarkSrc);
     expect(mark).toHaveAttribute("alt", "");
     expect(mark).toHaveAttribute("aria-hidden", "true");
     expect(

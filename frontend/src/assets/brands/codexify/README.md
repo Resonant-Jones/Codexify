@@ -2,7 +2,8 @@
 
 The supplied October 2026 artwork replaces the previous mark and desktop placeholder.
 
-- `codexify-mark.png`: original 256 px app icon, used by conversation-origin badges, mobile navigation, the header, and the local/default provider badge.
+- `codexify-mark.png`: original 256 px app icon, used by conversation-origin badges, the header, and the local/default provider badge.
+- `codexify-sidebar-mark.png`: user-supplied November 2026 512 px white emblem on a transparent background, used only by the application-navigation toggle in the shared mobile drawer and desktop shelf. Its original bytes are retained, and CSS tokens determine display size.
 - `codexify-appicon-big.png`: original 1254 px app icon, retained as the desktop and large install-icon source.
 - `codexify-mark.svg` and `codexify-mark-micro.svg`: the supplied `emblem-chunk.svg`, preserving its path, stroke width, and transparent `currentColor` treatment.
 - `codexify-lockup-horizontal.svg`: the supplied emblem alongside the existing outlined wordmark.

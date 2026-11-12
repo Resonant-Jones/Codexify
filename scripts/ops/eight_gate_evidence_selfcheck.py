@@ -15,6 +15,7 @@ Run:
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
 import sys
@@ -371,6 +372,94 @@ def check_lock_gate() -> None:
     )
 
 
+def _parse_revision_source(tree: ast.AST) -> tuple[str | None, list[str]]:
+    """Return the (revision, down_revisions) a migration module declares."""
+    revision: str | None = None
+    downs: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        else:
+            continue
+        if "revision" in targets:
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                value = None
+            if isinstance(value, str):
+                revision = value
+        if "down_revision" in targets:
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                value = None
+            if isinstance(value, str):
+                downs = [value]
+            elif isinstance(value, (list, tuple)):
+                downs = [v for v in value if isinstance(v, str)]
+    return revision, downs
+
+
+def _head_from_graph(revisions: Mapping[str, Sequence[str]]) -> dict[str, Any]:
+    """The single head of a revision graph, or none when there is not one.
+
+    A revision is a head when no other revision descends from it. A graph
+    with two heads has no single head, and that is reported as such rather
+    than resolved by picking one.
+    """
+    children: set[str] = set()
+    for downs in revisions.values():
+        children.update(downs)
+    heads = sorted(set(revisions) - children)
+    return {
+        "head": heads[0] if len(heads) == 1 else None,
+        "heads": heads,
+        "revisions": len(revisions),
+    }
+
+
+def _source_level_head(versions_dir: Path | None = None) -> dict[str, Any]:
+    """Compute the checkout's single Alembic head from the migration source.
+
+    This is deliberately independent of ``eight_gate_evidence``'s own
+    ``_read_checkout_head``. Two independent reasons:
+
+    * It must not take the harness's answer as the expected value. A harness
+      that computed the wrong head would then agree with itself and the check
+      would pass.
+    * It must not pin a literal revision. A pinned revision goes stale at the
+      next migration and turns the check into a false failure -- which is
+      exactly what happened: the check reported 53/54 with a stale expected
+      revision while the harness under test was reading the real head
+      correctly.
+
+    So the head is read here, straight from the migration files' own
+    ``revision`` and ``down_revision`` declarations, with no Alembic and no
+    ``alembic.ini``: the revision that no other revision descends from.
+
+    ``versions_dir`` exists so a proof can point this at another graph.
+    """
+    versions = versions_dir or (
+        Path(__file__).resolve().parents[2]
+        / "guardian"
+        / "db"
+        / "migrations"
+        / "versions"
+    )
+    revisions: dict[str, list[str]] = {}
+    for path in sorted(versions.glob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        revision, downs = _parse_revision_source(tree)
+        if revision:
+            revisions[revision] = downs
+    return _head_from_graph(revisions)
+
+
 def check_migration_gate() -> None:
     print("migration gate")
     mismatched = G.gate_migration_deployment(
@@ -378,8 +467,18 @@ def check_migration_gate() -> None:
     )
     eq(mismatched.verdict, G.VERDICT_FAIL, "a live revision that is not the checkout head is FAIL")
 
+    expected = _source_level_head()
+    head = expected.get("head")
+    if not isinstance(head, str) or len(head) != 12:
+        check(
+            False,
+            "the evaluated checkout's single head is computed from its source "
+            f"(could not be computed from the migration source: {expected})",
+        )
+        return
+
     matched = G.gate_migration_deployment(
-        make_harness(tables={"alembic_version": [{"version_num": "a7d4c9e2f1b3"}]})
+        make_harness(tables={"alembic_version": [{"version_num": head}]})
     )
     eq(
         matched.observed["live_alembic_version"]["row_count"],
@@ -388,7 +487,7 @@ def check_migration_gate() -> None:
     )
     eq(
         matched.observed["evaluated_checkout_head"]["head"],
-        "a7d4c9e2f1b3",
+        head,
         "the evaluated checkout's single head is computed from its source",
     )
     eq(
