@@ -85,6 +85,22 @@ The continuity slice shares observable persisted-message state between thread an
 
 See [the mainline integration receipt](../../mobile/scout-ios/SCOUT_MAINLINE_INTEGRATION_815.md) for the bounded transplant and fresh validation, and [the live proof](../../mobile/scout-ios/SCOUT_LIVE_CONTINUITY_2026-10-04.md) for the historical #815 closeout. App Entities/App Intents (#816) and deeper integrations remain separate downstream tasks, gated on both integrations reaching main; no Beta, TestFlight, or App Store readiness advances.
 
+## Library read transport
+
+The hosted Scout transport admits `GET /api/media/images`,
+`GET /api/media/document-artifacts`, and one document-artifact detail by ID.
+It also admits `GET` for the existing signed image storage families under
+`/media/images/` and `/media/generated_images/`. These additions are read-only;
+they do not admit upload, deletion, arbitrary media paths, or widget APIs.
+
+ADR-092's fixed-host Access admission and canonical account-session validation
+remain required before normalization. The existing media handlers still own
+account scope, resource authorization, and signed-media verification. Library
+does not create a principal, storage authority, or new sharing grant. The
+Library projection contract continues to require honest partial/bounded results
+and keeps saved-widget discovery unavailable until its authoritative listing
+exists. This client bridge does not qualify Scout as a supported Beta surface.
+
 ## iOS system-integration boundary (#818)
 
 App Entities, App Intents and other system surfaces are a client integration layer.

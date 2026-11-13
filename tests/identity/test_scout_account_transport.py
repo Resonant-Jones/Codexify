@@ -91,6 +91,88 @@ def test_edge_consumed_composition_still_requires_selected_account(client):
     assert response.json()["alternate_removed"]
 
 
+LIBRARY_READ_PATHS = [
+    "/api/media/images?limit=100",
+    "/api/media/images?tag=generated&limit=100",
+    "/api/media/document-artifacts?limit=100",
+    "/api/media/document-artifacts/document-id?artifact_type=generated",
+    "/media/images/image.png?sig=fixture",
+    "/media/generated_images/image.png?sig=fixture",
+]
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+@pytest.mark.parametrize("edge_consumed", [True, False])
+def test_library_reads_reuse_selected_account_transport(client, path, edge_consumed):
+    selected_headers = edge_headers() if edge_consumed else headers()
+    response = client.get(path, headers=selected_headers)
+    assert response.status_code == 200
+    assert response.json()["selected"] == "Bearer fixture-account"
+    assert response.json()["alternate_removed"]
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_library_transport_does_not_admit_mutations(client, path, method):
+    assert client.request(method, path, headers=edge_headers()).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/media/upload/image",
+        "/api/media/images/image-id",
+        "/api/media/document-artifacts/",
+        "/api/media/document-artifacts/id/revisions",
+        "/media/tts/audio.mp3",
+        "/media/documents/file.pdf",
+        "/media/other/file",
+        "/media/images/",
+        "/media/images/../other/file",
+        "/media/images//file",
+    ],
+)
+def test_library_allowlist_is_not_a_generic_media_prefix(path):
+    assert not transport.library_read_route(path, "GET")
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+def test_library_missing_ingress_and_mixed_credentials_fail_closed(client, path):
+    assert (
+        client.get(
+            path, headers={"X-Guardian-Account-Session": "fixture-account"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            path, headers=edge_headers() | {"X-API-Key": "fixture-operator"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            path, headers=edge_headers() | {"Cookie": "gc_session=fixture-cookie"}
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+def test_library_invalid_account_never_reaches_resource_handler(
+    client, monkeypatch, path
+):
+    from fastapi import HTTPException
+
+    def deny(_scope):
+        raise HTTPException(status_code=401)
+
+    monkeypatch.setattr(transport, "verify_selected_account", deny)
+    response = client.get(path, headers=edge_headers())
+    assert response.status_code == 401
+    assert "selected" not in response.json()
+
+
 @pytest.mark.parametrize(
     "extra",
     [
