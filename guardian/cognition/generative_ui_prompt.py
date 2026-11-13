@@ -32,7 +32,7 @@ comment. Put the HTML fragment directly inside it. Inline CSS in a
 `<style>` tag and JavaScript in a `<script>` tag. Use ordinary HTML
 quotes. Guardian encodes this draft for the client. Here is a complete example:
 
-<!-- {GENERATIVE_UI_MARKER_PREFIX}:html <button onclick="this.textContent=Number(this.textContent)+1">0</button> -->
+<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox <button onclick="this.textContent=Number(this.textContent)+1">0</button> -->
 
 Write a new widget for the user in the same form. Start the comment on its own
 line outside code fences. Put any introduction before it, with nothing after

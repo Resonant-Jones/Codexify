@@ -79,7 +79,7 @@ const note = "C";
 
 
 def test_draft_serialization_keeps_quotes_and_multiline_script():
-    draft = f"Try it.\n\n<!-- cfy-ui:html {SYNTH_HTML} -->"
+    draft = f"Try it.\n\n<!-- cfy-ui:sandbox\n{SYNTH_HTML}\n-->"
     canonical = serialize_widget_draft(draft)
     (artifact,) = parse_ui_artifacts(canonical)
     assert artifact == {"version": 1, "kind": "sandbox", "html": SYNTH_HTML}
@@ -97,7 +97,7 @@ def test_truncated_ambiguous_and_oversized_drafts_fail_closed():
         f"{SYNTH_HTML} --> <!-- another comment -->",
         "<p>" + "x" * 120_001 + "</p> -->",
     ):
-        draft = f"Try it.\n\n<!-- cfy-ui:html {tail}"
+        draft = f"Try it.\n\n<!-- cfy-ui:sandbox {tail}"
         assert render_content_for_inference(draft) == "Try it."
         visible = serialize_widget_draft(draft)
         assert visible.startswith("Try it.\n\nGuardian couldn’t build")
@@ -106,7 +106,7 @@ def test_truncated_ambiguous_and_oversized_drafts_fail_closed():
 
 
 def test_stream_withholds_a_draft_split_across_chunks():
-    draft = f"Try it.\n<!-- cfy-ui:html {SYNTH_HTML} -->"
+    draft = f"Try it.\n<!-- cfy-ui:sandbox {SYNTH_HTML} -->"
     for boundary in range(len(draft)):
         sent: list[str] = []
         stream = WidgetDraftStream(sent.append)

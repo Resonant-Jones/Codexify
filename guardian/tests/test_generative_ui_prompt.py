@@ -51,7 +51,7 @@ def test_guidance_documents_the_marker_shape_models_must_emit() -> None:
     assert "PERCENT_ENCODED_JSON" not in block
     assert "outside code fences" in block
     assert "Guardian encodes this draft" in block
-    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:html " in block
+    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox " in block
     assert '"kind":"native"' in block
     assert "chart.bar" in block
     assert "table.rows" in block
@@ -96,7 +96,7 @@ def test_documented_examples_decode_to_the_shapes_they_claim() -> None:
 def test_complete_marker_contains_the_documented_widget() -> None:
     block = build_generative_ui_guidance_block({GENERATIVE_UI_ENV_FLAG: "true"})
     markers = re.findall(
-        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:html .* -->$", block, re.MULTILINE
+        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox .* -->$", block, re.MULTILINE
     )
     (draft,) = markers
     (payload,) = parse_ui_artifacts(serialize_widget_draft(draft))
@@ -192,7 +192,7 @@ def test_assembled_prompt_includes_the_block_when_enabled(
     prompt = _assemble(monkeypatch)
 
     assert "Generative UI (interactive replies)" in prompt
-    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:html " in prompt
+    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox " in prompt
     # The rest of the prompt is untouched.
     assert "Be precise." in prompt
 
@@ -215,7 +215,7 @@ def test_block_survives_the_default_token_budget(
     tight = _assemble(monkeypatch, token_cap=1200)
     assert "Generative UI (interactive replies)" in tight
     assert re.search(
-        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:html .* -->$", tight, re.MULTILINE
+        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox .* -->$", tight, re.MULTILINE
     )
 
 

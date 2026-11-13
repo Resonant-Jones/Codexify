@@ -44,7 +44,7 @@ _UI_ARTIFACT_UNTERMINATED_RE = re.compile(
     flags=re.IGNORECASE | re.MULTILINE,
 )
 _EXCESSIVE_BLANK_LINES_RE = re.compile(r"\n{3,}")
-_UI_HTML_DRAFT_PREFIX = "<!-- cfy-ui:html"
+_UI_HTML_DRAFT_PREFIX = "<!-- cfy-ui:sandbox"
 _UI_HTML_DRAFT_RE = re.compile(re.escape(_UI_HTML_DRAFT_PREFIX), re.IGNORECASE)
 
 
@@ -91,12 +91,12 @@ class WidgetDraftStream:
             return
         text = self.pending + delta
         lower = text.lower()
-        index = lower.find(_UI_HTML_DRAFT_PREFIX)
-        if index >= 0:
+        opening = _UI_HTML_DRAFT_RE.search(text)
+        if opening is not None:
             self.in_draft = True
             self.pending = ""
-            if index:
-                self.callback(text[:index])
+            if opening.start():
+                self.callback(text[: opening.start()])
             return
 
         # Keep only a possible opening marker split across chunks.

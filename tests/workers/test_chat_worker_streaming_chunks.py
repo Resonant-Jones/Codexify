@@ -260,7 +260,7 @@ def test_chat_worker_streams_prose_and_persists_the_serialized_widget(monkeypatc
         monkeypatch,
         provider="local",
         model="test-model",
-        stream_tokens=["Try it.\n<!", "-- cfy-ui:", "html " + html + " -->"],
+        stream_tokens=["Try it.\n<!", "-- cfy-ui:", "sandbox " + html + " -->"],
     )
     persisted: list[str] = []
     monkeypatch.setattr(
