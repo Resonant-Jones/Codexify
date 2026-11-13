@@ -21,7 +21,7 @@ provenance, sandbox containment, and immutable revisions remain authoritative.
   container used temporary writable caches, existing dependency volumes, and
   hydrated tracked fixtures. Final tests passed.
 - No production database mutation was used for automated tests. The disposable
-  PostgreSQL container is task-specific and will be removed after validation.
+  PostgreSQL container was task-specific and was stopped/removed after validation.
 
 Commands (from the relevant checkout):
 ```
@@ -51,7 +51,21 @@ deletion UI, or model-controlled save capability is added. Account-wide widgets
 do not invent project/thread placements. These are bounded client/deployment
 proofs, not general Beta or distribution qualification.
 
-Live cross-client save/reopen verification is pending deployment and the user's
-chosen widget. Do not read this receipt as evidence that the phone interaction
-has already passed.
+## Deployment observation
+
+- Server/web implementation: `bab1b05d7`, cherry-picked into the serving checkout
+  as `fe9bb0612`. The backend restarted healthy; `/ping` returned 200, and an
+  unauthenticated `/api/saved-widgets` read returned 401.
+- The authenticated hosted web Library displayed the active Saved widgets view
+  and an empty list without an API error after reload.
+- Scout implementation: `bd3e75c74`. Installation succeeded on ScoutNode iPhone
+  and the physical iPad mini. Launching ScoutNode from Xcode tooling was denied
+  because the phone was locked; the user was asked to unlock and perform the
+  save/reopen check. Device Hub cannot inject taps into its mirrored phone view.
+- Existing unrelated Xcode signing/workspace changes and the serving checkout's
+  untracked Compose override were preserved. No push or merge was performed.
+
+Live cross-client save/reopen verification awaits the user's chosen widget.
+Installation, an empty authenticated list, and automated tests do not prove that
+the phone save/reopen interaction has passed.
 
