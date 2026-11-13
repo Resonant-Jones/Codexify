@@ -335,3 +335,57 @@ def test_provider_revocation_invalidates_only_matching_oauth_token(setup):
         db, "a", credentials.VALIDATION_AUTHORIZATION_ERROR, expected_token="token"
     )
     assert store.status(db, "a", "notion")["state"] == "reconnect_required"
+
+
+def test_simulated_notion_bridge_callback_read_source_and_revocation(
+    setup, monkeypatch
+):
+    """Real account routes/store, mocked external provider, not live consent proof."""
+    client, db, app = setup
+    from guardian.connections.notion import router, service
+
+    router.configure_db(db)
+    app.include_router(router.operations_router)
+    calls = []
+
+    def search(adapter, **kwargs):
+        calls.append((adapter._integration_token, kwargs["query"]))
+        return {
+            "results": [
+                {
+                    "id": "page-id",
+                    "url": "https://www.notion.so/page-id",
+                    "title": "Approved page",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(service.NotionClient, "search", search)
+    assert callback(client, begin(client)).status_code == 200
+    response = client.get("/api/knowledge/notion/search", params={"query": "pilot"})
+    assert response.status_code == 200
+    assert response.json()["results"][0]["url"] == "https://www.notion.so/page-id"
+    assert calls == [("token", "pilot")]
+    app.dependency_overrides[get_account_user_id] = lambda: "b"
+    assert (
+        client.get(
+            "/api/knowledge/notion/search", params={"query": "pilot"}
+        ).status_code
+        == 409
+    )
+    assert len(calls) == 1
+    app.dependency_overrides[get_account_user_id] = lambda: "a"
+    assert (
+        client.post(
+            "/api/connect/notion/oauth/disconnect",
+            headers={"origin": "https://example.test"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            "/api/knowledge/notion/search", params={"query": "pilot"}
+        ).status_code
+        == 409
+    )
+    assert len(calls) == 1

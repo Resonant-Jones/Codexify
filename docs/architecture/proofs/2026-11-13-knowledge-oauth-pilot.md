@@ -8,7 +8,8 @@ change imported-history permissions, or enable Preview worker dispatch. ADR-075 
 the Connections control-plane contract remain the boundaries: setup owns encrypted
 credentials and explicit scope; adapters own bounded reads; Command Bus owns execution
 policy. Accepted ADR-112 is integrated separately on main; its accepted-chat custody
-prerequisite is another local branch, not silently combined here.
+prerequisite was initially a separate local branch. The later integration section
+below records its deliberate combination without enabling Preview dispatch.
 
 The authoritative account is the authenticated existing account-session dependency,
 not an OAuth provider username, callback argument, email alias, or worker payload.
@@ -56,7 +57,9 @@ with OAuth disabled is a separate action, not credential resurrection.
   has legacy fallback key sources; a dedicated persistent key is preferred.
 - Apply reviewed migration `d8a90bf32107` after pilot migration `c13f0713a901` in an
   authorized deployment. The separate custody branch has a sibling migration after
-  `ab71d5ce9604`; reconcile graph explicitly before combining branches.
+  `ab71d5ce9604`. The integrated candidate now sequences GitHub after custody:
+  `ab71d5ce9604 → c7e4a1b9d602 → c13f0713a901 → d8a90bf32107`.
+  Original branches are preserved; no migration has run against serving data.
 - Enable `CODEXIFY_ENABLE_KNOWLEDGE_OAUTH` plus the existing provider route flags.
   Default remains off. No real `.env` or provider credentials were changed.
 - Browser setup must use the same origin as the registered callback. Cross-origin
@@ -82,8 +85,10 @@ locally; no live migration or database was touched.
 Frontend tests cover OAuth choice, generations, popup handling, explicit repository
 selection, disconnected/pending/reconnect state and interruption behavior. No live
 provider consent, real browser callback, PostgreSQL concurrency, server deployment or
-full release qualification has been performed. Existing frontend dependency tree lacks
-`tsc`; no dependency installation was attempted. Refresh failures require reconnect.
+full release qualification has been performed. An existing TypeScript compiler was subsequently located. App typecheck has 166
+baseline diagnostics and root tsconfig has three baseline diagnostics; comparison
+after removing one introduced unused import was identical. No dependency installation
+was attempted. Refresh failures require reconnect.
 Expired/consumed flow row retention is not yet a production maintenance policy.
 
 ## Primary protocol sources checked
@@ -113,3 +118,55 @@ the GitHub App registration, installation and user's intersected access.
 Read-only is this pilot's explicit grant, not an irreversible product-wide model.
 Future write or selected-content offline sync would require distinct explicit
 capabilities, scope selection and conflict policy; this task adds none of them.
+
+## Integrated local candidate and stronger proof
+
+The preserved original OAuth branch was integrated in a separate worktree on
+current authoritative main `663d14990`, after custody prerequisite `a757531a5`.
+The only cherry-pick conflict was the two appended Connections-contract sections;
+both were retained. The old 'transport decision pending' sentence now correctly
+refers to implementation and qualification of accepted ADR-112. No worker dispatch
+was enabled by this integration.
+
+Migration order is now one head:
+`ab71d5ce9604 → c7e4a1b9d602 → c13f0713a901 → d8a90bf32107`.
+The earlier GitHub migration test's stale parent/head assertions were updated to
+this integrated lineage. Original worktrees and commits remain unchanged.
+
+- Integrated focused backend suites: **302 passed**, 15 opt-in PostgreSQL tests
+  skipped in the ordinary run, before adding the separate nine-case custody proof.
+- Integrated frontend three focused suites: **31 passed**.
+- **24 actual PostgreSQL 16.15 tests passed** separately: nine custody
+  trigger/migration cases plus fifteen OAuth concurrency cases. Actual migrations
+  `c7 → c13 → d8` and reverse downgrade ran against minimal baseline tables.
+  This is not a replay of the entire historical Alembic migration graph.
+- Concurrent state consumers produced exactly one winner; concurrent refresh claims
+  produced exactly one winner. Callback/disconnect, refresh/disconnect, first-row
+  creation and scope-change fences were exercised. Six immutable accepted-work
+  mutations failed with SQLSTATE 23514; terminal/checkpoint updates remained allowed.
+- Both proof clusters were newly created under unique temporary directories using
+  existing Postgres.app binaries, Unix sockets only, no TCP listener and 32MB shared
+  buffers. Each was stopped and absence of its postmaster PID verified. No Docker,
+  production schema, user data, credentials or Preview volumes were used.
+- A simulated Notion route bridge now proves callback → encrypted credential →
+  source-bearing read → denial for another account → denial after disconnect.
+  The external provider is mocked; this is not live provider consent evidence.
+
+Configured tunnel hostname `preview.codexify.space` is verified in the private
+Preview Cloudflare tunnel configuration and its installed LaunchAgent reference.
+Thus the exact registration targets are:
+
+- `https://preview.codexify.space/api/connect/notion/oauth/callback`
+- `https://preview.codexify.space/api/connect/github-knowledge/oauth/callback`
+
+These callback paths are implemented in the local candidate, **not deployed live**.
+No OAuth application credentials or verified provider registrations were found in
+the inspected configuration. An existing GitHub PAT is not a GitHub App OAuth
+registration and was neither exposed nor used. Registration/consent/secret setup,
+actual ingress callback delivery and Preview worker bridge qualification remain
+separate blockers.
+
+Final ordinary integrated run including both opt-in PostgreSQL test modules:
+**302 passed, 24 skipped** (the same 24 passed separately against actual PostgreSQL).
+A second independent source review confirmed preserved account handoff/checkpoints,
+continued Preview invocation quarantine, and the single integrated migration head.

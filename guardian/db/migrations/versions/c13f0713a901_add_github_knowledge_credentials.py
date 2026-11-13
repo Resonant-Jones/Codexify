@@ -1,7 +1,7 @@
 """add user-scoped GitHub Knowledge connection credentials
 
 Revision ID: c13f0713a901
-Revises: ab71d5ce9604
+Revises: c7e4a1b9d602
 Create Date: 2026-11-13
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "c13f0713a901"
-down_revision: str | Sequence[str] | None = "ab71d5ce9604"
+down_revision: str | Sequence[str] | None = "c7e4a1b9d602"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

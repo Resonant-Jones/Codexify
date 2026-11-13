@@ -21,9 +21,9 @@ def test_lineage_and_schema_upgrade_downgrade(monkeypatch):
     spec = importlib.util.spec_from_file_location("github_pilot_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.down_revision == "ab71d5ce9604"
+    assert module.down_revision == "c7e4a1b9d602"
     script = ScriptDirectory.from_config(Config("backend/alembic.ini"))
-    assert script.get_heads() == ["c13f0713a901"]
+    assert script.get_heads() == ["d8a90bf32107"]
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as connection:
         monkeypatch.setattr(
