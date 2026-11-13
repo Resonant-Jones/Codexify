@@ -49,6 +49,10 @@ def _override_chat_route_request_scope(request):
 
     test_client = request.getfixturevalue("test_client")
     user_id = get_test_user_id()
+    # Match the authenticated account in both locked canonical-row lookups.
+    mock_db = request.getfixturevalue("mock_db")
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = user_id
     test_client.app.dependency_overrides[
         chat_routes.get_request_user_scope
     ] = lambda: RequestUserScope(
