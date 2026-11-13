@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct SettingsAuthView: View {
+    @Binding var systemAccent: Int
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var draftProfile = ScoutEndpointProfile.emptyDraft
     @State private var validationErrors: [ScoutEndpointDraftValidationError] = []
     @State private var showValidationResults = false
@@ -20,9 +24,28 @@ struct SettingsAuthView: View {
 
     private let keychainStore = ScoutKeychainStore()
 
+    private var accentSelection: Binding<Color> {
+        Binding {
+            ScoutAccentTheme(rgb: systemAccent, scheme: scheme, contrast: contrast).sourceColor
+        } set: { color in
+            if let rgb = ScoutAccentTheme.packed(color) { systemAccent = rgb }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    ColorPicker("System Accent", selection: accentSelection, supportsOpacity: false)
+                    if systemAccent != ScoutAccentTheme.defaultRGB {
+                        Button("Reset System Accent") { systemAccent = ScoutAccentTheme.defaultRGB }
+                    }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Changes Scout’s controls and background on this device.")
+                }
+
                 Section("Endpoint Profile") {
                     TextField("Name", text: nameBinding)
 
@@ -356,6 +379,11 @@ struct SettingsAuthView: View {
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .onChange(of: sessionGeneration) { _, _ in
                 if draftProfile.authenticationMode == .remoteSession {
                     accountSignIn.authorityDidChange(profile: draftProfile)
@@ -453,5 +481,5 @@ struct SettingsAuthView: View {
 }
 
 #Preview {
-    SettingsAuthView()
+    SettingsAuthView(systemAccent: .constant(ScoutAccentTheme.defaultRGB))
 }

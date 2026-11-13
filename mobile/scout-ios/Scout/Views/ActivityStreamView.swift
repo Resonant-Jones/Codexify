@@ -128,7 +128,9 @@ struct ActivityStreamView: View {
                     }
                 }
             }
-            .navigationTitle("Activity")
+            .modifier(ScoutCanvas())
+            .navigationTitle("Feed")
+            .toolbar { ScoutAuxiliaryMenu() }
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadActivity() }

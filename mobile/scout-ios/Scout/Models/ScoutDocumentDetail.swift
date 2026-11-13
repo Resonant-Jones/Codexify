@@ -10,4 +10,5 @@ struct ScoutDocumentDetail: Codable, Equatable {
     let src_url: String?
     let parsed_text: String?
     let created_at: String?
+    var text_preview_truncated: Bool? = nil
 }
