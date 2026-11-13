@@ -19,7 +19,11 @@ from sqlalchemy.exc import IntegrityError
 from guardian.connectors.oauth_crypto import decrypt_token, encrypt_token
 from guardian.db.models import KnowledgeOAuthCredential as Credential
 from guardian.db.models import KnowledgeOAuthFlow as Flow
-from guardian.db.models import User
+from guardian.db.models import (
+    User,
+    NotionConnectionCredential,
+    GitHubKnowledgeCredential,
+)
 
 
 class OAuthStateError(ValueError):
@@ -83,6 +87,19 @@ def _blank(generation: str, status: str) -> dict[str, Any]:
     )
 
 
+def _delete_legacy(session: Any, user_id: str, provider: str) -> int:
+    model = (
+        NotionConnectionCredential
+        if provider == "notion"
+        else GitHubKnowledgeCredential
+    )
+    return (
+        session.query(model)
+        .filter_by(user_id=user_id)
+        .delete(synchronize_session=False)
+    )
+
+
 def begin_flow(
     db: Any,
     user_id: str,
@@ -105,6 +122,7 @@ def begin_flow(
     for attempt in range(2):
         try:
             with db.get_session() as session:
+                _delete_legacy(session, user_id, provider)
                 values = _blank(generation, "pending")
                 row = _query(session, user_id, provider).with_for_update().one_or_none()
                 if row is None:
@@ -276,12 +294,26 @@ def status(db: Any, user_id: str, provider: str) -> dict[str, Any]:
 
 def disconnect(db: Any, user_id: str, provider: str) -> bool:
     _scope(user_id, provider)
-    with db.get_session() as session:
-        count = _query(session, user_id, provider).update(
-            _blank(secrets.token_hex(24), "disconnected"), synchronize_session=False
-        )
-        session.commit()
-        return count == 1
+    for attempt in range(2):
+        try:
+            with db.get_session() as session:
+                deleted = _delete_legacy(session, user_id, provider)
+                row = _query(session, user_id, provider).with_for_update().one_or_none()
+                existed = row is not None or deleted > 0
+                values = _blank(secrets.token_hex(24), "disconnected")
+                if row is None:
+                    session.add(
+                        Credential(user_id=user_id, provider=provider, **values)
+                    )
+                else:
+                    for key, value in values.items():
+                        setattr(row, key, value)
+                session.commit()
+                return existed
+        except IntegrityError:
+            if attempt:
+                raise OAuthStateError("oauth_storage_conflict") from None
+    raise OAuthStateError("oauth_storage_conflict")
 
 
 def claim_refresh(db: Any, user_id: str, provider: str) -> RefreshClaim | None:

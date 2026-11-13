@@ -12,7 +12,11 @@ from sqlalchemy.orm import sessionmaker
 from guardian.connections import oauth_store as store
 from guardian.db.models import KnowledgeOAuthCredential as Credential
 from guardian.db.models import KnowledgeOAuthFlow as Flow
-from guardian.db.models import User
+from guardian.db.models import (
+    User,
+    NotionConnectionCredential,
+    GitHubKnowledgeCredential,
+)
 
 
 @pytest.fixture
@@ -22,7 +26,13 @@ def db(monkeypatch):
         "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
     )
     engine = create_engine("sqlite://")
-    for table in (User.__table__, Credential.__table__, Flow.__table__):
+    for table in (
+        User.__table__,
+        Credential.__table__,
+        Flow.__table__,
+        NotionConnectionCredential.__table__,
+        GitHubKnowledgeCredential.__table__,
+    ):
         table.create(engine)
     factory = sessionmaker(engine)
 
@@ -196,3 +206,49 @@ def test_scope_selection_fences_old_refresh_snapshot(db, monkeypatch):
     assert store.save_repositories(db, "a", "github", old.generation, "7", ["o/r"])
     monkeypatch.setattr(store, "credential", lambda *args: old)
     assert store.claim_refresh(db, "a", "github") is None
+
+
+@pytest.mark.parametrize("provider", ["notion", "github"])
+@pytest.mark.parametrize("action", ["begin", "disconnect"])
+def test_oauth_transition_removes_legacy_even_with_flag_off(
+    db, monkeypatch, provider, action
+):
+    from guardian.connectors.oauth_crypto import encrypt_token
+    from guardian.connections import knowledge_oauth
+    from guardian.connections.notion import credentials as notion
+    from guardian.connections.github import credentials as github
+
+    monkeypatch.setattr(knowledge_oauth, "enabled", lambda: False)
+    with db.get_session() as session:
+        for user in ("a", "b"):
+            if provider == "notion":
+                row = NotionConnectionCredential(
+                    user_id=user, encrypted_integration_token=encrypt_token("legacy")
+                )
+            else:
+                row = GitHubKnowledgeCredential(
+                    user_id=user,
+                    encrypted_token=encrypt_token("legacy"),
+                    repositories=["o/r"],
+                )
+            session.add(row)
+        session.commit()
+    read = (
+        notion.configured_token
+        if provider == "notion"
+        else github.configured_connection
+    )
+    assert read(db, "a") is not None
+    if action == "begin":
+        start(db, provider=provider)
+    else:
+        assert store.disconnect(db, "a", provider)
+    assert read(db, "a") is None
+    assert read(db, "b") is not None
+    assert store.status(db, "a", provider)["generation"] is not None
+
+
+def test_disconnect_absent_creates_tombstone(db):
+    assert not store.disconnect(db, "a", "notion")
+    assert store.status(db, "a", "notion")["state"] == "disconnected"
+    assert store.status(db, "a", "notion")["generation"] is not None
