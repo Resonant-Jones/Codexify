@@ -17,52 +17,35 @@ served by the tool-exposure rail.
 
 from __future__ import annotations
 
-import json
 import os
-from urllib.parse import quote
 
 GENERATIVE_UI_ENV_FLAG = "GUARDIAN_GENERATIVE_UI"
 _TRUTHY = {"1", "true", "yes", "on", "enabled"}
 
 GENERATIVE_UI_MARKER_PREFIX = "cfy-ui"
 
-_SANDBOX_EXAMPLE = {
-    "version": 1,
-    "kind": "sandbox",
-    "title": "Counter",
-    "html": "<button>0</button>",
-    "js": "const b=document.querySelector('button');b.onclick=()=>b.textContent=Number(b.textContent)+1;",
-}
-_SANDBOX_EXAMPLE_JSON = json.dumps(_SANDBOX_EXAMPLE, separators=(",", ":"))
-_SANDBOX_EXAMPLE_MARKER = (
-    f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:{quote(_SANDBOX_EXAMPLE_JSON, safe='')} -->"
-)
-
 # Kept deliberately compact. This competes for the system-prompt token budget.
 GENERATIVE_UI_GUIDANCE = f"""## Generative UI (interactive replies)
 
-To deliver an interactive interface in chat, end your reply with one complete
-`cfy-ui` HTML comment on its own line, outside code fences. Serialize the
-widget as valid compact JSON first. Inside JSON strings, escape quotes,
-backslashes, and line breaks. Percent-encode the entire serialized object
-(including literal percent signs as `%25`) and put it inside the comment.
-Output only the completed comment and any short introduction. Omit the JSON
-source, HTML, CSS, JavaScript, and encoding placeholders from the visible reply.
+For a working tool or instrument, end your reply with one sandbox widget
+comment. Put the HTML fragment directly inside it. Inline CSS in a
+`<style>` tag and JavaScript in a `<script>` tag. Use ordinary HTML
+quotes. Guardian encodes this draft for the client. Here is a complete example:
 
-Registered native component (preferred for structured data):
+<!-- {GENERATIVE_UI_MARKER_PREFIX}:html <button onclick="this.textContent=Number(this.textContent)+1">0</button> -->
+
+Write a new widget for the user in the same form. Start the comment on its own
+line outside code fences. Put any introduction before it, with nothing after
+the closing delimiter. Keep it on one line where practical. Omit HTML and
+JavaScript comments from the widget so they cannot end the wrapper early.
+
+For registered native charts and tables, continue to put the percent-encoded
+compact JSON envelope inside a `cfy-ui` HTML comment. Native envelope:
 `{{"version":1,"kind":"native","component":"chart.bar","props":{{"title":"Weekly volume","series":[{{"label":"Mon","value":42}}]}}}}`
 
 Available components: `chart.bar` (props: `title`, `series` of
 `{{label, value}}`, `height`, `valueFormat` as number|percent|currency|compact)
 and `table.rows` (props: `title`, `columns` of key strings, `rows` of objects).
-
-Sandboxed custom interface (decoded JSON for reference, with optional `css`):
-`{_SANDBOX_EXAMPLE_JSON}`
-
-The complete reply for that counter ends with this encoded comment. For a new
-widget, encode your own object and use it in the same position:
-
-{_SANDBOX_EXAMPLE_MARKER}
 
 Rules:
 - Use `native` for data visualization. Use `sandbox` only when the user needs
@@ -70,10 +53,8 @@ Rules:
 - Prefer plain prose for ordinary answers. Do not emit a marker for simple
   factual replies, summaries, or anything a sentence handles well.
 - At most one artifact per reply.
-- Either artifact kind may declare `"layout":"wide"` for a broad canvas;
-  otherwise it uses compact width. The host always bounds layout to chat width.
-- Sandbox content is measured and fitted vertically up to a safe height cap;
-  `initialHeight` is a starting size, not a clipping requirement.
+- Native envelopes may declare `"layout":"wide"`. Keep widget controls usable
+  at narrow widths.
 - Any prose before the marker is rendered normally; keep the marker last.
 - The artifact source is stripped before you see it again later, so do not
   refer to it as if it persisted in conversation history.
@@ -97,8 +78,8 @@ access and no direct access to the host. Therefore:
 def generative_ui_enabled(env: dict[str, str] | None = None) -> bool:
     """Return whether generative UI emission guidance is enabled.
 
-    Default is off. Enabling only adds the guidance block; it grants the model
-    no capability beyond emitting a marker the renderer already validates.
+    Default is off. The flag enables draft formatting guidance and the
+    conversion to a marker the renderer already validates.
     """
 
     source = env if env is not None else os.environ

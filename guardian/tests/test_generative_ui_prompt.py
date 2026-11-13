@@ -22,6 +22,8 @@ from guardian.cognition.generative_ui_prompt import (
     generative_ui_enabled,
 )
 from guardian.cognition.identity_resolution import ResolvedImprint, ResolvedPersona
+from guardian.core.chat_attachments import serialize_widget_draft
+from guardian.core.saved_widget_validation import parse_ui_artifacts
 
 
 def test_disabled_by_default() -> None:
@@ -48,11 +50,9 @@ def test_guidance_documents_the_marker_shape_models_must_emit() -> None:
     block = build_generative_ui_guidance_block({GENERATIVE_UI_ENV_FLAG: "true"})
     assert "PERCENT_ENCODED_JSON" not in block
     assert "outside code fences" in block
-    assert "Percent-encode the entire serialized object" in block
-    assert "Omit the JSON" in block
-    # Both artifact kinds and both registered component ids must be named.
+    assert "Guardian encodes this draft" in block
+    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:html " in block
     assert '"kind":"native"' in block
-    assert '"kind":"sandbox"' in block
     assert "chart.bar" in block
     assert "table.rows" in block
     assert '"version":1' in block
@@ -83,36 +83,26 @@ def test_documented_examples_decode_to_the_shapes_they_claim() -> None:
     """
 
     block = build_generative_ui_guidance_block({GENERATIVE_UI_ENV_FLAG: "true"})
-    examples = [chunk for chunk in block.split("`") if chunk.startswith('{"version":1')]
-    assert len(examples) >= 2, "expected a native and a sandbox worked example"
-
-    kinds = set()
-    for example in examples:
-        payload = json.loads(example)
-        assert payload["version"] == 1
-        kinds.add(payload["kind"])
-        if payload["kind"] == "native":
-            assert payload["component"] in {"chart.bar", "table.rows"}
-            assert isinstance(payload["props"], dict)
-        else:
-            assert isinstance(payload["html"], str) and payload["html"]
-
-    assert kinds == {"native", "sandbox"}
+    (example,) = (
+        chunk for chunk in block.split("`") if chunk.startswith('{"version":1')
+    )
+    payload = json.loads(example)
+    assert payload["version"] == 1
+    assert payload["kind"] == "native"
+    assert payload["component"] in {"chart.bar", "table.rows"}
+    assert isinstance(payload["props"], dict)
 
 
 def test_complete_marker_contains_the_documented_widget() -> None:
     block = build_generative_ui_guidance_block({GENERATIVE_UI_ENV_FLAG: "true"})
     markers = re.findall(
-        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:([^>]+) -->$", block, re.MULTILINE
+        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:html .* -->$", block, re.MULTILINE
     )
-    (encoded,) = markers
-    source = urllib.parse.unquote(encoded)
-    assert encoded == urllib.parse.quote(source, safe="")
-    assert f"`{source}`" in block
-    payload = json.loads(source)
+    (draft,) = markers
+    (payload,) = parse_ui_artifacts(serialize_widget_draft(draft))
     assert payload["version"] == 1 and payload["kind"] == "sandbox"
-    assert payload["html"] == "<button>0</button>"
-    assert "onclick" in payload["js"]
+    assert payload["html"].endswith(">0</button>")
+    assert "onclick" in payload["html"]
 
 
 def test_percent_encoding_excludes_the_html_comment_terminator() -> None:
@@ -202,7 +192,7 @@ def test_assembled_prompt_includes_the_block_when_enabled(
     prompt = _assemble(monkeypatch)
 
     assert "Generative UI (interactive replies)" in prompt
-    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:%7B" in prompt
+    assert f"<!-- {GENERATIVE_UI_MARKER_PREFIX}:html " in prompt
     # The rest of the prompt is untouched.
     assert "Be precise." in prompt
 
@@ -225,7 +215,7 @@ def test_block_survives_the_default_token_budget(
     tight = _assemble(monkeypatch, token_cap=1200)
     assert "Generative UI (interactive replies)" in tight
     assert re.search(
-        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:%7B[^>]+%7D -->$", tight, re.MULTILINE
+        rf"^<!-- {GENERATIVE_UI_MARKER_PREFIX}:html .* -->$", tight, re.MULTILINE
     )
 
 

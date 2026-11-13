@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any
+from typing import Any, Callable
+
+from guardian.core.saved_widget_validation import validate_ui_artifact
 
 _ATTACHMENT_MARKER_RE = re.compile(
     r"<!--\s*(cfy-media(?:-src|-name)?):([^>]*?)\s*-->",
@@ -42,6 +44,76 @@ _UI_ARTIFACT_UNTERMINATED_RE = re.compile(
     flags=re.IGNORECASE | re.MULTILINE,
 )
 _EXCESSIVE_BLANK_LINES_RE = re.compile(r"\n{3,}")
+_UI_HTML_DRAFT_PREFIX = "<!-- cfy-ui:html"
+_UI_HTML_DRAFT_RE = re.compile(re.escape(_UI_HTML_DRAFT_PREFIX), re.IGNORECASE)
+
+
+def serialize_widget_draft(content: str) -> str:
+    """Turn a final, explicitly marked model draft into the existing widget wire format."""
+    opening = _UI_HTML_DRAFT_RE.search(content)
+    if opening is None:
+        return content
+
+    tail = content[opening.end() :].rstrip()
+    html = tail[:-3].strip() if tail.endswith("-->") else ""
+    artifact = None
+    if (
+        not _UI_ARTIFACT_MARKER_RE.search(content, 0, opening.start())
+        and tail[:1].isspace()
+        and re.match(r"<[a-zA-Z][a-zA-Z0-9-]*\b", html)
+        and "<!--" not in html
+        and "-->" not in html
+    ):
+        artifact = validate_ui_artifact({"version": 1, "kind": "sandbox", "html": html})
+    prefix = content[: opening.start()].rstrip()
+    if artifact is None:
+        replacement = (
+            "Guardian couldn’t build the interactive widget. Ask for a new one."
+        )
+    else:
+        source = json.dumps(artifact, separators=(",", ":"))
+        payload = base64.urlsafe_b64encode(source.encode("utf-8")).decode("ascii")
+        payload = payload.rstrip("=")
+        replacement = f"<!-- cfy-ui:{payload} -->"
+    return f"{prefix}\n\n{replacement}" if prefix else replacement
+
+
+class WidgetDraftStream:
+    """Forward prose while withholding the unencoded draft from client streams."""
+
+    def __init__(self, callback: Callable[[str], None]):
+        self.callback = callback
+        self.pending = ""
+        self.in_draft = False
+
+    def feed(self, delta: str) -> None:
+        if self.in_draft:
+            return
+        text = self.pending + delta
+        lower = text.lower()
+        index = lower.find(_UI_HTML_DRAFT_PREFIX)
+        if index >= 0:
+            self.in_draft = True
+            self.pending = ""
+            if index:
+                self.callback(text[:index])
+            return
+
+        # Keep only a possible opening marker split across chunks.
+        for size in range(min(len(text), len(_UI_HTML_DRAFT_PREFIX) - 1), 0, -1):
+            if lower.endswith(_UI_HTML_DRAFT_PREFIX[:size]):
+                self.pending = text[-size:]
+                text = text[:-size]
+                break
+        else:
+            self.pending = ""
+        if text:
+            self.callback(text)
+
+    def finish(self) -> None:
+        if self.pending:
+            self.callback(self.pending)
+            self.pending = ""
 
 
 def _decode_base64url_json(raw: str) -> dict[str, Any] | None:
@@ -142,6 +214,9 @@ def render_content_for_inference(content: Any) -> str:
     if not isinstance(content, str):
         return ""
 
+    opening = _UI_HTML_DRAFT_RE.search(content)
+    if opening is not None:
+        content = content[: opening.start()]
     tiles, blocks, stripped = _extract_document_context(content)
     stripped = _UI_ARTIFACT_MARKER_RE.sub("", stripped)
     stripped = _UI_ARTIFACT_UNTERMINATED_RE.sub("", stripped)
@@ -175,9 +250,7 @@ def render_content_for_inference(content: Any) -> str:
         if block:
             document_lines.append(f"Referenced document: {label}\n{block}")
         elif tile.get("preview"):
-            document_lines.append(
-                f"Referenced document: {label}\n{tile['preview']}"
-            )
+            document_lines.append(f"Referenced document: {label}\n{tile['preview']}")
         else:
             document_lines.append(f"Referenced document: {label}")
     for block_id, block_content in block_by_id.items():
