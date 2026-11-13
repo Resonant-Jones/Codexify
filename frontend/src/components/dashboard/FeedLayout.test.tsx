@@ -42,6 +42,25 @@ describe("Feed customization", () => {
     expect(order()).toEqual(["Recent Threads", "Recent Documents", "Gallery"]);
   });
 
+  it("preserves edits made before account ownership finishes loading", async () => {
+    let resolveOwner!: (value: unknown) => void;
+    session.get.mockImplementationOnce(() => new Promise((resolve) => { resolveOwner = resolve; }));
+    render(<FeedLayout cards={cards} />);
+    fireEvent.click(screen.getByRole("button", { name: "Customize Feed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move Gallery up" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Recent Documents" }));
+    expect(order()).toEqual(["Recent Threads", "Gallery"]);
+
+    await act(async () => resolveOwner({ data: [{ user_id: "account-a" }] }));
+
+    expect(order()).toEqual(["Recent Threads", "Gallery"]);
+    expect(screen.getByRole("checkbox", { name: "Recent Documents" })).not.toBeChecked();
+    expect(JSON.parse(localStorage.getItem(feedStorageKey("account-a"))!)).toMatchObject({
+      order: ["threads", "gallery", "documents"],
+      hidden: ["documents"],
+    });
+  });
+
   it("keeps recovery controls reachable when every card is hidden and supports Escape", async () => {
     render(<FeedLayout cards={cards} />);
     await customize();
@@ -60,10 +79,12 @@ describe("Feed customization", () => {
     session.get.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
     localStorage.setItem(feedStorageKey("account-a"), JSON.stringify({ version: 1, order: ["gallery"], hidden: ["threads"] }));
     const view = render(<FeedLayout cards={cards} />);
+    fireEvent.click(screen.getByRole("button", { name: "Customize Feed" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gallery" }));
     session.auth = { ...session.auth, token: "session-b" };
     session.owner = "account-b";
     view.rerender(<FeedLayout cards={cards} />);
-    await customize();
+    await screen.findByText("Saved for your account on this device.");
     await act(async () => resolveOld({ data: [{ user_id: "account-a" }] }));
     expect(order()).toEqual(["Recent Threads", "Recent Documents", "Gallery"]);
     fireEvent.click(screen.getByRole("checkbox", { name: "Gallery" }));

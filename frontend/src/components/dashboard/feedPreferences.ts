@@ -32,6 +32,15 @@ function readPreferences(accountId: string | null): FeedPreferences {
   }
 }
 
+function savePreferences(accountId: string, value: FeedPreferences): boolean {
+  try {
+    localStorage.setItem(feedStorageKey(accountId), JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local presentation preferences only; the backend remains authoritative for card data. */
 export function useFeedPreferences() {
   const auth = useAuthState();
@@ -40,9 +49,24 @@ export function useFeedPreferences() {
   const [owner, setOwner] = useState<{ session: typeof session; id: string | null }>({ session, id: null });
   const accountId = owner.session === session ? owner.id : null;
   const scope = accountId ? feedStorageKey(accountId) : session;
-  const [state, setState] = useState(() => ({ scope, value: readPreferences(accountId), saved: true }));
-  if (state.scope !== scope) {
-    setState({ scope, value: readPreferences(accountId), saved: true });
+  const [state, setState] = useState(() => ({
+    scope,
+    session,
+    value: readPreferences(accountId),
+    saved: true,
+    pending: false,
+  }));
+  if (state.scope !== scope || state.session !== session) {
+    // A completed lookup must not overwrite this session's explicit edits.
+    // An actual login change always starts from the new account's preferences.
+    const preserveEdits = state.session === session && state.scope === session && state.pending;
+    setState({
+      scope,
+      session,
+      value: preserveEdits ? state.value : readPreferences(accountId),
+      saved: !preserveEdits,
+      pending: preserveEdits,
+    });
   }
 
   useEffect(() => {
@@ -63,19 +87,19 @@ export function useFeedPreferences() {
     return () => { cancelled = true; };
   }, [session, auth.status]);
 
+  useEffect(() => {
+    if (!accountId || state.scope !== scope || state.session !== session || !state.pending) return;
+    const saved = savePreferences(accountId, state.value);
+    setState((current) => current === state ? { ...current, saved, pending: false } : current);
+  }, [accountId, scope, session, state]);
+
   function update(value: FeedPreferences) {
-    let saved = false;
-    if (accountId) {
-      try {
-        localStorage.setItem(feedStorageKey(accountId), JSON.stringify(value));
-        saved = true;
-      } catch { /* Storage may be unavailable; preserve the in-memory layout. */ }
-    }
-    setState({ scope, value, saved });
+    const saved = accountId ? savePreferences(accountId, value) : false;
+    setState({ scope, session, value, saved, pending: !accountId });
   }
 
   return {
-    preferences: state.scope === scope ? state.value : readPreferences(accountId),
+    preferences: state.scope === scope && state.session === session ? state.value : readPreferences(accountId),
     update,
     persistent: !!accountId && state.saved,
   };
