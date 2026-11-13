@@ -285,9 +285,7 @@ const APP_SHELL_VIEWS = [
 const PHONE_NAVIGATION_DESTINATIONS = [
   { view: "guardian", label: "Guardian", priority: "primary" },
   { view: "library", label: "Library", priority: "primary" },
-  { view: "documents", label: "Documents", priority: "primary" },
-  { view: "gallery", label: "Gallery", priority: "primary" },
-  { view: "dashboard", label: "Dashboard", priority: "secondary" },
+  { view: "dashboard", label: "Feed", priority: "primary" },
   { view: "settings", label: "Settings", priority: "secondary" },
 ] as const satisfies readonly MobileApplicationDestination[];
 
@@ -3886,7 +3884,7 @@ export default function AppShell({
                 onClick={() => navigateToView("dashboard")}
                 style={getMobileNavPillStyle("dashboard")}
               >
-                Dashboard
+                Feed
               </PhonePressButton>
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
@@ -3897,26 +3895,6 @@ export default function AppShell({
                 style={getMobileNavPillStyle("library")}
               >
                 Library
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={activeRoomId == null && view === "documents" ? "active" : "inactive"}
-                aria-current={activeRoomId == null && view === "documents" ? "page" : undefined}
-                onClick={() => navigateToView("documents")}
-                style={getMobileNavPillStyle("documents")}
-              >
-                Documents
-              </PhonePressButton>
-              <PhonePressButton
-                isPhoneShell={isPhoneShell}
-                className="pill-tab shrink-0 whitespace-nowrap"
-                data-state={activeRoomId == null && view === "gallery" ? "active" : "inactive"}
-                aria-current={activeRoomId == null && view === "gallery" ? "page" : undefined}
-                onClick={() => navigateToView("gallery")}
-                style={getMobileNavPillStyle("gallery")}
-              >
-                Gallery
               </PhonePressButton>
               <PhonePressButton
                 isPhoneShell={isPhoneShell}
@@ -4467,15 +4445,15 @@ export default function AppShell({
                       data-testid="dashboard-primary-frame"
                     >
                       {phonePrimaryFrameHeader}
-                      <div className="min-h-0 flex-1 overflow-auto">
+                      <div className="min-h-0 flex-1 overflow-hidden">
                         <DashboardView
                           extColors={extColors}
                           gallery={gallery}
                           onImagePrompt={openChatWithPrompt}
                           onRequestNewProject={openCreateProjectModal}
                           onRequestNewThread={createThreadFromDashboard}
-                          onNavigateDocuments={() => navigateToView("documents")}
-                          onNavigateGallery={() => navigateToView("gallery")}
+                          onNavigateDocuments={() => navigateToView("library")}
+                          onNavigateGallery={() => navigateToView("library")}
                           threadGridRows={dashboardThreadRows}
                         />
                       </div>
@@ -4487,8 +4465,8 @@ export default function AppShell({
                       onImagePrompt={openChatWithPrompt}
                       onRequestNewProject={openCreateProjectModal}
                       onRequestNewThread={createThreadFromDashboard}
-                      onNavigateDocuments={() => navigateToView("documents")}
-                      onNavigateGallery={() => navigateToView("gallery")}
+                      onNavigateDocuments={() => navigateToView("library")}
+                      onNavigateGallery={() => navigateToView("library")}
                       threadGridRows={dashboardThreadRows}
                     />
                   )}
