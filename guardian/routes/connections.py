@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from guardian.connections.catalog import (
     ConnectionCatalogEntry,
@@ -29,6 +29,7 @@ from guardian.connections.catalog import (
     get_connection,
 )
 from guardian.connections.notion import credentials as notion_credentials
+from guardian.connections.github import credentials as github_credentials
 from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
 from guardian.db import models as db_models
 from guardian.protocol_tokens import (
@@ -293,6 +294,8 @@ def _project_entry(
     channel_configs: set[str],
     oauth_rows: dict[str, dict[str, Any]],
     notion_validation: dict[str, Any] | None,
+    github_validation: dict[str, Any] | None = None,
+    github_setup_available: bool = False,
 ) -> dict[str, Any]:
     inference_authorization = _inference_authorization(entry)
     item = entry.as_dict()
@@ -328,6 +331,23 @@ def _project_entry(
         item["oauth"] = None
     item["validation"] = notion_validation if entry.id == "notion" else None
     item["authorization"] = inference_authorization
+    if entry.id == "github_knowledge":
+        item["validation"] = github_validation
+        storage_available = (github_validation or {}).get("state") != "storage_unavailable"
+        available = github_setup_available and storage_available
+        item["authorization"] = {
+            "registered": True,
+            "available": available,
+            "note": "Knowledge pilot setup only; Guardian use remains local-single-account-only.",
+        }
+        item["setup_state"] = (
+            _NOTION_VALIDATION_TO_SETUP_STATE.get(
+                str((github_validation or {}).get("state") or "unconfigured"),
+                ConnectionSetupState.ERROR.value,
+            ) if available else ConnectionSetupState.UNAVAILABLE.value
+        )
+        if not available:
+            item["runtime_binding"]["setup_route"] = None
     return item
 
 
@@ -356,7 +376,30 @@ def _oauth_launchable(entry: ConnectionCatalogEntry) -> bool:
     return bool(entry.runtime_binding.setup_route)
 
 
-def _project_all(user_id: str) -> list[dict[str, Any]]:
+def _github_projection(db: Any, user_id: str, request: Request) -> dict[str, Any]:
+    required = {
+        ("/api/connect/github-knowledge/configure", "POST"),
+        ("/api/connect/github-knowledge/validate", "POST"),
+        ("/api/connect/github-knowledge/disconnect", "POST"),
+        ("/api/knowledge/github/search", "GET"),
+        ("/api/knowledge/github/read/{owner}/{repo}/{number}", "GET"),
+    }
+    mounted = {
+        (route.path, method)
+        for route in request.app.routes
+        if hasattr(route, "path")
+        for method in (getattr(route, "methods", None) or ())
+    }
+    validation = {"configured": False, "state": "storage_unavailable", "last_validated_at": None}
+    if required <= mounted and db is not None:
+        try:
+            validation = github_credentials.status_projection(db, user_id)
+        except Exception:
+            pass  # Missing migration/storage stays unavailable and secret-free.
+    return {"github_validation": validation, "github_setup_available": required <= mounted}
+
+
+def _project_all(user_id: str, request: Request) -> list[dict[str, Any]]:
     db = _get_db()
     channel_configs: set[str] = set()
     oauth_rows: dict[str, dict[str, Any]] = {}
@@ -365,29 +408,32 @@ def _project_all(user_id: str) -> list[dict[str, Any]]:
         channel_configs = _user_channel_configs(db, user_id)
         oauth_rows = _user_oauth_rows(db, user_id)
         notion_validation = _user_notion_validation(db, user_id)
+    github_projection = _github_projection(db, user_id, request)
     return [
         _project_entry(
             entry,
             channel_configs=channel_configs,
             oauth_rows=oauth_rows,
             notion_validation=notion_validation,
+            **github_projection,
         )
         for entry in get_catalog()
     ]
 
 
 @router.get("")
-def list_connections(user_id: str = Depends(get_request_user_id)) -> dict:
+def list_connections(request: Request, user_id: str = Depends(get_request_user_id)) -> dict:
     """List the canonical Connections catalog with per-user state merged."""
     return {
         "categories": sorted(CONNECTION_CATEGORIES),
-        "items": _project_all(user_id),
+        "items": _project_all(user_id, request),
     }
 
 
 @router.get("/{connection_id}")
 def get_connection_details(
     connection_id: str,
+    request: Request,
     user_id: str = Depends(get_request_user_id),
 ) -> dict:
     """Return one catalog entry with per-user state merged."""
@@ -409,4 +455,5 @@ def get_connection_details(
         channel_configs=channel_configs,
         oauth_rows=oauth_rows,
         notion_validation=notion_validation,
+        **_github_projection(db, user_id, request),
     )

@@ -331,6 +331,37 @@ def _notion_knowledge_entry() -> ConnectionCatalogEntry:
     )
 
 
+def _github_knowledge_entry() -> ConnectionCatalogEntry:
+    return ConnectionCatalogEntry(
+        id="github_knowledge",
+        display_name="GitHub Knowledge",
+        category=ConnectionCategory.KNOWLEDGE.value,
+        description="Read-only issue and pull-request discovery and body reading within explicitly allowed repositories; separate from GitHub sync.",
+        auth_methods=(_TOKEN,),
+        capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
+        implementation_state=ConnectionImplementationState.EXPERIMENTAL.value,
+        default_setup_state=_UNAVAILABLE,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.github",
+            adapter="guardian.connections.github.service.GitHubClient",
+            setup_route="/api/connect/github-knowledge/configure",
+        ),
+        required_fields=(
+            ConnectionFieldSpec("token", "GitHub read-only token", "password", True),
+            ConnectionFieldSpec("repositories", "Allowed repositories (owner/repo, comma or newline separated)"),
+        ),
+        scopes=("content_search", "content_read"),
+        setup_help=(
+            "Use a fine-grained GitHub token limited to the selected repositories "
+            "with read access to issues and pull requests. Supply one to twenty "
+            "owner/repo names. Codexify stores the token encrypted server-side. "
+            "This pilot reads issue/PR bodies, not files, comments or diffs, and "
+            "does not sync or write. Guardian use currently requires the opt-in "
+            "local single-account DeepSeek lane; Private Preview remains unavailable."
+        ),
+    )
+
+
 def _google_drive_knowledge_entry() -> ConnectionCatalogEntry:
     """Canonical Google Drive / Docs identity, scoped to native Docs reads."""
     return ConnectionCatalogEntry(
@@ -587,7 +618,7 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
     )
 
     # =========================== Knowledge =================================
-    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry()])
+    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry(), _github_knowledge_entry()])
 
     # ============================ Inference ================================
     entries.extend(

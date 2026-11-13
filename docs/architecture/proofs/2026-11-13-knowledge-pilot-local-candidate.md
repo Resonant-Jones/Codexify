@@ -41,9 +41,11 @@ credential as another user's identity, invent an `X-User-Id` authority bridge,
 or weaken any existing guard. The next Preview stage needs a reviewed
 worker-to-Command-Bus account-custody transport and its own qualification.
 
-The pilot is an API/developer candidate. A GitHub Knowledge catalog/setup UI is
-**not** implemented; the existing GitHub sync UI must not be presented as this
-connection. Notion retains its existing setup surface. The current bounded
+The pilot remains a developer candidate. A subsequent scoped slice adds the
+GitHub Knowledge catalog/setup wizard, separately from legacy GitHub sync.
+Configure is disabled unless actual setup/read routes are mounted and credential
+storage is usable; saved connections support validation and disconnect without
+token reentry. Notion retains its existing setup surface. The current bounded
 chat loop permits one tool operation, not search-then-read iteration in one
 turn. OpenAI and Whoosh'd advertisement are unchanged.
 
@@ -91,7 +93,9 @@ python -m pytest tests/connections \
   tests/migration/test_github_knowledge_credentials.py -q --disable-warnings
 ```
 
-**Result: 259 tests passed.** Scoped Ruff and `git diff --check` passed.
+**Latest result: 282 backend tests passed**, including `tests/routes/test_connections.py`
+in addition to the command above. **22 frontend tests passed** across the three
+connector suites. Scoped Ruff and `git diff --check` passed.
 Central-file Ruff: 110 baseline diagnostics, 110 current, no new diagnostics
 (comparison by file, rule, and message against the preceding commit).
 
@@ -105,3 +109,32 @@ A broad Ruff pass on existing central files reports preexisting lint findings;
 those unrelated findings are not repaired in this slice. New/changed connector
 modules and new tests receive a separate scoped lint pass. Final counts and
 commit are in the task closeout.
+
+## Setup UI follow-through
+
+The GitHub wizard sends token and explicit repository list only to its dedicated
+provider setup API, clears token state after successful save, and stores no
+credential in browser storage. Provider failure text is not rendered. The UI
+discloses the issue/PR-body scope and local-only Guardian limitation.
+
+Frontend dependencies were reused through an ignored isolated-worktree symlink
+to an existing healthy dependency overlay; no installation or serving checkout
+dependency mutation occurred. Frontend ESLint passed with 25 warnings (not baseline-attributed).
+Full TypeScript check and browser visual QA were not performed; the declared
+TypeScript toolchain was unavailable in the reused dependency overlay.
+
+The Preview transport investigation is recorded separately in
+[the decision options](2026-11-13-knowledge-preview-transport-options.md). It
+confirms an unresolved architecture decision, not permission to relax the local
+transport restriction. No option was implemented.
+
+Reproducible frontend checks from `frontend/src`:
+
+```
+./node_modules/.bin/vitest run --config vitest.config.ts features/connectors/__tests__/ConnectionsCatalog.test.tsx features/connectors/__tests__/MinimaxOAuth.test.tsx features/connectors/useConnectors.test.tsx
+./node_modules/.bin/eslint features/connectors/ConnectorConfigModal.tsx features/connectors/connectionCatalog.ts features/connectors/__tests__/ConnectionsCatalog.test.tsx
+```
+
+Both checks were repeated after the final UI edits. Vitest also reported stale
+Browserslist data, a local-storage CLI warning and a duplicate JSX style attribute
+in untouched `SettingsPanelDock.tsx`; those warnings were not repaired here.

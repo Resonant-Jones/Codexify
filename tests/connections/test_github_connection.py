@@ -219,3 +219,54 @@ def test_setup_schema_errors_never_echo_request(client, body):
     assert response.status_code == 422
     assert "do-not-echo" not in response.text
     assert "input" not in response.text
+
+
+def test_catalog_github_setup_availability_is_mounted_and_account_scoped(client, monkeypatch):
+    from guardian.routes import connections
+    test_client, db = client
+    connections.configure_db(db)
+    test_client.app.include_router(connections.router)
+    _configure(test_client)
+    response = test_client.get('/api/connections/github_knowledge', headers=_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert data['implementation_state'] == 'experimental'
+    assert data['setup_state'] == 'configured'
+    assert data['runtime_binding']['setup_route'] == '/api/connect/github-knowledge/configure'
+    assert data['validation']['repositories'] == ['Resonant-Jones/Codexify']
+    assert 'github-secret-token' not in response.text
+    other = test_client.get('/api/connections/github_knowledge', headers=_headers('user-b')).json()
+    assert other['setup_state'] == 'needs_setup'
+    assert 'repositories' not in other['validation']
+    unmounted = FastAPI()
+    unmounted.include_router(connections.router)
+    data = TestClient(unmounted).get('/api/connections/github_knowledge', headers=_headers()).json()
+    assert data['setup_state'] == 'unavailable'
+    assert data['runtime_binding']['setup_route'] is None
+    assert data['authorization']['available'] is False
+
+
+def test_catalog_missing_migration_fails_unavailable(client, monkeypatch):
+    from guardian.routes import connections
+    from guardian.connections.github import credentials
+    test_client, db = client
+    connections.configure_db(db)
+    test_client.app.include_router(connections.router)
+    def missing(*args):
+        raise RuntimeError('private-db-details')
+    monkeypatch.setattr(credentials, 'status_projection', missing)
+    response = test_client.get('/api/connections/github_knowledge', headers=_headers())
+    assert response.status_code == 200
+    assert response.json()['setup_state'] == 'unavailable'
+    assert 'private-db-details' not in response.text
+
+
+def test_remote_setup_and_read_reject_operator_key_as_account(client, monkeypatch):
+    from guardian.core import dependencies
+    test_client, db = client
+    monkeypatch.setattr(dependencies, 'is_private_preview', lambda: False)
+    monkeypatch.setattr(dependencies, '_auth_mode', lambda: 'remote')
+    response = test_client.post('/api/connect/github-knowledge/configure', headers=_headers(), json={'token': 'never-store', 'repositories': ['owner/repo']})
+    assert response.status_code == 401
+    assert db.credential_for('user-a') is None
+    assert test_client.get('/api/knowledge/github/search?repository=owner/repo&query=test', headers=_headers()).status_code == 401

@@ -474,6 +474,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   }
 
   async function handleSave() {
+    if (setupUnavailable) return;
     setLoading(true);
     setMessage(null);
     setSaveSucceeded(false);
@@ -501,49 +502,76 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
         return;
       }
       let body: Record<string, unknown>;
-      if (route === "/api/channels/configs") {
+      if (connection.id === "github_knowledge") {
+        body = {
+          token: fields.token?.trim() || "",
+          repositories: [
+            ...new Set(
+              (fields.repositories || "")
+                .split(/[,\n]+/)
+                .map((value) => value.trim())
+                .filter(Boolean)
+            ),
+          ],
+        };
+      } else if (route === "/api/channels/configs") {
         body = { channel: connection.id, config_json: fields };
       } else {
         body = { settings: fields };
       }
       const res = await api.post(route, body);
       if (res?.data && !res.data.error) {
+        if (connection.id === "github_knowledge") {
+          setFields((previous) => ({ ...previous, token: "" }));
+        }
         setMessage("Settings saved.");
         setSaveSucceeded(true);
         onChanged();
       } else {
-        setMessage(res?.data?.error || "Save failed");
+        setMessage(
+          connection.id === "github_knowledge"
+            ? "GitHub settings could not be saved."
+            : res?.data?.error || "Save failed"
+        );
       }
     } catch (e: any) {
       setMessage(
-        e?.response?.data?.detail ||
-          e?.response?.data?.error ||
-          e?.message ||
-          "Operation failed"
+        connection.id === "github_knowledge"
+          ? "GitHub settings could not be saved."
+          : e?.response?.data?.detail ||
+            e?.response?.data?.error ||
+            e?.message ||
+            "Operation failed"
       );
     } finally {
       setLoading(false);
     }
   }
 
+  const isGitHubKnowledge = connection.id === "github_knowledge";
+  const knowledgeSetupPrefix = isGitHubKnowledge
+    ? "/api/connect/github-knowledge"
+    : "/api/connect/notion";
+
   async function handleNotionValidate() {
+    if (setupUnavailable) return;
     setLoading(true);
     setMessage(null);
     try {
       const res = await api.post<{
         validation?: { state?: string };
-      }>("/api/connect/notion/validate", {});
+      }>(`${knowledgeSetupPrefix}/validate`, {});
       const state = res?.data?.validation?.state;
       setMessage(
         state === "valid"
-          ? "Validation succeeded. Notion is reachable for this user."
+          ? `Validation succeeded. ${isGitHubKnowledge ? "GitHub" : "Notion"} is reachable for this user.`
           : "Validation completed."
       );
       onChanged();
     } catch (e: any) {
       const code = e?.response?.data?.detail?.error;
       setMessage(
-        code
+        !isGitHubKnowledge && code
           ? `Validation failed: ${code}`
           : "Validation could not reach the provider."
       );
@@ -554,18 +582,21 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   }
 
   async function handleNotionDisconnect() {
+    if (setupUnavailable) return;
     setLoading(true);
     setMessage(null);
     try {
-      await api.post("/api/connect/notion/disconnect", {});
+      await api.post(`${knowledgeSetupPrefix}/disconnect`, {});
       setFields({});
       setSaveSucceeded(false);
-      setMessage("Notion credential removed.");
+      setMessage(`${isGitHubKnowledge ? "GitHub" : "Notion"} credential removed.`);
       onChanged();
     } catch (e: any) {
       setMessage(
-        e?.response?.data?.detail?.error ||
-          "Could not remove the Notion credential."
+        isGitHubKnowledge
+          ? "Could not remove the GitHub credential."
+          : e?.response?.data?.detail?.error ||
+            "Could not remove the Notion credential."
       );
     } finally {
       setLoading(false);
@@ -782,6 +813,21 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
             : ""}
         </div>
       )}
+      {isGitHubKnowledge && (
+        <div className="text-xs">
+          Read-only issue and pull-request bodies in the selected repositories;
+          no repository files, comments, diffs, sync, or writes. Guardian use is an opt-in
+          local single-account pilot, not enabled for Private Preview or remote accounts.
+        </div>
+      )}
+      {isGitHubKnowledge && connection.validation?.configured && !setupUnavailable && (
+        <div className="space-y-2">
+          <div className="text-xs">Repository scope: {connection.validation.repositories?.join(", ") || "See saved configuration"}</div>
+          <Button size="sm" onClick={handleNotionValidate} disabled={loading} data-testid="github-knowledge-existing-validate">Validate connection</Button>
+          <Button size="sm" variant="ghost" onClick={handleNotionDisconnect} disabled={loading} data-testid="github-knowledge-existing-disconnect">Disconnect</Button>
+          {message && <div className="text-xs">{message}</div>}
+        </div>
+      )}
       {connection.validation && (
         <div
           className="text-xs rounded-[var(--tile-radius,19px)] border border-[color:var(--panel-border)] p-2"
@@ -833,8 +879,17 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           >
             {f.label}
           </label>
-          <input
+          {isGitHubKnowledge && f.key === "repositories" ? (
+            <textarea
+              id={`connection-field-${f.key}`}
+              value={fields[f.key] || ""}
+              onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
+              className="border rounded px-2 py-1"
+              placeholder="owner/repository, one per line or separated by commas"
+            />
+          ) : <input
             id={`connection-field-${f.key}`}
+            autoComplete={f.secret ? "off" : undefined}
             type={f.secret ? "password" : "text"}
             value={fields[f.key] || ""}
             onChange={(e) =>
@@ -842,7 +897,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
             }
             className="border rounded px-2 py-1"
             placeholder={f.secret ? "••••" : ""}
-          />
+          />}
         </div>
       ))}
       <div className="text-xs" style={{ color: "var(--muted)" }}>
@@ -889,13 +944,13 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
         </div>
       )}
       {message && <div className="text-xs">{message}</div>}
-      {connection.id === "notion" && saveSucceeded && (
+      {(connection.id === "notion" || isGitHubKnowledge) && saveSucceeded && (
         <Button
           className="rounded-xl"
           size="sm"
           onClick={handleNotionValidate}
           disabled={loading}
-          data-testid="notion-validate"
+          data-testid={isGitHubKnowledge ? "github-knowledge-validate" : "notion-validate"}
         >
           Validate connection
         </Button>
@@ -916,7 +971,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           : "Configuration saved."}
       </div>
       {message && <div className="text-xs">{message}</div>}
-      {connection.id === "notion" &&
+      {(connection.id === "notion" || isGitHubKnowledge) && !setupUnavailable &&
         (connection.setup_state !== "needs_setup" || saveSucceeded) && (
         <Button
           variant="ghost"
@@ -924,7 +979,7 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
           size="sm"
           onClick={handleNotionDisconnect}
           disabled={loading}
-          data-testid="notion-disconnect"
+          data-testid={isGitHubKnowledge ? "github-knowledge-disconnect" : "notion-disconnect"}
         >
           Disconnect
         </Button>

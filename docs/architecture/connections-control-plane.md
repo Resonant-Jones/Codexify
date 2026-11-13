@@ -428,3 +428,28 @@ must not carry credentials or context between accounts. No writes, sync, ingesti
 scheduling, memory mutation, global grants or default Beta promotion are added.
 Imported-history access and remote history-recall eligibility are unchanged.
 Release HOLD remains unchanged.
+
+## Experimental GitHub Knowledge pilot
+
+`github_knowledge` is a separate Knowledge identity from the legacy GitHub sync
+connector. It reads bounded issue/PR search metadata and selected issue/PR bodies
+inside an explicit account-owned repository allowlist. It does not read repository
+files, comments or diffs and does not synchronize, ingest or mutate content.
+
+The account-scoped encrypted credential and repository grant live in
+`github_knowledge_credentials`; setup/validation/disconnect are owned by
+`/api/connect/github-knowledge/*`, and read operations by
+`/api/knowledge/github/*`. The catalog never serializes the credential.
+
+The catalog marks this entry experimental. Its setup action is available only
+when its actual setup and read routes are mounted and credential storage is
+usable. A stored credential does not override route quarantine. The setup wizard
+uses provider-specific APIs, clears the token after successful save, and does
+not use browser storage. This is not the legacy GitHub sync wizard.
+
+The separate ordinary Guardian pilot is opt-in and local-single-account only;
+Preview/remote/multi-user invocation remains blocked pending implementation and
+qualification of accepted [ADR-112](adr/112-trusted-worker-account-bound-dispatch.md).
+The earlier [transport comparison](proofs/2026-11-13-knowledge-preview-transport-options.md)
+is historical analysis, not an outstanding architecture decision.
+No supported profile or release promise is widened by catalog visibility.
