@@ -170,3 +170,31 @@ Final ordinary integrated run including both opt-in PostgreSQL test modules:
 **302 passed, 24 skipped** (the same 24 passed separately against actual PostgreSQL).
 A second independent source review confirmed preserved account handoff/checkpoints,
 continued Preview invocation quarantine, and the single integrated migration head.
+
+## GitHub installation/authorization registration constraint
+
+For **this implementation**, leave **Request user authorization (OAuth) during
+installation unchecked**, and leave **Setup URL blank**. Set the exact OAuth
+Callback URL above. The pilot uses a deliberate two-step sequence:
+
+1. Codexify's authenticated Start creates database state, browser binding and PKCE,
+   then sends the user to GitHub's authorization endpoint.
+2. After OAuth completes, a user without an installation may open the separate
+   fixed GitHub App installation URL, then return and refresh installation discovery.
+3. The user explicitly selects accessible repositories in Codexify.
+
+No Setup URL handler is implemented or needed. The bare installation link does not
+carry Codexify's state/PKCE. Enabling OAuth during installation would send an
+unsolicited installation callback into a state-required handler, which intentionally
+fails closed; do not mistake that setting for a supported seamless install-and-login
+flow. An unsolicited code/installation callback is now regression-tested as unable
+to grant account access.
+
+GitHub documents that OAuth-during-installation and Setup URL are mutually exclusive:
+https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration
+
+A future combined install/authorize experience must explicitly preserve authenticated
+account/browser/state custody; accepting installation IDs or unsolicited authorization
+codes as account authority is not an acceptable shortcut. No provider registration
+was changed. Permission upgrades remain separate explicit provider grants, not an
+implication of installing or authorizing this read-only pilot.

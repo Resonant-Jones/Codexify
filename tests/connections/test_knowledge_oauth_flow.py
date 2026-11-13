@@ -389,3 +389,20 @@ def test_simulated_notion_bridge_callback_read_source_and_revocation(
         == 409
     )
     assert len(calls) == 1
+
+
+def test_unsolicited_installation_callback_does_not_grant_access(setup):
+    """Bare GitHub installation redirects are not our authenticated OAuth start."""
+    client, db, _ = setup
+    response = client.get(
+        "/api/connect/github-knowledge/oauth/callback",
+        params={
+            "code": "unsolicited-code",
+            "installation_id": "42",
+            "setup_action": "install",
+        },
+    )
+    assert response.status_code == 400
+    assert "unsolicited-code" not in response.text
+    assert store.credential(db, "a", "github") is None
+    assert store.status(db, "a", "github")["generation"] is None
