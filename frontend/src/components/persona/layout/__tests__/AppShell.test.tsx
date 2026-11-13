@@ -176,6 +176,7 @@ vi.mock("@/hooks/useBreakpoint", () => ({
 vi.mock("@/lib/authState", () => ({
   useAuthState: () => authTestState.auth,
   getAuthState: () => authTestState.auth,
+  subscribeAuthState: () => () => {},
   checkAuthGate: () => authTestState.gateAllowed,
 }));
 
