@@ -37,10 +37,15 @@ from guardian.command_bus.contracts import (
     InvokeRequest,
 )
 from guardian.command_bus.invoke import execute_invoke
-from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.redaction_policy import compute_args_hash
+from guardian.command_bus.manifest import build_manifest
 from guardian.command_bus.store import CommandBusStore
 from guardian.context.broker import ContextBroker
+from guardian.core.pgdb import PgDB
+from guardian.core.chat_postgres_deadline import (
+    postgres_operation_scope,
+    require_accepted_work_budget,
+)
 from guardian.context.context_directive_resolver import (
     CONTEXT_REQUEST_PLANS_ORIGIN_KEY,
     SUPPORTED_CONTEXT_REQUEST_CONNECTOR_ID,
@@ -65,16 +70,79 @@ from guardian.context.retrieval_router_policy import (
     source_mode_boundary_label,
 )
 from guardian.core import dependencies, event_bus
+from guardian.metering.ledger import record_inference_attempt
+from guardian.core.db import (
+    ChatToolCheckpointError,
+    create_chat_completion_attempt,
+    create_chat_message_with_metadata,
+    freeze_chat_tool_decision,
+    get_chat_completion_attempt_by_task_id,
+    get_chat_tool_checkpoint,
+    mark_chat_completion_attempt_accepted,
+    reconcile_chat_completion_attempt_after_deadline,
+)
+from guardian.core.ai_router import (
+    observe_provider_requests,
+    _encode_image_url_to_base64,
+    _image_turn_vision_unsupported_detail,
+    build_openai_vision_content,
+    chat_with_ai,
+    _filter_callable_kwargs,
+    messages_contain_image_payload,
+    normalize_completion_output,
+    resolve_local_execution_model,
+    resolve_model_vision_capability_state,
+    stream_local,
+)
+from guardian.providers.whooshd_tool_adapter import (
+    build_continuation_messages as build_whooshd_structured_continuation_messages,
+    is_qualified_transport_candidate,
+)
+from guardian.providers.whooshd_control_plane import (
+    fetch_whooshd_runtime_inventory_entry,
+)
+from guardian.providers.whooshd_tool_capability import (
+    project_whooshd_tool_capability,
+)
+from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
+from guardian.tools.chat_exposure import (
+    HISTORY_SEARCH_COMMAND_ID,
+    REPOSITORY_SEARCH_COMMAND_ID,
+    history_search_is_advertised,
+    native_read_file_is_advertised,
+    repository_search_is_advertised,
+    resolve_ordinary_chat_tools,
+)
+from guardian.core.candidate_trace_store import store_candidate_trace
+from guardian.core.completion_terminal import (
+    CompletionAttemptResult,
+    CompletionTerminalEvidence,
+    CompletionTerminalError,
+    require_successful_terminal,
+    successful_non_stream_terminal,
+)
+from guardian.core.request_correlation import (
+    correlation_metadata,
+    generate_attempt_id,
+    normalize_request_id,
+    is_safe_identifier,
+)
+from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
+from guardian.core.chat_attachments import (
+    WidgetDraftStream,
+    extract_attachments_and_text,
+    render_content_for_inference,
+    serialize_widget_draft,
+)
+from guardian.core.config import (
+    LLMConfigError,
+    get_settings,
+    validate_llm_config,
+)
 from guardian.core.account_history_recall import (
     MAX_DATE_BOUND_CHARACTERS as HISTORY_MAX_DATE_BOUND_CHARACTERS,
-)
-from guardian.core.account_history_recall import (
     MAX_QUERY_CHARACTERS as HISTORY_MAX_QUERY_CHARACTERS,
-)
-from guardian.core.account_history_recall import (
     MAX_RETURNED_MATCHES as HISTORY_MAX_RETURNED_MATCHES,
-)
-from guardian.core.account_history_recall import (
     HistoryRecallAuthorization,
     HistoryRecallCapabilityContext,
     HistoryRecallGrant,
@@ -88,71 +156,24 @@ from guardian.core.account_history_recall import (
     resolve_account_history_recall_capability,
     resolve_history_recall_authorization,
 )
-from guardian.core.ai_router import (
-    _encode_image_url_to_base64,
-    _filter_callable_kwargs,
-    _image_turn_vision_unsupported_detail,
-    build_openai_vision_content,
-    chat_with_ai,
-    messages_contain_image_payload,
-    normalize_completion_output,
-    observe_provider_requests,
-    resolve_local_execution_model,
-    resolve_model_vision_capability_state,
-    stream_local,
-)
-from guardian.core.candidate_trace_store import store_candidate_trace
-from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
-from guardian.core.chat_attachments import (
-    WidgetDraftStream,
-    extract_attachments_and_text,
-    render_content_for_inference,
-    serialize_widget_draft,
-)
-from guardian.core.chat_postgres_deadline import (
-    postgres_operation_scope,
-    require_accepted_work_budget,
-)
-from guardian.core.completion_terminal import (
-    CompletionAttemptResult,
-    CompletionTerminalError,
-    CompletionTerminalEvidence,
-    require_successful_terminal,
-    successful_non_stream_terminal,
-)
-from guardian.core.config import LLMConfigError, get_settings, validate_llm_config
-from guardian.core.db import (
-    ChatToolCheckpointError,
-    create_chat_completion_attempt,
-    create_chat_message_with_metadata,
-    freeze_chat_tool_decision,
-    get_chat_completion_attempt_by_task_id,
-    get_chat_tool_checkpoint,
-    mark_chat_completion_attempt_accepted,
-    reconcile_chat_completion_attempt_after_deadline,
-)
 from guardian.core.llm_catalog import first_enabled_provider
-from guardian.core.pgdb import PgDB
+from guardian.core.repository_chat_capability import (
+    RepositoryChatCapabilityContext,
+    resolve_repository_chat_capability,
+)
+from guardian.core.repository_containment import (
+    MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS,
+)
+from guardian.core.repository_search import (
+    MAX_QUERY_CHARACTERS,
+    MAX_RETURNED_MATCHES,
+)
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_model_id,
     normalize_provider,
     resolve_provider_for_model,
 )
-from guardian.core.repository_chat_capability import (
-    RepositoryChatCapabilityContext,
-    resolve_repository_chat_capability,
-)
-from guardian.core.repository_containment import MAX_REPOSITORY_RELATIVE_PATH_CHARACTERS
-from guardian.core.repository_search import MAX_QUERY_CHARACTERS, MAX_RETURNED_MATCHES
-from guardian.core.request_correlation import (
-    correlation_metadata,
-    generate_attempt_id,
-    is_safe_identifier,
-    normalize_request_id,
-)
-from guardian.metering.ledger import record_inference_attempt
-from guardian.native_tools.command_specs import NATIVE_READ_FILE_COMMAND_ID
 from guardian.obsidian.indexer import OBSIDIAN_NAMESPACE
 from guardian.protocol_tokens import (
     AcceptanceStatus,
@@ -161,20 +182,20 @@ from guardian.protocol_tokens import (
     ErrorCode,
     ImageRoutingPath,
     LoopStopReason,
-    TaskEventType,
     ToolLoopStopReason,
     ToolTurnState,
     TraceSnapshotAbsenceReason,
     TraceSuppressionReason,
+    TaskEventType,
 )
-from guardian.providers.whooshd_control_plane import (
-    fetch_whooshd_runtime_inventory_entry,
+from guardian.tasks.chat_deadline import (
+    ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+    AcceptedChatTaskDeadline,
+    AcceptedChatTaskDeadlineExceeded,
+    accepted_chat_deadline_for_task,
+    build_accepted_chat_task_deadline,
+    parse_accepted_chat_task_deadline,
 )
-from guardian.providers.whooshd_tool_adapter import (
-    build_continuation_messages as build_whooshd_structured_continuation_messages,
-)
-from guardian.providers.whooshd_tool_adapter import is_qualified_transport_candidate
-from guardian.providers.whooshd_tool_capability import project_whooshd_tool_capability
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     CANDIDATE_INGEST_QUEUE,
@@ -188,39 +209,26 @@ from guardian.queue.redis_queue import (
 from guardian.queue.turn_lock import (
     TurnLockEnvelope,
     acquire_turn_lock,
+    renew_turn_lock,
     build_turn_lock_envelope,
     get_turn_lock,
-    release_terminal_attempt_turn_lock,
     release_turn_lock,
-    renew_turn_lock,
+    release_terminal_attempt_turn_lock,
 )
 from guardian.routes.health import _classify_chat_worker_heartbeat
-from guardian.tasks.chat_deadline import (
-    ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
-    AcceptedChatTaskDeadline,
-    AcceptedChatTaskDeadlineExceeded,
-    accepted_chat_deadline_for_task,
-    build_accepted_chat_task_deadline,
-    parse_accepted_chat_task_deadline,
-)
 from guardian.tasks.types import (
     ChatCompletionTask,
     PersonaSelectionSnapshot,
     TaskLifecycleState,
 )
-from guardian.tools.chat_exposure import (
-    HISTORY_SEARCH_COMMAND_ID,
-    REPOSITORY_SEARCH_COMMAND_ID,
-    history_search_is_advertised,
-    native_read_file_is_advertised,
-    repository_search_is_advertised,
-    resolve_ordinary_chat_tools,
-)
-from guardian.utils.log_safety import install_safe_logging, sanitize_log_text
 from guardian.vector.store import VectorStore
+from guardian.utils.log_safety import install_safe_logging, sanitize_log_text
 
 try:  # pragma: no cover - Remote Recall is an optional, gated lane
-    from guardian.web.remote_recall import RemoteRecallOutcome, run_remote_recall
+    from guardian.web.remote_recall import (
+        RemoteRecallOutcome,
+        run_remote_recall,
+    )
 except Exception:  # pragma: no cover - keep completion path import-safe
     RemoteRecallOutcome = None  # type: ignore[assignment,misc]
     run_remote_recall = None  # type: ignore[assignment]
@@ -446,9 +454,7 @@ def read_provider_request_captures(task_id: str) -> dict[str, Any]:
                 if any(item["completeness"] == "COMPLETE" for item in items)
                 else "CAPTURE_UNAVAILABLE"
             ),
-            "dispatch_limit_exceeded": bool(
-                (entry or {}).get("dispatch_limit_exceeded")
-            ),
+            "dispatch_limit_exceeded": bool((entry or {}).get("dispatch_limit_exceeded")),
             "omission_reasons": (
                 ["capture_dispatch_limit_exceeded"]
                 if (entry or {}).get("dispatch_limit_exceeded")
@@ -468,9 +474,8 @@ def _provider_request_capture_observer(task, *, provider: str, model: str):
     if PROVIDER_CAPTURE_ORIGIN_MARKER not in str(task.origin).split("|"):
         return None
     try:
-        import requests
-
         from guardian.command_bus.loopback_http_adapter import resolve_loopback_base
+        import requests
 
         request_id = task.request_id
         task_id = task.task_id
@@ -754,7 +759,10 @@ def _publish_completion_start_event(
         "event_id": None,
         "error_code": CHAT_COMPLETE_TASK_CREATED_EVENT_ERROR_CODE,
         "failure_class": "InvalidPublishResult",
-        "error": ("unexpected result type: " f"{type(publish_result).__name__}"),
+        "error": (
+            "unexpected result type: "
+            f"{type(publish_result).__name__}"
+        ),
         "exception": TypeError(
             f"unexpected result type: {type(publish_result).__name__}"
         ),
@@ -770,9 +778,7 @@ def _task_created_event_result(
     return ChatCompletionTaskCreatedEventResult(
         ok=bool(publish_result.get("ok")),
         task_id=str(publish_result.get("task_id") or ""),
-        event_type=str(
-            publish_result.get("event_type") or TASK_EVENT_TYPE_TASK_CREATED
-        ),
+        event_type=str(publish_result.get("event_type") or TASK_EVENT_TYPE_TASK_CREATED),
         event_id=(
             str(publish_result["event_id"])
             if publish_result.get("event_id") is not None
@@ -889,27 +895,15 @@ def reconcile_chat_attempt_receipts(
         with postgres_operation_scope(2):
             for attempt in rows:
                 outcome = attempt.get("terminal_outcome") or {}
-                orphan = (
-                    outcome.get("failure_code")
-                    == ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
-                )
+                orphan = outcome.get("failure_code") == ErrorCode.CHAT_ACCEPTED_TASK_ORPHANED.value
                 if not orphan:
-                    if attempt.get("completed_message_id") is not None or attempt.get(
-                        "terminal_event_type"
-                    ):
+                    if attempt.get("completed_message_id") is not None or attempt.get("terminal_event_type"):
                         continue
-                    if (
-                        attempt.get("accepted_at") is None
-                        or attempt.get("deadline_snapshot") is None
-                    ):
+                    if attempt.get("accepted_at") is None or attempt.get("deadline_snapshot") is None:
                         continue
-                    deadline = parse_accepted_chat_task_deadline(
-                        attempt["deadline_snapshot"]
-                    )
+                    deadline = parse_accepted_chat_task_deadline(attempt["deadline_snapshot"])
                     if deadline is None:
-                        raise ValueError(
-                            "Original accepted recovery envelope is missing"
-                        )
+                        raise ValueError("Original accepted recovery envelope is missing")
                     if datetime.now(UTC) < deadline.terminal_deadline_at:
                         continue
                 result = reconcile_chat_completion_attempt_after_deadline(
@@ -925,21 +919,10 @@ def reconcile_chat_attempt_receipts(
                     terminal_outcome=result.terminal_outcome,
                 )
                 if result.turn_lock_token is not None:
-                    cleanup.append(
-                        (
-                            attempt["thread_id"],
-                            attempt["backend_task_id"],
-                            result.turn_lock_token,
-                        )
-                    )
+                    cleanup.append((attempt["thread_id"], attempt["backend_task_id"], result.turn_lock_token))
     except Exception as exc:
-        logger.warning(
-            "[chat-recovery] durable reconciliation unconfirmed cause_class=%s",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=503, detail="Chat recovery could not be confirmed."
-        ) from exc
+        logger.warning("[chat-recovery] durable reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
     if cleanup:
         try:
             # Durable commits precede this separate, bounded Redis cleanup batch.
@@ -949,10 +932,7 @@ def reconcile_chat_attempt_receipts(
                         thread_id, owner_task_id=task_id, lease_token=token
                     )
         except Exception as exc:
-            logger.warning(
-                "[chat-recovery] terminal lock cleanup unconfirmed cause_class=%s",
-                type(exc).__name__,
-            )
+            logger.warning("[chat-recovery] terminal lock cleanup unconfirmed cause_class=%s", type(exc).__name__)
     return rows
 
 
@@ -972,11 +952,7 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
             attempt = get_chat_completion_attempt_by_task_id(
                 dependencies.chatlog_db, lock.owner_task_id
             )
-            if (
-                attempt is None
-                or attempt["thread_id"] != thread_id
-                or attempt["turn_id"] != lock.turn_id
-            ):
+            if attempt is None or attempt["thread_id"] != thread_id or attempt["turn_id"] != lock.turn_id:
                 return False
             result = reconcile_chat_completion_attempt_after_deadline(
                 dependencies.chatlog_db,
@@ -986,13 +962,8 @@ def _recover_orphaned_turn_lock(thread_id: int) -> bool:
                 turn_id=lock.turn_id,
             )
     except Exception as exc:
-        logger.warning(
-            "[chat-recovery] retry reconciliation unconfirmed cause_class=%s",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=503, detail="Chat recovery could not be confirmed."
-        ) from exc
+        logger.warning("[chat-recovery] retry reconciliation unconfirmed cause_class=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Chat recovery could not be confirmed.") from exc
     if result.completed_message_id is None and result.terminal_event_type is None:
         return False
     # Legacy *terminal* attempts can use the observed structured capability only
@@ -1030,13 +1001,10 @@ def enqueue_chat_completion(
 
     locked = _run_completion_redis_op(
         lambda: acquire_turn_lock(
-            thread_id,
-            task.turn_lock_owner,
-            turn_id=turn_id,
-            source="api:chat.complete",
-            return_envelope=True,
-            ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
-        ),
+                    thread_id, task.turn_lock_owner, turn_id=turn_id,
+                    source="api:chat.complete", return_envelope=True,
+                    ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
+                ),
         reason="turn_lock_unavailable",
         log_message="[chat.complete] turn lock unavailable: %s",
     )
@@ -1044,11 +1012,8 @@ def enqueue_chat_completion(
         if _recover_orphaned_turn_lock(thread_id):
             locked = _run_completion_redis_op(
                 lambda: acquire_turn_lock(
-                    thread_id,
-                    task.turn_lock_owner,
-                    turn_id=turn_id,
-                    source="api:chat.complete",
-                    return_envelope=True,
+                    thread_id, task.turn_lock_owner, turn_id=turn_id,
+                    source="api:chat.complete", return_envelope=True,
                     ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
                 ),
                 reason="turn_lock_unavailable",
@@ -1071,9 +1036,7 @@ def enqueue_chat_completion(
             profile_id=thread["active_profile_id"],
             profile_revision=thread["active_profile_revision"],
         )
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 - any read/validation failure blocks acceptance
+    except Exception as exc:  # noqa: BLE001 - any read/validation failure blocks acceptance
         _best_effort_release_turn_lock(thread_id, locked)
         raise ChatCompletionEnqueueError(
             "persona_selection_snapshot_unavailable",
@@ -1100,7 +1063,8 @@ def enqueue_chat_completion(
             "persona_selection_snapshot",
         )
         authoritative_snapshot = {
-            field: copy.deepcopy(getattr(task, field)) for field in authoritative_fields
+            field: copy.deepcopy(getattr(task, field))
+            for field in authoritative_fields
         }
         try:
             participant.prepare(task)
@@ -1163,8 +1127,7 @@ def enqueue_chat_completion(
             raise ChatCompletionEnqueueError("turn_lock_unavailable")
         renewed = _run_completion_redis_op(
             lambda: renew_turn_lock(
-                thread_id,
-                locked,
+                thread_id, locked,
                 ttl_seconds=ACCEPTED_CHAT_TASK_TURN_LOCK_LEASE_SECONDS,
                 return_envelope=True,
             ),
@@ -1178,10 +1141,8 @@ def enqueue_chat_completion(
     except Exception:
         if participant is not None and participant_prepared:
             _rollback_acceptance_participant(
-                participant,
-                thread_id=thread_id,
-                task_id=task_identity,
-                turn_id=turn_id,
+                participant, thread_id=thread_id,
+                task_id=task_identity, turn_id=turn_id,
             )
         _best_effort_release_turn_lock(thread_id, locked)
         raise
@@ -1216,7 +1177,9 @@ def enqueue_chat_completion(
         ) from None
 
     try:
-        run_with_redis_timeout(lambda: enqueue(task, CHAT_COMPLETION_QUEUE_NAME))
+        run_with_redis_timeout(
+            lambda: enqueue(task, CHAT_COMPLETION_QUEUE_NAME)
+        )
     except QueueEnqueueError as exc:
         if participant is not None and participant_prepared:
             _rollback_acceptance_participant(
@@ -1233,7 +1196,9 @@ def enqueue_chat_completion(
             cause_class=(
                 type(exc.__cause__).__name__
                 if exc.__cause__
-                else type(exc.cause).__name__ if exc.cause else None
+                else type(exc.cause).__name__
+                if exc.cause
+                else None
             ),
         ) from exc
     except (RedisOperationTimeout, Exception) as exc:
@@ -1279,7 +1244,9 @@ def enqueue_chat_completion(
             thread_id=thread_id,
             turn_id=turn_id,
         )
-        task_created_event = _task_created_event_result(task_created_publish_result)
+        task_created_event = _task_created_event_result(
+            task_created_publish_result
+        )
     except task_events.TaskEventPublishError as exc:
         task_created_event = _task_created_event_result(
             exc.to_publish_result(),
@@ -1313,9 +1280,10 @@ def enqueue_chat_completion(
         task_created_event=task_created_event,
     )
 
-
 try:  # pragma: no cover - prompts are optional in some deployments
-    from guardian.cognition.system_prompt_builder import build_guardian_system_prompt
+    from guardian.cognition.system_prompt_builder import (
+        build_guardian_system_prompt,
+    )
 except Exception:  # pragma: no cover - optional dependency
     build_guardian_system_prompt = None
 
@@ -1771,6 +1739,7 @@ def _tool_turn_completion_result(
     return result
 
 
+
 def _record_observed_provider_usage(
     task: ChatCompletionTask,
     *,
@@ -1809,9 +1778,7 @@ def _record_observed_provider_usage(
     except Exception:
         logger.warning(
             "[inference-metering] recording_failed provider=%s model=%s",
-            provider,
-            model,
-            exc_info=True,
+            provider, model, exc_info=True,
         )
 
 
@@ -1834,31 +1801,21 @@ def _execute_completion_attempt(
     task.request_id = request_id
     task.attempt_id = generate_attempt_id()
     try:
-        observer = _provider_request_capture_observer(
-            task, provider=provider, model=model
-        )
+        observer = _provider_request_capture_observer(task, provider=provider, model=model)
     except Exception:
         observer = None
     with observe_provider_requests(observer):
         result = _dispatch_completion_attempt(
-            task=task,
-            messages_for_llm=messages_for_llm,
-            provider=provider,
-            model=model,
-            bundle=bundle,
-            accepted_deadline=accepted_deadline,
+            task=task, messages_for_llm=messages_for_llm, provider=provider,
+            model=model, bundle=bundle, accepted_deadline=accepted_deadline,
             token_callback=token_callback,
-            chunk_callback=chunk_callback,
-            cancel_check=cancel_check,
+            chunk_callback=chunk_callback, cancel_check=cancel_check,
             tool_exposure=tool_exposure,
         )
     try:
         _record_observed_provider_usage(
-            task,
-            provider=provider,
-            model=model,
-            attempt_id=result.attempt_id,
-            output=result.output,
+            task, provider=provider, model=model,
+            attempt_id=result.attempt_id, output=result.output,
         )
     except Exception:
         logger.warning("[inference-metering] observation_failed", exc_info=True)
@@ -2095,7 +2052,9 @@ def _dispatch_completion_attempt(
     )
     output_provenance = getattr(output, "runtime_provenance", None)
     runtime_provenance = (
-        output_provenance.as_dict() if hasattr(output_provenance, "as_dict") else None
+        output_provenance.as_dict()
+        if hasattr(output_provenance, "as_dict")
+        else None
     )
     return CompletionAttemptResult(
         output,
@@ -5851,7 +5810,9 @@ async def build_messages_for_llm(
     browser_evidence = _browser_context_evidence(task)
     browser_context_message = _browser_context_message(browser_evidence)
     if browser_context_message:
-        messages_for_llm.append({"role": "system", "content": browser_context_message})
+        messages_for_llm.append(
+            {"role": "system", "content": browser_context_message}
+        )
     browser_context_meta = _browser_context_trace_meta(browser_evidence)
     if browser_context_meta is not None:
         prompt_meta["browser_context"] = browser_context_meta
@@ -6063,8 +6024,9 @@ async def build_messages_for_llm(
         retrieval_executed=retrieval_executed,
         retrieval_absence_reason=retrieval_absence_reason,
     )
-    if retained_result_count <= 0 and not retrieval_provenance.get(
-        "contributing_items"
+    if (
+        retained_result_count <= 0
+        and not retrieval_provenance.get("contributing_items")
     ):
         retrieval_absence_reason = (
             TraceSnapshotAbsenceReason.RETRIEVAL_NO_CANDIDATES.value
@@ -6328,7 +6290,10 @@ def _hydrate_repository_search_arguments(
     if "\x00" in raw_query or "\r" in raw_query or "\n" in raw_query:
         raise ValueError("repository_search_arguments_invalid")
     query = raw_query.strip()
-    if not query or len(query) > MAX_QUERY_CHARACTERS:
+    if (
+        not query
+        or len(query) > MAX_QUERY_CHARACTERS
+    ):
         raise ValueError("repository_search_arguments_invalid")
     raw_limit = arguments.get("limit", MAX_RETURNED_MATCHES)
     if (
@@ -6494,7 +6459,9 @@ def _hydrate_history_search_arguments(
         len(raw_start) > HISTORY_MAX_DATE_BOUND_CHARACTERS
     ):
         raise ValueError("history_search_arguments_invalid")
-    if isinstance(raw_end, str) and (len(raw_end) > HISTORY_MAX_DATE_BOUND_CHARACTERS):
+    if isinstance(raw_end, str) and (
+        len(raw_end) > HISTORY_MAX_DATE_BOUND_CHARACTERS
+    ):
         raise ValueError("history_search_arguments_invalid")
     try:
         start_at = parse_recall_bound(raw_start, is_end=False)
@@ -6564,9 +6531,9 @@ def _resolve_ordinary_chat_tools(
     """
 
     normalized_provider = str(provider or "").strip().lower()
-    provider_vendor = (
-        str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
-    )
+    provider_vendor = str(
+        getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
+    ).strip().lower()
     if normalized_provider not in {"deepseek", "local"}:
         return None
     if normalized_provider == "local" and provider_vendor != "whooshd":
@@ -6716,7 +6683,9 @@ def _prepare_chat_tool_exposure(
             NATIVE_READ_FILE_COMMAND_ID,
         }
         if isinstance(supplied_tools, list) and any(
-            isinstance(tool, dict) and tool.get("command_id") in scoped_command_ids
+            isinstance(tool, dict)
+            and tool.get("command_id")
+            in scoped_command_ids
             for tool in supplied_tools
         ):
             task.tools = [
@@ -6724,16 +6693,23 @@ def _prepare_chat_tool_exposure(
                 for tool in supplied_tools
                 if not (
                     isinstance(tool, dict)
-                    and tool.get("command_id") in scoped_command_ids
+                    and tool.get("command_id")
+                    in scoped_command_ids
                 )
             ]
     evidence = _build_tool_exposure_evidence(
         automatic=automatic_tool_exposure,
         tools=task.tools,
     )
-    if repository_context is not None and repository_search_is_advertised(task.tools):
+    if (
+        repository_context is not None
+        and repository_search_is_advertised(task.tools)
+    ):
         evidence["_repository_chat_context"] = repository_context
-    if repository_context is not None and native_read_file_is_advertised(task.tools):
+    if (
+        repository_context is not None
+        and native_read_file_is_advertised(task.tools)
+    ):
         evidence["_native_read_file_context"] = repository_context
     if history_context is not None and history_search_is_advertised(task.tools):
         evidence["_history_recall_context"] = history_context
@@ -6772,10 +6748,7 @@ def _execute_bounded_tool_turn_completion(
         chunk_callback = widget_chunk_stream.feed
 
     def _require_tool_work_budget() -> None:
-        if (
-            accepted_deadline
-            and datetime.now(UTC) >= accepted_deadline.work_deadline_at
-        ):
+        if accepted_deadline and datetime.now(UTC) >= accepted_deadline.work_deadline_at:
             raise AcceptedChatTaskDeadlineExceeded(attempted=True)
 
     request_id = _completion_request_id(task) or None
@@ -7219,7 +7192,8 @@ def _execute_bounded_tool_turn_completion(
         )
         current_grant = (
             current_authorization.grant
-            if current_authorization is not None and current_authorization.is_grant
+            if current_authorization is not None
+            and current_authorization.is_grant
             else None
         )
         if current_grant is None:
@@ -7319,7 +7293,9 @@ def _execute_bounded_tool_turn_completion(
         command_id=command_id,
         actor=actor,
         arguments=arguments,
-        idempotency_key=(f"{request_id or tool_turn_id}:{tool_turn_id}:{command_id}"),
+        idempotency_key=(
+            f"{request_id or tool_turn_id}:{tool_turn_id}:{command_id}"
+        ),
     )
     invoke_request = InvokeRequest(
         invoke_version="1.0",
@@ -7381,7 +7357,7 @@ def _execute_bounded_tool_turn_completion(
         command_result = {"inline_result": command_result}
     command_run_id = str(command_result.get("run_id") or "").strip() or None
     command_status = str(command_result.get("status") or "").strip() or None
-    # A queued or running Command Bus run is not a completed tool result, and a
+# A queued or running Command Bus run is not a completed tool result, and a
     # "completed" status carrying no inline result has nothing to reinject.
     if (
         not command_run_id
@@ -7936,7 +7912,9 @@ def run_chat_completion_task(
         payload_summary["model_resolution"] = model_resolution
     payload_summary["model_selection"] = model_selection
     if completion_request_correlation is not None:
-        payload_summary["request_correlation"] = dict(completion_request_correlation)
+        payload_summary["request_correlation"] = dict(
+            completion_request_correlation
+        )
     result_payload_summary = result.get("payload_summary")
     merged_payload_summary = dict(payload_summary or {})
     if isinstance(result_payload_summary, dict):
@@ -8179,7 +8157,8 @@ def run_chat_completion_task(
         "loopStopReason": result.get("loopStopReason"),
         "commandRunId": result.get("commandRunId"),
         "commandStatus": (
-            result.get("command_status") or payload_summary.get("command_status")
+            result.get("command_status")
+            or payload_summary.get("command_status")
         ),
         "provider": provider,
         "model": model,

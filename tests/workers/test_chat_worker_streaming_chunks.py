@@ -5,10 +5,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.saved_widget_validation import parse_ui_artifacts
 from guardian.protocol_tokens import CompletionTerminalStatus
-from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.workers import chat_worker
 
 TURN_ID = "11111111-1111-4111-8111-111111111111"
@@ -76,26 +76,14 @@ def _build_task(
 def _install_attempt_harness(monkeypatch):
     # These orchestration fixtures acknowledge durable writes through a seam;
     # native database tests independently verify attempt identity and fencing.
-    monkeypatch.setattr(
-        chat_worker,
-        "_read_attempt_for_worker",
-        lambda task: {
-            "backend_task_id": task.task_id,
-            "request_id": task.request_id,
-            "thread_id": task.thread_id,
-            "turn_id": chat_worker._extract_turn_id(task),
-            "completed_message_id": None,
-            "terminal_event_type": None,
-            "terminal_outcome": None,
-            "deadline_snapshot": None,
-        },
-    )
-    monkeypatch.setattr(
-        chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True
-    )
-    monkeypatch.setattr(
-        chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None
-    )
+    monkeypatch.setattr(chat_worker, "_read_attempt_for_worker", lambda task: {
+        "backend_task_id": task.task_id, "request_id": task.request_id,
+        "thread_id": task.thread_id, "turn_id": chat_worker._extract_turn_id(task),
+        "completed_message_id": None, "terminal_event_type": None,
+        "terminal_outcome": None, "deadline_snapshot": None,
+    })
+    monkeypatch.setattr(chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True)
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None)
 
 
 def _prepare_worker_harness(
@@ -128,9 +116,7 @@ def _prepare_worker_harness(
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(
-        chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None
-    )
+    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
