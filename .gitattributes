@@ -3,23 +3,19 @@
 frontend/src/package.json filter=lfs diff=lfs merge=lfs -text
 docs/audits/generated/*.json -filter -diff -merge text
 src-tauri/tauri.conf.json -filter -diff -merge text
-
 # Codex Runner JSON schemas must stay as normal text (not LFS)
 codex_runner/schemas/*.json -filter -diff -merge text
-
 # Golden marketing fixtures must remain plaintext JSON for deterministic tests
 tests/fixtures/marketing/golden/**/*.json -filter -diff -merge text
-
 # Canonical audit validator inputs are small deterministic source files, not LFS artifacts.
 schemas/audit/canonical-audit-evidence.schema.json -filter -diff -merge text
 schemas/audit/canonical-live-proof-receipt.schema.json -filter -diff -merge text
 tests/audit/fixtures/canonical-evidence.valid.canonical.json -filter -diff -merge text
 tests/audit/fixtures/canonical-evidence.valid.provisional.json -filter -diff -merge text
-
 # Document Lifecycle Graph control-plane records must stay connector-readable plaintext.
 schemas/knowledge/**/*.json -filter -diff -merge text
 docs/knowledge-graph/**/*.json !filter diff !merge text
-
 # Qualification registry and schemas are small control-plane source files, not LFS artifacts.
 docs/qualification/*.json -filter -diff -merge text
 docs/qualification/**/*.json -filter -diff -merge text
+mobile/scout-ios/Scout/Resources/ScoutMermaid.zlib filter=lfs diff=lfs merge=lfs -text
