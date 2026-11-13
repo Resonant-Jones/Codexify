@@ -72,11 +72,38 @@ def admission_headers(request: Request) -> dict[str, str]:
     }
 
 
-def account_route(path: str) -> bool:
+def library_read_route(path: str, method: str) -> bool:
+    """Admit only Library reads; downstream account/signature checks still apply."""
+    if method != "GET":
+        return False
+    if path in {"/api/media/images", "/api/media/document-artifacts"}:
+        return True
+    prefix = "/api/media/document-artifacts/"
+    if path.startswith(prefix):
+        identity = path[len(prefix) :]
+        return bool(identity) and "/" not in identity and identity not in {".", ".."}
+    # These are the image storage families used by the existing signed-media
+    # handler. No upload, delete, audio, arbitrary media or operator path is added.
+    if path.startswith(("/media/images/", "/media/generated_images/")):
+        return (
+            not path.endswith("/")
+            and "\\" not in path
+            and not any(part in {".", "..", ""} for part in path.split("/")[1:])
+        )
+    return False
+
+
+def account_route(path: str, method: str) -> bool:
     """Scope normalization to Scout's existing account APIs and handoff/logout."""
-    return path.startswith(
-        ("/api/chat/", "/api/tasks/", "/api/threads/", "/api/documents/")
-    ) or path in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
+    return (
+        path.startswith(
+            ("/api/chat/", "/api/tasks/", "/api/threads/", "/api/documents/")
+        )
+        or path
+        in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
+        or (path == "/api/projects" and method in {"GET", "POST"})
+        or library_read_route(path, method)
+    )
 
 
 class ScoutAccountTransportMiddleware:
@@ -98,7 +125,7 @@ class ScoutAccountTransportMiddleware:
             and os.getenv("GUARDIAN_EXPOSURE_MODE") == "private_preview"
             and request.url.hostname == HOST
             and request.url.port in (None, 443)
-            and account_route(scope["path"])
+            and account_route(scope["path"], scope["method"])
         )
         values = {}
         for name in (b"cf-access-jwt-assertion", b"host"):

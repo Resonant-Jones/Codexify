@@ -31,7 +31,7 @@ struct ScoutSSEParser {
         var currentData: String = ""
         var currentCreatedAt: String? = nil
 
-        for line in text.components(separatedBy: "\n") {
+        for line in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.isEmpty {
@@ -117,7 +117,7 @@ struct ScoutTaskEventStreamService {
                     var request = URLRequest(url: url)
                     request.timeoutInterval = 30
 
-                    try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+                    try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
 
                     let (bytes, response) = try await session.bytes(for: request)
                     if let http = response as? HTTPURLResponse {
@@ -130,8 +130,8 @@ struct ScoutTaskEventStreamService {
                         return
                     }
 
-                    var buffer = ""
-                    var eventBuffer = ""
+                    var line = Data()
+                    var frame = Data()
 
                     for try await byte in bytes {
                         guard !Task.isCancelled else {
@@ -139,34 +139,28 @@ struct ScoutTaskEventStreamService {
                             return
                         }
 
-                        guard let char = String(bytes: [byte], encoding: .utf8) else { continue }
-                        buffer.append(char)
+                        line.append(byte)
+                        guard byte == 0x0A else { continue }
 
-                        if char == "\n" {
-                            eventBuffer.append(buffer)
-                            let trimmed = buffer.trimmingCharacters(in: .whitespaces)
-                            buffer = ""
+                        frame.append(line)
+                        let blankLine = line.count == 1 || (line.count == 2 && line.first == 0x0D)
+                        line.removeAll(keepingCapacity: true)
+                        guard blankLine else { continue }
 
-                            if trimmed.isEmpty {
-                                let events = ScoutSSEParser.parse(eventBuffer)
-                                eventBuffer = ""
-                                for event in events {
-                                    continuation.yield(event)
-                                    if event.isTerminal {
-                                        continuation.finish()
-                                        return
-                                    }
-                                }
+                        let events = ScoutSSEParser.parse(String(decoding: frame, as: UTF8.self))
+                        frame.removeAll(keepingCapacity: true)
+                        for event in events {
+                            continuation.yield(event)
+                            if event.isTerminal {
+                                continuation.finish()
+                                return
                             }
                         }
                     }
 
-                    // Parse any remaining buffered text
-                    if !eventBuffer.isEmpty || !buffer.isEmpty {
-                        let events = ScoutSSEParser.parse(eventBuffer + buffer)
-                        for event in events {
-                            continuation.yield(event)
-                        }
+                    frame.append(line)
+                    for event in ScoutSSEParser.parse(String(decoding: frame, as: UTF8.self)) {
+                        continuation.yield(event)
                     }
                     continuation.finish()
                 } catch {

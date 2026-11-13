@@ -18,6 +18,44 @@ enum ScoutRequestAuthenticationError: LocalizedError, Equatable {
 }
 
 struct ScoutRequestAuthentication {
+    private static func validateTarget(_ request: URLRequest, endpoint: ScoutEndpointProfile) throws -> String {
+        let origin = try ScoutAccessOAuth.origin(for: endpoint)
+        guard let url = request.url, url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
+              let host = url.host,
+              "https://" + host.lowercased() + ((url.port == nil || url.port == 443) ? "" : ":\(url.port!)") == origin else {
+            throw ScoutRequestAuthenticationError.wrongConnection
+        }
+        return origin
+    }
+
+    static func prepare(to request: inout URLRequest, endpoint: ScoutEndpointProfile, apiKey: String?,
+                        accountSession: ScoutAccountSession? = nil) async throws {
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        request.setValue(nil, forHTTPHeaderField: "X-API-Key")
+        request.setValue(nil, forHTTPHeaderField: "X-Guardian-Account-Session")
+        let origin = try validateTarget(request, endpoint: endpoint)
+        guard endpoint.authenticationMode == .remoteSession, origin == ScoutAccessOAuth.resource.absoluteString else {
+            try apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
+            return
+        }
+        guard let account = try accountSession ?? ScoutAccountSessionStore().load(for: endpoint) else {
+            throw ScoutRequestAuthenticationError.sessionRequired
+        }
+        try account.validate(for: endpoint)
+        let generation = UserDefaults.standard.integer(forKey: "scout.accountSessionGeneration")
+        let ingress = try await ScoutIngressRenewal.shared.credential(for: endpoint)
+        try Task.checkCancellation()
+        guard UserDefaults.standard.integer(forKey: "scout.accountSessionGeneration") == generation else {
+            throw ScoutRequestAuthenticationError.sessionRequired
+        }
+        // Reload stored account after the await so logout cannot restore authority.
+        if accountSession == nil {
+            guard let current = try ScoutAccountSessionStore().load(for: endpoint), current.token == account.token else {
+                throw ScoutRequestAuthenticationError.sessionRequired
+            }
+        }
+        try apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: account, ingress: ingress)
+    }
     static func isInvalidAccountResponse(_ response: HTTPURLResponse) -> Bool {
         response.statusCode == 401 && response.value(forHTTPHeaderField: "X-Guardian-Auth-Failure") == "ACCOUNT_SESSION_INVALID"
     }
@@ -49,12 +87,8 @@ struct ScoutRequestAuthentication {
         request.setValue(nil, forHTTPHeaderField: "X-API-Key")
         request.setValue(nil, forHTTPHeaderField: "X-Guardian-Account-Session")
 
-        let origin = try ScoutAccessOAuth.origin(for: endpoint)
-        guard let url = request.url, url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
-              let host = url.host,
-              "https://" + host.lowercased() + ((url.port == nil || url.port == 443) ? "" : ":\(url.port!)") == origin else {
-            throw ScoutRequestAuthenticationError.wrongConnection
-        }
+        let origin = try validateTarget(request, endpoint: endpoint)
+        guard let url = request.url else { throw ScoutRequestAuthenticationError.wrongConnection }
 
         switch endpoint.authenticationMode {
         case .localAPIKey:

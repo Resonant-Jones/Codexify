@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct ScoutDocumentDetailResult {
     let httpStatus: Int?
@@ -7,12 +8,17 @@ struct ScoutDocumentDetailResult {
 }
 
 struct ScoutDocumentDetailProbe {
+    static let recentDocuments = ScoutDocumentCache()
 
     static func probe(
         endpoint: ScoutEndpointProfile,
         documentId: String,
         apiKey: String? = nil,
-        session: URLSession = .scoutAuthenticated
+        session: URLSession = .scoutAuthenticated,
+        cache: ScoutDocumentCache? = nil,
+        accountGeneration: Int = 0,
+        reload: Bool = false,
+        preview: Bool = false
     ) async -> ScoutDocumentDetailResult {
         var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -40,7 +46,19 @@ struct ScoutDocumentDetailProbe {
         request.timeoutInterval = 5
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+            try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
+            let key = cache == nil ? nil : cacheKey(for: request, endpoint: endpoint, accountGeneration: accountGeneration)
+            if let cache, let key {
+                if reload {
+                    await cache.remove(key)
+                } else if let detail = await cache.detail(for: key) {
+                    return ScoutDocumentDetailResult(httpStatus: nil, detail: detail, message: "Recent document loaded.")
+                }
+            }
+            if preview, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "preview", value: "true")]
+                request.url = components.url ?? url
+            }
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
@@ -57,6 +75,9 @@ struct ScoutDocumentDetailProbe {
             switch statusCode {
             case 200..<300:
                 let detail = try? JSONDecoder().decode(ScoutDocumentDetail.self, from: data)
+                if let cache, let key, let detail, detail.text_preview_truncated != true, !Task.isCancelled {
+                    await cache.insert(detail, for: key)
+                }
                 return ScoutDocumentDetailResult(
                     httpStatus: statusCode, detail: detail,
                     message: detail != nil ? "Document loaded." : "Document loaded but details unavailable."
@@ -82,5 +103,17 @@ struct ScoutDocumentDetailProbe {
                 message: "Document request failed: \(error.localizedDescription)"
             )
         }
+    }
+    // Bind a cached result to the exact credential selection without storing
+    // credential headers or logging their fingerprint. Anonymous reads skip it.
+    private static func cacheKey(for request: URLRequest, endpoint: ScoutEndpointProfile,
+                                 accountGeneration: Int) -> ScoutDocumentCache.Key? {
+        guard let url = request.url else { return nil }
+        let credentials = ["X-API-Key", "X-Guardian-Account-Session", "Authorization"].map {
+            request.value(forHTTPHeaderField: $0)
+        }
+        guard credentials.contains(where: { $0 != nil }), let encoded = try? JSONEncoder().encode(credentials) else { return nil }
+        return .init(connection: .init(endpoint: endpoint), accountGeneration: accountGeneration,
+                     authorization: Data(SHA256.hash(data: encoded)), url: url)
     }
 }
