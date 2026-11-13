@@ -72,11 +72,16 @@ def admission_headers(request: Request) -> dict[str, str]:
     }
 
 
-def account_route(path: str) -> bool:
+def account_route(path: str, method: str) -> bool:
     """Scope normalization to Scout's existing account APIs and handoff/logout."""
-    return path.startswith(
-        ("/api/chat/", "/api/tasks/", "/api/threads/", "/api/documents/")
-    ) or path in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
+    return (
+        path.startswith(
+            ("/api/chat/", "/api/tasks/", "/api/threads/", "/api/documents/")
+        )
+        or path
+        in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
+        or (path == "/api/projects" and method in {"GET", "POST"})
+    )
 
 
 class ScoutAccountTransportMiddleware:
@@ -98,7 +103,7 @@ class ScoutAccountTransportMiddleware:
             and os.getenv("GUARDIAN_EXPOSURE_MODE") == "private_preview"
             and request.url.hostname == HOST
             and request.url.port in (None, 443)
-            and account_route(scope["path"])
+            and account_route(scope["path"], scope["method"])
         )
         values = {}
         for name in (b"cf-access-jwt-assertion", b"host"):

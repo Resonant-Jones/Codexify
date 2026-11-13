@@ -168,6 +168,61 @@ def test_qualified_composition_normalizes_only_account_transport(client):
     }
 
 
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("edge_consumed", [False, True])
+def test_project_collection_uses_the_same_scoped_account_transport(
+    client, method, edge_consumed
+):
+    response = client.request(
+        method, "/api/projects", headers=edge_headers() if edge_consumed else headers()
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "selected": "Bearer fixture-account",
+        "alternate_removed": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "path,method",
+    [
+        ("/api/projects", "DELETE"),
+        ("/api/projects/1", "GET"),
+        ("/api/projects/repository-import", "POST"),
+        ("/api/projects-other", "GET"),
+    ],
+)
+def test_project_transport_does_not_expand_to_other_routes_or_methods(
+    client, path, method
+):
+    assert client.request(method, path, headers=edge_headers()).status_code == 400
+
+
+def test_project_collection_requires_qualified_access_and_valid_account(
+    client, monkeypatch
+):
+    from fastapi import HTTPException
+
+    assert (
+        client.get(
+            "/api/projects", headers={"X-Guardian-Account-Session": "fixture-account"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            "/api/projects", headers=edge_headers() | {"X-API-Key": "fixture-key"}
+        ).status_code
+        == 400
+    )
+    monkeypatch.setattr(
+        transport,
+        "verify_selected_account",
+        lambda _: (_ for _ in ()).throw(HTTPException(status_code=401)),
+    )
+    assert client.get("/api/projects", headers=edge_headers()).status_code == 401
+
+
 @pytest.mark.parametrize(
     "path",
     ["/api/admin/session", "/api/operators/continuity", "/health", "/api/auth/login"],
