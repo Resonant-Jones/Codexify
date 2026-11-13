@@ -261,6 +261,8 @@ async def get_run(
             status_code=404,
             detail={"error": "command_run_not_found", "run_id": run_id},
         )
+    if not auth_subject or run.get("auth_subject") != auth_subject:
+        raise HTTPException(status_code=403, detail="forbidden")
     return {
         **run,
         "events_url": f"/api/guardian/commands/runs/{run_id}/events?after_seq=0",
@@ -297,6 +299,21 @@ async def get_tool_turn_observability(
     if row is None:
         raise HTTPException(status_code=404, detail={"error": "message_not_found"})
 
+    # Ownership comes from the canonical thread, never message metadata.
+    thread_id = getattr(row, "thread_id", None)
+    thread_lookup = getattr(_chat_db, "get_chat_thread", None)
+    thread = (
+        thread_lookup(thread_id)
+        if callable(thread_lookup) and thread_id is not None
+        else None
+    )
+    if (
+        not auth_subject
+        or not isinstance(thread, Mapping)
+        or thread.get("user_id") != auth_subject
+    ):
+        raise HTTPException(status_code=403, detail="forbidden")
+
     role = str(getattr(row, "role", "") or "").strip().lower()
     if role != "assistant":
         raise HTTPException(
@@ -319,6 +336,8 @@ async def get_tool_turn_observability(
     command_run = None
     if command_run_id:
         command_run = _store.get_run(command_run_id)
+        if command_run is not None and command_run.get("auth_subject") != auth_subject:
+            raise HTTPException(status_code=403, detail="forbidden")
 
     model = build_tool_turn_observability_read_model(
         assistant_extra_meta=extra_meta if extra_meta else None,
