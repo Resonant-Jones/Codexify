@@ -140,7 +140,7 @@ export function KnowledgeOAuthSetup({ connection, onClose, onChanged }: {
       {repositories.map((repo) => <label className="block" key={repo.id}><input type="checkbox" disabled={busy || (!selected.includes(repo.full_name) && selected.length >= 20)} checked={selected.includes(repo.full_name)} onChange={(event) => setSelected((old) => event.target.checked ? [...old, repo.full_name] : old.filter((name) => name !== repo.full_name))} />{repo.full_name}</label>)}
       {repositories.length > 0 && <Button disabled={busy || !selected.length} onClick={saveRepositories}>Save repository access</Button>}
       {message && <p role="status">{message}</p>}
-      {(status?.configured || status?.state === "needs_scope" || busy) && <Button disabled={busy && !popup.current} onClick={disconnect}>Disconnect</Button>}
+      {(status?.configured || status?.generation || busy) && <Button disabled={busy && !popup.current} onClick={disconnect}>Disconnect</Button>}
       <Button variant="ghost" onClick={() => { stop(); onClose(); }}>Close</Button>
       <p className="text-xs">Closing stops this window's checks; it does not revoke an authorization already accepted. Use Disconnect to invalidate a pending connection.</p>
     </div>

@@ -74,4 +74,17 @@ describe("Knowledge OAuth", () => {
     expect(popup.location.href).toBe(""); expect(popup.close).toHaveBeenCalled();
   });
 
+  it.each(["pending", "reconnect_required"])("can disconnect a reopened %s connection", async (state) => {
+    const changed = vi.fn();
+    vi.mocked(api.get).mockResolvedValue({ data: { available: true, configured: false, state, generation: "persisted" } });
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    render(<KnowledgeOAuthSetup connection={entry} onClose={vi.fn()} onChanged={changed} />); await flush();
+    const button = screen.getByRole("button", { name: "Disconnect" });
+    expect(button).toBeEnabled(); fireEvent.click(button); await flush();
+    expect(api.post).toHaveBeenCalledWith("/api/connect/notion/oauth/disconnect", {});
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Disconnected from Codexify/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+  });
+
 });
