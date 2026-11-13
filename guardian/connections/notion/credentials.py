@@ -39,6 +39,7 @@ def configure_token(db: Any, user_id: str, token: str) -> None:
         record = (
             session.query(db_models.NotionConnectionCredential)
             .filter_by(user_id=user_id)
+            .with_for_update()
             .one_or_none()
         )
         if record is None:
@@ -56,15 +57,23 @@ def configure_token(db: Any, user_id: str, token: str) -> None:
         session.commit()
 
 
-def mark_validation(db: Any, user_id: str, status: str) -> None:
+def mark_validation(
+    db: Any, user_id: str, status: str, *, expected_token: str | None = None
+) -> None:
     """Persist only a bounded validation classification, never error text."""
     with db.get_session() as session:
         record = (
             session.query(db_models.NotionConnectionCredential)
             .filter_by(user_id=user_id)
+            .with_for_update()
             .one_or_none()
         )
         if record is None:
+            return
+        if (
+            expected_token is not None
+            and decrypt_token(record.encrypted_integration_token) != expected_token
+        ):
             return
         record.validation_status = status
         record.last_validated_at = datetime.now(timezone.utc)

@@ -3281,6 +3281,46 @@ class NotionConnectionCredential(Base):
     )
 
 
+class GitHubKnowledgeCredential(Base):
+    """Account-owned token and explicit repository scope for read-only GitHub."""
+
+    __tablename__ = "github_knowledge_credentials"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_token: Mapped[str] = mapped_column(Text, nullable=False)
+    repositories: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    validation_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="unvalidated"
+    )
+    last_validated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_github_knowledge_credentials_user"),
+        CheckConstraint(
+            "validation_status IN "
+            "('unvalidated', 'valid', 'authorization_error', "
+            "'transport_error', 'provider_error')",
+            name="ck_github_knowledge_credentials_validation_status",
+        ),
+    )
+
+
 # =========================
 # Inference Provider State
 # =========================

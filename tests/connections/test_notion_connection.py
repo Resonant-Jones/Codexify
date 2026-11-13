@@ -428,3 +428,29 @@ def test_disconnect_is_account_scoped_and_blocks_subsequent_reads(
         response = test_client.get(path, headers=_headers())
         assert response.status_code == 409
         assert response.json()["detail"]["error"] == "notion_not_configured"
+
+
+def test_validation_does_not_validate_replacement_token(client, monkeypatch):
+    test_client, db = client
+    _configure(test_client)
+    from guardian.connections.notion import credentials
+
+    def replace_during_probe(self):
+        credentials.configure_token(db, "user-a", "replacement")
+
+    monkeypatch.setattr(notion_service.NotionClient, "validate", replace_during_probe)
+    response = test_client.post("/api/connect/notion/validate", headers=_headers())
+    assert response.status_code == 200
+    assert response.json()["validation"]["state"] == "unvalidated"
+
+
+@pytest.mark.parametrize(
+    "body", [[{"integration_token": "never-echo"}], {"settings": "never-echo"}]
+)
+def test_notion_setup_validation_does_not_echo_secrets(client, body):
+    test_client, _ = client
+    response = test_client.post(
+        "/api/connect/notion/configure", headers=_headers(), json=body
+    )
+    assert response.status_code == 422
+    assert "never-echo" not in response.text

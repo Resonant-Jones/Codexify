@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from guardian.connections.credential_routes import CredentialSetupRoute
 from guardian.connections.notion import credentials
 from guardian.connections.notion.service import (
     NotionAuthorizationError,
@@ -17,9 +18,13 @@ from guardian.connections.notion.service import (
     NotionObjectNotFoundError,
     NotionTransportError,
 )
-from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
+from guardian.core.dependencies import (
+    get_account_user_id as get_request_user_id,
+    require_account_session as require_api_key,
+)
 
 setup_router = APIRouter(
+    route_class=CredentialSetupRoute,
     prefix="/api/connect/notion",
     tags=["Notion Connection"],
     dependencies=[Depends(require_api_key)],
@@ -56,18 +61,14 @@ def _get_db() -> Any:
 
 
 class NotionConfigureRequest(BaseModel):
-    settings: dict[str, str] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 def _validation_http_error(exc: NotionError) -> HTTPException:
     if isinstance(exc, NotionAuthorizationError):
-        return HTTPException(
-            status_code=401, detail={"error": exc.error_code}
-        )
+        return HTTPException(status_code=401, detail={"error": exc.error_code})
     if isinstance(exc, NotionTransportError):
-        return HTTPException(
-            status_code=503, detail={"error": exc.error_code}
-        )
+        return HTTPException(status_code=503, detail={"error": exc.error_code})
     return HTTPException(status_code=502, detail={"error": exc.error_code})
 
 
@@ -90,7 +91,8 @@ def configure_notion(
     payload: NotionConfigureRequest,
     user_id: str = Depends(get_request_user_id),
 ) -> dict[str, Any]:
-    token = str(payload.settings.get("integration_token") or "").strip()
+    raw_token = payload.settings.get("integration_token")
+    token = raw_token.strip() if isinstance(raw_token, str) else ""
     if not token or len(token) > 4096:
         raise HTTPException(
             status_code=422,
@@ -106,24 +108,34 @@ def validate_notion(
     user_id: str = Depends(get_request_user_id),
 ) -> dict[str, Any]:
     db = _get_db()
+    token = credentials.configured_token(db, user_id)
+    if not token:
+        raise HTTPException(status_code=409, detail={"error": "notion_not_configured"})
     try:
-        _configured_client(db, user_id).validate()
+        NotionClient(token).validate()
     except NotionNotConfiguredError as exc:
         raise HTTPException(status_code=409, detail={"error": exc.error_code}) from exc
     except NotionAuthorizationError as exc:
         credentials.mark_validation(
-            db, user_id, credentials.VALIDATION_AUTHORIZATION_ERROR
+            db,
+            user_id,
+            credentials.VALIDATION_AUTHORIZATION_ERROR,
+            expected_token=token,
         )
         raise _validation_http_error(exc) from exc
     except NotionTransportError as exc:
         credentials.mark_validation(
-            db, user_id, credentials.VALIDATION_TRANSPORT_ERROR
+            db, user_id, credentials.VALIDATION_TRANSPORT_ERROR, expected_token=token
         )
         raise _validation_http_error(exc) from exc
     except NotionError as exc:
-        credentials.mark_validation(db, user_id, credentials.VALIDATION_PROVIDER_ERROR)
+        credentials.mark_validation(
+            db, user_id, credentials.VALIDATION_PROVIDER_ERROR, expected_token=token
+        )
         raise _validation_http_error(exc) from exc
-    credentials.mark_validation(db, user_id, credentials.VALIDATION_VALID)
+    credentials.mark_validation(
+        db, user_id, credentials.VALIDATION_VALID, expected_token=token
+    )
     return _safe_status(db, user_id)
 
 
@@ -141,7 +153,9 @@ def disconnect_notion(user_id: str = Depends(get_request_user_id)) -> dict[str, 
 def _valid_object_id(object_id: str) -> str:
     candidate = str(object_id or "").strip()
     if not _OBJECT_ID_RE.fullmatch(candidate):
-        raise HTTPException(status_code=422, detail={"error": "invalid_notion_object_id"})
+        raise HTTPException(
+            status_code=422, detail={"error": "invalid_notion_object_id"}
+        )
     return candidate
 
 
