@@ -91,6 +91,30 @@ def test_edge_consumed_composition_still_requires_selected_account(client):
     assert response.json()["alternate_removed"]
 
 
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/saved-widgets"),
+    ("POST", "/api/saved-widgets"),
+    ("GET", "/api/saved-widgets/sw_fixture"),
+    ("GET", "/api/saved-widgets/sw_fixture/revisions"),
+    ("GET", "/api/saved-widgets/sw_fixture/revisions/1"),
+    ("POST", "/api/saved-widgets/sw_fixture/revisions"),
+])
+def test_widget_transport_preserves_account_admission(client, method, path):
+    assert client.request(method, path, headers=edge_headers()).status_code == 200
+    missing = {"X-Guardian-Account-Session": "fixture-account"}
+    assert client.request(method, path, headers=missing).status_code == 400
+
+
+@pytest.mark.parametrize("method,path", [
+    ("DELETE", "/api/saved-widgets/sw_fixture"),
+    ("POST", "/api/saved-widgets/sw_fixture"),
+    ("POST", "/api/saved-widgets/sw_fixture/revisions/1"),
+    ("GET", "/api/saved-widgets/sw_fixture/revisions/1/extra"),
+])
+def test_widget_transport_rejects_unimplemented_actions(client, method, path):
+    assert client.request(method, path, headers=headers()).status_code == 400
+
+
 LIBRARY_READ_PATHS = [
     "/api/media/images?limit=100",
     "/api/media/images?tag=generated&limit=100",

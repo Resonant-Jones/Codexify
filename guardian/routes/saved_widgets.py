@@ -82,7 +82,7 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardian.core import dependencies
@@ -90,6 +90,11 @@ from guardian.core.dependencies import get_account_user_id, require_account_sess
 from guardian.core.saved_widget_store import (
     SavedWidgetIneligible,
     SavedWidgetStoreError,
+    list_saved_widgets,
+    append_saved_widget_revision,
+    SavedWidgetNotFound,
+    SavedWidgetInvalidState,
+    SavedWidgetConflict,
     read_saved_widget,
     read_saved_widget_revision,
     read_saved_widget_revisions,
@@ -169,6 +174,14 @@ class SavedWidgetProvenanceSnapshot(BaseModel):
     completion_attempt_request_id: Optional[str] = None
     accepted_at: Optional[str] = None
     captured_at: Optional[str] = None
+
+
+class SavedWidgetAppendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    thread_id: int
+    message_id: int
+    artifact_index: int = Field(default=0, ge=0)
+    base_revision: int = Field(ge=1)
 
 
 class SavedWidgetRevisionRef(BaseModel):
@@ -384,6 +397,55 @@ def promote_saved_widget(
         created_at=record.created_at,
         provenance=_provenance_payload(record.current.provenance_snapshot),
     )
+
+
+@router.post("/{widget_id}/revisions", dependencies=[Depends(require_account_session)])
+def append_revision(
+    widget_id: str,
+    body: SavedWidgetAppendRequest,
+    current_user: str = Depends(get_account_user_id),
+) -> dict[str, Any]:
+    """Explicitly save an accepted Guardian artifact as a new immutable revision.
+
+    This does not fetch widget source for inference or generate an edit candidate.
+    """
+    try:
+        record = append_saved_widget_revision(
+            _get_chatlog_db(),
+            account_id=current_user,
+            widget_id=widget_id,
+            actor=PROMOTION_ACTOR_USER,
+            **body.model_dump(),
+        )
+    except SavedWidgetNotFound as exc:
+        raise _not_found(widget_id) from exc
+    except SavedWidgetIneligible as exc:
+        raise HTTPException(
+            422, detail={"error": "artifact_not_eligible", "reasons": list(exc.reasons)}
+        ) from exc
+    except (SavedWidgetConflict, SavedWidgetInvalidState) as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "error": "promotion_failed",
+                "message": "Refresh the widget before saving a new version.",
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "invalid_request"}) from exc
+    return {"ok": True, "widget_id": record.widget_id, "revision": record.revision}
+
+
+@router.get("", dependencies=[Depends(require_account_session)])
+def list_widgets(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: str = Depends(get_account_user_id),
+) -> dict[str, Any]:
+    widgets, next_offset = list_saved_widgets(
+        _get_chatlog_db(), account_id=current_user, limit=limit, offset=offset
+    )
+    return {"widgets": widgets, "count": len(widgets), "next_offset": next_offset}
 
 
 @router.get(
