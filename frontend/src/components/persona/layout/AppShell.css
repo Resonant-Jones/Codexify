@@ -64,6 +64,82 @@
   pointer-events: auto;
 }
 
+/* Scroll inside the dock, leaving room for the complete pill rim
+   and focus outline. The backdrop has its own rounded clipping layer. */
+.codexify-dock__rail {
+  padding-block: 4px;
+  scroll-padding-inline: 4px;
+  scrollbar-width: thin;
+}
+
+.codexify-dock__rail > .pill-tab {
+  scroll-margin-inline: 4px;
+}
+
+.codexify-utilities {
+  position: relative;
+}
+
+.codexify-utilities__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.codexify-utilities__actions[hidden] {
+  display: none;
+}
+
+.codexify-utilities__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.codexify-utilities__toggle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border-color: var(--panel-border);
+}
+
+.codexify-utilities[data-compact="true"] .codexify-utilities__actions {
+  position: absolute;
+  inset-block-start: calc(100% + 12px);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  background: var(--surface-sheet);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 25%);
+  --top-chrome-fg: var(--text);
+}
+
+.codexify-utilities[data-compact="true"] .codexify-utilities__actions[hidden] {
+  display: none;
+}
+
+.codexify-utilities[data-compact="true"] .codexify-utilities__action {
+  flex-direction: column;
+  min-height: 64px;
+}
+
+.codexify-utilities__label {
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+}
+
 .codexify-shell--dock-collapsed .codexify-shell__top-chrome {
   max-height: var(--dock-collapsed-height);
   opacity: 1;
@@ -517,20 +593,6 @@
 }
 
 @container codexify-pane (max-width: 850px) {
-  .codexify-shell__top-chrome {
-    display: flex !important;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .codexify-shell__top-chrome > [data-testid="app-shell-nav-anchor"],
-  .codexify-shell__top-chrome > [data-testid="app-shell-utility-cluster"] {
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    overflow-x: auto;
-  }
-
   .codexify-dock,
   .codexify-dock__rail {
     max-width: 100% !important;

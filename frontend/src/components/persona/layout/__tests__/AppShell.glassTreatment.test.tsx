@@ -117,7 +117,7 @@ describe("Glass Treatment shell integration", () => {
       );
       // Geometry is a grid contract, not a material concern.
       expect(screen.getByTestId("app-shell-utility-cluster")).toHaveStyle({
-        gridColumn: "3",
+        gridColumn: "2",
         justifySelf: "end",
       });
       expect(screen.getByTestId("app-shell-nav-anchor")).toHaveStyle({

@@ -38,6 +38,7 @@ import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import PersonaStudioPage from "@/features/personaStudio/PersonaStudioPage";
 import TtsConsoleLauncher from "@/features/ttsConsole/TtsConsoleLauncher";
 import ContactsLauncher from "@/features/contacts/ContactsLauncher";
+import ResponsiveUtilityActions from "./ResponsiveUtilityActions";
 import FloatingConversation from "@/features/contacts/FloatingConversation";
 import { usePeopleMessagingState } from "@/features/contacts/usePeopleMessagingState";
 import FlowBuilderPage from "@/features/flowBuilder/FlowBuilderPage";
@@ -2415,7 +2416,10 @@ export default function AppShell({
   ]);
   const viewportInsets = useViewportInsets(isPhoneShell);
   const mobileTopNavDockStyle = useMemo<React.CSSProperties>(
-    () => getMobileTopNavDockStyle(mobileShellProfile),
+    () => ({
+      ...getMobileTopNavDockStyle(mobileShellProfile),
+      width: mobileShellProfile.topNav.scrollable ? mobileShellProfile.topNav.width : "fit-content",
+    }),
     [mobileShellProfile]
   );
   const mobileTopNavRailMotionState = useMemo(
@@ -2435,10 +2439,13 @@ export default function AppShell({
         ? mobileTopNavRailStyle
         : {
             ...mobileTopNavRailStyle,
-            flex: "0 0 auto",
+            flex: "0 1 auto",
             display: "inline-flex",
             width: "fit-content",
-            maxWidth: "fit-content",
+            maxWidth: "100%",
+            paddingInline: "4px",
+            overflowX: "auto",
+            overflowY: "hidden",
           },
     [isPhoneShell, mobileTopNavRailStyle]
   );
@@ -3487,15 +3494,18 @@ export default function AppShell({
     />
   );
   const desktopHeaderUtilityActions = (
-    <>
-      {systemStatusUtilityAction}
-      {settingsUtilityAction}
-      {ttsConsoleUtilityAction}
-      {contactsUtilityAction}
-      {workspaceDrawerToggle}
-      {documentsSidebarToggle}
-      {shareUtilityAction}
-    </>
+    <ResponsiveUtilityActions
+      containerRef={topChromeRef}
+      actions={[
+        { label: "System status", control: systemStatusUtilityAction },
+        { label: "Settings", control: settingsUtilityAction },
+        { label: "TTS Console", control: ttsConsoleUtilityAction },
+        { label: "People", control: contactsUtilityAction },
+        { label: "Workspace", control: workspaceDrawerToggle },
+        { label: "Sidebar", control: documentsSidebarToggle },
+        { label: "Share", control: shareUtilityAction },
+      ]}
+    />
   );
   const mobileHeaderUtilityActions = (
     <>
@@ -3765,7 +3775,7 @@ export default function AppShell({
         <div
         ref={topChromeRef}
         data-testid="app-shell-top-chrome"
-        className={`codexify-shell__top-chrome relative z-10 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
+        className={`codexify-shell__top-chrome relative z-20 w-full ${isPhoneShell ? "flex flex-col gap-[var(--shell-gap)]" : "grid items-start"}`}
         data-dock-collapsed={dockCollapsed ? "true" : "false"}
         data-dock-engaged={dockEngaged ? "true" : "false"}
         onPointerEnter={handleDockPointerEnter}
@@ -3776,7 +3786,8 @@ export default function AppShell({
           isPhoneShell
             ? undefined
             : {
-                gridTemplateColumns: "auto minmax(var(--shell-gap), 1fr) auto",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                columnGap: "max(var(--shell-gap), 20px)",
               }
         }
       >
@@ -3789,6 +3800,8 @@ export default function AppShell({
               : {
                   gridColumn: "1",
                   justifySelf: "start",
+                  width: "100%",
+                  maxWidth: "100%",
                 }
           }
         >
@@ -3926,8 +3939,9 @@ export default function AppShell({
             isPhoneShell
               ? undefined
               : {
-                  gridColumn: "3",
+                  gridColumn: "2",
                   justifySelf: "end",
+                  alignSelf: "center",
                 }
           }
         >
