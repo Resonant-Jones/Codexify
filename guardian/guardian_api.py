@@ -60,6 +60,8 @@ from guardian.browser_host.http_adapter import (
 )
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connections.google_drive import router as google_drive_connection_routes
+from guardian.connections.knowledge_oauth_routes import make_router as make_knowledge_oauth_router  # noqa: E402
+from guardian.connections.knowledge_oauth import enabled as knowledge_oauth_enabled  # noqa: E402
 from guardian.connections.notion import router as notion_connection_routes
 from guardian.connections.github import router as github_knowledge_routes  # noqa: E402
 from guardian.connectors.google import router as google_connect_router
@@ -1067,6 +1069,17 @@ def _include_personal_facts_router() -> None:
     app.include_router(personal_facts_router, prefix="/api")
 
 
+def _include_knowledge_setup(provider: str, routes: Any, label: str) -> None:
+    """OAuth inherits its existing provider setup gate and schema quarantine."""
+    include_schema = _include_internal_only_schema(label)
+    app.include_router(routes.setup_router, include_in_schema=include_schema)
+    if knowledge_oauth_enabled():
+        app.include_router(
+            make_knowledge_oauth_router(provider, routes._get_db),
+            include_in_schema=include_schema,
+        )
+
+
 def _include_music_projects_router() -> None:
     """Mount the Music Project routes.
 
@@ -1344,7 +1357,7 @@ _include_router(
     label="github_knowledge_setup",
     flag_name="CODEXIFY_ENABLE_GITHUB_KNOWLEDGE_ROUTES",
     default_enabled=False,
-    include_fn=lambda: app.include_router(github_knowledge_routes.setup_router),
+    include_fn=lambda: _include_knowledge_setup("github", github_knowledge_routes, "github_knowledge_setup"),
 )
 _include_router(
     label="notion_knowledge",
@@ -1354,10 +1367,7 @@ _include_router(
 _include_router(
     label="notion_setup",
     flag_name="CODEXIFY_ENABLE_NOTION_KNOWLEDGE_ROUTES",
-    include_fn=lambda: app.include_router(
-        notion_connection_routes.setup_router,
-        include_in_schema=_include_internal_only_schema("notion_setup"),
-    ),
+    include_fn=lambda: _include_knowledge_setup("notion", notion_connection_routes, "notion_setup"),
 )
 _include_router(
     label="google_drive_knowledge",

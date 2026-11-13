@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from guardian.connections.credential_routes import CredentialSetupRoute
+from guardian.connections import knowledge_oauth
 from guardian.connections.github import credentials
 from guardian.connections.github.service import (
     GitHubClient,
@@ -86,6 +87,8 @@ def _status(db: Any, user_id: str) -> dict[str, Any]:
 def configure_github(
     payload: GitHubConfigureRequest, user_id: str = Depends(get_account_user_id)
 ) -> dict[str, Any]:
+    if knowledge_oauth.enabled():
+        raise HTTPException(409, detail={"error": "knowledge_oauth_required"})
     token = payload.token.strip() if isinstance(payload.token, str) else ""
     if not token or len(token) > 4096:
         raise HTTPException(422, detail={"error": "github_token_required"})

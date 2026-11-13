@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from guardian.connections.credential_routes import CredentialSetupRoute
+from guardian.connections import knowledge_oauth
 from guardian.connections.notion import credentials
 from guardian.connections.notion.service import (
     NotionAuthorizationError,
@@ -91,6 +92,8 @@ def configure_notion(
     payload: NotionConfigureRequest,
     user_id: str = Depends(get_request_user_id),
 ) -> dict[str, Any]:
+    if knowledge_oauth.enabled():
+        raise HTTPException(409, detail={"error": "knowledge_oauth_required"})
     raw_token = payload.settings.get("integration_token")
     token = raw_token.strip() if isinstance(raw_token, str) else ""
     if not token or len(token) > 4096:

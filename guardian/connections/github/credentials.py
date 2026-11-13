@@ -7,6 +7,7 @@ from typing import Any
 
 from guardian.connectors.oauth_crypto import decrypt_token, encrypt_token
 from guardian.db import models as db_models
+from guardian.connections import knowledge_oauth, oauth_store
 
 VALIDATION_UNVALIDATED = "unvalidated"
 VALIDATION_VALID = "valid"
@@ -26,6 +27,18 @@ def _record(db: Any, user_id: str) -> db_models.GitHubKnowledgeCredential | None
 
 def configured_connection(db: Any, user_id: str) -> tuple[str, list[str]] | None:
     """Resolve a credential only inside the provider execution boundary."""
+    if knowledge_oauth.enabled() and oauth_store.status(db, user_id, "github").get(
+        "generation"
+    ):
+        try:
+            snapshot = knowledge_oauth.credential(db, user_id, "github")
+        except knowledge_oauth.KnowledgeOAuthError:
+            return None
+        return (
+            (snapshot.access_token, snapshot.repositories)
+            if snapshot is not None and snapshot.repositories
+            else None
+        )
     record = _record(db, user_id)
     if record is None:
         return None
@@ -68,6 +81,13 @@ def mark_validation(
     expected_connection: tuple[str, list[str]] | None = None,
 ) -> None:
     """Persist only a bounded validation classification, never error text."""
+    if knowledge_oauth.enabled() and oauth_store.status(db, user_id, "github").get(
+        "generation"
+    ):
+        expected = expected_connection[0] if expected_connection else None
+        if status == VALIDATION_AUTHORIZATION_ERROR and expected:
+            oauth_store.invalidate_credential(db, user_id, "github", expected)
+        return
     with db.get_session() as session:
         record = (
             session.query(db_models.GitHubKnowledgeCredential)
@@ -91,6 +111,11 @@ def mark_validation(
 
 def disconnect(db: Any, user_id: str) -> bool:
     """Remove the user's credential record; no provider mutation is made."""
+    oauth_removed = (
+        oauth_store.disconnect(db, user_id, "github")
+        if knowledge_oauth.enabled()
+        else False
+    )
     with db.get_session() as session:
         record = (
             session.query(db_models.GitHubKnowledgeCredential)
@@ -98,7 +123,7 @@ def disconnect(db: Any, user_id: str) -> bool:
             .one_or_none()
         )
         if record is None:
-            return False
+            return oauth_removed
         session.delete(record)
         session.commit()
         return True
@@ -106,6 +131,14 @@ def disconnect(db: Any, user_id: str) -> bool:
 
 def status_projection(db: Any, user_id: str) -> dict[str, Any]:
     """Return safe status metadata for routes and Connections projection."""
+    if knowledge_oauth.enabled():
+        status = oauth_store.status(db, user_id, "github")
+        if status.get("generation"):
+            return {
+                **status,
+                "state": "valid" if status["configured"] else status["state"],
+                "last_validated_at": None,
+            }
     record = _record(db, user_id)
     if record is None:
         return {

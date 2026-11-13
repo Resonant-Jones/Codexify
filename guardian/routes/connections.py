@@ -29,6 +29,7 @@ from guardian.connections.catalog import (
     get_connection,
 )
 from guardian.connections.notion import credentials as notion_credentials
+from guardian.connections import knowledge_oauth
 from guardian.connections.github import credentials as github_credentials
 from guardian.core.dependencies import get_account_user_id as get_request_user_id, require_account_session as require_api_key
 from guardian.db import models as db_models
@@ -57,6 +58,10 @@ _OAUTH_STATUS_TO_SETUP_STATE: dict[str, str] = {
 
 _NOTION_VALIDATION_TO_SETUP_STATE: dict[str, str] = {
     "unconfigured": ConnectionSetupState.NEEDS_SETUP.value,
+    "pending": ConnectionSetupState.AUTHENTICATING.value,
+    "needs_scope": ConnectionSetupState.CONFIGURED.value,
+    "disconnected": ConnectionSetupState.NEEDS_SETUP.value,
+    "reconnect_required": ConnectionSetupState.ERROR.value,
     notion_credentials.VALIDATION_UNVALIDATED: ConnectionSetupState.CONFIGURED.value,
     notion_credentials.VALIDATION_VALID: ConnectionSetupState.CONNECTED.value,
     notion_credentials.VALIDATION_AUTHORIZATION_ERROR: ConnectionSetupState.ERROR.value,
@@ -296,6 +301,7 @@ def _project_entry(
     notion_validation: dict[str, Any] | None,
     github_validation: dict[str, Any] | None = None,
     github_setup_available: bool = False,
+    knowledge_oauth_mounted: set[str] | None = None,
 ) -> dict[str, Any]:
     inference_authorization = _inference_authorization(entry)
     item = entry.as_dict()
@@ -348,6 +354,24 @@ def _project_entry(
         )
         if not available:
             item["runtime_binding"]["setup_route"] = None
+    if entry.id in {"notion", "github_knowledge"} and knowledge_oauth.enabled():
+        provider = "notion" if entry.id == "notion" else "github"
+        mounted = provider in (knowledge_oauth_mounted or set())
+        try:
+            knowledge_oauth.config(provider)
+            configured = True
+        except knowledge_oauth.KnowledgeOAuthError:
+            configured = False
+        validation = notion_validation if provider == "notion" else github_validation
+        storage_ready = (validation or {}).get("state") != "storage_unavailable"
+        launchable = mounted and configured and storage_ready
+        item["oauth"] = {"supported": mounted, "backend_handler_exists": mounted,
+                         "launchable": launchable, "node_configured": configured,
+                         "connection": None}
+        if not mounted or not storage_ready:
+            item["runtime_binding"]["setup_route"] = None
+        if not launchable:
+            item["setup_state"] = ConnectionSetupState.UNAVAILABLE.value
     return item
 
 
@@ -396,7 +420,15 @@ def _github_projection(db: Any, user_id: str, request: Request) -> dict[str, Any
             validation = github_credentials.status_projection(db, user_id)
         except Exception:
             pass  # Missing migration/storage stays unavailable and secret-free.
-    return {"github_validation": validation, "github_setup_available": required <= mounted}
+    oauth_mounted = {
+        provider for provider, path in (("notion", "notion"), ("github", "github-knowledge"))
+        if {(f"/api/connect/{path}/oauth/start", "POST"),
+            (f"/api/connect/{path}/oauth/callback", "GET"),
+            (f"/api/connect/{path}/oauth/status", "GET"),
+            (f"/api/connect/{path}/oauth/disconnect", "POST")} <= mounted
+    }
+    return {"github_validation": validation, "github_setup_available": required <= mounted,
+            "knowledge_oauth_mounted": oauth_mounted}
 
 
 def _project_all(user_id: str, request: Request) -> list[dict[str, Any]]:
