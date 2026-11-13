@@ -225,7 +225,38 @@ def test_project_collection_requires_qualified_access_and_valid_account(
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/admin/session", "/api/operators/continuity", "/health", "/api/auth/login"],
+    [
+        "/api/media/images",
+        "/api/media/document-artifacts",
+        "/api/media/document-artifacts/sample-id",
+        "/media/images/example.png",
+        "/media/generated_images/example.png",
+    ],
+)
+def test_library_read_uses_scoped_account_transport(client, path):
+    response = client.get(path, headers=edge_headers())
+    assert response.status_code == 200
+    assert response.json() == {
+        "selected": "Bearer fixture-account",
+        "alternate_removed": True,
+    }
+    assert client.post(path, headers=edge_headers()).status_code == 400
+    assert client.delete(path, headers=edge_headers()).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/admin/session",
+        "/api/operators/continuity",
+        "/health",
+        "/api/auth/login",
+        "/api/media/images-other",
+        "/api/media/document-artifacts/sample-id/other",
+        "/media/images/subdirectory/example.png",
+        "/media/documents/example.pdf",
+        "/media/audio/example.wav",
+    ],
 )
 def test_other_surfaces_reject_header(client, path):
     assert client.get(path, headers=headers()).status_code == 400

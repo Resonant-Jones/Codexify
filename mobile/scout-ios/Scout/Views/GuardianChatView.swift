@@ -120,7 +120,7 @@ struct GuardianChatView: View {
                 routeLayer(.feed) { ActivityStreamView() }
             }
             if visitedRoutes.contains(.library) {
-                routeLayer(.library) { ArtifactsView() }
+                routeLayer(.library) { ArtifactsView(isActive: selectedRoute == .library) }
             }
             if visitedRoutes.contains(.spaces) {
                 routeLayer(.spaces) { SpacesView() }

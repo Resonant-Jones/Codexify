@@ -74,6 +74,18 @@ def admission_headers(request: Request) -> dict[str, str]:
 
 def account_route(path: str, method: str) -> bool:
     """Scope normalization to Scout's existing account APIs and handoff/logout."""
+    collection, _, item_id = path.rpartition("/")
+    library_read = method == "GET" and (
+        path in {"/api/media/images", "/api/media/document-artifacts"}
+        or (
+            collection == "/api/media/document-artifacts"
+            and item_id not in {"", ".", ".."}
+        )
+        or (
+            collection in {"/media/images", "/media/generated_images"}
+            and item_id not in {"", ".", ".."}
+        )
+    )
     return (
         path.startswith(
             ("/api/chat/", "/api/tasks/", "/api/threads/", "/api/documents/")
@@ -81,6 +93,7 @@ def account_route(path: str, method: str) -> bool:
         or path
         in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
         or (path == "/api/projects" and method in {"GET", "POST"})
+        or library_read
     )
 
 
