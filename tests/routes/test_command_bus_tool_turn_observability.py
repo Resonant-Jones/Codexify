@@ -29,6 +29,10 @@ def _install_fake_loopback(monkeypatch) -> None:
 class _FakeChatDB:
     def __init__(self, messages: dict[int, dict[str, Any]] | None = None):
         self._messages = messages or {}
+        self._threads = {1: {"id": 1, "user_id": "operator"}}
+
+    def get_chat_thread(self, thread_id: int):
+        return self._threads.get(thread_id)
 
     def get_message(self, message_id: int) -> Any | None:
         return self._messages.get(message_id)
@@ -36,6 +40,7 @@ class _FakeChatDB:
 
 class _FakeMessage:
     def __init__(self, **kw):
+        self.thread_id = 1
         for k, v in kw.items():
             setattr(self, k, v)
 
@@ -112,6 +117,7 @@ class TestToolTurnObservabilityRoute:
         chat_db._messages[1] = _make_assistant_msg(1, _tool_turn_meta())
         store._mem_runs["run-1"] = {
             "run_id": "run-1",
+            "auth_subject": "operator",
             "command_id": "op::health_health_get",
             "status": "completed",
             "result_json": {"body": {"status": "ok"}},
@@ -139,6 +145,7 @@ class TestToolTurnObservabilityRoute:
         chat_db._messages[1] = _make_assistant_msg(1, _tool_turn_meta())
         store._mem_runs["run-1"] = {
             "run_id": "run-1",
+            "auth_subject": "operator",
             "result_json": {"body": {"raw_args": "SECRET", "password": "hunter2"}},
         }
         resp = client.get("/api/guardian/commands/tool-turns/1/observability", headers={"X-API-Key": "test-key", "X-User-Id": "operator"})

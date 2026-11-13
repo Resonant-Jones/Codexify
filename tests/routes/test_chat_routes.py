@@ -15,7 +15,7 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 import guardian as guardian_pkg
 import guardian.routes as guardian_routes_pkg
 from guardian.core.dependencies import RequestUserScope
-from guardian.db.models import ChatCompletionAttempt
+from guardian.db.models import ChatCompletionAttempt, ChatThread, User
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
@@ -31,6 +31,23 @@ def _override_chat_route_request_scope(request):
 
     test_client = request.getfixturevalue("test_client")
     user_id = get_test_user_id()
+    mock_db = request.getfixturevalue("mock_db")
+    # Model the canonical rows rechecked under lock before attempt insertion.
+    # Keep these queries distinct from the general session mock so tests can
+    # independently exercise a changed thread owner or a missing account.
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    default_query = session.query.return_value
+    custody_queries = {ChatThread.user_id: MagicMock(), User.id: MagicMock()}
+    for query in custody_queries.values():
+        query.filter_by.return_value.with_for_update.return_value.scalar.return_value = (
+            user_id
+        )
+    session.query.side_effect = lambda *entities: (
+        custody_queries.get(entities[0], default_query)
+        if len(entities) == 1
+        else default_query
+    )
+
     test_client.app.dependency_overrides[
         chat_routes.get_request_user_scope
     ] = lambda: RequestUserScope(
@@ -1034,6 +1051,45 @@ class TestChatCompletePost:
         assert added_attempts[0].backend_task_id == data["task_id"]
         assert added_attempts[0].thread_id == 1
         assert added_attempts[0].turn_id == getattr(task, "turn_id")
+        assert added_attempts[0].accepted_account_id == get_test_user_id()
+        session = mock_db._sa_session.return_value.__enter__.return_value
+        for column, filters in (
+            (ChatThread.user_id, {"id": 1}),
+            (User.id, {"id": get_test_user_id()}),
+        ):
+            query = session.query(column)
+            query.filter_by.assert_called_once_with(**filters)
+            query.filter_by.return_value.with_for_update.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "column,value",
+        [(ChatThread.user_id, None), (ChatThread.user_id, "other-account"), (User.id, None)],
+        ids=["missing-thread", "changed-owner", "missing-account"],
+    )
+    def test_complete_rejects_unavailable_canonical_custody(
+        self, test_client, mock_db, monkeypatch, column, value
+    ):
+        session = mock_db._sa_session.return_value.__enter__.return_value
+        query = session.query(column)
+        query.filter_by.return_value.with_for_update.return_value.scalar.return_value = value
+        monkeypatch.setattr(
+            "guardian.core.chat_completion_service.acquire_turn_lock",
+            _acquired_turn_lock,
+        )
+        enqueue = MagicMock()
+        release = MagicMock()
+        monkeypatch.setattr("guardian.core.chat_completion_service.enqueue", enqueue)
+        monkeypatch.setattr(
+            "guardian.core.chat_completion_service.release_turn_lock", release
+        )
+
+        response = test_client.post("/chat/1/complete", json={})
+
+        assert response.status_code == 503
+        assert "attempt_persistence_unavailable" in response.text
+        session.add.assert_not_called()
+        enqueue.assert_not_called()
+        release.assert_called_once()
 
     def test_complete_missing_lifecycle_start_returns_degraded_acceptance(
         self, test_client, mock_db, monkeypatch
@@ -1095,6 +1151,7 @@ class TestChatCompletePost:
             return SimpleNamespace(
                 task_id="not-a-uuid",
                 type="chat_completion",
+                user_id=kwargs["user_id"],
                 origin=kwargs.get("origin"),
             )
 
