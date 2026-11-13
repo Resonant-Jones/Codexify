@@ -279,12 +279,18 @@ def status(db: Any, user_id: str, provider: str) -> dict[str, Any]:
     _scope(user_id, provider)
     with db.get_session() as session:
         row = _query(session, user_id, provider).one_or_none()
-        connected = bool(row and row.status == "connected")
+        connected = bool(
+            row and row.status == "connected" and row.refresh_claim is None
+        )
         needs_scope = connected and provider == "github" and not row.repositories
         return {
             "state": "needs_scope"
             if needs_scope
-            else (row.status if row else "unconfigured"),
+            else (
+                "reconnect_required"
+                if row and row.refresh_claim is not None
+                else (row.status if row else "unconfigured")
+            ),
             "configured": connected and not needs_scope,
             "generation": row.generation if row else None,
             "provider_metadata": dict(row.provider_metadata) if row else {},
@@ -410,3 +416,43 @@ def save_repositories(
         )
         session.commit()
         return True
+
+
+def invalidate_credential(
+    db: Any, user_id: str, provider: str, expected_access_token: str
+) -> bool:
+    """Fence a provider rejection against the exact token that was attempted.
+
+    Never apply a delayed failure to a rotated or reconnected credential. No
+    external revocation is performed; this only disables local credential use.
+    """
+    _scope(user_id, provider)
+    if not isinstance(expected_access_token, str) or not expected_access_token:
+        return False
+    with db.get_session() as session:
+        row = (
+            _query(session, user_id, provider)
+            .filter_by(status="connected")
+            .one_or_none()
+        )
+        if row is None:
+            return False
+        token = decrypt_token(row.encrypted_access_token)
+        if not token or not secrets.compare_digest(
+            token.encode(), expected_access_token.encode()
+        ):
+            return False
+        count = (
+            _query(session, user_id, provider)
+            .filter_by(
+                generation=row.generation,
+                status="connected",
+                encrypted_access_token=row.encrypted_access_token,
+            )
+            .update(
+                _blank(secrets.token_hex(24), "reconnect_required"),
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+        return count == 1

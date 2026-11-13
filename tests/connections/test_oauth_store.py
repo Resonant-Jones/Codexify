@@ -252,3 +252,39 @@ def test_disconnect_absent_creates_tombstone(db):
     assert not store.disconnect(db, "a", "notion")
     assert store.status(db, "a", "notion")["state"] == "disconnected"
     assert store.status(db, "a", "notion")["generation"] is not None
+
+
+def test_provider_rejection_clears_only_exact_current_token(db):
+    connect(db)
+    assert not store.invalidate_credential(db, "b", "notion", "access-secret")
+    assert not store.invalidate_credential(db, "a", "github", "access-secret")
+    assert not store.invalidate_credential(db, "a", "notion", "wrong")
+    assert store.invalidate_credential(db, "a", "notion", "access-secret")
+    assert store.credential(db, "a", "notion") is None
+    assert store.status(db, "a", "notion")["state"] == "reconnect_required"
+    with db.get_session() as session:
+        row = session.query(Credential).one()
+        assert row.encrypted_access_token is None
+        assert row.encrypted_refresh_token is None
+
+
+def test_stale_provider_rejection_cannot_invalidate_new_generation(db):
+    connect(db)
+    claim = store.claim_refresh(db, "a", "notion")
+    assert store.complete_refresh(db, claim, "new-access", "new-refresh", 200)
+    assert not store.invalidate_credential(db, "a", "notion", "access-secret")
+    assert store.credential(db, "a", "notion").access_token == "new-access"
+    flow = consume(db, start(db))
+    assert store.complete_flow(db, flow, "reconnected-access")
+    assert not store.invalidate_credential(db, "a", "notion", "new-access")
+    assert store.status(db, "a", "notion")["configured"]
+
+
+def test_refresh_in_progress_does_not_project_usable_credentials(db):
+    connect(db)
+    claim = store.claim_refresh(db, "a", "notion")
+    projection = store.status(db, "a", "notion")
+    assert not projection["configured"]
+    assert projection["state"] == "reconnect_required"
+    assert store.complete_refresh(db, claim, "rotated-access", "rotated-refresh", 60)
+    assert store.status(db, "a", "notion")["configured"]
