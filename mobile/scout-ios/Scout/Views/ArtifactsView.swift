@@ -93,7 +93,9 @@ struct ArtifactsView: View {
                     }
                 }
             }
-            .navigationTitle("Artifacts")
+            .modifier(ScoutCanvas())
+            .navigationTitle("Library")
+            .toolbar { ScoutAuxiliaryMenu() }
             .navigationDestination(for: DocumentDetailNav.self) { nav in
                 DocumentDetailView(documentId: nav.documentId)
             }

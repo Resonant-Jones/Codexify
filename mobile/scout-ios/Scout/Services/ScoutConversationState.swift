@@ -27,6 +27,11 @@ final class ScoutConversationState: ObservableObject {
         }
     }
 
+    enum RefreshOutcome {
+        case refreshed
+        case failed(String)
+    }
+
     @Published private(set) var messages: [ScoutChatMessageSummary]?
     private(set) var selection: Selection?
     private var revision = 0
@@ -44,7 +49,7 @@ final class ScoutConversationState: ObservableObject {
         threadID: Int,
         apiKey: String?,
         session: URLSession = .scoutAuthenticated
-    ) async -> String? {
+    ) async -> RefreshOutcome? {
         let requested = Selection(endpoint: endpoint, threadID: threadID)
         guard selection == requested else { return nil }
         revision += 1
@@ -53,9 +58,9 @@ final class ScoutConversationState: ObservableObject {
             endpoint: endpoint, threadId: threadID, apiKey: apiKey, session: session
         )
         guard !Task.isCancelled, selection == requested, revision == requestedRevision else { return nil }
-        guard let persisted = result.messages else { return result.message }
+        guard let persisted = result.messages else { return .failed(result.message) }
         messages = persisted
-        return "Messages refreshed."
+        return .refreshed
     }
 
     func handleTerminalEvent(
@@ -69,7 +74,10 @@ final class ScoutConversationState: ObservableObject {
         switch eventType {
         case "task.completed":
             guard let outcome = await refresh(endpoint: endpoint, threadID: threadID, apiKey: apiKey, session: session) else { return nil }
-            return "Task completed. \(outcome)"
+            switch outcome {
+            case .refreshed: return "Task completed. Messages refreshed."
+            case .failed(let message): return "Task completed. \(message)"
+            }
         case "task.failed":
             return "Task failed. No assistant message was synthesized."
         case "task.cancelled":

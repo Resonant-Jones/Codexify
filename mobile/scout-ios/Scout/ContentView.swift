@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorContrast
+    @AppStorage("scout.appearance.systemAccentRGB") private var systemAccent = ScoutAccentTheme.defaultRGB
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @AppStorage("scout.accountSessionGeneration") private var sessionGeneration = 0
+    @State private var presentedAuxiliary: ScoutAuxiliaryDestination?
     private struct ViewIdentity: Hashable {
         let connection: ScoutConnectionIdentity?
         let sessionGeneration: Int
@@ -16,27 +20,40 @@ struct ContentView: View {
         TabView {
             ForEach(ScoutAppRoute.allCases) { route in
                 rootView(for: route)
-                    .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: route == .settings ? 0 : sessionGeneration))
+                    .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: sessionGeneration))
                     .tabItem {
-                        Label(route.title, systemImage: route.systemImage)
+                        Label {
+                            Text(route.title)
+                        } icon: {
+                            Image(systemName: route.systemImage)
+                        }
                     }
+                    .tag(route)
             }
         }
+        .toolbarBackground(colorScheme == .dark ? ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBg) : Color(uiColor: .systemBackground), for: .tabBar)
+        .environment(\.scoutOpenAuxiliary, { presentedAuxiliary = $0 })
+        .sheet(item: $presentedAuxiliary) { destination in
+            switch destination {
+            case .settings: SettingsAuthView(systemAccent: $systemAccent)
+            case .server: ServerStatusView()
+            }
+        }
+        .tint(ScoutAccentTheme(rgb: systemAccent, scheme: colorScheme, contrast: colorContrast).tint)
+        .environment(\.scoutSystemAccent, systemAccent)
     }
 
     @ViewBuilder
     private func rootView(for route: ScoutAppRoute) -> some View {
         switch route {
-        case .server:
-            ServerStatusView()
         case .guardian:
             GuardianChatView()
-        case .activity:
+        case .feed:
             ActivityStreamView()
-        case .artifacts:
+        case .library:
             ArtifactsView()
-        case .settings:
-            SettingsAuthView()
+        case .spaces:
+            SpacesView()
         }
     }
 }
