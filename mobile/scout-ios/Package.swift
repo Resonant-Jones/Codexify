@@ -19,6 +19,7 @@ let package = Package(
             ],
             sources: [
                 "Models/ScoutAppRoute.swift",
+                "Models/ScoutSidebarGesture.swift",
                 "Models/ScoutEndpointProfile.swift",
                 "Models/ScoutHealthSnapshot.swift",
                 "Models/ScoutLLMHealthSnapshot.swift",
@@ -44,6 +45,7 @@ let package = Package(
                 "Services/ScoutLLMHealthProbe.swift",
                 "Services/ScoutLLMCatalogProbe.swift",
                 "Services/ScoutGuardianThreadsProbe.swift",
+                "Services/ScoutProjectsService.swift",
                 "Services/ScoutGuardianThreadMessagesProbe.swift",
                 "Services/ScoutGuardianSendMessageService.swift",
                 "Services/ScoutGuardianCompleteThreadService.swift",
@@ -59,6 +61,7 @@ let package = Package(
                 "Services/ScoutKeychainStore.swift",
                 "Services/ScoutAccessOAuth.swift",
                 "Services/ScoutAccessCredentialStore.swift",
+                "Services/ScoutIngressRenewal.swift",
                 "Services/ScoutAccessSignIn.swift",
                 "Services/ScoutIngressQualification.swift",
                 "Services/ScoutAccountSessionStore.swift",

@@ -9,7 +9,7 @@ struct ArtifactsView: View {
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
-        NavigationStack {
+        Group {
             List {
                 if isLoading {
                     Section {
@@ -93,12 +93,7 @@ struct ArtifactsView: View {
                     }
                 }
             }
-            .modifier(ScoutCanvas())
-            .navigationTitle("Library")
-            .toolbar { ScoutAuxiliaryMenu() }
-            .navigationDestination(for: DocumentDetailNav.self) { nav in
-                DocumentDetailView(documentId: nav.documentId)
-            }
+            .scrollContentBackground(.hidden)
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadDocuments() }

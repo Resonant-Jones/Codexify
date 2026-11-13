@@ -17,21 +17,8 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView {
-            ForEach(ScoutAppRoute.allCases) { route in
-                rootView(for: route)
-                    .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: sessionGeneration))
-                    .tabItem {
-                        Label {
-                            Text(route.title)
-                        } icon: {
-                            Image(systemName: route.systemImage)
-                        }
-                    }
-                    .tag(route)
-            }
-        }
-        .toolbarBackground(colorScheme == .dark ? ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBg) : Color(uiColor: .systemBackground), for: .tabBar)
+        GuardianChatView()
+        .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: sessionGeneration))
         .environment(\.scoutOpenAuxiliary, { presentedAuxiliary = $0 })
         .sheet(item: $presentedAuxiliary) { destination in
             switch destination {
@@ -43,19 +30,6 @@ struct ContentView: View {
         .environment(\.scoutSystemAccent, systemAccent)
     }
 
-    @ViewBuilder
-    private func rootView(for route: ScoutAppRoute) -> some View {
-        switch route {
-        case .guardian:
-            GuardianChatView()
-        case .feed:
-            ActivityStreamView()
-        case .library:
-            ArtifactsView()
-        case .spaces:
-            SpacesView()
-        }
-    }
 }
 
 #Preview {

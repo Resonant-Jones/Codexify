@@ -68,29 +68,30 @@ final class ScoutAccessSignIn: NSObject, ObservableObject, ASWebAuthenticationPr
         message = "Checking this connection's stored ingress authorization…"
         defer { if operation == identity { isWorking = false } }
         do {
-            guard var credential = try store.load(for: profile) else {
+            guard try store.load(for: profile) != nil else {
                 message = "No ingress credential is stored for this connection. Authorize hosted ingress to continue."
                 return
             }
+            let credential = try await ScoutIngressRenewal.shared.credential(for: profile)
+            guard operation == identity else { throw ScoutAccessOAuthError.superseded }
             let session = networkSession()
             defer { session.invalidateAndCancel() }
-            if credential.expiresAt <= Date() {
-                let request = try ScoutAccessOAuth.refreshRequest(credential: credential, profile: profile)
-                let (data, response) = try await session.data(for: request)
-                guard operation == identity else { throw ScoutAccessOAuthError.superseded }
-                guard let http = response as? HTTPURLResponse else { throw ScoutAccessOAuthError.invalidResponse }
-                guard http.statusCode == 200 else {
-                    message = "Ingress renewal returned HTTP \(http.statusCode)" + diagnosticRay(http)
-                        + ". Authorize hosted ingress again; no Guardian account session was issued."
-                    return
-                }
-                credential = try ScoutAccessOAuth.Credential.decode(data, retainingRefreshToken: credential.refreshToken)
-                try store.save(credential, for: profile)
-            }
             try await qualify(credential: credential, profile: profile, session: session, identity: identity)
         } catch {
             guard operation == identity else { return }
             message = "Stored ingress qualification did not finish. No Guardian account session was issued."
+        }
+    }
+
+    func ensureAuthorized(profile: ScoutEndpointProfile) async -> Bool {
+        do {
+            _ = try await ScoutIngressRenewal.shared.credential(for: profile)
+            message = "A hosted credential is available for this connection."
+            return true
+        } catch {
+            await signIn(profile: profile)
+            guard let credential = try? store.load(for: profile) else { return false }
+            return credential.expiresAt > Date().addingTimeInterval(30)
         }
     }
 

@@ -117,7 +117,7 @@ struct ScoutTaskEventStreamService {
                     var request = URLRequest(url: url)
                     request.timeoutInterval = 30
 
-                    try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+                    try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
 
                     let (bytes, response) = try await session.bytes(for: request)
                     if let http = response as? HTTPURLResponse {
