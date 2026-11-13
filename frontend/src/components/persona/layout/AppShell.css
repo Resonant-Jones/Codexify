@@ -73,6 +73,8 @@
 }
 
 .codexify-dock__rail > .pill-tab {
+  /* Navigation tabs are capsules, independent of the dock's inset corners. */
+  border-radius: 999px;
   scroll-margin-inline: 4px;
 }
 
