@@ -43,6 +43,10 @@ def mock_db():
         "active_profile_id": None,
         "active_profile_revision": None,
     }
+    # Authenticated acceptance rechecks canonical thread ownership and User
+    # existence in the same transaction as the new durable attempt.
+    session = mock._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
     mock.write_audit_log.return_value = None
     return mock
 
