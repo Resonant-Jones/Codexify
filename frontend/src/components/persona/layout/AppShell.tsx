@@ -58,6 +58,7 @@ import {
   getMobileWorkspaceMotionState,
 } from "@/components/persona/layout/mobileMotionContract";
 import WorkspaceDrawer from "@/features/workspace/components/WorkspaceDrawer";
+import type { WorkspaceSelection } from "@/features/workspace/workspaceSelection";
 import { useBreakpoint } from "./useBreakpoint";
 import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
@@ -2813,9 +2814,45 @@ export default function AppShell({
     },
     [setWorkspaceDrawerTab]
   );
+  // Keep selection above the route-specific drawer so navigation and closing it
+  // do not discard the document requested by Feed, Library, or chat.
+  const [workspaceSelection, setWorkspaceSelection] = useState<{
+    sessionScope: string;
+    item: WorkspaceSelection;
+  } | null>(null);
+  const selectedWorkspaceItem =
+    workspaceSelection?.sessionScope === generalProjectSessionScope
+      ? workspaceSelection.item
+      : null;
+  useEffect(() => {
+    setWorkspaceSelection((previous) =>
+      previous?.sessionScope === generalProjectSessionScope ? previous : null
+    );
+  }, [generalProjectSessionScope]);
+  const handleWorkspaceSelectionChange = useCallback((item: WorkspaceSelection) => {
+    setWorkspaceSelection({ sessionScope: generalProjectSessionScope, item });
+  }, [generalProjectSessionScope]);
+
   const handleWorkspaceOpenRequest = useCallback(
     (request: WorkspaceOpenRequest) => {
       const doc = normalizeDoc(request.doc);
+      handleWorkspaceSelectionChange({
+        kind: "document",
+        item: {
+          id: doc.id!,
+          filename: doc.name,
+          title: doc.title,
+          format: doc.ext,
+          src_url: doc.src_url ?? "",
+          artifact_type: doc.artifactType,
+          content: doc.content,
+          parsed_text: doc.parsed_text,
+          mime_type: doc.mime_type,
+          project_id: doc.projectId,
+          thread_id: doc.threadId,
+          created_at: doc.createdAt,
+        },
+      });
       setDocumentsSource((prev) => (prev === "default" ? "cache" : prev));
       setDocuments((prev) => dedupeDocItems([doc, ...prev]));
       navigateToView(request.targetView === "guardian" ? "guardian" : "documents");
@@ -2831,6 +2868,7 @@ export default function AppShell({
     },
     [
       closeWorkspaceDrawerUi,
+      handleWorkspaceSelectionChange,
       mobileShellProfile.workspace.autoOpenOnDocumentRequest,
       navigateToView,
       openWorkspaceDrawer,
@@ -3183,6 +3221,8 @@ export default function AppShell({
             routeContext={workspaceRouteContext}
             isOpen={workspaceDrawerOpen}
             activeTab={workspaceDrawerTab}
+            selectedItem={selectedWorkspaceItem}
+            onSelectionChange={handleWorkspaceSelectionChange}
             layoutMode={workspaceLayoutMode}
             paneRatio={workspacePaneRatio}
             minPaneRatio={minWorkspacePaneRatio}
@@ -3213,6 +3253,8 @@ export default function AppShell({
           routeContext={workspaceRouteContext}
           isOpen={workspaceDrawerOpen}
           activeTab={workspaceDrawerTab}
+          selectedItem={selectedWorkspaceItem}
+          onSelectionChange={handleWorkspaceSelectionChange}
           layoutMode={workspaceLayoutMode}
           paneRatio={workspacePaneRatio}
           minPaneRatio={minWorkspacePaneRatio}
