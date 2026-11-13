@@ -5,9 +5,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.saved_widget_validation import parse_ui_artifacts
 from guardian.protocol_tokens import CompletionTerminalStatus
+from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.workers import chat_worker
 
 TURN_ID = "11111111-1111-4111-8111-111111111111"
@@ -75,14 +76,26 @@ def _build_task(
 def _install_attempt_harness(monkeypatch):
     # These orchestration fixtures acknowledge durable writes through a seam;
     # native database tests independently verify attempt identity and fencing.
-    monkeypatch.setattr(chat_worker, "_read_attempt_for_worker", lambda task: {
-        "backend_task_id": task.task_id, "request_id": task.request_id,
-        "thread_id": task.thread_id, "turn_id": chat_worker._extract_turn_id(task),
-        "completed_message_id": None, "terminal_event_type": None,
-        "terminal_outcome": None, "deadline_snapshot": None,
-    })
-    monkeypatch.setattr(chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True)
-    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None)
+    monkeypatch.setattr(
+        chat_worker,
+        "_read_attempt_for_worker",
+        lambda task: {
+            "backend_task_id": task.task_id,
+            "request_id": task.request_id,
+            "thread_id": task.thread_id,
+            "turn_id": chat_worker._extract_turn_id(task),
+            "completed_message_id": None,
+            "terminal_event_type": None,
+            "terminal_outcome": None,
+            "deadline_snapshot": None,
+        },
+    )
+    monkeypatch.setattr(
+        chat_worker, "_record_chat_completion_attempt_terminal", lambda *_: True
+    )
+    monkeypatch.setattr(
+        chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_: None
+    )
 
 
 def _prepare_worker_harness(
@@ -115,7 +128,9 @@ def _prepare_worker_harness(
     )
     monkeypatch.setattr(chat_worker, "is_cancelled", lambda *_args: False)
     monkeypatch.setattr(chat_worker, "clear_cancelled", lambda *_args: None)
-    monkeypatch.setattr(chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None)
+    monkeypatch.setattr(
+        chat_worker, "_observe_and_cleanup_terminal_attempt", lambda *_args: None
+    )
     monkeypatch.setattr(
         chat_worker,
         "_find_assistant_message_for_turn",
@@ -250,6 +265,32 @@ def test_chat_worker_emits_chunk_events_for_streaming_local_flow(monkeypatch):
     assert "task.progress" in event_types
     assert event_types[-1] == "task.completed"
     assert published[-1][1]["message_id"] == 42
+
+
+def test_chat_worker_streams_prose_and_persists_the_serialized_widget(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_GENERATIVE_UI", "true")
+    html = '<button onclick="play()">C</button>\n<script>function play() {}</script>'
+    published = _prepare_worker_harness(
+        monkeypatch,
+        provider="local",
+        model="test-model",
+        stream_tokens=["Try it.\n<!", "-- cfy-ui:", "sandbox " + html + " -->"],
+    )
+    persisted: list[str] = []
+    monkeypatch.setattr(
+        chat_worker.dependencies.chatlog_db,
+        "create_message",
+        lambda _thread, _role, text: persisted.append(text) or 42,
+    )
+    chat_worker._run_chat_task(_build_task(task_id="task-widget"))
+    (content,) = persisted
+    assert parse_ui_artifacts(content) == [
+        {"version": 1, "kind": "sandbox", "html": html}
+    ]
+    assert [data["delta"] for event, data in published if event == "task.chunk"] == [
+        "Try it.\n"
+    ]
+    assert published[-1][0] == "task.completed"
 
 
 def test_chat_worker_does_not_fabricate_chunks_for_non_streaming_flow(

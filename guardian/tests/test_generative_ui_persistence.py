@@ -22,7 +22,12 @@ import base64
 import json
 from urllib.parse import quote
 
-from guardian.core.chat_attachments import render_content_for_inference
+from guardian.core.chat_attachments import (
+    WidgetDraftStream,
+    render_content_for_inference,
+    serialize_widget_draft,
+)
+from guardian.core.saved_widget_validation import parse_ui_artifacts
 from guardian.routes.chat import _normalize_message_content_for_persistence
 
 
@@ -43,7 +48,7 @@ SANDBOX_MARKER = (
             "kind": "sandbox",
             "title": "Calculator",
             "initialHeight": 260,
-            "html": "<button data-key=\"7\">7</button>",
+            "html": '<button data-key="7">7</button>',
             "css": "button{color:red}",
             "js": "var d=1;",
         }
@@ -58,11 +63,73 @@ NATIVE_MARKER = (
             "version": 1,
             "kind": "native",
             "component": "chart.bar",
-            "props": {"title": "Weekly volume", "series": [{"label": "Mon", "value": 42}]},
+            "props": {
+                "title": "Weekly volume",
+                "series": [{"label": "Mon", "value": 42}],
+            },
         }
     )
     + " -->"
 )
+
+SYNTH_HTML = """<button style="width:100%">C</button>
+<script>
+const note = "C";
+</script>"""
+
+
+def test_draft_serialization_keeps_quotes_and_multiline_script():
+    draft = f"Try it.\n\n<!-- cfy-ui:sandbox\n{SYNTH_HTML}\n-->"
+    canonical = serialize_widget_draft(draft)
+    (artifact,) = parse_ui_artifacts(canonical)
+    assert artifact == {"version": 1, "kind": "sandbox", "html": SYNTH_HTML}
+    assert render_content_for_inference(canonical) == "Try it."
+    assert serialize_widget_draft(canonical) == canonical
+    assert serialize_widget_draft(NATIVE_MARKER) == NATIVE_MARKER
+    assert serialize_widget_draft(SANDBOX_MARKER) == SANDBOX_MARKER
+    assert serialize_widget_draft(SYNTH_HTML) == SYNTH_HTML
+
+
+def test_truncated_ambiguous_and_oversized_drafts_fail_closed():
+    for tail in (
+        SYNTH_HTML,
+        f"{SYNTH_HTML} --> followed by text",
+        f"{SYNTH_HTML} --> <!-- another comment -->",
+        "<p>" + "x" * 120_001 + "</p> -->",
+    ):
+        draft = f"Try it.\n\n<!-- cfy-ui:sandbox {tail}"
+        assert render_content_for_inference(draft) == "Try it."
+        visible = serialize_widget_draft(draft)
+        assert visible.startswith("Try it.\n\nGuardian couldn’t build")
+        assert "<script>" not in visible
+        assert not parse_ui_artifacts(visible)
+
+
+def test_completed_script_can_end_without_comment_terminator():
+    draft = f"Try it.\n<!-- cfy-ui:sandbox\n{SYNTH_HTML}"
+    assert not parse_ui_artifacts(serialize_widget_draft(draft))
+    (artifact,) = parse_ui_artifacts(serialize_widget_draft(draft, completed=True))
+    assert artifact["html"] == SYNTH_HTML
+    assert not parse_ui_artifacts(
+        serialize_widget_draft(draft.removesuffix("</script>"), completed=True)
+    )
+
+
+def test_stream_withholds_a_draft_split_across_chunks():
+    draft = f"Try it.\n<!-- cfy-ui:sandbox {SYNTH_HTML} -->"
+    for boundary in range(len(draft)):
+        sent: list[str] = []
+        stream = WidgetDraftStream(sent.append)
+        stream.feed(draft[:boundary])
+        stream.feed(draft[boundary:])
+        stream.finish()
+        assert "".join(sent) == "Try it.\n"
+    sent = []
+    stream = WidgetDraftStream(sent.append)
+    stream.feed("Ordinary prose ending with <")
+    assert "".join(sent) == "Ordinary prose ending with "
+    stream.finish()
+    assert "".join(sent) == "Ordinary prose ending with <"
 
 
 def test_plain_string_content_reaches_storage_unchanged() -> None:
