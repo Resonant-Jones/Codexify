@@ -6879,7 +6879,11 @@ def _execute_bounded_tool_turn_completion(
         result = _tool_turn_completion_result(
             task=task,
             assistant_text=(
-                serialize_widget_draft(assistant_text)
+                serialize_widget_draft(
+                    assistant_text,
+                    completed=terminal_evidence.successful
+                    and terminal_evidence.finish_reason in (None, "stop"),
+                )
                 if widget_enabled
                 else assistant_text
             ),

@@ -48,7 +48,7 @@ _UI_HTML_DRAFT_PREFIX = "<!-- cfy-ui:sandbox"
 _UI_HTML_DRAFT_RE = re.compile(re.escape(_UI_HTML_DRAFT_PREFIX), re.IGNORECASE)
 
 
-def serialize_widget_draft(content: str) -> str:
+def serialize_widget_draft(content: str, *, completed: bool = False) -> str:
     """Turn a final, explicitly marked model draft into the existing widget wire format."""
     opening = _UI_HTML_DRAFT_RE.search(content)
     if opening is None:
@@ -56,6 +56,10 @@ def serialize_widget_draft(content: str) -> str:
 
     tail = content[opening.end() :].rstrip()
     html = tail[:-3].strip() if tail.endswith("-->") else ""
+    # GPT-4o can finish the inline script but omit the final comment delimiter.
+    # Only use the end of a successful reply when the script is closed.
+    if not html and completed and tail.lower().endswith("</script>"):
+        html = tail.strip()
     artifact = None
     if (
         not _UI_ARTIFACT_MARKER_RE.search(content, 0, opening.start())

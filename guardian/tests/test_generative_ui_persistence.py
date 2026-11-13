@@ -105,6 +105,16 @@ def test_truncated_ambiguous_and_oversized_drafts_fail_closed():
         assert not parse_ui_artifacts(visible)
 
 
+def test_completed_script_can_end_without_comment_terminator():
+    draft = f"Try it.\n<!-- cfy-ui:sandbox\n{SYNTH_HTML}"
+    assert not parse_ui_artifacts(serialize_widget_draft(draft))
+    (artifact,) = parse_ui_artifacts(serialize_widget_draft(draft, completed=True))
+    assert artifact["html"] == SYNTH_HTML
+    assert not parse_ui_artifacts(
+        serialize_widget_draft(draft.removesuffix("</script>"), completed=True)
+    )
+
+
 def test_stream_withholds_a_draft_split_across_chunks():
     draft = f"Try it.\n<!-- cfy-ui:sandbox {SYNTH_HTML} -->"
     for boundary in range(len(draft)):
