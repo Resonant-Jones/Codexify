@@ -265,9 +265,13 @@ def test_read_normalizes_page_content_and_block_pagination(
     assert payload["content"] == "first\nsecond"
     assert payload["block_count"] == 2
     assert payload["object"]["source_system"] == "notion"
-    assert payload["object"]["external_object_id"] == "22222222-2222-2222-2222-222222222222"
+    assert (
+        payload["object"]["external_object_id"]
+        == "22222222-2222-2222-2222-222222222222"
+    )
     assert any(
-        path.endswith("/children") and params.get("params", {}).get("start_cursor") == "second"
+        path.endswith("/children")
+        and params.get("params", {}).get("start_cursor") == "second"
         for _, path, params in calls
     )
 
@@ -305,21 +309,25 @@ def test_disconnect_and_operation_surface_remain_bounded(
         ("/api/knowledge/notion/search", ("GET",)),
         ("/api/knowledge/notion/read/{object_id}", ("GET",)),
     }
-    assert test_client.get(
-        "/api/knowledge/notion/read/not-an-id", headers=_headers()
-    ).status_code == 422
-    assert test_client.get(
-        "/api/knowledge/notion/search?query=%20%20%20", headers=_headers()
-    ).status_code == 422
+    assert (
+        test_client.get(
+            "/api/knowledge/notion/read/not-an-id", headers=_headers()
+        ).status_code
+        == 422
+    )
+    assert (
+        test_client.get(
+            "/api/knowledge/notion/search?query=%20%20%20", headers=_headers()
+        ).status_code
+        == 422
+    )
 
 
 def test_command_bus_registers_bounded_read_commands_and_keeps_actor_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GUARDIAN_API_KEY", _API_KEY)
-    monkeypatch.setenv(
-        "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999"
-    )
+    monkeypatch.setenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", "http://127.0.0.1:9999")
     command_bus.configure_db(None)
     app = FastAPI()
     app.include_router(notion_routes.operations_router)
@@ -387,3 +395,36 @@ def test_canonical_notion_runtime_has_no_legacy_connector_dependency() -> None:
     )
     assert "guardian.connectors.notion" not in source
     assert "/api/connectors" not in source
+
+
+def test_disconnect_is_account_scoped_and_blocks_subsequent_reads(
+    client: tuple[TestClient, _TestDB], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_client, db = client
+    _configure(test_client)
+    other_disconnect = test_client.post(
+        "/api/connect/notion/disconnect", headers=_headers("user-b")
+    )
+    assert other_disconnect.status_code == 200
+    assert other_disconnect.json()["removed"] is False
+    assert db.credential_for("user-a") is not None
+    assert (
+        test_client.post("/api/connect/notion/disconnect", headers=_headers()).json()[
+            "removed"
+        ]
+        is True
+    )
+
+    def unexpected_provider_call(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("disconnected credentials must not reach the provider")
+
+    monkeypatch.setattr(
+        notion_service.NotionClient, "_request_json", unexpected_provider_call
+    )
+    for path in (
+        "/api/knowledge/notion/search?query=roadmap",
+        "/api/knowledge/notion/read/22222222-2222-2222-2222-222222222222",
+    ):
+        response = test_client.get(path, headers=_headers())
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == "notion_not_configured"

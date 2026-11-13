@@ -20,6 +20,7 @@ MAX_SEARCH_RESULTS = 50
 MAX_BLOCKS = 200
 MAX_BLOCK_DEPTH = 2
 MAX_CONTENT_CHARS = 50_000
+MAX_BLOCK_REQUESTS = 20
 
 
 class NotionError(RuntimeError):
@@ -54,9 +55,7 @@ def _rich_text_text(value: Any) -> str:
     if not isinstance(value, list):
         return ""
     parts = [
-        str(item.get("plain_text") or "")
-        for item in value
-        if isinstance(item, dict)
+        str(item.get("plain_text") or "") for item in value if isinstance(item, dict)
     ]
     return "".join(parts).strip()
 
@@ -157,6 +156,7 @@ class NotionClient:
                 json=json,
                 params=params,
                 timeout=REQUEST_TIMEOUT_SECONDS,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise NotionTransportError("Notion request could not be completed") from exc
@@ -165,7 +165,7 @@ class NotionClient:
             raise NotionAuthorizationError("Notion rejected the configured credential")
         if response.status_code == 404:
             raise NotionObjectNotFoundError("Requested Notion object was not found")
-        if response.status_code >= 400:
+        if response.status_code >= 300:
             raise NotionProviderError("Notion returned an unsuccessful response")
         try:
             payload = response.json()
@@ -180,9 +180,7 @@ class NotionClient:
         # integration scope without assuming a global database identifier.
         self._request_json("POST", "/search", json={"page_size": 1})
 
-    def search(
-        self, *, query: str, cursor: str | None, limit: int
-    ) -> dict[str, Any]:
+    def search(self, *, query: str, cursor: str | None, limit: int) -> dict[str, Any]:
         page_size = min(max(int(limit), 1), MAX_SEARCH_RESULTS)
         payload: dict[str, Any] = {
             "query": query,
@@ -196,6 +194,8 @@ class NotionClient:
         response = self._request_json("POST", "/search", json=payload)
         retrieved_at = _retrieved_at()
         raw_results = response.get("results")
+        if not isinstance(raw_results, list):
+            raise NotionProviderError("Notion returned invalid search results")
         results = [
             _normalize_search_page(item, retrieved_at)
             for item in raw_results
@@ -219,9 +219,16 @@ class NotionClient:
         *,
         depth: int,
         collected: list[dict[str, Any]],
-    ) -> None:
+        budget: list[int],
+    ) -> bool:
+        """Return whether any content was omitted by a bounded traversal."""
+        truncated = False
+        seen_cursors: set[str] = set()
         cursor: str | None = None
         while len(collected) < MAX_BLOCKS:
+            if budget[0] <= 0:
+                return True
+            budget[0] -= 1
             params: dict[str, Any] = {
                 "page_size": min(100, MAX_BLOCKS - len(collected)),
             }
@@ -234,28 +241,44 @@ class NotionClient:
             if not isinstance(rows, list):
                 raise NotionProviderError("Notion returned invalid block content")
             for block in rows:
-                if not isinstance(block, dict) or len(collected) >= MAX_BLOCKS:
+                if not isinstance(block, dict):
                     continue
+                if len(collected) >= MAX_BLOCKS:
+                    return True
                 collected.append(block)
-                if block.get("has_children") and depth < MAX_BLOCK_DEPTH:
+                if block.get("has_children"):
                     child_id = str(block.get("id") or "")
-                    if child_id:
-                        self._block_children(
-                            child_id, depth=depth + 1, collected=collected
+                    if depth >= MAX_BLOCK_DEPTH or not child_id:
+                        truncated = True
+                    else:
+                        child_truncated = self._block_children(
+                            child_id,
+                            depth=depth + 1,
+                            collected=collected,
+                            budget=budget,
                         )
+                        truncated = truncated or child_truncated
             if not response.get("has_more"):
-                return
+                return truncated
             next_cursor = response.get("next_cursor")
-            if not next_cursor:
-                return
-            cursor = str(next_cursor)
+            if (
+                not isinstance(next_cursor, str)
+                or not next_cursor
+                or next_cursor in seen_cursors
+            ):
+                raise NotionProviderError("Notion returned invalid pagination")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return True
 
     def read_page(self, object_id: str) -> dict[str, Any]:
         page = self._request_json("GET", f"/pages/{object_id}")
         if page.get("object") != "page":
             raise NotionProviderError("Selected Notion object is not a page")
         blocks: list[dict[str, Any]] = []
-        self._block_children(object_id, depth=0, collected=blocks)
+        traversal_truncated = self._block_children(
+            object_id, depth=0, collected=blocks, budget=[MAX_BLOCK_REQUESTS]
+        )
         lines = [text for block in blocks if (text := _block_text(block))]
         content = "\n".join(lines)[:MAX_CONTENT_CHARS]
         retrieved_at = _retrieved_at()
@@ -270,7 +293,8 @@ class NotionClient:
                 "last_edited_at": page.get("last_edited_time"),
             },
             "content": content,
-            "content_truncated": len("\n".join(lines)) > len(content),
+            "content_truncated": traversal_truncated
+            or len("\n".join(lines)) > len(content),
             "block_count": len(blocks),
             "retrieved_at": retrieved_at,
         }
