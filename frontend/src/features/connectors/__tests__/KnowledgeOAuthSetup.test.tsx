@@ -87,4 +87,18 @@ describe("Knowledge OAuth", () => {
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
   });
 
+  it("offers a safe installation link and explains an empty installation list", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { available: true, configured: false, state: "needs_scope", generation: "saved", installation_url: "https://github.com/apps/codexify-read/installations/new" } }).mockResolvedValueOnce({ data: { installations: [] } });
+    render(<KnowledgeOAuthSetup connection={{ ...entry, id: "github_knowledge" }} onClose={vi.fn()} onChanged={vi.fn()} />); await flush();
+    expect(screen.getByRole("link", { name: "Install GitHub App" })).toHaveAttribute("href", "https://github.com/apps/codexify-read/installations/new");
+    fireEvent.click(screen.getByRole("button", { name: "Choose repositories" })); await flush();
+    expect(screen.getByText(/No available installations/)).toBeTruthy();
+    expect(screen.getByText(/does not grant Codexify/)).toBeTruthy();
+  });
+  it("does not render an untrusted installation link", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: { available: true, state: "needs_scope", installation_url: "https://evil.example/installations/new" } });
+    render(<KnowledgeOAuthSetup connection={{ ...entry, id: "github_knowledge" }} onClose={vi.fn()} onChanged={vi.fn()} />); await flush();
+    expect(screen.queryByRole("link", { name: "Install GitHub App" })).toBeNull();
+  });
+
 });

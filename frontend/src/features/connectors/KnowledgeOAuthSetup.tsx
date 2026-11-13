@@ -5,7 +5,7 @@ import api from "@/lib/api";
 
 import type { ConnectionEntry } from "./connectionCatalog";
 
-type Status = { available: boolean; configured: boolean; state: string; generation?: string; repositories?: string[] };
+type Status = { available: boolean; configured: boolean; state: string; generation?: string; repositories?: string[]; installation_url?: string | null };
 type Installation = { id: number; account_login: string };
 type Repository = { id: number; full_name: string };
 
@@ -19,6 +19,7 @@ export function KnowledgeOAuthSetup({ connection, onClose, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [installations, setInstallations] = useState<Installation[]>([]);
+  const [installationMessage, setInstallationMessage] = useState("");
   const [installation, setInstallation] = useState<number | null>(null);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -44,8 +45,13 @@ export function KnowledgeOAuthSetup({ connection, onClose, onChanged }: {
   }, [base]);
 
   async function loadInstallations(id: number) {
-    const result = await api.get<{ installations: Installation[] }>(`${base}/installations`);
-    if (id === epoch.current) setInstallations(result.data.installations);
+    const result = await api.get<{ installations: Installation[]; incomplete?: boolean }>(`${base}/installations`);
+    if (id === epoch.current) {
+      setInstallations(result.data.installations);
+      setInstallationMessage(result.data.installations.length === 0
+        ? "No available installations. Install the GitHub App on your selected repositories, then choose repositories again."
+        : result.data.incomplete ? "Showing a bounded installation list; additional installations may not appear." : "");
+    }
   }
   async function authorize() {
     if (pending.current) return;
@@ -128,6 +134,8 @@ export function KnowledgeOAuthSetup({ connection, onClose, onChanged }: {
     } catch { if (id === epoch.current) setMessage("Could not disconnect. Try again."); }
     finally { if (id === epoch.current) { pending.current = false; setBusy(false); } }
   }
+  const installationUrl = status?.installation_url && /^https:\/\/github\.com\/apps\/[a-z0-9-]+\/installations\/new$/.test(status.installation_url)
+    ? status.installation_url : null;
   return <div role="dialog" aria-modal="true" aria-label={`${connection.display_name} setup`} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
     <div className="bg-background rounded-xl p-6 max-w-xl w-full space-y-4">
       <h2>{connection.display_name}</h2>
@@ -136,6 +144,11 @@ export function KnowledgeOAuthSetup({ connection, onClose, onChanged }: {
       {status?.configured && <p>Authorization saved. {github && `Allowed repositories: ${(status.repositories ?? []).join(", ") || "none yet"}.`}</p>}
       <Button disabled={busy || !status?.available} onClick={authorize}>{status?.configured ? "Reconnect" : "Connect"} {github ? "GitHub" : "Notion"}</Button>
       {github && (status?.configured || status?.state === "needs_scope") && <Button disabled={busy} onClick={() => { const id = epoch.current; void loadInstallations(id).catch(() => { if (id === epoch.current) setMessage("Unable to load installations."); }); }}>Choose repositories</Button>}
+      {github && (status?.configured || status?.state === "needs_scope") && <div>
+        {installationUrl && <a href={installationUrl} target="_blank" rel="noopener noreferrer">Install GitHub App</a>}
+        <p>Installing the app does not grant Codexify repository access until you select and save repositories here.</p>
+        {installationMessage && <p>{installationMessage}</p>}
+      </div>}
       {installations.length > 0 && <label>GitHub installation<select aria-label="GitHub installation" value={installation ?? ""} disabled={busy} onChange={(event) => void chooseInstallation(event.target.value)}><option value="">Choose an installation</option>{installations.map((item) => <option key={item.id} value={item.id}>{item.account_login}</option>)}</select></label>}
       {repositories.map((repo) => <label className="block" key={repo.id}><input type="checkbox" disabled={busy || (!selected.includes(repo.full_name) && selected.length >= 20)} checked={selected.includes(repo.full_name)} onChange={(event) => setSelected((old) => event.target.checked ? [...old, repo.full_name] : old.filter((name) => name !== repo.full_name))} />{repo.full_name}</label>)}
       {repositories.length > 0 && <Button disabled={busy || !selected.length} onClick={saveRepositories}>Save repository access</Button>}
