@@ -22,6 +22,7 @@ import {
   getWorkspacePaneRatioForLayoutMode,
   type WorkspaceLayoutMode,
 } from "@/features/workspace/state/useWorkspaceLayoutMode";
+import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import api from "@/lib/api";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
 
@@ -208,6 +209,7 @@ vi.mock("@/api/codex", () => ({
 
 vi.mock("@/lib/api", () => ({
   buildChatThreadsPath: () => "/api/chat/threads",
+  buildAuthenticatedFetchInit: (init: RequestInit = {}) => init,
   default: {
     get: vi.fn(async () => ({ data: {} })),
     post: vi.fn(async () => ({ data: {} })),
@@ -1923,6 +1925,59 @@ describe("AppShell workspace drawer shell", () => {
       });
     }
   );
+
+  it.each([1280, 390])("hands a recent document to Inspector across navigation and reopening at width %s", async (width) => {
+    setViewportWidth(width);
+    setRoutePath("/dashboard");
+    localStorage.setItem("cfy.lastView", "dashboard");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: "recent-doc", parsed_text: "Recent document body" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { rerender } = render(<AppShell />);
+      act(() => {
+        requestWorkspaceOpen({
+          doc: { id: "recent-doc", name: "recent.md", ext: "md", src_url: "/media/recent.md" },
+          source: "documents",
+          targetView: "documents",
+        });
+      });
+      expect(window.location.pathname).toBe("/documents");
+      if (width === 390) {
+        expect(await screen.findByTestId("workspace-drawer-overlay")).toHaveAttribute("data-overlay-mode", "mobile");
+      }
+      expect(await screen.findByTestId("workspace-document-text")).toHaveTextContent("Recent document body");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/media/document-artifacts/recent-doc?artifact_type=uploaded",
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+      act(() => {
+        requestWorkspaceOpen({
+          doc: { id: "next-doc", name: "next.md", ext: "md", content: "Next document body", src_url: "/api/media/document-artifacts/next-doc", artifactType: "generated" },
+          source: "generated-document",
+          targetView: "guardian",
+        });
+      });
+      expect(window.location.pathname).toBe("/chat");
+      expect(await screen.findByTestId("workspace-document-text")).toHaveTextContent("Next document body");
+      expect(screen.queryByText("Recent document body")).not.toBeInTheDocument();
+      expect(within(screen.getByTestId("workspace-drawer")).queryByRole("link", { name: "Open original" })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+      await waitFor(() => expect(screen.queryByTestId("workspace-drawer")).not.toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+      expect(await screen.findByTestId("workspace-document-text")).toHaveTextContent("Next document body");
+
+      authTestState.auth = { ready: true, status: "authenticated", token: "account-b" };
+      rerender(<AppShell />);
+      expect(screen.queryByTestId("workspace-document-text")).not.toBeInTheDocument();
+      expect(screen.getByText(/Select a document or image from the Shelf/)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it("preserves the selected Guardian view and open Workspace through browser focus, restore, and close", async () => {
     localStorage.setItem("cfy.lastView", "guardian");
