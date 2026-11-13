@@ -1561,6 +1561,8 @@ class ChatCompletionAttempt(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Original authenticated ordinary-chat custody; NULL legacy rows confer none.
+    accepted_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_turn_id: Mapped[str | None] = mapped_column(String(128))
     tool_command_id: Mapped[str | None] = mapped_column(String(512))
     tool_args_hash: Mapped[str | None] = mapped_column(String(64))

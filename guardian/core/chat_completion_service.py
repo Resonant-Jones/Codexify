@@ -983,8 +983,20 @@ def enqueue_chat_completion(
     turn_id: str,
     request_id: str | None = None,
     participant: ChatAcceptanceParticipant | None = None,
+    account_acceptance_scope: dependencies.RequestUserScope | None = None,
 ) -> ChatCompletionEnqueueResult:
     """Accept one canonical chat completion task into the chat execution lane."""
+
+    # Only the authenticated ordinary-chat route supplies this context. Hosted
+    # room guests may act through an owner's task.user_id, so never infer it.
+    from guardian.core.chat_account_custody import ordinary_chat_acceptance_account
+
+    try:
+        accepted_account_id = ordinary_chat_acceptance_account(
+            task, account_acceptance_scope
+        )
+    except ValueError as exc:
+        raise ChatCompletionEnqueueError("account_acceptance_unavailable") from exc
 
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
     if task_identity is None or task.thread_id != thread_id:
@@ -1153,6 +1165,7 @@ def enqueue_chat_completion(
             turn_id=turn_id,
             deadline_snapshot=deadline,
             turn_lock_token=locked.lease_token,
+            **({"accepted_account_id": accepted_account_id} if accepted_account_id else {}),
         )
     except Exception as exc:
         if participant is not None and participant_prepared:
