@@ -639,7 +639,9 @@ private struct DraftThreadView: View {
             Text("Project: \(projectName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let status = composer.status {
+            if composer.isWaitingForReply {
+                GuardianReplyProgress()
+            } else if let status = composer.status {
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(composer.isError ? Color.primary : Color.secondary)
@@ -691,6 +693,30 @@ private struct DraftThreadView: View {
             onCreated(id, created.threadTitle)
         } catch {
             composer.report("Nothing was sent. \(error.localizedDescription)")
+        }
+    }
+}
+
+private struct GuardianReplyProgress: View {
+    var stage: ScoutComposerFlow.ReplyProgress? = nil
+
+    private var title: String {
+        switch stage {
+        case .preparing: return "Guardian is preparing a reply…"
+        case .writing: return "Guardian is writing…"
+        case nil: return "Waiting for Guardian…"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: ScoutVisualStyle.gap) {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityHidden(true)
+            Text(title)
+                .lineLimit(1)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -928,15 +954,21 @@ private struct ThreadMessagesView: View {
                 } else {
                     Section {
                         ForEach(Array(messages.enumerated()), id: \.offset) { _, msg in
-                            GuardianGenUIMessageRow(message: msg)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                            GuardianGenUIMessageRow(message: msg, isActive: isActive)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                         }
                     }
                 }
             }
 
-            if let message = composer.status {
+            if composer.isWaitingForReply {
+                Section {
+                    GuardianReplyProgress(stage: composer.replyProgress)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            } else if let message = composer.status {
                 Section {
                     Text(message).font(.caption)
                         .foregroundStyle(composer.isError ? Color.primary : Color.secondary)
@@ -957,6 +989,7 @@ private struct ThreadMessagesView: View {
             documents: documents, docMessage: docMessage, isLoadingDocs: isLoadingDocs,
             ragResult: ragResult, ragMessage: ragMessage, isLoadingRAG: isLoadingRAG,
             taskReceipts: taskReceipts, tasksMessage: tasksMessage, isLoadingTasks: isLoadingTasks,
+            responseTask: composer.taskID.map { TaskNav(taskId: $0, threadId: threadId) },
             loadDocuments: { await loadDocuments() },
             loadRAGTrace: { await loadRAGTrace() },
             loadTasks: { await loadTasks() }
@@ -1010,6 +1043,7 @@ private struct ThreadMessagesView: View {
                     await finishResponse(event.eventType ?? "", taskID: taskID, scope: scope, profile: profile, apiKey: apiKey, context: context)
                     return
                 }
+                composer.observeProgress(event, taskID: taskID, scope: scope)
             }
         } catch { /* Observation failure cannot change execution truth or replay work. */ }
         composer.observationEnded(taskID: taskID, scope: scope)
@@ -1658,6 +1692,7 @@ struct GuardianThreadDetailsContent: View {
     var taskReceipts: [ScoutTaskReceiptSummary]? = nil
     var tasksMessage: String? = nil
     var isLoadingTasks = false
+    var responseTask: TaskNav? = nil
     var loadDocuments: () async -> Void
     var loadRAGTrace: () async -> Void
     var loadTasks: () async -> Void
@@ -1853,6 +1888,9 @@ struct GuardianThreadDetailsContent: View {
 
             // Task Receipts section
             Section("Task Receipts") {
+                if let responseTask {
+                    NavigationLink("View response status", value: responseTask)
+                }
                 if isLoadingTasks {
                     HStack {
                         ProgressView()
@@ -1932,14 +1970,25 @@ struct GuardianThreadDetailsContent: View {
 struct GuardianGenUIMessageRow: View {
     let message: ScoutChatMessageSummary
     var renderingEnabled = ScoutGenerativeUI.renderingEnabled
+    var isActive = true
     var body: some View {
         let presentation = ScoutGenerativeUI.presentation(for: message, enabled: renderingEnabled)
         let visible = ScoutChatMessageSummary(id: message.id, role: message.role,
             content: presentation.text, created_at: message.created_at, updated_at: message.updated_at)
         VStack(alignment: .leading, spacing: ScoutVisualStyle.inset) {
-            GuardianMessageRow(message: visible)
-            ForEach(Array(presentation.tables.enumerated()), id: \.offset) { _, table in
-                ScoutGenUITableView(table: table)
+            if !presentation.text.isEmpty || presentation.artifacts.isEmpty {
+                GuardianMessageRow(message: visible)
+            }
+            ForEach(Array(presentation.artifacts.enumerated()), id: \.offset) { _, artifact in
+                switch artifact {
+                case let .table(table):
+                    ScoutGenUITableView(table: table)
+                case let .openUI(program):
+                    ScoutOpenUIProgramView(program: program)
+                case let .sandbox(widget):
+                    ScoutSandboxWidgetView(widget: widget, isActive: isActive)
+                        .id(message.id)
+                }
             }
         }
     }
