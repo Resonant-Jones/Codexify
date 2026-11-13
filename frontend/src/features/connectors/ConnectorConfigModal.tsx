@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { Loader2 } from "lucide-react";
+import { KnowledgeOAuthSetup } from "./KnowledgeOAuthSetup";
 
 interface LegacyProps {
   connector: Connector;
@@ -452,6 +453,10 @@ export const ConnectionConfigModal: React.FC<ConnectionProps> = ({
   }, [open, connection.id]);
 
   if (!open) return null;
+
+  if ((connection.id === "notion" || connection.id === "github_knowledge") && connection.auth_methods.includes("oauth_browser")) {
+    return <KnowledgeOAuthSetup key={connection.id} connection={connection} onClose={onClose} onChanged={onChanged} />;
+  }
 
   const setupUnavailable =
     connection.implementation_state === "unimplemented" ||
