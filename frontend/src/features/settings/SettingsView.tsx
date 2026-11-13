@@ -1382,7 +1382,7 @@ export function SettingsView({
             </div>
 
             <div className="space-y-[calc(var(--radius-micro)/2)]">
-              <div style={SETTINGS_DENSITY.sectionTitle}>Dashboard Layout</div>
+              <div style={SETTINGS_DENSITY.sectionTitle}>Feed Layout</div>
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
                 <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
                   <div className="space-y-[calc(var(--radius-micro)/4)]">

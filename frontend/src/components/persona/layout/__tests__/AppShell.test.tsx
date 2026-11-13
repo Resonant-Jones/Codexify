@@ -290,8 +290,13 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
     onRequestNewThread,
     onRequestNewProject,
     gallery,
+    onNavigateDocuments,
+    onNavigateGallery,
   }: {
     onRequestNewProject: () => void;
+    onRequestNewThread: () => void;
+    onNavigateDocuments: () => void;
+    onNavigateGallery: () => void;
     gallery?: Array<{ src: string; prompt: string }>;
   }) => (
     <div data-testid="dashboard-view-mock">
@@ -301,6 +306,8 @@ vi.mock("@/components/dashboard/DashboardView", () => ({
       <button type="button" onClick={onRequestNewProject}>
         New Project
       </button>
+      <button onClick={onNavigateDocuments}>See all Feed documents</button>
+      <button onClick={onNavigateGallery}>See all Feed images</button>
       <div data-testid="dashboard-gallery-mock">
         {(gallery ?? []).map((item) => (
           <span key={item.src}>{item.prompt}</span>
@@ -863,9 +870,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(latestProps?.applicationDestinations).toEqual([
       { view: "guardian", label: "Guardian", priority: "primary" },
       { view: "library", label: "Library", priority: "primary" },
-      { view: "documents", label: "Documents", priority: "primary" },
-      { view: "gallery", label: "Gallery", priority: "primary" },
-      { view: "dashboard", label: "Dashboard", priority: "secondary" },
+      { view: "dashboard", label: "Feed", priority: "primary" },
       { view: "settings", label: "Settings", priority: "secondary" },
     ]);
     expect(latestProps?.onNavigateApplicationView).toEqual(
@@ -874,9 +879,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(latestProps?.frameFirstMobile).toBe(false);
     expect(screen.getByTestId("app-shell-top-nav")).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByTestId("guardian-mobile-nav-documents-mock")
-    );
+    act(() => latestProps.onNavigateApplicationView("documents"));
 
     await screen.findByTestId("documents-view-mock");
     expect(window.location.pathname).toBe("/documents");
@@ -892,7 +895,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
     expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Documents" })
+      screen.getByRole("button", { name: "Library" })
     ).toBeInTheDocument();
 
     cleanup();
@@ -902,7 +905,7 @@ describe("AppShell Guardian mobile navigation seam", () => {
 
     expect(await screen.findByTestId("app-shell-top-nav")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Documents" })
+      screen.getByRole("button", { name: "Library" })
     ).toBeInTheDocument();
   });
 
@@ -999,14 +1002,13 @@ describe("AppShell Guardian mobile navigation seam", () => {
     expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       isApplicationNavigationExpanded: true,
     });
-    await user.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+    await user.click(screen.getByTestId("guardian-mobile-nav-library-mock"));
 
-    expect(await screen.findByTestId("documents-primary-frame")).toBeInTheDocument();
+    expect(await screen.findByTestId("library-primary-frame")).toBeInTheDocument();
     expect(screen.queryByTestId("mobile-sidebar-overlay")).not.toBeInTheDocument();
     expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
 
     for (const [destination, expectedPath, expectedFrame] of [
-      ["gallery", "/gallery", "gallery-primary-frame"],
       ["dashboard", "/dashboard", "dashboard-primary-frame"],
       ["settings", "/settings", "settings-framecard"],
     ] as const) {
@@ -1168,6 +1170,15 @@ describe("AppShell settings utility trigger", () => {
     vi.clearAllMocks();
   });
 
+  it.each(["documents", "images"])("opens Library from the Feed %s card", async (card) => {
+    setRoutePath("/dashboard");
+    render(<AppShell />);
+    expect(screen.getByRole("button", { name: "Feed", exact: true })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: `See all Feed ${card}` }));
+    await waitFor(() => expect(window.location.pathname).toBe("/library"));
+    expect(screen.getByTestId("library-primary-frame")).toBeInTheDocument();
+  });
+
   it("keeps the primary nav in the preferred visual order", async () => {
     const user = userEvent.setup();
     localStorage.setItem("cfy.lastView", "dashboard");
@@ -1199,27 +1210,14 @@ describe("AppShell settings utility trigger", () => {
     const navButtonOrder = primaryNav
       .getAllByRole("button")
       .map((button) => button.textContent?.trim() ?? "")
-      .filter((label) =>
-        [
-        "Guardian",
-        "Dashboard",
-        "Documents",
-        "Gallery",
-        "Lens",
-      ].includes(label)
-    );
+      .filter((label) => ["Guardian", "Feed", "Library", "Documents", "Gallery", "Lens"].includes(label));
 
-    expect(navButtonOrder).toEqual([
-      "Guardian",
-      "Dashboard",
-      "Documents",
-      "Gallery",
-      "Lens",
-    ]);
-    expect(primaryNav.getByRole("button", { name: "Guardian" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Documents" })).toBeInTheDocument();
-    expect(primaryNav.getByRole("button", { name: "Gallery" })).toBeInTheDocument();
+    expect(navButtonOrder).toEqual(["Guardian", "Feed", "Library", "Lens"]);
+    expect(primaryNav.getByRole("button", { name: "Feed" })).toBeInTheDocument();
+    expect(primaryNav.getByRole("button", { name: "Library" })).toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Dashboard" })).not.toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Documents" })).not.toBeInTheDocument();
+    expect(primaryNav.queryByRole("button", { name: "Gallery" })).not.toBeInTheDocument();
     expect(primaryNav.queryByRole("button", { name: "Flow Builder" })).not.toBeInTheDocument();
     expect(primaryNav.getByRole("button", { name: "Lens" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-view-mock")).not.toBeInTheDocument();
@@ -1423,7 +1421,7 @@ describe("AppShell settings utility trigger", () => {
     });
 
     await user.click(screen.getByTestId("guardian-set-project-2"));
-    await user.click(screen.getByRole("button", { name: "Documents" }));
+    act(() => guardianShellPropsSpy.mock.calls.at(-1)?.[0].onNavigateApplicationView("documents"));
 
     await waitFor(() => {
       expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
@@ -2140,10 +2138,10 @@ describe("AppShell workspace drawer shell", () => {
     expect(railStyle).toContain("scroll-padding-inline: 12px");
     expect(railStyle).toContain("-webkit-overflow-scrolling: touch");
 
-    await user.click(screen.getByRole("button", { name: "Documents" }));
+    await user.click(screen.getByRole("button", { name: "Library" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("documents-primary-frame")).toBeInTheDocument();
+      expect(screen.getByTestId("library-primary-frame")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("app-shell-top-nav")).not.toBeInTheDocument();
     expect(screen.getByTestId("phone-sidebar-toggle")).toBeInTheDocument();
@@ -2454,7 +2452,7 @@ describe("AppShell documents sidebar posture", () => {
     render(<AppShell />);
     await screen.findByTestId("guardian-chat-with-sidebar-mock");
     fireEvent.click(screen.getByTestId("guardian-emit-sidebar-snapshot"));
-    fireEvent.click(screen.getByTestId("guardian-mobile-nav-documents-mock"));
+    act(() => guardianShellPropsSpy.mock.calls.at(-1)?.[0].onNavigateApplicationView("documents"));
 
     await screen.findByTestId("documents-view-mock");
     expect(screen.getByTestId("documents-project-id")).toHaveTextContent("1");
