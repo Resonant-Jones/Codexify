@@ -101,6 +101,16 @@ Library projection contract continues to require honest partial/bounded results
 and keeps saved-widget discovery unavailable until its authoritative listing
 exists. This client bridge does not qualify Scout as a supported Beta surface.
 
+Image and document-artifact listings accept a nonnegative `offset` and a
+`limit` of 1–100. `count` remains the number of rows in the returned page;
+the additive `next_offset` is null at the end, or the offset for the next page.
+Ownership, tag and deletion filters are applied before paging, with stable
+creation-time and source-ID tie ordering. Scout loads further pages on demand,
+deduplicates by source family and ID, and retains loaded results after a failed
+page so the user can retry. Paging is a live read, not a snapshot: concurrent
+insertions/deletions can move offsets; Refresh starts a new view. Older servers
+without paging metadata retain an explicit bounded-results notice.
+
 ## iOS system-integration boundary (#818)
 
 App Entities, App Intents and other system surfaces are a client integration layer.
