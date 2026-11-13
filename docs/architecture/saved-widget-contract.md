@@ -22,6 +22,34 @@ contract is that task's architectural output.
 
 ## Scope
 
+### 2026-11-13 clarification: independent launch and explicit versions
+
+Resonant Jones clarified that launch does not require a conversation: a
+self-contained synthesizer can run independently, while a calculator may later
+use explicitly supplied conversation or project context. This clarification
+adds direct Library launch alongside the conversation-attachment path below;
+it does not replace the governed transcript-reference contract.
+
+- Library may resolve an account-owned widget and an immutable revision for
+  an explicit Launch action. Listing and selecting metadata execute no code.
+  Dismissal destroys the instance. No transcript turn or model call is created.
+- Launch grants no conversation, project KB, retrieval, network, or host access.
+  Context bindings require an explicit, separately implemented host interface;
+  the widget cannot discover context through ambient permissions.
+- Save as new creates a separate canonical identity. Save new version appends
+  an immutable revision with an explicit edit base; a stale base is a conflict,
+  never an overwrite or automatic rebase. Every earlier revision remains readable.
+- The host may offer these save actions for a completed Guardian artifact.
+  Server-owned eligibility and provenance checks remain mandatory. This action
+  accepts coordinates only; it is not a source-bearing AI edit operation.
+- Automatic retrieval of saved program source into an editing turn, project
+  data bindings, and conversational revision generation remain governed by the
+  isolation requirements below and are not implemented by the Library launch slice.
+
+The initial listing is account-wide and paginated. It does not invent project
+or thread placements. Web and Scout use the same IDs and revision read routes.
+
+
 This contract governs:
 
 - the classification of generated UI into resource categories;

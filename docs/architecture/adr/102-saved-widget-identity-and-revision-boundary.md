@@ -77,6 +77,20 @@ All implementation details this ADR deferred remain deferred, and the release ga
 
 ## Companion contract
 
+### Accepted clarification — 2026-11-13
+
+Resonant Jones clarified direct launch, optional explicit context, and preserving
+originals when versioning or adapting a widget. Direct Library launch is allowed
+without attaching a widget to a conversation. It resolves an account-authorized,
+immutable revision and uses the existing sandbox, with no implicit context or
+provider call. The existing conversation invocation contract still governs
+attachments to Guardian. Explicit Save as new creates a separate identity;
+Save new version appends against an explicit base without overwriting any prior
+revision. Source-bearing AI editing and context bindings retain their separate
+isolation and authorization requirements. This amendment changes no Beta support
+claim and grants generated code no new capability.
+
+
 [Saved Widget Contract](../saved-widget-contract.md)
 
 ## Context

@@ -1280,7 +1280,10 @@ _include_router(
 _include_router(
     label="saved_widgets",
     flag_name="CODEXIFY_ENABLE_SAVED_WIDGET_ROUTES",
-    include_fn=lambda: app.include_router(saved_widgets_router),
+    include_fn=lambda: (
+        app.include_router(saved_widgets_router),
+        app.include_router(saved_widgets_router, prefix="/api"),
+    ),
 )
 _include_router(
     label="agent",
