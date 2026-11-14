@@ -608,13 +608,18 @@ def _findings_for(
 class _DependencyHTMLParser(HTMLParser):
     """Collect declared resource dependencies from markup.
 
-    Comments are ignored, so an incidental URL inside an HTML comment is not
-    a dependency. Text content is ignored for the same reason.
+    Comments and ordinary text are ignored. Executable inline script and
+    stylesheet bodies use the same dependency checks as the envelope fields.
     """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.findings: list[DependencyFinding] = []
+        self.inline_scripts: list[str] = []
+        self._inert: list[str] = []
+        self._raw_tag: str | None = None
+        self._raw_parts: list[str] = []
+        self._executable = False
 
     def _handle(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         for name, value in attrs:
@@ -646,10 +651,77 @@ class _DependencyHTMLParser(HTMLParser):
                 )
 
     def handle_starttag(self, tag, attrs):  # noqa: D102 - stdlib callback
-        self._handle(tag.lower(), attrs)
+        tag = tag.lower()
+        if tag in {
+            "template",
+            "noscript",
+            "textarea",
+            "title",
+            "xmp",
+            "iframe",
+            "noembed",
+            "noframes",
+            "plaintext",
+        }:
+            self._inert.append(tag)
+        if self._inert:
+            # Preserve dependency classification, but never count inert markup
+            # as executable behavior. No artifact source is rewritten here.
+            self._handle(tag, attrs)
+            return
+        self._handle(tag, attrs)
+        if tag in {"script", "style"}:
+            attributes = dict(attrs)
+            self._raw_tag = tag
+            self._raw_parts = []
+            self._executable = (
+                tag == "script"
+                and "src" not in attributes
+                and "nomodule" not in attributes
+                and (
+                    (attributes.get("type") or "").strip().lower()
+                    in {
+                        "",
+                        "module",
+                        "text/javascript",
+                        "application/javascript",
+                        "text/ecmascript",
+                        "application/ecmascript",
+                    }
+                )
+            )
 
     def handle_startendtag(self, tag, attrs):  # noqa: D102 - stdlib callback
         self._handle(tag.lower(), attrs)
+
+    def handle_data(self, data):  # noqa: D102 - stdlib callback
+        if self._raw_tag is not None:
+            self._raw_parts.append(data)
+
+    def handle_endtag(self, tag):  # noqa: D102 - stdlib callback
+        tag = tag.lower()
+        if self._inert:
+            if tag == self._inert[-1]:
+                self._inert.pop()
+            return
+        if tag != self._raw_tag:
+            return
+        source = "".join(self._raw_parts)
+        if tag == "script" and self._executable:
+            if _js_trim(source):
+                self.inline_scripts.append(source)
+            self.findings.extend(
+                _findings_for("inline-script", "module", _js_module_references(source))
+            )
+        elif tag == "style":
+            self.findings.extend(
+                _findings_for(
+                    "inline-stylesheet", "stylesheet", _css_url_references(source)
+                )
+            )
+        self._raw_tag = None
+        self._raw_parts = []
+        self._executable = False
 
 
 def _srcset_references(value: str) -> list[str]:
@@ -1010,7 +1082,9 @@ def _size_violations(candidate: Any) -> list[str]:
     return violations
 
 
-def _collect_dependency_findings(artifact: Mapping[str, Any]) -> list[DependencyFinding]:
+def _collect_dependency_findings(
+    artifact: Mapping[str, Any],
+) -> tuple[list[DependencyFinding], bool]:
     """Collect and classify every declared dependency in a sandbox artifact."""
     findings: list[DependencyFinding] = []
     html = artifact.get("html") or ""
@@ -1035,13 +1109,9 @@ def _collect_dependency_findings(artifact: Mapping[str, Any]) -> list[Dependency
         )
     findings.extend(parser.findings)
 
-    findings.extend(
-        _findings_for("css", "stylesheet", _css_url_references(css))
-    )
-    findings.extend(
-        _findings_for("js", "module", _js_module_references(js))
-    )
-    return findings
+    findings.extend(_findings_for("css", "stylesheet", _css_url_references(css)))
+    findings.extend(_findings_for("js", "module", _js_module_references(js)))
+    return findings, bool(parser.inline_scripts)
 
 
 def evaluate_eligibility(
@@ -1070,15 +1140,17 @@ def evaluate_eligibility(
         reasons.append(REASON_KIND_NOT_SANDBOX)
         return tuple(dict.fromkeys(reasons)), findings
 
-    # E3: executable behavior. Only the supported `js` field counts. Markup,
-    # styling, and inline event-handler text are not executable behavior.
+    # Both renderers execute inline script elements as well as the separate
+    # `js` field. Recognize both packaging forms without rewriting the source.
+    # Data scripts, inert markup, and event-handler text alone do not qualify.
+    dependency_findings, has_inline_script = _collect_dependency_findings(artifact)
     js = artifact.get("js")
-    if not isinstance(js, str) or not _js_trim(js):
+    if not has_inline_script and (not isinstance(js, str) or not _js_trim(js)):
         reasons.append(REASON_MISSING_EXECUTABLE_CODE)
         return tuple(dict.fromkeys(reasons)), findings
 
     # E4: declared dependencies.
-    findings = tuple(_collect_dependency_findings(artifact))
+    findings = tuple(dependency_findings)
     if any(finding.kind == _ReferenceKind.EXTERNAL.value for finding in findings):
         reasons.append(REASON_EXTERNAL_DEPENDENCY)
     if any(
