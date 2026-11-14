@@ -841,7 +841,7 @@ private struct ThreadMessagesView: View {
         .task(id: composer.taskID) { await observeResponse() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await loadMessages(); await checkResponse() }
+                Task { await loadMessages(); await checkResponse(showUnconfirmed: false) }
             }
         }
         .sheet(isPresented: $showRename) {
@@ -1035,10 +1035,15 @@ private struct ThreadMessagesView: View {
         do {
             let context = try ScoutThreadActionContext.selected()
             let apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
-            let stream = ScoutTaskEventStreamService.streamEvents(endpoint: profile, taskId: taskID, apiKey: apiKey)
+            let isCurrent: @MainActor () -> Bool = {
+                composerScope == scope && composer.scope == scope && composer.phase == .pending &&
+                    composer.taskID == taskID && conversation.selection == .init(endpoint: profile, threadID: threadId) &&
+                    (try? ScoutThreadActionContext.selected()).map { context.isCurrent($0) } == true
+            }
+            let stream = ScoutTaskEventStreamService.streamEvents(endpoint: profile, taskId: taskID, apiKey: apiKey,
+                                                                 isCurrent: isCurrent)
             for try await event in stream {
-                guard !Task.isCancelled, composerScope == scope,
-                      (try? ScoutThreadActionContext.selected()).map({ context.isCurrent($0) }) == true else { return }
+                guard !Task.isCancelled, isCurrent() else { return }
                 if event.isTerminal {
                     await finishResponse(event.eventType ?? "", taskID: taskID, scope: scope, profile: profile, apiKey: apiKey, context: context)
                     return
@@ -1046,10 +1051,11 @@ private struct ThreadMessagesView: View {
                 composer.observeProgress(event, taskID: taskID, scope: scope)
             }
         } catch { /* Observation failure cannot change execution truth or replay work. */ }
+        guard !Task.isCancelled, composerScope == scope else { return }
         composer.observationEnded(taskID: taskID, scope: scope)
     }
 
-    private func checkResponse() async {
+    private func checkResponse(showUnconfirmed: Bool = true) async {
         guard let taskID = composer.taskID, composer.phase == .pending,
               let scope = composerScope,
               let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
@@ -1062,10 +1068,14 @@ private struct ThreadMessagesView: View {
             if let event = result.tasks?.first(where: { $0.task_id == taskID })?.event_type,
                ["task.completed", "task.failed", "task.cancelled"].contains(event) {
                 await finishResponse(event, taskID: taskID, scope: scope, profile: profile, apiKey: apiKey, context: context)
-            } else {
+            } else if showUnconfirmed {
                 composer.observationEnded(taskID: taskID, scope: scope)
             }
-        } catch { composer.observationEnded(taskID: taskID, scope: scope) }
+        } catch {
+            if showUnconfirmed, !Task.isCancelled, composerScope == scope {
+                composer.observationEnded(taskID: taskID, scope: scope)
+            }
+        }
     }
 
     private func finishResponse(_ event: String, taskID: String, scope: ScoutComposerFlow.Scope,
@@ -1265,6 +1275,7 @@ private struct TaskEventsView: View {
     @ObservedObject var conversation: ScoutConversationState
 
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @AppStorage("scout.accountSessionGeneration") private var accountGeneration = 0
     @State private var events: [ScoutTaskEvent] = []
     @State private var statusMessage: String?
     @State private var isConnected = false
@@ -1408,12 +1419,17 @@ private struct TaskEventsView: View {
         streamFinished = false
         streamError = nil
 
+        let profileData = storedProfileData
+        let generation = accountGeneration
+        let isCurrent: @MainActor () -> Bool = {
+            storedProfileData == profileData && accountGeneration == generation
+        }
         do {
             let stream = ScoutTaskEventStreamService.streamEvents(
-                endpoint: profile, taskId: taskId, apiKey: apiKey
+                endpoint: profile, taskId: taskId, apiKey: apiKey, isCurrent: isCurrent
             )
             for try await event in stream {
-                guard !Task.isCancelled else { break }
+                guard !Task.isCancelled, isCurrent() else { return }
                 isConnected = true
                 events.append(event)
                 if event.isTerminal {
@@ -1422,9 +1438,11 @@ private struct TaskEventsView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled, isCurrent() else { return }
             streamError = "Stream error: \(error.localizedDescription)"
         }
 
+        guard !Task.isCancelled, isCurrent() else { return }
         isConnected = false
         streamFinished = true
     }
