@@ -74,11 +74,19 @@ route_posture:
     - hosted_room_guest
     - voice
   internal_only:
+    # Setup is account-owned and hidden from the model's OpenAPI tools.
+    # Guardian additionally requires private_preview + explicit OAuth opt-in.
+    - connections
+    - notion_setup
+    - github_knowledge_setup
     - coding_work_orders
     - command_bus
     - memory_vault
     - sandbox
   quarantined:
+    # ADR-112 accepted custody alone does not authorize provider execution.
+    - notion_knowledge
+    - github_knowledge
     - llm_overrides
     - neo
     - imprint
