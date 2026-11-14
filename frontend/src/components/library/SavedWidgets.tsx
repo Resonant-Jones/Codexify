@@ -156,4 +156,3 @@ export function SaveWidgetControls({ content, threadId, messageId }: { content: 
     return artifact?.kind === "sandbox" ? <SaveWidget key={index} threadId={threadId} messageId={id} index={index} title={artifact.title || ""} /> : null;
   })}</>;
 }
-
