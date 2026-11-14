@@ -1948,6 +1948,9 @@ describe("AppShell workspace drawer shell", () => {
       expect(window.location.pathname).toBe("/documents");
       if (width === 390) {
         expect(await screen.findByTestId("workspace-drawer-overlay")).toHaveAttribute("data-overlay-mode", "mobile");
+        expect(screen.getByTestId("workspace-drawer-pane").style.width).toBe(
+          "min(360px, calc(100vw - (var(--edge-chrome) * 2)))"
+        );
       }
       expect(await screen.findByTestId("workspace-document-text")).toHaveTextContent("Recent document body");
       expect(fetchMock).toHaveBeenCalledWith(
