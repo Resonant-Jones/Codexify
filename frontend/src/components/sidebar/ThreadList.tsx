@@ -1,7 +1,6 @@
 import * as React from "react";
 import clsx from "clsx";
 import {
-  ChevronDown,
   Plus,
   MoreVertical,
   Pencil,
@@ -14,12 +13,14 @@ import type { ThreadAction } from "@/types/common";
 import type { Thread } from "@/types/ui";
 import type { ConversationOriginSystem } from "@/contracts/conversationOrigin";
 import TileShell from "@/components/surface/TileShell";
+import ProjectSwitcher, { type ProjectScope } from "./ProjectSwitcher";
 import type { SidebarOriginOption } from "./sidebarPresentation";
 
 type ThreadListProps = {
   threads: Thread[];
   activeId: string | null;
   scopeLabel: string;
+  projectScope?: ProjectScope;
   originSystem?: ConversationOriginSystem | null;
   originOptions?: SidebarOriginOption[];
   onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
@@ -75,6 +76,7 @@ export default function ThreadList({
   threads,
   activeId,
   scopeLabel,
+  projectScope,
   originSystem = null,
   originOptions = [],
   onOriginSystemChange,
@@ -99,6 +101,7 @@ export default function ThreadList({
       rectH={44}
       showHeader
       scopeLabel={scopeLabel}
+      projectScope={projectScope}
       originSystem={originSystem}
       originOptions={originOptions}
       onOriginSystemChange={onOriginSystemChange}
@@ -121,6 +124,7 @@ function ThreadPreviewList({
   rectH = 60,
   showHeader = false,
   scopeLabel,
+  projectScope,
   originSystem = null,
   originOptions = [],
   onOriginSystemChange,
@@ -139,6 +143,7 @@ function ThreadPreviewList({
   rectH?: number;
   showHeader?: boolean;
   scopeLabel?: string;
+  projectScope?: ProjectScope;
   originSystem?: ConversationOriginSystem | null;
   originOptions?: SidebarOriginOption[];
   onOriginSystemChange?: (originSystem: ConversationOriginSystem | null) => void;
@@ -185,11 +190,8 @@ function ThreadPreviewList({
         }}
       >
         {showHeader && (
-          <div className="flex items-center justify-between px-3 pb-2">
-            <div className="inline-flex items-center gap-1 text-xs opacity-70">
-              <ChevronDown className="h-3 w-3" /> <span>Project:</span>{" "}
-              <span className="font-medium">{scopeLabel ?? "—"}</span>
-            </div>
+          <div className="flex items-center justify-between gap-2 px-3 pb-2">
+            <ProjectSwitcher label={scopeLabel ?? "—"} scope={projectScope} />
             {onNewChat && (
               <button type="button" className="icon-inline" onClick={onNewChat}>
                 <Plus className="h-4 w-4" />
