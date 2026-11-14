@@ -1,8 +1,11 @@
 """Legacy SDK calls must not borrow the bounded chat reservation."""
 
 import importlib
+import importlib.util
 import json
-from types import SimpleNamespace
+from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -139,13 +142,51 @@ CASES = [
 ]
 
 
+@pytest.fixture
+def load_adapter(monkeypatch):
+    """Load real research model files without the optional crawler application.
+
+    Modules/__init__.py imports the Planner/SearchAgent stack, which requires
+    crawl4ai even though these model files support its absence. Use an isolated
+    test package for their relative Model import; do not mock any guard or SDK
+    method under test. Every temporary module is restored after each test.
+    """
+
+    def load(name):
+        prefix = "guardian.core.research.Modules.model."
+        if not name.startswith(prefix):
+            return importlib.import_module(name)
+        leaf = name.removeprefix(prefix)
+        assert leaf in {"deepseek", "gork", "openai"}
+        path = (
+            Path(__file__).resolve().parents[2] / "guardian/core/research/Modules/model"
+        )
+        package_name = "_budget_quarantine_research_models"
+        package = ModuleType(package_name)
+        package.__path__ = [str(path)]
+        monkeypatch.setitem(sys.modules, package_name, package)
+        # Exercise the production fallback whether or not crawl4ai is installed.
+        monkeypatch.setitem(sys.modules, "crawl4ai", None)
+        for source in ("model", leaf):
+            qualified = f"{package_name}.{source}"
+            spec = importlib.util.spec_from_file_location(
+                qualified, path / f"{source}.py"
+            )
+            module = importlib.util.module_from_spec(spec)
+            monkeypatch.setitem(sys.modules, qualified, module)
+            spec.loader.exec_module(module)
+        return module
+
+    return load
+
+
 @pytest.mark.parametrize("raw", [CONFIG, "malformed"])
 @pytest.mark.parametrize("module,cls,method,args,kwargs", CASES)
 def test_legacy_spend_denied_before_sdk(
-    monkeypatch, raw, module, cls, method, args, kwargs
+    monkeypatch, load_adapter, raw, module, cls, method, args, kwargs
 ):
     monkeypatch.setenv(runtime.ENV, raw)
-    instance = object.__new__(getattr(importlib.import_module(module), cls))
+    instance = object.__new__(getattr(load_adapter(module), cls))
     instance.client = Mock(side_effect=AssertionError("network must not run"))
     instance.timeout = 1
     instance.model = "test"
