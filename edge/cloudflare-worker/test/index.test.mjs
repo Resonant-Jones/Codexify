@@ -431,3 +431,24 @@ test("Guardian health bounds time and converts VPC errors to a small 502", async
     error: "guardian_capability_unavailable",
   });
 });
+
+test("OAuth callback sentinels never enter Edge application logs or upstream requests", async () => {
+  for (const provider of ["notion", "github-knowledge"]) {
+    let forwarded = false;
+    const { result: response, records } = await captureLogs(() =>
+      worker.fetch(new Request(
+        `https://edge.test/api/connect/${provider}/oauth/callback?code=SYNTHETIC_CODE&state=SYNTHETIC_STATE&error_description=SYNTHETIC_ERROR`,
+        { headers: { Referer: "https://edge.test/?code=SYNTHETIC_REFERER" } },
+      ), {
+        GUARDIAN_CAPABILITY: { fetch() { forwarded = true; throw new Error("forbidden"); } },
+        GUARDIAN_EDGE_CAPABILITY_KEY: "SYNTHETIC_CAPABILITY",
+      }),
+    );
+    assert.equal(response.status, 404);
+    assert.equal(forwarded, false);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].pathname, `/api/connect/${provider}/oauth/callback`);
+    assert.equal(JSON.stringify(records).includes("SYNTHETIC"), false);
+    assert.equal((await response.text()).includes("SYNTHETIC"), false);
+  }
+});

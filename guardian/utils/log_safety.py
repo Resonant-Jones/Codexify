@@ -102,7 +102,11 @@ _AUTH_RE = re.compile(
 )
 _COOKIE_RE = re.compile(r"(?i)(\bcookie\s*:\s*)[^\r\n]+")
 _QUERY_RE = re.compile(
-    r"([?&](?:api[_-]?key|token|secret|code|auth|signature)=[^\s&#]+)", re.I
+    r"([?&](?:api[_-]?key|token|secret|code|state|auth|signature)=[^\s&#]+)", re.I
+)
+_OAUTH_CALLBACK_QUERY_RE = re.compile(
+    r"(/api/connect/(?:notion|github-knowledge)/oauth/callback/?)\?[^\s\"']*",
+    re.I,
 )
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?secret|"
@@ -215,7 +219,7 @@ def _sanitize_value(value: Any, field: str | None = None) -> Any:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
-            return value.replace("\n", " ").replace("\r", " ")[:256]
+            return sanitize_log_text(value).replace("\n", " ").replace("\r", " ")[:256]
         if isinstance(value, Mapping):
             if normalized_field == "retrieval_bundle":
                 return {
@@ -279,7 +283,8 @@ def _sanitize_args(template: Any, args: Any) -> Any:
 
 def sanitize_log_text(text: str) -> str:
     """Apply last-mile secret scrubbing to already-rendered log text."""
-    output = _AUTH_RE.sub(r"\1<redacted>", text)
+    output = _OAUTH_CALLBACK_QUERY_RE.sub(r"\1?<redacted-query>", text)
+    output = _AUTH_RE.sub(r"\1<redacted>", output)
     output = _COOKIE_RE.sub(r"\1<redacted>", output)
     output = _QUERY_RE.sub("<redacted-query>", output)
     output = _SECRET_ASSIGNMENT_RE.sub(r"\1<redacted>", output)
@@ -332,6 +337,11 @@ def sanitize_record(
     if getattr(record, _RECORD_SANITIZED_ATTR, False) and not force:
         return record
     original_message = record.msg
+    if _OAUTH_CALLBACK_QUERY_RE.search(str(record.msg)):
+        # A pre-interpolated URL may coexist with formatting arguments. Drop
+        # that event instead of removing placeholders and breaking formatters.
+        record.msg = "oauth_callback_log_redacted"
+        record.args = ()
     if record.args:
         record.args = _sanitize_args(record.msg, record.args)
     else:

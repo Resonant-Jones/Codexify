@@ -22,6 +22,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import routing as fastapi_routing
 
 from guardian.connections.catalog import (
     ConnectionCatalogEntry,
@@ -408,18 +409,14 @@ def _github_projection(db: Any, user_id: str, request: Request) -> dict[str, Any
         ("/api/knowledge/github/search", "GET"),
         ("/api/knowledge/github/read/{owner}/{repo}/{number}", "GET"),
     }
+    iter_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    routes = iter_contexts(request.app.routes) if iter_contexts else request.app.routes
     mounted = {
         (route.path, method)
-        for route in request.app.routes
+        for route in routes
         if hasattr(route, "path")
         for method in (getattr(route, "methods", None) or ())
     }
-    validation = {"configured": False, "state": "storage_unavailable", "last_validated_at": None}
-    if required <= mounted and db is not None:
-        try:
-            validation = github_credentials.status_projection(db, user_id)
-        except Exception:
-            pass  # Missing migration/storage stays unavailable and secret-free.
     oauth_mounted = {
         provider for provider, path in (("notion", "notion"), ("github", "github-knowledge"))
         if {(f"/api/connect/{path}/oauth/start", "POST"),
@@ -427,7 +424,21 @@ def _github_projection(db: Any, user_id: str, request: Request) -> dict[str, Any
             (f"/api/connect/{path}/oauth/status", "GET"),
             (f"/api/connect/{path}/oauth/disconnect", "POST")} <= mounted
     }
-    return {"github_validation": validation, "github_setup_available": required <= mounted,
+    # OAuth setup has its own account-bound storage/status boundary. Requiring
+    # read operations or legacy token routes here would prevent setup-only
+    # Preview admission. This availability flag never grants read authority.
+    setup_available = (
+        "github" in oauth_mounted
+        if knowledge_oauth.enabled()
+        else required <= mounted
+    )
+    validation = {"configured": False, "state": "storage_unavailable", "last_validated_at": None}
+    if setup_available and db is not None:
+        try:
+            validation = github_credentials.status_projection(db, user_id)
+        except Exception:
+            pass  # Missing migration/storage stays unavailable and secret-free.
+    return {"github_validation": validation, "github_setup_available": setup_available,
             "knowledge_oauth_mounted": oauth_mounted}
 
 

@@ -77,13 +77,13 @@ describe("SystemPromptInspector", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading prompt stack…");
 
-    expect(await screen.findByText("System Prompt Inspector")).toBeInTheDocument();
+    expect(screen.getByText("System Prompt Inspector")).toBeInTheDocument();
     expect(
       screen.getByText(
         /persisted active identity records and the resolved prompt preview/i
       )
     ).toBeInTheDocument();
-    expect(screen.getByText("1320 tokens")).toBeInTheDocument();
+    expect(await screen.findByText("1320 tokens")).toBeInTheDocument();
     expect(screen.getAllByText("Docs: 2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Present")).toHaveLength(4);
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
@@ -207,8 +207,8 @@ describe("SystemPromptInspector", () => {
 
     render(<SystemPromptInspector />);
 
-    expect(await screen.findByText("System Prompt Inspector")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
+    expect(screen.getByText("System Prompt Inspector")).toBeInTheDocument();
+    expect(await screen.findAllByText("Unavailable")).toHaveLength(4);
     expect(screen.getByText("Absent")).toBeInTheDocument();
     expect(
       screen.getByText("Error code: system_profile_resolution_unavailable")
