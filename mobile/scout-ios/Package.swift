@@ -59,6 +59,7 @@ let package = Package(
                 "Services/ScoutThreadTasksProbe.swift",
                 "Services/ScoutMediaDocumentsProbe.swift",
                 "Services/ScoutLibraryService.swift",
+                "Services/ScoutSavedWidgets.swift",
                 "Services/ScoutCreateThreadProbe.swift",
                 "Services/ScoutRenameThreadProbe.swift",
                 "Services/ScoutKeychainStore.swift",
