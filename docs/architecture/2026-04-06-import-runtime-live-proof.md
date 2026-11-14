@@ -63,17 +63,17 @@ docker stats --no-stream
 
 # Health endpoints (using API key from .env)
 curl -s http://localhost:8888/ping
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" http://localhost:8888/health | jq .
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" http://localhost:8888/health/chat | jq .
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" http://localhost:8888/health/llm | jq .
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" http://localhost:8888/api/health/retrieval | jq .
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" http://localhost:8888/health | jq .
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" http://localhost:8888/health/chat | jq .
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" http://localhost:8888/health/llm | jq .
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" http://localhost:8888/api/health/retrieval | jq .
 ```
 
 ### 2. Import backlog verification
 
 ```bash
 # Check backfill status
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" http://localhost:8888/backfill/status | jq .
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" http://localhost:8888/backfill/status | jq .
 
 # Check database state
 docker exec codexify-db-1 psql -U codexify -d Codexify -c "SELECT COUNT(*) FROM chat_threads;"
@@ -87,25 +87,25 @@ docker logs codexify-worker-chat-embed-1 --tail 30 2>&1
 
 ```bash
 # Create a new chat thread
-curl -s -X POST -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" \
+curl -s -X POST -H "X-API-Key: ${GUARDIAN_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{"title": "Live Runtime Proof Test"}' \
   http://localhost:8888/chat/threads | jq .
 
 # Create user message
-curl -s -X POST -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" \
+curl -s -X POST -H "X-API-Key: ${GUARDIAN_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{"role": "user", "content": "Hello, this is a live proof test message. Please respond briefly to confirm you received this."}' \
   http://localhost:8888/chat/740/messages | jq .
 
 # Request completion
-curl -s -X POST -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" \
+curl -s -X POST -H "X-API-Key: ${GUARDIAN_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen3.5:9b", "provider": "local"}' \
   http://localhost:8888/chat/740/complete | jq .
 
 # Verify assistant persistence
-curl -s -H "X-API-Key: 001a8ae3c2e7fe3a89c466803beb3449df5989e97f6e170be43856a38e3e9e8e" \
+curl -s -H "X-API-Key: ${GUARDIAN_API_KEY}" \
   http://localhost:8888/chat/740/messages | jq .
 ```
 
@@ -437,3 +437,6 @@ The observed behavior aligns with the intended sequencing contract:
 | Worker heartbeat continuity | ✓ chat-worker heartbeat "fresh" |
 
 The embedding worker crash represents an infrastructure issue (schema + Chroma config) rather than an architectural failure. The core runtime remained usable despite this background worker instability.
+> Security maintenance: historical credential values have been replaced with
+> `${GUARDIAN_API_KEY}` placeholders. These examples are not evidence that a
+> historical key is still valid or that its revocation has been verified.
