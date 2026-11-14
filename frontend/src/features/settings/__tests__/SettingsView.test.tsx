@@ -400,7 +400,7 @@ describe("SettingsView", () => {
     expect(screen.getByText("Wallpaper")).toBeInTheDocument();
     expect(screen.getByText("System Accent")).toBeInTheDocument();
     expect(screen.getByText("Material Controls")).toBeInTheDocument();
-    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+    expect(screen.getByText("Feed Layout")).toBeInTheDocument();
     expect(surface).toContainElement(primaryGrid);
     expect(surface).toContainElement(disclosure);
     expect(
@@ -513,7 +513,7 @@ describe("SettingsView", () => {
     // Appearance controls remain present
     expect(screen.getByText("Theme")).toBeInTheDocument();
     expect(screen.getByText("Material Controls")).toBeInTheDocument();
-    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+    expect(screen.getByText("Feed Layout")).toBeInTheDocument();
   });
 
   test("retains card treatment on Imprint and other non-Appearance tabs", async () => {
@@ -609,17 +609,17 @@ describe("SettingsView", () => {
     expect(bgSection.textContent).toContain("0.2");
   });
 
-  test("retains existing labels and hierarchy for Material Controls and Dashboard Layout", () => {
+  test("retains existing labels and hierarchy for Material Controls and Feed Layout", () => {
     const props = createSettingsViewProps();
     render(<SettingsView {...props} />);
 
     expect(screen.getByText("Material Controls")).toBeInTheDocument();
-    expect(screen.getByText("Dashboard Layout")).toBeInTheDocument();
+    expect(screen.getByText("Feed Layout")).toBeInTheDocument();
     expect(screen.getByText("Surface Depth")).toBeInTheDocument();
     expect(screen.getByText("Surface Warmth")).toBeInTheDocument();
     expect(screen.getByText(/Recent thread rows/)).toBeInTheDocument();
 
-    // Dashboard Layout slider uses canonical accent
+    // Feed Layout slider uses canonical accent
     const rowsSlider = screen.getByTestId("dashboard-thread-rows-slider");
     expect(rowsSlider.style.accentColor).toBe("var(--accent)");
   });

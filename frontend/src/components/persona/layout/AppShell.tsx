@@ -2821,7 +2821,7 @@ export default function AppShell({
     item: WorkspaceSelection;
   } | null>(null);
   const selectedWorkspaceItem =
-    workspaceSelection?.sessionScope === generalProjectSessionScope
+    workspaceSelection && workspaceSelection.sessionScope === generalProjectSessionScope
       ? workspaceSelection.item
       : null;
   useEffect(() => {
