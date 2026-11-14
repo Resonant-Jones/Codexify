@@ -67,7 +67,8 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
             config.defaultWebpagePreferences.isLockdownModeEnabled = true
         }
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        config.defaultWebpagePreferences.allowsContentJavaScript = interactive
+        // WebKit substitutes about:blank for srcdoc when page JavaScript is disabled.
+        // Preview documents block scripts in CSP and omit allow-scripts on their iframe.
         config.allowsAirPlayForMediaPlayback = false
         config.mediaTypesRequiringUserActionForPlayback = .all
         #if os(iOS)
