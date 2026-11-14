@@ -1561,6 +1561,8 @@ class ChatCompletionAttempt(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # Original authenticated ordinary-chat custody; NULL legacy rows confer none.
+    accepted_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_turn_id: Mapped[str | None] = mapped_column(String(128))
     tool_command_id: Mapped[str | None] = mapped_column(String(512))
     tool_args_hash: Mapped[str | None] = mapped_column(String(64))
@@ -3275,6 +3277,46 @@ class NotionConnectionCredential(Base):
             "('unvalidated', 'valid', 'authorization_error', "
             "'transport_error', 'provider_error')",
             name="ck_notion_connection_credentials_validation_status",
+        ),
+    )
+
+
+class GitHubKnowledgeCredential(Base):
+    """Account-owned token and explicit repository scope for read-only GitHub."""
+
+    __tablename__ = "github_knowledge_credentials"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_token: Mapped[str] = mapped_column(Text, nullable=False)
+    repositories: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    validation_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="unvalidated"
+    )
+    last_validated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_github_knowledge_credentials_user"),
+        CheckConstraint(
+            "validation_status IN "
+            "('unvalidated', 'valid', 'authorization_error', "
+            "'transport_error', 'provider_error')",
+            name="ck_github_knowledge_credentials_validation_status",
         ),
     )
 
@@ -8335,3 +8377,42 @@ class SavedWidgetRevision(Base):
     )
 
     __mapper_args__ = {"eager_defaults": True}
+
+
+class KnowledgeOAuthCredential(Base):
+    """Account-scoped OAuth custody; retained tombstones invalidate in-flight work."""
+
+    __tablename__ = "knowledge_oauth_credentials"
+    __table_args__ = (
+        CheckConstraint("provider IN ('notion', 'github')", name="ck_knowledge_oauth_provider"),
+        CheckConstraint("status IN ('pending', 'connected', 'disconnected', 'reconnect_required')", name="ck_knowledge_oauth_status"),
+    )
+    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    generation: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    encrypted_access_token: Mapped[str | None] = mapped_column(Text)
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[float | None] = mapped_column(Float)
+    refresh_claim: Mapped[str | None] = mapped_column(String(64))
+    provider_metadata: Mapped[dict] = mapped_column(JSON, nullable=False)
+    repositories: Mapped[list] = mapped_column(JSON, nullable=False)
+
+
+class KnowledgeOAuthFlow(Base):
+    """Opaque one-use browser flow; raw state and verifier never persist in clear."""
+
+    __tablename__ = "knowledge_oauth_flows"
+    __table_args__ = (
+        CheckConstraint("provider IN ('notion', 'github')", name="ck_knowledge_oauth_flow_provider"),
+    )
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    generation: Mapped[str] = mapped_column(String(64), nullable=False)
+    browser_binding_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    encrypted_verifier: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[float] = mapped_column(Float, nullable=False)
+    consumed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    repositories: Mapped[list] = mapped_column(JSON, nullable=False)

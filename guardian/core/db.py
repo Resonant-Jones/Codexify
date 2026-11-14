@@ -442,6 +442,7 @@ def create_chat_completion_attempt(
     turn_id: str,
     deadline_snapshot: AcceptedChatTaskDeadline | None = None,
     turn_lock_token: str | None = None,
+    accepted_account_id: str | None = None,
 ) -> None:
     """Commit the resource binding before the task can enter Redis."""
     if deadline_snapshot is not None:
@@ -451,7 +452,35 @@ def create_chat_completion_attempt(
             raise ValueError("Recovery requires the existing turn lock token")
     elif turn_lock_token is not None:
         raise ValueError("Turn lock token requires an original deadline snapshot")
+    if accepted_account_id is not None and (
+        not isinstance(accepted_account_id, str)
+        or not accepted_account_id
+        or len(accepted_account_id) > 255
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in accepted_account_id
+        )
+    ):
+        raise ValueError("Invalid accepted account custody")
     with chatlog_db._sa_session() as session:
+        if accepted_account_id is not None:
+            from guardian.db.models import User
+
+            # Recheck ownership under lock in the same transaction as insertion.
+            owner = (
+                session.query(ChatThread.user_id)
+                .filter_by(id=thread_id)
+                .with_for_update()
+                .scalar()
+            )
+            account = (
+                session.query(User.id)
+                .filter_by(id=accepted_account_id)
+                .with_for_update()
+                .scalar()
+            )
+            if owner != accepted_account_id or account != accepted_account_id:
+                raise ValueError("Accepted account custody unavailable")
         session.add(
             ChatCompletionAttempt(
                 request_id=request_id,
@@ -459,9 +488,12 @@ def create_chat_completion_attempt(
                 thread_id=thread_id,
                 turn_id=turn_id,
                 deadline_snapshot=(
-                    deadline_snapshot.to_dict() if deadline_snapshot is not None else None
+                    deadline_snapshot.to_dict()
+                    if deadline_snapshot is not None
+                    else None
                 ),
                 turn_lock_token=turn_lock_token,
+                accepted_account_id=accepted_account_id,
             )
         )
 

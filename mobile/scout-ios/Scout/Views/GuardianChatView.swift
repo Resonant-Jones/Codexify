@@ -954,7 +954,7 @@ private struct ThreadMessagesView: View {
                 } else {
                     Section {
                         ForEach(Array(messages.enumerated()), id: \.offset) { _, msg in
-                            GuardianGenUIMessageRow(message: msg, isActive: isActive)
+                            GuardianGenUIMessageRow(message: msg, threadId: threadId, isActive: isActive)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                         }
@@ -1969,6 +1969,7 @@ struct GuardianThreadDetailsContent: View {
 // existing conversation identity/reset path and cannot reuse an artifact cache.
 struct GuardianGenUIMessageRow: View {
     let message: ScoutChatMessageSummary
+    var threadId: Int? = nil
     var renderingEnabled = ScoutGenerativeUI.renderingEnabled
     var isActive = true
     var body: some View {
@@ -1979,6 +1980,7 @@ struct GuardianGenUIMessageRow: View {
             if !presentation.text.isEmpty || presentation.artifacts.isEmpty {
                 GuardianMessageRow(message: visible)
             }
+            if let threadId, renderingEnabled { ScoutWidgetSaveControls(message: message, thread: threadId) }
             ForEach(Array(presentation.artifacts.enumerated()), id: \.offset) { _, artifact in
                 switch artifact {
                 case let .table(table):

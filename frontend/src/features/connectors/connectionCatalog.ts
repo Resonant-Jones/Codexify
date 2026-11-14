@@ -90,6 +90,7 @@ export interface ConnectionValidation {
   configured: boolean;
   state: string;
   last_validated_at: string | null;
+  repositories?: string[];
 }
 
 export interface ConnectionEntry {
@@ -164,6 +165,8 @@ export function isConnectionEntry(value: unknown): value is ConnectionEntry {
 /** A setup action may launch only when a real backing route exists. */
 export function canLaunchSetup(entry: ConnectionEntry): boolean {
   if (entry.implementation_state === "unimplemented") return false;
+  if (entry.id === "github_knowledge" &&
+      (entry.setup_state === "unavailable" || entry.authorization?.available === false)) return false;
   if (!entry.runtime_binding.setup_route) return false;
   const oauthOnly =
     entry.auth_methods.length > 0 &&

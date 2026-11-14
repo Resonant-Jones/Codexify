@@ -3274,6 +3274,7 @@ async def chat_complete(
             thread_id=thread_id,
             turn_id=turn_id,
             request_id=root_request_id,
+            account_acceptance_scope=request_user_scope,
         )
     except ChatCompletionEnqueueError as exc:
         if exc.reason == "turn_in_flight":

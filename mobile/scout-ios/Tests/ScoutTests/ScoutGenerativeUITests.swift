@@ -237,6 +237,21 @@ final class ScoutGenerativeUITests: XCTestCase {
         XCTAssertTrue(interactive.contains("interactive_only()"))
     }
 
+    func testWidgetThumbnailUsesAnOpaqueFrameWithoutScriptPermission() throws {
+        let widget = try XCTUnwrap(ScoutSandboxWidget(envelope: [
+            "html": "<button>Play</button><script>inline()</script>",
+            "js": "separate()"
+        ]))
+        let thumbnail = widget.document(interactive: false)
+        XCTAssertTrue(thumbnail.contains(#"sandbox="""#))
+        XCTAssertFalse(thumbnail.contains(#"sandbox="allow-scripts""#))
+        XCTAssertTrue(thumbnail.contains("script-src 'none'"))
+        XCTAssertTrue(thumbnail.contains("media-src 'none'"))
+        XCTAssertTrue(thumbnail.contains("connect-src 'none'"))
+        XCTAssertTrue(thumbnail.contains("&lt;button&gt;Play&lt;/button&gt;"))
+        XCTAssertFalse(thumbnail.contains("separate()"))
+    }
+
     private func sandbox(_ fields: [String: Any], base64: Bool = false) throws -> String {
         try marker(base64: base64, overrides: fields.merging(["kind": "sandbox"]) { _, kind in kind })
     }

@@ -355,6 +355,9 @@ def test_golden_completion_acceptance_contract(monkeypatch):
         {"id": 1, "role": "user", "content": "Hello there"}
     ]
     mock_db.write_audit_log.return_value = None
+    # Authenticated acceptance rechecks persisted thread and User ownership.
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(chat, "chatlog_db", mock_db)
