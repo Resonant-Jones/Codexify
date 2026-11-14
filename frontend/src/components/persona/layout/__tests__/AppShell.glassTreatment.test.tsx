@@ -1,11 +1,17 @@
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppShell from "@/components/persona/layout/AppShell";
 import {
   DEFAULT_GLASS_TREATMENT,
   GLASS_TREATMENT_STORAGE_KEY,
 } from "@/theme/glassTreatment";
+
+// Appearance tests exercise the real shell, not chat health polling. Keep
+// polling requests from outliving this test environment; chat has its own suite.
+vi.mock("@/features/chat/GuardianChat", () => ({
+  default: () => <div data-testid="guardian-chat-mock" />,
+}));
 
 /**
  * Shell-level coverage for the Glass Treatment material axis.
