@@ -18,6 +18,15 @@ TUNNEL_PLIST = (
 )
 
 
+def test_private_preview_blocks_content_bearing_retrieval_diagnostics() -> None:
+    nginx = NGINX.read_text(encoding="utf-8")
+    for selector in ("= /api/health/retrieval", "^~ /api/health/retrieval/"):
+        assert re.search(
+            rf"location {re.escape(selector)}\s*\{{\s*return 404;\s*\}}",
+            nginx,
+        )
+
+
 def test_private_preview_origin_uses_dynamic_backend_dns_resolution() -> None:
     nginx = NGINX.read_text(encoding="utf-8")
 
