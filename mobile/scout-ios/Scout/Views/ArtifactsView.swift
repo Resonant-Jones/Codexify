@@ -78,10 +78,7 @@ struct ArtifactsView: View {
                         }
                     }
                     if filter == .widgets || filter == .all {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label("Widgets", systemImage: "square.stack.3d.up").font(.headline)
-                            Text(ScoutLibraryService.widgetsMessage).font(.subheadline).foregroundStyle(.secondary)
-                        }.modifier(ScoutPanel(subtleOutline: true))
+                        ScoutSavedWidgetsView(isActive: isActive).id(readIdentity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
