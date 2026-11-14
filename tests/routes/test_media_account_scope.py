@@ -41,7 +41,15 @@ class _FakeQuery:
         return self
 
     def order_by(self, *args, **kwargs):
-        return self
+        rows = list(self._rows)
+        for expression in reversed(args):
+            key = expression.element.key
+            if key is not None:
+                rows.sort(key=lambda row: getattr(row, key), reverse=True)
+        return _FakeQuery(rows)
+
+    def offset(self, count):
+        return _FakeQuery(self._rows[count:])
 
     def limit(self, count):
         return _FakeQuery(self._rows[:count])
@@ -175,6 +183,59 @@ def _foreign_asset(asset_id: str, user_id: str):
         ingested_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         deleted_at=None,
     )
+
+
+@pytest.mark.parametrize(
+    "model,kind,path,key",
+    [
+        (media_routes.UploadedImage, "image", "/images", "images"),
+        (
+            media_routes.GeneratedImage,
+            "generated_image",
+            "/images?tag=generated",
+            "images",
+        ),
+        (media_routes.UploadedDocument, "document", "/document-artifacts", "documents"),
+    ],
+)
+def test_library_pages_apply_ownership_and_deletion_before_offsets(
+    monkeypatch, model, kind, path, key
+):
+    monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "true")
+    rows = [
+        _owned_row(row_id="b", user_id="owner-a", kind=kind),
+        _owned_row(row_id="foreign", user_id="owner-b", kind=kind),
+        _owned_row(row_id="a", user_id="owner-a", kind=kind),
+        _owned_row(row_id="c", user_id="owner-a", kind=kind),
+        _owned_row(row_id="deleted", user_id="owner-a", kind=kind),
+    ]
+    rows[-1].deleted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    db, _ = _make_db({model: rows})
+    client = _make_client(
+        monkeypatch,
+        RequestUserScope(
+            user_id="owner-a", account_id="owner-a", multi_user_enabled=True
+        ),
+        db,
+    )
+    client.headers["X-API-Key"] = API_KEY
+    separator = "&" if "?" in path else "?"
+    endpoint = "/api/media" + path + separator
+    first = client.get(endpoint + "limit=2&offset=0").json()
+    assert [item["id"] for item in first[key]] == ["c", "b"]
+    assert first["count"] == 2
+    assert first["next_offset"] == 2
+    second = client.get(endpoint + "limit=2&offset=2").json()
+    assert [item["id"] for item in second[key]] == ["a"]
+    assert second["next_offset"] is None
+    exact = client.get(endpoint + "limit=3&offset=0").json()
+    assert exact["count"] == 3
+    assert exact["next_offset"] is None
+    empty = client.get(endpoint + "limit=2&offset=4").json()
+    assert empty[key] == []
+    assert empty["next_offset"] is None
+    for query in ("limit=0", "limit=101", "offset=-1"):
+        assert client.get(endpoint + query).status_code == 422
 
 
 @pytest.fixture(autouse=True)
