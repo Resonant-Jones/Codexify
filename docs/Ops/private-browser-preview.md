@@ -28,6 +28,33 @@ Guardian authorization. Remote Guardian session authentication remains
 mandatory, and Cloudflare Access remains enabled pending separate
 public-ingress qualification. This task does not remove or reconfigure Access.
 
+### Password login attempt limits
+
+Both `/auth/login` and `/api/auth/login` share atomic Redis admission before
+account lookup and password verification in Private Preview. All attempts,
+including successful logins and unknown accounts, consume fixed windows:
+10 per normalized email per five minutes, 30 per ASGI-observed source per
+minute, and 120 total per minute across backend workers. Case/whitespace
+variations use the same email bucket. Responses are generic `429` with
+`Retry-After` seconds and `Cache-Control: no-store`. Rejected attempts do not
+extend cooldowns; successful login does not reset them. Other exposure modes
+retain their existing login behavior.
+
+The observed source can be the shared proxy; this is not a qualified visitor-IP
+boundary. The limiter does not parse `X-Forwarded-For` or `CF-Connecting-IP`.
+The global and email budgets remain effective regardless of source attribution.
+Proxy users may share the 30-attempt window. Email/source Redis keys use HMAC
+digests under the existing session secret; neither credentials nor raw
+identifiers are stored in the counters.
+
+Redis errors, invalid counter state, or missing signing configuration return
+generic `503` before account lookup, with a short retry hint. There is no
+process-local fallback. These are short-lived admission counters, not durable
+account lockouts: Redis restart/eviction resets them, and signing-key rotation
+resets the email/source buckets. The existing Redis deployment has persistence
+disabled and an eviction policy. This does not replace Cloudflare Access or
+establish general public-ingress or Beta qualification.
+
 ## Persona Profile route admission
 
 `v1-whooshd-deepseek-web` enables `persona_profiles`, admitting the existing
@@ -133,6 +160,21 @@ The complete recorded run, with per-step verdicts and limitations, is in
   failures. Do not raise this value without requalifying the live runtime.
 
 ### Private-preview path ownership
+
+`/api/health/retrieval` and its descendants are blocked with HTTP 404 at the
+Preview origin. This diagnostic can return indexed content and must not be a
+browser-facing health check. Guardian independently requires explicit operator
+authentication for the entire endpoint, including requests without `q`, and
+marks successful responses `Cache-Control: no-store`. Ordinary account and
+guest sessions do not grant operator authority (ADR-092).
+
+Use `/health` for unauthenticated liveness. Operators who need retrieval proof
+must use a direct internal Guardian connection with a configured operator key
+or an exact-purpose operator session. Do not publish that connection. The local
+desktop runtime monitor reads `GUARDIAN_API_KEY` from its process environment
+for this diagnostic only and does not follow credentialed redirects; without
+the key it reports the denied retrieval check as not ready. Existing keyed
+Obsidian proof calls retain their response contract on direct Guardian ingress.
 
 This lane intentionally runs the Vite development server behind the single
 private-preview Nginx origin. The origin classifies requests as follows:

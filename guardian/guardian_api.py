@@ -36,6 +36,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
 )
 from fastapi import routing as fastapi_routing
@@ -1983,15 +1984,21 @@ def health_embedder():
     }
 
 
-@app.get("/api/health/retrieval", tags=["Health"])
+@app.get(
+    "/api/health/retrieval",
+    tags=["Health"],
+    dependencies=[Depends(require_operator_auth)],
+)
 def health_retrieval(
+    response: Response,
     q: str = Query("", description="Optional retrieval probe query."),
     k: int = Query(5, ge=1, le=50),
     namespace: Optional[str] = Query(
         None, description="Optional namespace filter for retrieval probe."
     ),
 ):
-    """Expose backend retrieval runtime truth for supported-path proofs."""
+    """Expose content-bearing retrieval proofs only to an explicit operator."""
+    response.headers["Cache-Control"] = "no-store"
     query = str(q or "").strip()
     normalized_namespace = _normalize_optional_namespace(namespace)
     worker_runtime = _vector_runtime_payload(resolve_vector_store_runtime())

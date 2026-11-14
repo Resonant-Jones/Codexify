@@ -49,28 +49,45 @@ The monitor accepts overrides for both roots, which makes it safe to test agains
 
 ## Exact commands
 
+The protected retrieval probe requires `GUARDIAN_API_KEY` in the monitor's
+process environment. The monitor does not automatically read `.env` from
+`--runtime-root`. The commands below explicitly load the operator-selected
+runtime configuration with `python-dotenv` (included in the backend environment),
+without putting the key value in command history or printing it. Use the `.env`
+that belongs to the backend selected by `--base-url`; keep that file private.
+If the correct key is already exported, the inner `python scripts/ops/...`
+command can be run directly. A missing/wrong key produces retrieval `401` and
+`not_ready`, even if the other health surfaces are healthy. Private Preview's
+public origin deliberately blocks this endpoint; use the direct operator
+backend path for its diagnostics.
+
 Run a single read-only snapshot:
 
 ```bash
-python scripts/ops/monitor_desktop_runtime.py --once
+python -m dotenv --file "$HOME/Codexify/.env" run -- \
+  python scripts/ops/monitor_desktop_runtime.py --once
 ```
 
 Run a single snapshot as JSON:
 
 ```bash
-python scripts/ops/monitor_desktop_runtime.py --once --json
+python -m dotenv --file "$HOME/Codexify/.env" run -- \
+  python scripts/ops/monitor_desktop_runtime.py --once --json
 ```
 
 Watch repeatedly:
 
 ```bash
-python scripts/ops/monitor_desktop_runtime.py --watch
+python -m dotenv --file "$HOME/Codexify/.env" run -- \
+  python scripts/ops/monitor_desktop_runtime.py --watch
 ```
 
-Use custom roots during proof or test sessions:
+Use custom roots during proof or test sessions; select the matching runtime
+`.env` explicitly as well as `--runtime-root`:
 
 ```bash
-python scripts/ops/monitor_desktop_runtime.py \
+python -m dotenv --file "$HOME/Codexify/.env" run -- \
+  python scripts/ops/monitor_desktop_runtime.py \
   --once \
   --base-url http://127.0.0.1:8888 \
   --app-support-root "$HOME/Library/Application Support/Codexify" \
@@ -133,7 +150,8 @@ python scripts/ops/monitor_desktop_runtime.py \
 ## Example
 
 ```bash
-python scripts/ops/monitor_desktop_runtime.py --once --json
+python -m dotenv --file "$HOME/Codexify/.env" run -- \
+  python scripts/ops/monitor_desktop_runtime.py --once --json
 ```
 
 The JSON output is intended to be machine-readable, but it is still read-only operator truth. It is not a remediation loop.

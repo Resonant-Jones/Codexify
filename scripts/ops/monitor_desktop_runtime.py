@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -118,15 +119,23 @@ def _request_json(
     *,
     timeout: float,
     request_get: Callable[..., Any] = requests.get,
+    headers: dict[str, str] | None = None,
 ) -> FetchResult:
     try:
-        response = request_get(url, timeout=timeout)
+        # Never forward operator credentials through a redirect.
+        options = {"headers": headers, "allow_redirects": False} if headers else {}
+        response = request_get(url, timeout=timeout, **options)
     except requests.RequestException as exc:
         return FetchResult(
             reachable=False,
             http_status=None,
             payload=None,
-            error=f"{type(exc).__name__}: {exc}",
+            # Requests may include a malformed header's value in its error.
+            error=(
+                f"{type(exc).__name__}: credentialed request failed"
+                if headers
+                else f"{type(exc).__name__}: {exc}"
+            ),
         )
 
     http_status = getattr(response, "status_code", None)
@@ -476,8 +485,12 @@ def _probe_runtime(
         else _classify_standard_health(chat_payload)
     )
 
+    operator_key = os.environ.get("GUARDIAN_API_KEY", "").strip()
     retrieval_fetch = _request_json(
-        retrieval_url, timeout=timeout, request_get=request_get
+        retrieval_url,
+        timeout=timeout,
+        request_get=request_get,
+        headers={"X-API-Key": operator_key} if operator_key else None,
     )
     retrieval_payload = _json_object(retrieval_fetch.payload)
     retrieval_status = (

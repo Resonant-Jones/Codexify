@@ -8,6 +8,64 @@ import requests
 from scripts.ops import monitor_desktop_runtime as monitor
 
 
+def test_monitor_sends_operator_key_only_to_retrieval_without_redirects(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_API_KEY", "monitor-operator-key")
+    calls = []
+
+    def fetch(url, timeout, **kwargs):
+        calls.append((url, kwargs))
+        return _healthy_fetch(url, timeout)
+
+    result = monitor._probe_runtime(
+        base_url="http://127.0.0.1:8888", timeout=2, request_get=fetch
+    )
+    assert result["status"] == monitor.STATUS_READY
+    for url, options in calls:
+        if url.endswith("/api/health/retrieval"):
+            assert options == {
+                "headers": {"X-API-Key": "monitor-operator-key"},
+                "allow_redirects": False,
+            }
+        else:
+            assert options == {}
+    assert "monitor-operator-key" not in json.dumps(result)
+
+
+def test_monitor_without_operator_key_reports_retrieval_not_ready(monkeypatch):
+    monkeypatch.delenv("GUARDIAN_API_KEY", raising=False)
+
+    def fetch(url, timeout, **kwargs):
+        assert kwargs == {}
+        if url.endswith("/api/health/retrieval"):
+            return _Response({"detail": "Operator authentication required"}, 401)
+        return _healthy_fetch(url, timeout)
+
+    result = monitor._probe_runtime(
+        base_url="http://127.0.0.1:8888", timeout=2, request_get=fetch
+    )
+    assert result["status"] == monitor.STATUS_NOT_READY
+
+
+def test_monitor_redacts_credentials_from_request_preparation_errors(monkeypatch):
+    secret = "synthetic-operator-secret\ninvalid-header"
+    monkeypatch.setenv("GUARDIAN_API_KEY", secret)
+
+    def fetch(url, timeout, **kwargs):
+        if kwargs.get("headers"):
+            # Exercise Requests' real header validator without sending traffic.
+            requests.Request("GET", url, headers=kwargs["headers"]).prepare()
+        return _healthy_fetch(url, timeout)
+
+    result = monitor._probe_runtime(
+        base_url="http://127.0.0.1:8888", timeout=2, request_get=fetch
+    )
+    serialized = json.dumps(result)
+    assert "InvalidHeader" in serialized
+    assert "credentialed request failed" in serialized
+    assert "synthetic-operator-secret" not in serialized
+    assert "invalid-header" not in serialized
+
+
 class _Response:
     def __init__(
         self, payload: dict[str, object], status_code: int = 200
@@ -19,7 +77,7 @@ class _Response:
         return self._payload
 
 
-def _healthy_fetch(url: str, timeout: float):
+def _healthy_fetch(url: str, timeout: float, **_kwargs):
     _ = timeout
     if url.endswith("/health"):
         return _Response(
@@ -66,7 +124,7 @@ def _healthy_fetch(url: str, timeout: float):
     raise AssertionError(f"unexpected url: {url}")
 
 
-def _degraded_provider_fetch(url: str, timeout: float):
+def _degraded_provider_fetch(url: str, timeout: float, **_kwargs):
     _ = timeout
     if url.endswith("/health"):
         return _Response({"status": "healthy", "details": {}})
@@ -110,7 +168,7 @@ def _degraded_provider_fetch(url: str, timeout: float):
     raise AssertionError(f"unexpected url: {url}")
 
 
-def _unreachable_runtime_fetch(url: str, timeout: float):
+def _unreachable_runtime_fetch(url: str, timeout: float, **_kwargs):
     _ = timeout
     if url.endswith("/health"):
         raise requests.exceptions.ConnectionError("backend unreachable")
