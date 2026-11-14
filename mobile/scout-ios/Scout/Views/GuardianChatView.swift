@@ -19,135 +19,138 @@ private let ScoutThreadRenamedNotification = Notification.Name("ScoutThreadRenam
 struct GuardianChatView: View {
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.scoutAccentTheme) private var accentTheme
+    @Environment(\.scoutOpenAuxiliary) private var openAuxiliary
+    @FocusState private var searchFocused: Bool
     @State private var selectedThread: ThreadNav?
-    @State private var isRailVisible = true
-    @State private var isDrawerOpen = false
+    @State private var selectedRoute: ScoutAppRoute = .guardian
+    @State private var visitedRoutes: Set<ScoutAppRoute> = [.guardian]
+    @State private var navigationPath = NavigationPath()
+    @State private var isSidebarOpen = false
+    @State private var isNavigationExpanded = false
     @AccessibilityFocusState private var historyButtonFocused: Bool
-    @AccessibilityFocusState private var drawerCloseFocused: Bool
+    @AccessibilityFocusState private var sidebarCloseFocused: Bool
     @StateObject private var conversation = ScoutConversationState()
+    @StateObject private var composer = ScoutComposerFlow()
     @State private var threads: [ScoutChatThreadSummary]?
+    @State private var projects: [ScoutProject]?
+    @State private var selectedProjectID: Int?
+    @State private var sidebarTab = 0
+    @State private var searchText = ""
+    @State private var source = "all"
+    @State private var projectsError: String?
+    @State private var showNewProject = false
+    @State private var newProjectName = ""
+    @State private var projectCreateError: String?
+    @State private var isCreatingProject = false
     @State private var message: String?
     @State private var keychainError: String?
     @State private var isLoading = false
-    @State private var showNewThread = false
-    @State private var newThreadTitle = ""
-    @State private var isCreating = false
-    @State private var createError: String?
+    @State private var isNewThread = false
+    @State private var draftID = UUID()
+    @State private var draftProjectID: Int?
 
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                workspace(width: geometry.size.width)
-            }
-            .modifier(ScoutCanvas())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .navigationDestination(for: TaskNav.self) { nav in
-                TaskEventsView(taskId: nav.taskId, threadId: nav.threadId, conversation: conversation)
-            }
-            .navigationDestination(for: DocumentDetailNav.self) { nav in
-                DocumentDetailView(documentId: nav.documentId)
-            }
-            .sheet(isPresented: $showNewThread) {
-                NavigationStack {
-                    Form {
-                        Section {
-                            TextField("Thread title", text: $newThreadTitle)
-                        }
-
-                        if let error = createError {
-                            Section {
-                                Text(error)
-                                    .foregroundStyle(.red)
-                                    .font(.caption)
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                NavigationStack(path: $navigationPath) {
+                    workspaceContent
+                        .modifier(ScoutAdaptiveContentFrame(availableWidth: geometry.size.width))
+                        .modifier(ScoutCanvas())
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarBackground(.hidden, for: .navigationBar)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button("Show sidebar", systemImage: "sidebar.left") { openSidebar() }
+                                    .accessibilityFocused($historyButtonFocused)
                             }
+                            ScoutAuxiliaryMenu()
                         }
-
-                        Section {
-                            Button {
-                                Task { await createThread() }
-                            } label: {
-                                HStack {
-                                    Spacer()
-                                    if isCreating {
-                                        ProgressView()
-                                            .padding(.trailing, 6)
+                        .navigationDestination(for: TaskNav.self) { nav in
+                            TaskEventsView(taskId: nav.taskId, threadId: nav.threadId, conversation: conversation)
+                        }
+                        .navigationDestination(for: DocumentDetailNav.self) { nav in
+                            DocumentDetailView(documentId: nav.documentId)
+                        }
+                        .sheet(isPresented: $showNewProject) {
+                            NavigationStack {
+                                Form {
+                                    TextField("Project name", text: $newProjectName)
+                                    if let error = projectCreateError { Text(error).foregroundStyle(.red) }
+                                    Button("Create") { Task { await createProject() } }
+                                        .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreatingProject)
+                                    Button("Cancel", role: .cancel) {
+                                        showNewProject = false; projectCreateError = nil
                                     }
-                                    Text("Create")
-                                    Spacer()
-                                }
-                            }
-                            .disabled(newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
-
-                            Button("Cancel", role: .cancel) {
-                                showNewThread = false
-                                newThreadTitle = ""
-                                createError = nil
+                                }.navigationTitle("New Project")
                             }
                         }
-                    }
-                    .navigationTitle("New Thread")
-                    .navigationBarTitleDisplayMode(.inline)
+                }
+                .allowsHitTesting(!isSidebarOpen)
+                .accessibilityHidden(isSidebarOpen)
+
+                if isSidebarOpen {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeSidebar() }
+                        .accessibilityHidden(true)
+                    historyPanel
+                        .frame(width: min(360, geometry.size.width * 0.9))
+                        .frame(maxHeight: .infinity)
+                        .padding(ScoutVisualStyle.inset / 2)
+                        .simultaneousGesture(sidebarDismissGesture)
                 }
             }
-            .task { await loadThreads() }
-            .onReceive(NotificationCenter.default.publisher(for: ScoutThreadRenamedNotification)) { _ in
-                Task { await loadThreads() }
-            }
+            .simultaneousGesture(sidebarOpenGesture)
         }
+        .task { await loadThreads() }
+        .onReceive(NotificationCenter.default.publisher(for: ScoutThreadRenamedNotification)) { _ in
+            Task { await loadThreads() }
+        }
+        .onChange(of: sidebarTab) { _, _ in searchText = "" }
     }
 
-    private func workspace(width: CGFloat) -> some View {
-        let railWidth: CGFloat = width >= 900 ? 220 : 200
-        let canDock = !textSize.isAccessibilitySize && width >= railWidth + ScoutVisualStyle.gap + 440
-        let docked = canDock && isRailVisible
-        let drawer = !canDock && isDrawerOpen
+    private var workspaceContent: some View {
+        ZStack {
+            routeLayer(.guardian) { conversationPane }
+            if visitedRoutes.contains(.feed) {
+                routeLayer(.feed) { ActivityStreamView() }
+            }
+            if visitedRoutes.contains(.library) {
+                routeLayer(.library) { ArtifactsView() }
+            }
+            if visitedRoutes.contains(.spaces) {
+                routeLayer(.spaces) { SpacesView() }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(selectedRoute == .guardian ? "" : selectedRoute.title)
+    }
 
-        return conversationPane(canDock: canDock, historyVisible: docked || drawer)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.leading, docked ? railWidth + ScoutVisualStyle.gap : 0)
-            .allowsHitTesting(!drawer)
-            .accessibilityHidden(drawer)
-            .overlay(alignment: .leading) {
-                if drawer {
-                    Color.black.opacity(0.22)
-                        .contentShape(Rectangle())
-                        .onTapGesture { closeDrawer() }
-                        .accessibilityHidden(true)
-                }
-                if docked || drawer {
-                    historyPanel(isDrawer: drawer)
-                        .frame(width: drawer ? min(300, width * 0.82) : railWidth)
-                        .padding(ScoutVisualStyle.inset / 2)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        if canDock {
-                            isRailVisible.toggle()
-                        } else if drawer {
-                            closeDrawer()
-                        } else {
-                            isDrawerOpen = true
-                        }
-                    } label: {
-                        Label(docked || drawer ? "Hide conversations" : "Show conversations",
-                              systemImage: "sidebar.left")
-                    }
-                    .accessibilityFocused($historyButtonFocused)
-                }
-                ScoutAuxiliaryMenu()
-            }
-            .onChange(of: canDock) { _, _ in isDrawerOpen = false }
+    private func routeLayer<Content: View>(_ route: ScoutAppRoute, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .opacity(selectedRoute == route ? 1 : 0)
+            .allowsHitTesting(selectedRoute == route)
+            .accessibilityHidden(selectedRoute != route)
     }
 
     @ViewBuilder
-    private func conversationPane(canDock: Bool, historyVisible: Bool) -> some View {
-        if let thread = selectedThread {
-            ThreadMessagesView(threadId: thread.id, threadTitle: thread.title, conversation: conversation)
+    private var conversationPane: some View {
+        if isNewThread {
+            let selectedDraftID = draftID
+            DraftThreadView(projectID: draftProjectID,
+                projectName: projects?.first(where: { $0.id == draftProjectID })?.name ?? "General", composer: composer,
+                isDraftCurrent: { isNewThread && draftID == selectedDraftID },
+                onCreated: { id, title in
+                    openCreatedThread(id, title: title, draftID: selectedDraftID)
+                })
+                .id(selectedDraftID)
+        } else if let thread = selectedThread {
+            ThreadMessagesView(threadId: thread.id, threadTitle: thread.title, conversation: conversation,
+                               composer: composer, isActive: selectedRoute == .guardian)
                 .id(thread.id)
         } else {
             ContentUnavailableView {
@@ -155,176 +158,540 @@ struct GuardianChatView: View {
             } description: {
                 Text("Select a thread from your conversation history.")
             } actions: {
-                if !historyVisible {
-                    Button("Show conversations") {
-                        if canDock { isRailVisible = true } else { isDrawerOpen = true }
-                    }
+                Button("Show conversations") { openSidebar() }
                     .buttonStyle(.bordered)
-                }
 
                 if !storedProfileData.isEmpty {
-                    Button("New Thread") { showNewThread = true }
+                    Button("New Thread") { startNewThread() }
                         .buttonStyle(.bordered)
+                        .disabled(projects == nil || isLoading)
                 }
             }
         }
     }
 
-    private func historyPanel(isDrawer: Bool) -> some View {
-        VStack(alignment: .leading, spacing: ScoutVisualStyle.inset / 2) {
-            HStack(alignment: .top, spacing: 0) {
-                Text("Conversations")
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                    .frame(maxWidth: .infinity, minHeight: ScoutVisualStyle.controlMinimum, alignment: .leading)
-                if isDrawer {
-                    Button("Close conversations", systemImage: "xmark") { closeDrawer() }
-                        .labelStyle(.iconOnly)
-                        .frame(width: ScoutVisualStyle.controlMinimum, height: ScoutVisualStyle.controlMinimum)
-                        .accessibilityFocused($drawerCloseFocused)
-                }
-            }
-            if !storedProfileData.isEmpty {
-                HStack {
-                    Button("New Thread", systemImage: "square.and.pencil") { showNewThread = true }
-                    Spacer()
-                    Button("Refresh Threads", systemImage: "arrow.clockwise") {
-                        Task { await loadThreads() }
-                    }
-                    .disabled(isLoading)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .frame(minHeight: ScoutVisualStyle.controlMinimum)
-            }
-
+    private var historyPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarHeader
+            Divider().padding(.horizontal, ScoutVisualStyle.inset)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: ScoutVisualStyle.inset / 2) {
-                    if isLoading {
-                        ProgressView("Loading threads…")
+                    if isNavigationExpanded { sidebarNavigation }
+                    sidebarTabs
+                        .frame(maxWidth: textSize.isAccessibilitySize ? .infinity : 220)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, ScoutVisualStyle.inset / 2)
+                    let searchShape = RoundedRectangle(
+                        cornerRadius: CGFloat(CodexifyDesignTokens.Semantic.microRadius.logicalUnits),
+                        style: .continuous
+                    )
+                    HStack(spacing: ScoutVisualStyle.inset / 2) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        TextField(sidebarTab == 0 ? "Search threads…" : "Search projects…", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                            .focused($searchFocused)
                     }
-                    if let keychainError {
-                        GuardianStatusRow(title: "Unable to load threads", detail: keychainError, error: true)
-                    }
-                    if let message {
-                        Text(message).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let threads {
-                        if threads.isEmpty {
-                            Text("No threads yet").font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.horizontal, ScoutVisualStyle.inset)
+                    .frame(minHeight: ScoutVisualStyle.controlMinimum)
+                    .background(Color(uiColor: .secondarySystemBackground), in: searchShape)
+                    .overlay(searchShape.strokeBorder(searchFocused ? accentTheme.tint : Color(uiColor: .separator)))
+                    if !storedProfileData.isEmpty || sidebarTab == 0 {
+                        HStack(spacing: ScoutVisualStyle.inset / 2) {
+                            if !storedProfileData.isEmpty {
+                                Button("New Thread", systemImage: "square.and.pencil") {
+                                    startNewThread()
+                                }
+                                .labelStyle(.iconOnly)
+                                .disabled(projects == nil || isLoading)
+                            }
+
+                            if sidebarTab == 0 {
+                                sidebarProjectMenu
+                            } else {
+                                Spacer(minLength: 0)
+                            }
+
+                            if !storedProfileData.isEmpty {
+                                Button("Refresh Threads", systemImage: "arrow.clockwise") {
+                                    Task { await loadThreads() }
+                                }
+                                .labelStyle(.iconOnly)
+                                .disabled(isLoading)
+                            }
                         }
-                        ForEach(threads, id: \.id) { thread in
+                        .buttonStyle(.borderless)
+                        .frame(minHeight: ScoutVisualStyle.controlMinimum)
+                    }
+                    if sidebarTab == 0 {
+                        sourceFilter
+                    }
+                    if isLoading { ProgressView("Loading sidebar…") }
+                    if let keychainError { GuardianStatusRow(title: "Unable to load sidebar", detail: keychainError, error: true) }
+                    if let projectsError { Text(projectsError).font(.caption).foregroundStyle(.secondary) }
+                    if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+                    if storedProfileData.isEmpty {
+                        Text("Set up a connection in Settings to load conversations.").font(.subheadline).foregroundStyle(.secondary)
+                    } else if sidebarTab == 0, let threads {
+                        let visible =
+                            projects == nil
+                            ? ScoutSidebarThreadFilter.withoutProjects(threads, source: source, searchText: searchText)
+                            : visibleThreads(threads)
+                        if projects == nil {
+                            Text("Showing threads without project grouping because projects could not be loaded.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if visible.isEmpty && !isLoading {
+                            Text(searchText.isEmpty ? "No threads in this project and source." : "No matching threads.").foregroundStyle(.secondary)
+                        }
+                        ForEach(visible, id: \.id) { thread in
                             if let id = thread.id {
                                 let selected = selectedThread?.id == id
                                 Button {
                                     selectThread(id, title: thread.title)
                                 } label: {
                                     GuardianThreadRow(thread: thread, compact: true, selected: selected)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityAddTraits(selected ? .isSelected : [])
+                                }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
                             }
                         }
-                    } else if storedProfileData.isEmpty {
-                        Text("Set up a connection in Settings to load conversations.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    } else if sidebarTab == 1 {
+                        if let projects {
+                            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let visible = projects.filter { $0.archived_at == nil && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)) }
+                            if visible.isEmpty && !isLoading { Text("No matching projects.").foregroundStyle(.secondary) }
+                            ForEach(visible) { project in
+                                Button {
+                                    selectProject(project.id); searchText = ""; sidebarTab = 0
+                                } label: {
+                                    HStack {
+                                        Label(project.name, systemImage: "folder"); Spacer(); if project.id == selectedProjectID { Image(systemName: "checkmark") }
+                                    }
+                                }
+                                .disabled(isNewThread && composer.isWorking)
+                            }
+                        }
+                        Button {
+                            closeSidebar()
+                            showNewProject = true
+                        } label: {
+                            Label("New Project", systemImage: "plus.circle")
+                        }.disabled(isLoading || (isNewThread && composer.isWorking))
                     }
                 }
-                .padding(.bottom, ScoutVisualStyle.inset / 2)
+                .padding(ScoutVisualStyle.inset)
             }
         }
-        .padding(ScoutVisualStyle.inset)
         .background {
-            ScoutFloatingSurface(RoundedRectangle(cornerRadius: ScoutVisualStyle.radius))
+            ScoutFrameSurface(subtleOutline: true)
         }
-        .accessibilityAction(.escape) {
-            if isDrawer { closeDrawer() }
+        .clipShape(RoundedRectangle(cornerRadius: ScoutVisualStyle.radius, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Application navigation and conversations")
+        .accessibilityAction(.escape) { closeSidebar() }
+        .onAppear { sidebarCloseFocused = true }
+    }
+
+    private var sidebarHeader: some View {
+        HStack {
+            Button {
+                isNavigationExpanded.toggle()
+            } label: {
+                Image("CodexifyMark")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .frame(width: ScoutVisualStyle.controlMinimum, height: ScoutVisualStyle.controlMinimum)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(isNavigationExpanded ? "Collapse application navigation" : "Expand application navigation")
+            .accessibilityValue(isNavigationExpanded ? "Expanded" : "Collapsed")
+            Spacer()
+            Button("Close sidebar", systemImage: "xmark") { closeSidebar() }
+                .labelStyle(.iconOnly)
+                .frame(width: ScoutVisualStyle.controlMinimum, height: ScoutVisualStyle.controlMinimum)
+                .accessibilityFocused($sidebarCloseFocused)
         }
-        .onAppear {
-            if isDrawer { drawerCloseFocused = true }
+        .buttonStyle(.plain)
+        .padding(.horizontal, ScoutVisualStyle.inset)
+        .padding(.top, ScoutVisualStyle.inset)
+        .padding(.bottom, ScoutVisualStyle.inset / 2)
+    }
+
+    private var sidebarNavigation: some View {
+        VStack(alignment: .leading, spacing: ScoutVisualStyle.inset / 2) {
+            ForEach(ScoutAppRoute.allCases) { route in
+                Button {
+                    visitedRoutes.insert(route)
+                    if !navigationPath.isEmpty { navigationPath.removeLast(navigationPath.count) }
+                    selectedRoute = route
+                    closeSidebar()
+                } label: {
+                    Text(route.title)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: ScoutVisualStyle.controlMinimum, alignment: .leading)
+                        .padding(.horizontal, ScoutVisualStyle.inset)
+                        .background {
+                            if selectedRoute == route {
+                                RoundedRectangle(cornerRadius: ScoutVisualStyle.radius, style: .continuous)
+                                    .fill(accentTheme.tint.opacity(0.24))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedRoute == route ? .isSelected : [])
+            }
+            Divider()
+            Button("Settings") {
+                closeSidebar()
+                openAuxiliary(.settings)
+            }
+            .frame(maxWidth: .infinity, minHeight: ScoutVisualStyle.controlMinimum, alignment: .leading)
+            .padding(.horizontal, ScoutVisualStyle.inset)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Application destinations")
+    }
+
+    private var sidebarTabs: some View {
+        let layout =
+            textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 2))
+            : AnyLayout(HStackLayout(spacing: 2))
+        return layout {
+            sidebarTabButton("Threads", value: 0)
+            sidebarTabButton("Projects", value: 1)
+        }
+        .padding(2)
+        .background(
+            Color.primary.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: ScoutVisualStyle.radius, style: .continuous)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Browse")
+    }
+
+    private var sidebarProjectMenu: some View {
+        Menu {
+            Button("General") { selectProject(generalProject?.id) }
+            ForEach((projects ?? []).filter { !$0.isGeneral && $0.archived_at == nil }) { project in
+                Button(project.name) { selectProject(project.id) }
+            }
+        } label: {
+            HStack(spacing: ScoutVisualStyle.inset / 2) {
+                Text(selectedProjectName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .fixedSize()
+            }
+            .frame(maxWidth: .infinity, minHeight: ScoutVisualStyle.controlMinimum)
+            .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .accessibilityLabel("Project")
+        .accessibilityValue(Text(selectedProjectName))
+        .disabled(projects == nil || (isNewThread && composer.isWorking))
+    }
+
+    @ViewBuilder
+    private var sourceFilter: some View {
+        if textSize.isAccessibilitySize {
+            Picker("Source", selection: $source) {
+                Text("All").tag("all")
+                Text("Codexify").tag("codexify")
+                Text("ChatGPT").tag("openai")
+                Text("Claude").tag("anthropic")
+            }
+        } else {
+            HStack(spacing: 0) {
+                Text("SOURCE")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, ScoutVisualStyle.inset / 2)
+                Spacer(minLength: 0)
+                sourceButton("All", value: "all", image: nil)
+                sourceButton("Codexify", value: "codexify", image: "CodexifyMark")
+                sourceButton("ChatGPT", value: "openai", image: "OpenAIMark")
+                sourceButton("Claude", value: "anthropic", image: "AnthropicMark")
+            }
+            .padding(ScoutVisualStyle.inset / 3)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color(uiColor: .separator)))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Conversation source")
         }
     }
 
-    private func closeDrawer() {
-        isDrawerOpen = false
+    private func sourceButton(_ title: String, value: String, image: String?) -> some View {
+        let selected = source == value
+        return Button {
+            source = value
+        } label: {
+            Group {
+                if let image {
+                    Image(image).renderingMode(.template).resizable().scaledToFit()
+                        .frame(width: ScoutVisualStyle.inset * 1.5, height: ScoutVisualStyle.inset * 1.5)
+                } else {
+                    Text(title).font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(selected ? accentTheme.textOnTint : Color.primary)
+            .frame(width: ScoutVisualStyle.controlMinimum, height: ScoutVisualStyle.controlMinimum)
+            .background { if selected { Capsule().fill(accentTheme.tint) } }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func sidebarTabButton(_ title: String, value: Int) -> some View {
+        let selected = sidebarTab == value
+        return Button(title) { sidebarTab = value }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(selected ? accentTheme.textOnTint : Color.primary)
+            .frame(maxWidth: .infinity, minHeight: ScoutVisualStyle.controlMinimum)
+            .background {
+                if selected { Capsule().fill(accentTheme.tint) }
+            }
+            .contentShape(Capsule())
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var sidebarOpenGesture: some Gesture {
+        DragGesture(minimumDistance: ScoutVisualStyle.inset)
+            .onEnded { gesture in
+                let movement = gesture.translation
+                if ScoutSidebarGesture.opens(isOpen: isSidebarOpen, startX: gesture.startLocation.x,
+                                             horizontal: movement.width, vertical: movement.height,
+                                             edgeWidth: ScoutVisualStyle.inset * 2,
+                                             minimumDistance: ScoutVisualStyle.controlMinimum) {
+                    openSidebar()
+                }
+            }
+    }
+
+    private var sidebarDismissGesture: some Gesture {
+        DragGesture(minimumDistance: ScoutVisualStyle.inset)
+            .onEnded { gesture in
+                let movement = gesture.translation
+                if ScoutSidebarGesture.dismisses(horizontal: movement.width, vertical: movement.height,
+                                                 minimumDistance: ScoutVisualStyle.controlMinimum) {
+                    closeSidebar()
+                }
+            }
+    }
+
+    private func openSidebar() {
+        isSidebarOpen = true
+    }
+
+    private func closeSidebar() {
+        isSidebarOpen = false
+        searchFocused = false
         historyButtonFocused = true
     }
 
     private func selectThread(_ id: Int, title: String?) {
-        if selectedThread?.id != id {
+        if !navigationPath.isEmpty { navigationPath.removeLast(navigationPath.count) }
+        if isNewThread || selectedThread?.id != id {
+            composer.select(nil)
+            isNewThread = false
             if let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) {
                 conversation.select(.init(endpoint: profile, threadID: id))
             }
             selectedThread = ThreadNav(id: id, title: title)
         }
-        if isDrawerOpen { closeDrawer() }
+        selectedRoute = .guardian
+        if isSidebarOpen { closeSidebar() }
+    }
+
+    private func startNewThread() {
+        if !navigationPath.isEmpty { navigationPath.removeLast(navigationPath.count) }
+        if !isNewThread {
+            composer.select(nil)
+            selectedThread = nil
+            draftID = UUID()
+            draftProjectID = selectedProjectID
+            isNewThread = true
+        }
+        selectedRoute = .guardian
+        if isSidebarOpen { closeSidebar() }
+    }
+
+    private func selectProject(_ id: Int?) {
+        selectedProjectID = id
+        if isNewThread { draftProjectID = id }
+    }
+
+    private func openCreatedThread(_ id: Int, title: String?, draftID: UUID) {
+        guard isNewThread, self.draftID == draftID,
+              let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
+        conversation.select(.init(endpoint: profile, threadID: id))
+        selectedThread = ThreadNav(id: id, title: title)
+        isNewThread = false
+        Task { await loadThreads() }
+    }
+
+    private var generalProject: ScoutProject? { projects?.first { $0.isGeneral && $0.archived_at == nil } }
+    private var selectedProjectName: String { projects?.first { $0.id == selectedProjectID }?.name ?? "General" }
+
+    private func visibleThreads(_ rows: [ScoutChatThreadSummary]) -> [ScoutChatThreadSummary] {
+        let knownIDs = Set((projects ?? []).map(\.id))
+        let generalID = generalProject?.id
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return rows.filter { thread in
+            let bucket = thread.project_id.flatMap { knownIDs.contains($0) ? $0 : nil } ?? generalID
+            return thread.archived_at == nil && bucket == selectedProjectID && (source == "all" || thread.origin_system == source) &&
+                (query.isEmpty || (thread.title ?? "Untitled").localizedCaseInsensitiveContains(query))
+        }
     }
 
     private func loadThreads() async {
         guard !storedProfileData.isEmpty, !isLoading else { return }
-
         isLoading = true
         defer { isLoading = false }
-        keychainError = nil
-        message = nil
-
-        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
-            message = "Could not load saved endpoint profile."
-            return
+        keychainError = nil; message = nil; projectsError = nil
+        let profileData = storedProfileData
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: profileData) else {
+            message = "Could not load saved endpoint profile."; return
         }
-
         let apiKey: String?
-        do {
-            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
-        } catch {
-            keychainError = "Could not load API key from Keychain."
-            apiKey = nil
+        do { apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil }
+        catch { keychainError = "Could not load API key from Keychain."; return }
+        let projectResult = await ScoutProjectsService.request(endpoint: profile, apiKey: apiKey)
+        var allThreads: [ScoutChatThreadSummary] = []
+        var offset = 0
+        var threadError: String?
+        while !Task.isCancelled {
+            let result = await ScoutGuardianThreadsProbe.probe(endpoint: profile, apiKey: apiKey, offset: offset)
+            guard let page = result.threads else { threadError = result.message; break }
+            allThreads.append(contentsOf: page)
+            guard result.hasMore == true, !page.isEmpty else { break }
+            offset += page.count
         }
-
-        let result = await ScoutGuardianThreadsProbe.probe(endpoint: profile, apiKey: apiKey)
-        guard !Task.isCancelled else { return }
-        if let fetched = result.threads {
-            threads = fetched
-        } else {
-            message = result.message
-        }
+        guard !Task.isCancelled, storedProfileData == profileData else { return }
+        if let fetched = projectResult.projects {
+            var seenGeneral = false
+            let loaded = fetched.filter { project in
+                guard project.isGeneral else { return true }
+                if seenGeneral { return false }
+                seenGeneral = true; return true
+            }
+            projects = loaded
+            if selectedProjectID == nil || !loaded.contains(where: { $0.id == selectedProjectID && $0.archived_at == nil }) {
+                selectProject(loaded.first(where: { $0.isGeneral && $0.archived_at == nil })?.id)
+            }
+        } else { projectsError = projectResult.message }
+        if let error = threadError { message = error } else { threads = allThreads }
     }
 
-    private func createThread() async {
-        let trimmed = newThreadTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        isCreating = true
-        createError = nil
-
-        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else {
-            createError = "Could not load saved endpoint profile."
-            isCreating = false
-            return
-        }
-
+    private func createProject() async {
+        let name = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
+        isCreatingProject = true
+        defer { isCreatingProject = false }
+        projectCreateError = nil
         let apiKey: String?
-        do {
-            apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
-        } catch {
-            apiKey = nil
-        }
-
-        let result = await ScoutCreateThreadProbe.create(
-            endpoint: profile, title: trimmed, apiKey: apiKey
-        )
-
-        if result.httpStatus != nil, (200..<300).contains(result.httpStatus!) {
-            showNewThread = false
-            newThreadTitle = ""
-            createError = nil
-            if let tid = result.threadId { selectThread(tid, title: trimmed) }
+        do { apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil }
+        catch { projectCreateError = "Could not load API key from Keychain."; return }
+        let result = await ScoutProjectsService.request(endpoint: profile, apiKey: apiKey, name: name)
+        if let project = result.projects?.first {
+            showNewProject = false; newProjectName = ""
+            projects = (projects ?? []).filter { $0.id != project.id } + [project]
+            selectProject(project.id); sidebarTab = 0; searchText = ""
             await loadThreads()
-        } else {
-            createError = result.message
+        } else { projectCreateError = result.message }
+    }
+
+}
+
+// MARK: - New Thread Draft
+
+private struct DraftThreadView: View {
+    let projectID: Int?
+    let projectName: String
+    @ObservedObject var composer: ScoutComposerFlow
+    let isDraftCurrent: () -> Bool
+    let onCreated: (Int, String?) -> Void
+
+    @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
+    @AppStorage("scout.accountSessionGeneration") private var accountGeneration = 0
+    private let keychainStore = ScoutKeychainStore()
+
+    private var composerScope: ScoutComposerFlow.Scope? {
+        guard let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return nil }
+        return .init(connection: .init(endpoint: profile), threadID: nil, accountGeneration: accountGeneration)
+    }
+
+    var body: some View {
+        VStack(spacing: ScoutVisualStyle.inset) {
+            Spacer()
+            ContentUnavailableView("New Thread", systemImage: "bubble.left.and.bubble.right",
+                                   description: Text("Send a message to start the conversation."))
+            Text("Project: \(projectName)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let status = composer.status {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(composer.isError ? Color.primary : Color.secondary)
+                    .padding(.horizontal, ScoutVisualStyle.inset)
+            }
+            Spacer()
         }
-        isCreating = false
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            ScoutConversationBar(flow: composer, available: composerScope != nil, focusOnAppear: true,
+                send: { Task { await submitMessage() } },
+                sendOnly: { Task { await submitMessage(messageOnly: true) } })
+        }
+        .task { composer.select(composerScope) }
+        .onChange(of: composerScope) { _, scope in composer.select(scope) }
+    }
+
+    private func submitMessage(messageOnly: Bool = false) async {
+        guard let scope = composerScope,
+              let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
+        do {
+            let context = try ScoutThreadActionContext.selected()
+            let apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
+            let current = {
+                composerScope == scope && isDraftCurrent() &&
+                    (try? ScoutThreadActionContext.selected()).map { context.isCurrent($0) } == true
+            }
+            var created: ScoutFirstMessageResult?
+            await composer.submit(scope: scope, messageOnly: messageOnly, isCurrent: current,
+                save: { text in
+                    let result = await ScoutGuardianFirstMessageService.send(
+                        endpoint: profile, content: text, projectID: projectID, apiKey: apiKey
+                    )
+                    if result.threadID != nil, result.messageID != nil { created = result }
+                    return .init(httpStatus: result.httpStatus, messageId: result.messageID, message: result.message)
+                },
+                complete: {
+                    guard let id = created?.threadID else {
+                        return .init(httpStatus: nil, taskId: nil, turnId: nil, messagesUrl: nil,
+                                     traceUrl: nil, acceptanceStatus: nil, message: "New thread was not confirmed.")
+                    }
+                    return await ScoutGuardianCompleteThreadService.complete(endpoint: profile, threadId: id, apiKey: apiKey)
+                })
+            guard let created, let id = created.threadID, let messageID = created.messageID,
+                  composer.acceptedMessageID == messageID, current() else { return }
+            let threadScope = ScoutComposerFlow.Scope(connection: scope.connection, threadID: id,
+                                                       accountGeneration: scope.accountGeneration)
+            guard composer.promoteDraft(from: scope, to: threadScope) else { return }
+            onCreated(id, created.threadTitle)
+        } catch {
+            composer.report("Nothing was sent. \(error.localizedDescription)")
+        }
     }
 }
 
@@ -334,6 +701,8 @@ private struct ThreadMessagesView: View {
     let threadId: Int
     let threadTitle: String?
     @ObservedObject var conversation: ScoutConversationState
+    @ObservedObject var composer: ScoutComposerFlow
+    let isActive: Bool
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var textSize
 
@@ -351,7 +720,6 @@ private struct ThreadMessagesView: View {
     @State private var keychainError: String?
     @State private var isLoading = false
     @State private var isRefreshing = false
-    @StateObject private var composer = ScoutComposerFlow()
     @AppStorage("scout.accountSessionGeneration") private var accountGeneration = 0
     @State private var documents: [ScoutThreadDocumentSummary]?
     @State private var docMessage: String?
@@ -400,20 +768,22 @@ private struct ThreadMessagesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showThreadDetails = true
-                } label: {
-                    Label("Thread details", systemImage: "info.circle")
-                }
-                .accessibilityFocused($detailsActionFocused)
-                .accessibilityHint("Opens documents, retrieval evidence, and task receipts for this thread")
-                Button {
-                    renameTitle = displayedTitle ?? ""
-                    renameError = nil
-                    showRename = true
-                } label: {
-                    Label("Rename thread", systemImage: "pencil")
+            if isActive {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showThreadDetails = true
+                    } label: {
+                        Label("Thread details", systemImage: "info.circle")
+                    }
+                    .accessibilityFocused($detailsActionFocused)
+                    .accessibilityHint("Opens documents, retrieval evidence, and task receipts for this thread")
+                    Button {
+                        renameTitle = displayedTitle ?? ""
+                        renameError = nil
+                        showRename = true
+                    } label: {
+                        Label("Rename thread", systemImage: "pencil")
+                    }
                 }
             }
         }
@@ -1581,6 +1951,7 @@ struct ScoutConversationBar: View {
     @ObservedObject var flow: ScoutComposerFlow
     var available = true
     var hasMessages = false
+    var focusOnAppear = false
     var send: () -> Void = {}
     var sendOnly: () -> Void = {}
     var requestResponse: () -> Void = {}
@@ -1637,6 +2008,7 @@ struct ScoutConversationBar: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color.primary)
         .padding(ScoutVisualStyle.inset)
+        .onAppear { if focusOnAppear { inputFocused = true } }
         .sheet(isPresented: $flow.optionsPresented, onDismiss: { optionsFocused = true }) {
             NavigationStack {
                 List {

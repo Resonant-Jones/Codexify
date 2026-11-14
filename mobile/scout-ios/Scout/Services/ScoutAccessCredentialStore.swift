@@ -2,6 +2,7 @@ import Foundation
 import Security
 
 struct ScoutAccessCredentialStore {
+    private static let lock = NSRecursiveLock()
     private let service = "ai.resonantconstructs.codexify.scout.ingress"
 
     private func query(_ profile: ScoutEndpointProfile) throws -> [String: Any] {
@@ -12,6 +13,7 @@ struct ScoutAccessCredentialStore {
     }
 
     func save(_ credential: ScoutAccessOAuth.Credential, for profile: ScoutEndpointProfile) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let match = try query(profile)
         let data = try JSONEncoder().encode(credential)
         let update = SecItemUpdate(match as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -26,6 +28,7 @@ struct ScoutAccessCredentialStore {
     }
 
     func load(for profile: ScoutEndpointProfile) throws -> ScoutAccessOAuth.Credential? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         var match = try query(profile)
         match[kSecReturnData as String] = true
         match[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -39,9 +42,22 @@ struct ScoutAccessCredentialStore {
     }
 
     func delete(for profile: ScoutEndpointProfile) throws {
+        Self.lock.lock(); defer { Self.lock.unlock() }
         let status = SecItemDelete(try query(profile) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw ScoutKeychainError.deleteFailed(status: status)
         }
+    }
+
+    // A delayed refresh must never recreate a revoked or replaced credential.
+    func replace(_ credential: ScoutAccessOAuth.Credential, ifMatching previous: ScoutAccessOAuth.Credential,
+                 for profile: ScoutEndpointProfile) throws -> Bool {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard let current = try load(for: profile),
+              current.accessToken == previous.accessToken,
+              current.refreshToken == previous.refreshToken,
+              current.expiresAt == previous.expiresAt else { return false }
+        try save(credential, for: profile)
+        return true
     }
 }

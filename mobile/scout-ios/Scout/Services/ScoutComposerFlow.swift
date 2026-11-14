@@ -7,7 +7,8 @@ import Combine
 final class ScoutComposerFlow: ObservableObject {
     struct Scope: Equatable {
         let connection: ScoutConnectionIdentity
-        let threadID: Int
+        // A nil thread ID is a new, not-yet-persisted conversation.
+        let threadID: Int?
         let accountGeneration: Int
     }
     enum Phase: Equatable { case idle, saving, requesting, pending, messageRejected, responseRejected, unconfirmed }
@@ -40,6 +41,20 @@ final class ScoutComposerFlow: ObservableObject {
     }
 
     func report(_ message: String) { status = message }
+
+    /// Move an accepted first message into its canonical thread without losing
+    /// the response state that is already being observed by the composer.
+    @discardableResult
+    func promoteDraft(from draftScope: Scope, to threadScope: Scope) -> Bool {
+        guard scope == draftScope, draftScope.threadID == nil,
+              let threadID = threadScope.threadID, threadID > 0,
+              draftScope.connection == threadScope.connection,
+              draftScope.accountGeneration == threadScope.accountGeneration,
+              acceptedMessageID != nil, !isWorking else { return false }
+        revision += 1
+        scope = threadScope
+        return true
+    }
 
     func submit(scope: Scope, messageOnly: Bool = false,
                 isCurrent: () -> Bool,

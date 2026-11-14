@@ -8,7 +8,7 @@ struct GuardianStylePreview: View {
     var detailsInitiallyOpen = false
     var unavailableDetails = false
     @State private var showDetails = false
-    private let thread = ScoutChatThreadSummary(id: 1, title: "A resilient local network", summary: "Review identity boundaries, offline behavior, and the next smallest implementation.", created_at: nil, updated_at: "Today, 14:05")
+    private let thread = ScoutChatThreadSummary(id: 1, title: "A resilient local network", summary: "Review identity boundaries, offline behavior, and the next smallest implementation.", created_at: nil, updated_at: "Today, 14:05", project_id: nil, origin_system: nil, archived_at: nil)
     var body: some View {
         NavigationStack {
             List {
@@ -25,7 +25,7 @@ struct GuardianStylePreview: View {
 
                 } else {
                     NavigationLink { GuardianStylePreview(conversation: true) } label: { GuardianThreadRow(thread: thread) }
-                    GuardianThreadRow(thread: .init(id: 2, title: "Scout visual language", summary: "Native typography and canonical surfaces.", created_at: nil, updated_at: "Yesterday"))
+                    GuardianThreadRow(thread: .init(id: 2, title: "Scout visual language", summary: "Native typography and canonical surfaces.", created_at: nil, updated_at: "Yesterday", project_id: nil, origin_system: nil, archived_at: nil))
                     GuardianStatusRow(title: "No threads yet", detail: "Create your first thread to start a conversation with Guardian.")
                     GuardianStatusRow(title: "Loading threads…", detail: "", loading: true)
                     GuardianStatusRow(title: "Unable to load threads", detail: "The endpoint could not be reached. Refresh to try again.", error: true)
