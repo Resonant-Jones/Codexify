@@ -167,6 +167,11 @@ def _combined_inventory() -> dict[str, tuple[tuple[str, str, str], ...]]:
     combined = {module: tuple(routes) for module, routes in EXPECTED.items()}
     for module, routes in ADR100_OPERATOR_ROUTE_ADDITIONS.items():
         combined[module] = combined.get(module, ()) + tuple(routes)
+    # Content-bearing retrieval diagnostics were subsequently found to lack
+    # authentication. Preserve the frozen ledger and record the new gate here.
+    combined["guardian.guardian_api"] += (
+        ("GET", "/api/health/retrieval", "health_retrieval"),
+    )
     return combined
 
 
@@ -313,7 +318,7 @@ def test_post_freeze_delta_admits_exactly_the_adr100_control_plane_routes():
             )
 
     assert len(COMBINED) == 13
-    assert sum(map(len, COMBINED.values())) == 62
+    assert sum(map(len, COMBINED.values())) == 63
 
 
 def test_combined_operator_inventory_matches_runtime_registrations_exactly():
@@ -335,10 +340,11 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert len(EXPECTED["guardian.routes.llm_overrides"]) == 4
 
     # The three ADR-100 admissions land in an enabled module, so the combined
-    # enabled ledger grows 24 -> 27. The default-off ledger carries the
+    # enabled ledger grows 24 -> 27; retrieval diagnostics add one more.
+    # The default-off ledger carries the
     # delegation router's uncertain coding-run quarantine route, so it grows
     # 29 -> 30 in the same step.
-    assert sum(len(COMBINED[name]) for name in ENABLED_MODULES) == 27
+    assert sum(len(COMBINED[name]) for name in ENABLED_MODULES) == 28
     assert sum(len(COMBINED[name]) for name in DEFAULT_OFF_MODULES) == 30
     assert len(COMBINED["guardian.routes.graph"]) == 1
     assert len(COMBINED["guardian.routes.llm_overrides"]) == 4
@@ -378,7 +384,7 @@ def test_frozen_activation_ledger_and_supported_profile_posture():
     assert default_off_flags == {"guardian_delegations": False, "worktrees": False}
 
 
-def test_local_supported_topology_mounts_27_and_excludes_disabled_routes(monkeypatch):
+def test_local_supported_topology_mounts_28_and_excludes_disabled_routes(monkeypatch):
     from tests.core.test_supported_profile_quarantine import (
         _build_supported_profile_client,
     )
@@ -400,7 +406,7 @@ def test_local_supported_topology_mounts_27_and_excludes_disabled_routes(monkeyp
             for module in ENABLED_MODULES
             for method, path, handler in COMBINED[module]
         ]
-        assert len(enabled) == 27
+        assert len(enabled) == 28
         for module, method, path, handler in enabled:
             expected_route = (method, path, module, handler)
             assert expected_route in mounted, {

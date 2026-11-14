@@ -134,6 +134,21 @@ The complete recorded run, with per-step verdicts and limitations, is in
 
 ### Private-preview path ownership
 
+`/api/health/retrieval` and its descendants are blocked with HTTP 404 at the
+Preview origin. This diagnostic can return indexed content and must not be a
+browser-facing health check. Guardian independently requires explicit operator
+authentication for the entire endpoint, including requests without `q`, and
+marks successful responses `Cache-Control: no-store`. Ordinary account and
+guest sessions do not grant operator authority (ADR-092).
+
+Use `/health` for unauthenticated liveness. Operators who need retrieval proof
+must use a direct internal Guardian connection with a configured operator key
+or an exact-purpose operator session. Do not publish that connection. The local
+desktop runtime monitor reads `GUARDIAN_API_KEY` from its process environment
+for this diagnostic only and does not follow credentialed redirects; without
+the key it reports the denied retrieval check as not ready. Existing keyed
+Obsidian proof calls retain their response contract on direct Guardian ingress.
+
 This lane intentionally runs the Vite development server behind the single
 private-preview Nginx origin. The origin classifies requests as follows:
 
