@@ -8,7 +8,7 @@ struct GuardianStylePreview: View {
     var detailsInitiallyOpen = false
     var unavailableDetails = false
     @State private var showDetails = false
-    private let thread = ScoutChatThreadSummary(id: 1, title: "A resilient local network", summary: "Review identity boundaries, offline behavior, and the next smallest implementation.", created_at: nil, updated_at: "Today, 14:05")
+    private let thread = ScoutChatThreadSummary(id: 1, title: "A resilient local network", summary: "Review identity boundaries, offline behavior, and the next smallest implementation.", created_at: nil, updated_at: "Today, 14:05", project_id: nil, origin_system: nil, archived_at: nil)
     var body: some View {
         NavigationStack {
             List {
@@ -25,7 +25,7 @@ struct GuardianStylePreview: View {
 
                 } else {
                     NavigationLink { GuardianStylePreview(conversation: true) } label: { GuardianThreadRow(thread: thread) }
-                    GuardianThreadRow(thread: .init(id: 2, title: "Scout visual language", summary: "Native typography and canonical surfaces.", created_at: nil, updated_at: "Yesterday"))
+                    GuardianThreadRow(thread: .init(id: 2, title: "Scout visual language", summary: "Native typography and canonical surfaces.", created_at: nil, updated_at: "Yesterday", project_id: nil, origin_system: nil, archived_at: nil))
                     GuardianStatusRow(title: "No threads yet", detail: "Create your first thread to start a conversation with Guardian.")
                     GuardianStatusRow(title: "Loading threads…", detail: "", loading: true)
                     GuardianStatusRow(title: "Unable to load threads", detail: "The endpoint could not be reached. Refresh to try again.", error: true)
@@ -48,7 +48,23 @@ struct GuardianStylePreview: View {
         }
     }
     static func genUIMessage(_ example: String) -> ScoutChatMessageSummary {
-        let artifact: [String: Any] = ["version": 1, "kind": "native", "component": example == "unsupported" ? "openui.program" : "table.rows", "props": ["title": "Node readiness", "columns": ["Node", "Status"], "rows": example == "empty" ? [] : [["Node": "ScoutNode", "Status": "Observed locally; this is a read-only preview, not proof of task completion."]]]]
+        let component: String
+        let props: [String: Any]
+        if example == "openui" {
+            component = "openui.program"
+            props = ["libraryVersion": 2, "program": #"""
+                metric = CodexifyMetric("Nodes ready", "3", "Last observed locally")
+                root = CodexifyStack("horizontal", [
+                    metric,
+                    CodexifyCard([CodexifyProgress("Indexing", 3, 4)], "Local queue")
+                ], true)
+                """#]
+        } else {
+            component = example == "unsupported" ? "unknown.component" : "table.rows"
+            props = ["title": "Node readiness", "columns": ["Node", "Status"],
+                     "rows": example == "empty" ? [] : [["Node": "ScoutNode", "Status": "Observed locally."]]]
+        }
+        let artifact: [String: Any] = ["version": 1, "kind": "native", "component": component, "props": props]
         let payload = try! JSONSerialization.data(withJSONObject: artifact).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         let marker = example == "malformed" ? "<!-- cfy-ui:not valid -->" : "<!-- cfy-ui:\(payload) -->"
         let message = ScoutChatMessageSummary(id: 2, role: "assistant", content: "Here is the observed summary.\n\(marker)\nCheck the node for current status.", created_at: "14:06", updated_at: nil)
@@ -135,6 +151,7 @@ struct ScoutComposerPreview: View {
 #Preview("Thread details · populated") { GuardianStylePreview(conversation: true, detailsInitiallyOpen: true).preferredColorScheme(.dark) }
 #Preview("Thread details · unavailable") { GuardianStylePreview(conversation: true, detailsInitiallyOpen: true, unavailableDetails: true).preferredColorScheme(.light) }
 #Preview("Thread details · accessible") { GuardianStylePreview(conversation: true, detailsInitiallyOpen: true).dynamicTypeSize(.accessibility3) }
+#Preview("OpenUI · foundation cards") { GuardianStylePreview(conversation: true, genUIExample: "openui") }
 #Preview("GenUI · light") { GuardianStylePreview(conversation: true, genUIExample: "table").preferredColorScheme(.light) }
 #Preview("GenUI · dark") { GuardianStylePreview(conversation: true, genUIExample: "table").preferredColorScheme(.dark) }
 #Preview("GenUI · large text") { GuardianStylePreview(conversation: true, genUIExample: "table").dynamicTypeSize(.accessibility3) }

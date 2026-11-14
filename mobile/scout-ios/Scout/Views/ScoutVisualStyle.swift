@@ -4,7 +4,8 @@ import SwiftUI
 // Dynamic Type, safe areas and system light/high-contrast fallbacks. Web's 20pt
 // implemented tile radius differs from older 19px documentation. Web's 4px phone
 // perimeter and 6px root baseline are not native safe-area insets. No Material
-// attempts to reproduce Web RefractiveGlassCard; these are opaque native panels.
+// attempts to reproduce Web RefractiveGlassCard; native frames use a restrained
+// material and accent reflection where appropriate.
 enum ScoutVisualStyle {
     static let accent = color(CodexifyDesignTokens.Semantic.accent)
     static let radius = CGFloat(CodexifyDesignTokens.Semantic.tileRadius.logicalUnits)
@@ -23,13 +24,16 @@ struct ScoutPanel: ViewModifier {
     @Environment(\.scoutAccentTheme) private var accentTheme
     var secondary = false
     var selected = false
+    var subtleOutline = false
+    var verticalInset = ScoutVisualStyle.inset
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: ScoutVisualStyle.radius, style: .continuous)
-        content.padding(ScoutVisualStyle.inset)
+        content.padding(.horizontal, ScoutVisualStyle.inset)
+            .padding(.vertical, verticalInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(scheme == .dark ? ScoutVisualStyle.color(secondary ? CodexifyDesignTokens.Semantic.panelSheet : CodexifyDesignTokens.Semantic.panelBg) : Color(uiColor: .secondarySystemGroupedBackground), in: shape)
-            .overlay(shape.strokeBorder(selected ? accentTheme.tint : (contrast == .increased ? Color.primary : (scheme == .dark ? ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBorder) : Color(uiColor: .separator)))))
+            .overlay(shape.strokeBorder(selected ? accentTheme.tint : (contrast == .increased && !subtleOutline ? Color.primary : (scheme == .dark ? ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBorder) : Color(uiColor: .separator)))))
     }
 }
 
@@ -75,6 +79,73 @@ struct ScoutFloatingSurface<Shape: InsettableShape>: View {
     }
 }
 
+/// Token-based native frame for the tablet canvas and the navigation drawer.
+struct ScoutFrameSurface: View {
+    var showAccentBloom = false
+    var subtleOutline = false
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.scoutAccentTheme) private var accentTheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ScoutVisualStyle.radius, style: .continuous)
+        let frame = CGFloat(CodexifyDesignTokens.Semantic.frame.logicalUnits)
+        let face = scheme == .dark
+            ? ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBg)
+            : Color(uiColor: .systemBackground)
+        let bezel = contrast == .increased && !subtleOutline
+            ? Color.primary
+            : ScoutVisualStyle.color(CodexifyDesignTokens.Semantic.panelBezel)
+        ZStack {
+            if reduceTransparency || contrast == .increased {
+                shape.fill(face)
+            } else {
+                shape.fill(.regularMaterial)
+                    .overlay(shape.fill(face.opacity(0.9)))
+                    .overlay {
+                        if showAccentBloom {
+                            shape.fill(LinearGradient(stops: [
+                                .init(color: accentTheme.sourceColor.opacity(scheme == .dark ? 0.10 : 0.07), location: 0),
+                                .init(color: .clear, location: 0.35)
+                            ],
+                                startPoint: scheme == .dark ? .top : .bottom,
+                                endPoint: scheme == .dark ? .bottom : .top
+                            ))
+                        }
+                    }
+            }
+            shape.strokeBorder(bezel, lineWidth: frame)
+            shape.inset(by: frame * 2)
+                .strokeBorder(bezel.opacity(0.6), lineWidth: frame)
+        }
+        .shadow(color: .black.opacity(reduceTransparency ? 0 : 0.14), radius: ScoutVisualStyle.inset / 2, y: frame)
+    }
+}
+
+struct ScoutAdaptiveContentFrame: ViewModifier {
+    private static let minimumFrameWidth: CGFloat = 700
+    let availableWidth: CGFloat
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let showsFrame = availableWidth >= Self.minimumFrameWidth
+            // Only the decoration branches so resizing keeps the conversation mounted.
+            content
+                .padding(showsFrame ? ScoutVisualStyle.inset : 0)
+                .background {
+                    if showsFrame {
+                        ScoutFrameSurface(showAccentBloom: true)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: showsFrame ? ScoutVisualStyle.radius : 0, style: .continuous))
+                .padding(showsFrame ? ScoutVisualStyle.inset / 2 : 0)
+        } else {
+            content
+        }
+    }
+}
+
 struct ScoutActionStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
@@ -98,7 +169,8 @@ struct GuardianThreadRow: View {
             Text(thread.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled")
                 .font(compact ? .subheadline.weight(.semibold) : .headline)
                 .foregroundStyle(.primary)
-                .lineLimit(compact ? 2 : nil)
+                .lineLimit(compact ? 1 : nil)
+                .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
             if !compact, let summary = thread.summary, !summary.isEmpty {
                 Text(summary).font(.subheadline).foregroundStyle(.secondary)
@@ -109,9 +181,9 @@ struct GuardianThreadRow: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(minHeight: compact ? ScoutVisualStyle.controlMinimum - ScoutVisualStyle.inset : nil,
+        .frame(minHeight: compact ? ScoutVisualStyle.controlMinimum - ScoutVisualStyle.inset * 4 / 3 : nil,
                alignment: .leading)
-        .modifier(ScoutPanel(selected: selected))
+        .modifier(ScoutPanel(selected: selected, subtleOutline: true, verticalInset: compact ? ScoutVisualStyle.inset * 2 / 3 : ScoutVisualStyle.inset))
         .contentShape(RoundedRectangle(cornerRadius: ScoutVisualStyle.radius))
         .accessibilityElement(children: .combine)
     }

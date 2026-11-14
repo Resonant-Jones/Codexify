@@ -60,7 +60,7 @@ struct ScoutGuardianCompleteThreadService {
         request.httpBody = try? JSONEncoder().encode(body)
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+            try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)

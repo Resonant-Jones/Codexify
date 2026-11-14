@@ -20,10 +20,19 @@ struct ScoutAccentTheme {
 
     var sourceColor: Color { Self.color(accent) }
 
-    var tint: Color {
+    var tint: Color { Self.color(tintChannels) }
+
+    /// Pick a legible label for an accent-filled control, including custom accents.
+    var textOnTint: Color {
+        Self.luminance(tintChannels) > 0.179 ? .black : .white
+    }
+
+    private var tintChannels: SIMD3<Double> {
         let dark = scheme == .dark
-        // Bound the tint against the brightest dark or darkest light canvas.
-        let background = dark ? Self.luminance(SIMD3(repeating: 0.27)) : lightCanvasFloor
+        // Include the colored edge when selecting a tint for canvas controls.
+        let background = dark
+            ? max(Self.luminance(SIMD3(repeating: 0.27)), Self.luminance(canvasEdge))
+            : lightCanvasFloor
         let target = contrast == .increased ? 7.0 : 4.5
         let endpoint = SIMD3<Double>(repeating: dark ? 1 : 0)
         for step in 0...20 {
@@ -31,38 +40,53 @@ struct ScoutAccentTheme {
             let foreground = Self.luminance(candidate)
             let ratio = dark ? (foreground + 0.05) / (background + 0.05) : (background + 0.05) / (foreground + 0.05)
             if ratio >= target {
-                return Self.color(candidate)
+                return candidate
             }
         }
-        return Self.color(endpoint)
+        return endpoint
     }
 
     var canvas: LinearGradient {
-        let dark = scheme == .dark
-        let base = dark ? Self.channels(CodexifyDesignTokens.Semantic.panelBg) : SIMD3(repeating: 1)
-        let difference = (accent - base) * (contrast == .increased ? 0.5 : 1)
-        var bottomStrength = dark ? 0.02 : 0.28
-        var bottom = base + difference * bottomStrength
-        if !dark {
-            // Deep accents can reach the reading canvas's luminance limit sooner.
-            let floor = lightCanvasFloor
-            while Self.luminance(bottom) < floor {
-                bottomStrength -= 0.01
-                bottom = base + difference * bottomStrength
-            }
-        }
+        let base = canvasBase
+        let edge = canvasEdge
         return LinearGradient(
-            colors: [
-                Self.color(base + difference * (dark ? 0.16 : 0.055)),
-                Self.color(bottom)
+            stops: [
+                .init(color: Self.color(edge), location: 0),
+                .init(color: Self.color(base + (edge - base) * 0.21), location: 0.19),
+                .init(color: Self.color(base), location: 0.35),
+                .init(color: Self.color(base), location: 1)
             ],
-            startPoint: .top,
-            endPoint: .bottom
+            startPoint: scheme == .dark ? .top : .bottom,
+            endPoint: scheme == .dark ? .bottom : .top
         )
     }
 
+    private var canvasBase: SIMD3<Double> {
+        scheme == .dark ? Self.channels(CodexifyDesignTokens.Semantic.panelBg) : SIMD3(repeating: 1)
+    }
+
+    private var canvasEdge: SIMD3<Double> {
+        let base = canvasBase
+        let dark = scheme == .dark
+        let ceiling = contrast == .increased ? 0.10 : 0.14
+        var strength = dark
+            ? (contrast == .increased ? 0.26 : 0.52)
+            : (contrast == .increased ? 0.40 : 0.68)
+        while strength > 0 {
+            let candidate = base + (accent - base) * strength
+            let luminance = Self.luminance(candidate)
+            if dark ? luminance <= ceiling : luminance >= lightCanvasFloor {
+                return candidate
+            }
+            strength = max(0, strength - 0.01)
+        }
+        return base
+    }
+
     private var lightCanvasFloor: Double {
-        Self.luminance(SIMD3(repeating: contrast == .increased ? 0.86 : 0.80))
+        // Leave room for a visible accent while keeping the light edge bright
+        // enough for dark text and adapting the tint against this same floor.
+        Self.luminance(SIMD3(repeating: contrast == .increased ? 0.70 : 0.60))
     }
 
     static func packed(_ color: Color) -> Int? {

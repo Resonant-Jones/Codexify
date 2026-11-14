@@ -201,7 +201,13 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
         do {
             try ScoutAccessOAuth.requireHosted(profile)
             qualification = try ScoutAuthenticationQualification(profile: profile)
-            let storedIngress = try ScoutAccessCredentialStore().load(for: profile)
+            let storedIngress: ScoutAccessOAuth.Credential?
+            if try ScoutAccessCredentialStore().load(for: profile) != nil {
+                storedIngress = try await ScoutIngressRenewal.shared.credential(for: profile)
+            } else {
+                storedIngress = nil
+            }
+            guard operation == identity else { return }
             let availability = ScoutAuthenticationQualification.ingressAvailability(expiresAt: storedIngress?.expiresAt)
             observe(.ingress, availability.status, availability.classification)
             guard let ingress = storedIngress, availability.status == .passed else {
@@ -243,7 +249,9 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
             await readReceipt(ingress: ingress, identity: identity)
             guard operation == identity else { return }
             stage = .state
-            let request = try attempt.exchangeRequest(callback: callback, ingress: ingress)
+            let currentIngress = try await ScoutIngressRenewal.shared.credential(for: profile)
+            guard operation == identity else { return }
+            let request = try attempt.exchangeRequest(callback: callback, ingress: currentIngress)
             observe(.state, .passed, .confirmed)
             stage = .exchange
             let (data, response) = try await URLSession.scoutAuthenticated.data(for: request)
@@ -294,6 +302,8 @@ final class ScoutAccountSignIn: NSObject, ObservableObject, ASWebAuthenticationP
 
     private func qualifyProtectedRead(profile: ScoutEndpointProfile, identity: UUID) async {
         do {
+            _ = try await ScoutIngressRenewal.shared.credential(for: profile)
+            guard operation == identity else { return }
             let request = try ScoutAuthenticationQualification.protectedRequest(profile: profile, identity: qualification?.attemptID ?? UUID())
             let (data, response) = try await URLSession.scoutAuthenticated.data(for: request)
             guard operation == identity else { return }

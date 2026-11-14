@@ -91,6 +91,88 @@ def test_edge_consumed_composition_still_requires_selected_account(client):
     assert response.json()["alternate_removed"]
 
 
+LIBRARY_READ_PATHS = [
+    "/api/media/images?limit=100",
+    "/api/media/images?tag=generated&limit=100",
+    "/api/media/document-artifacts?limit=100",
+    "/api/media/document-artifacts/document-id?artifact_type=generated",
+    "/media/images/image.png?sig=fixture",
+    "/media/generated_images/image.png?sig=fixture",
+]
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+@pytest.mark.parametrize("edge_consumed", [True, False])
+def test_library_reads_reuse_selected_account_transport(client, path, edge_consumed):
+    selected_headers = edge_headers() if edge_consumed else headers()
+    response = client.get(path, headers=selected_headers)
+    assert response.status_code == 200
+    assert response.json()["selected"] == "Bearer fixture-account"
+    assert response.json()["alternate_removed"]
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_library_transport_does_not_admit_mutations(client, path, method):
+    assert client.request(method, path, headers=edge_headers()).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/media/upload/image",
+        "/api/media/images/image-id",
+        "/api/media/document-artifacts/",
+        "/api/media/document-artifacts/id/revisions",
+        "/media/tts/audio.mp3",
+        "/media/documents/file.pdf",
+        "/media/other/file",
+        "/media/images/",
+        "/media/images/../other/file",
+        "/media/images//file",
+    ],
+)
+def test_library_allowlist_is_not_a_generic_media_prefix(path):
+    assert not transport.library_read_route(path, "GET")
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+def test_library_missing_ingress_and_mixed_credentials_fail_closed(client, path):
+    assert (
+        client.get(
+            path, headers={"X-Guardian-Account-Session": "fixture-account"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            path, headers=edge_headers() | {"X-API-Key": "fixture-operator"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            path, headers=edge_headers() | {"Cookie": "gc_session=fixture-cookie"}
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("path", LIBRARY_READ_PATHS)
+def test_library_invalid_account_never_reaches_resource_handler(
+    client, monkeypatch, path
+):
+    from fastapi import HTTPException
+
+    def deny(_scope):
+        raise HTTPException(status_code=401)
+
+    monkeypatch.setattr(transport, "verify_selected_account", deny)
+    response = client.get(path, headers=edge_headers())
+    assert response.status_code == 401
+    assert "selected" not in response.json()
+
+
 @pytest.mark.parametrize(
     "extra",
     [
@@ -166,6 +248,61 @@ def test_qualified_composition_normalizes_only_account_transport(client):
         "selected": "Bearer fixture-account",
         "alternate_removed": True,
     }
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("edge_consumed", [False, True])
+def test_project_collection_uses_the_same_scoped_account_transport(
+    client, method, edge_consumed
+):
+    response = client.request(
+        method, "/api/projects", headers=edge_headers() if edge_consumed else headers()
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "selected": "Bearer fixture-account",
+        "alternate_removed": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "path,method",
+    [
+        ("/api/projects", "DELETE"),
+        ("/api/projects/1", "GET"),
+        ("/api/projects/repository-import", "POST"),
+        ("/api/projects-other", "GET"),
+    ],
+)
+def test_project_transport_does_not_expand_to_other_routes_or_methods(
+    client, path, method
+):
+    assert client.request(method, path, headers=edge_headers()).status_code == 400
+
+
+def test_project_collection_requires_qualified_access_and_valid_account(
+    client, monkeypatch
+):
+    from fastapi import HTTPException
+
+    assert (
+        client.get(
+            "/api/projects", headers={"X-Guardian-Account-Session": "fixture-account"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.get(
+            "/api/projects", headers=edge_headers() | {"X-API-Key": "fixture-key"}
+        ).status_code
+        == 400
+    )
+    monkeypatch.setattr(
+        transport,
+        "verify_selected_account",
+        lambda _: (_ for _ in ()).throw(HTTPException(status_code=401)),
+    )
+    assert client.get("/api/projects", headers=edge_headers()).status_code == 401
 
 
 @pytest.mark.parametrize(

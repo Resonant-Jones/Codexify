@@ -44,6 +44,8 @@ final class ScoutComposerFlowTests: XCTestCase {
         XCTAssertEqual(flow.acceptedMessageID, 42)
         XCTAssertEqual(flow.taskID, "task-1")
         XCTAssertEqual(flow.phase, .pending)
+        XCTAssertTrue(flow.isWaitingForReply)
+        XCTAssertNil(flow.status)
         XCTAssertEqual(flow.draft, "")
         XCTAssertFalse(flow.canSubmit)
     }
@@ -229,6 +231,8 @@ final class ScoutComposerFlowTests: XCTestCase {
         await flow.submit(scope: scope(), isCurrent: { true }, save: { _ in self.accepted() }, complete: { self.completion() })
         flow.draft = "Next turn"
         flow.observationEnded(taskID: "task-1", scope: scope())
+        XCTAssertFalse(flow.isWaitingForReply)
+        XCTAssertNotNil(flow.status)
         XCTAssertFalse(flow.canSubmit)
         XCTAssertFalse(flow.terminal("task.completed", taskID: "other", scope: scope()))
         XCTAssertFalse(flow.terminal("task.completed", taskID: "task-1", scope: scope(account: 1)))
@@ -237,6 +241,54 @@ final class ScoutComposerFlowTests: XCTestCase {
         XCTAssertTrue(flow.canSubmit)
         XCTAssertFalse(flow.terminal("task.failed", taskID: "task-1", scope: scope()))
         XCTAssertEqual(flow.acceptedMessageID, 42)
+    }
+
+    func testProgressOnlyUsesKnownStagesForCurrentPendingReply() async {
+        let flow = prepared()
+        await flow.submit(scope: scope(), isCurrent: { true }, save: { _ in self.accepted() }, complete: { self.completion() })
+
+        func event(_ state: String, task: String = "task-1", thread: Int = 4, type: String = "task.state") -> ScoutTaskEvent {
+            .init(eventId: nil, eventType: type,
+                  data: #"{"state":"\#(state)","task_id":"\#(task)","thread_id":\#(thread)}"#, createdAt: nil)
+        }
+
+        flow.observeProgress(event("AWAITING_FIRST_TOKEN", task: "other"), taskID: "task-1", scope: scope())
+        flow.observeProgress(event("AWAITING_FIRST_TOKEN", thread: 9), taskID: "task-1", scope: scope())
+        flow.observeProgress(event("AWAITING_FIRST_TOKEN"), taskID: "task-1", scope: scope(account: 1))
+        flow.observeProgress(event("AWAITING_FIRST_TOKEN", type: "task.progress"), taskID: "task-1", scope: scope())
+        XCTAssertNil(flow.replyProgress)
+
+        flow.observeProgress(event("AWAITING_FIRST_TOKEN"), taskID: "task-1", scope: scope())
+        XCTAssertEqual(flow.replyProgress, .preparing)
+        flow.observeProgress(event("STREAMING"), taskID: "task-1", scope: scope())
+        XCTAssertEqual(flow.replyProgress, .writing)
+        flow.observeProgress(event("COMPLETED"), taskID: "task-1", scope: scope())
+        XCTAssertEqual(flow.replyProgress, .writing)
+        XCTAssertEqual(flow.phase, .pending)
+        XCTAssertFalse(flow.canSubmit)
+
+        XCTAssertTrue(flow.terminal("task.completed", taskID: "task-1", scope: scope()))
+        flow.observeProgress(event("STREAMING"), taskID: "task-1", scope: scope())
+        XCTAssertNil(flow.replyProgress)
+    }
+
+    func testTaskEventStreamYieldsBeforeServerClosesConnection() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OpenTaskEventURLProtocol.self]
+        let network = URLSession(configuration: config)
+        let endpoint = ScoutEndpointProfile(id: UUID(), name: "Test", baseURL: "https://events.example.test",
+            transportType: .custom, authenticationState: .authenticated, validationState: .reachable, lastConnectedAt: nil)
+        let received = expectation(description: "First event while stream is still open")
+        let stream = ScoutTaskEventStreamService.streamEvents(endpoint: endpoint, taskId: "task-1", apiKey: "fixture-key", session: network)
+        let reader = Task {
+            var iterator = stream.makeAsyncIterator()
+            let event = try await iterator.next()
+            XCTAssertEqual(event?.eventType, "task.state")
+            XCTAssertEqual(event?.parsedData?["note"] as? String, "Café")
+            received.fulfill()
+        }
+        defer { reader.cancel(); network.invalidateAndCancel() }
+        await fulfillment(of: [received], timeout: 3)
     }
 
     func testSwitchAwayAndBackRejectsOldInFlightResult() async {
@@ -288,6 +340,22 @@ final class ScoutComposerFlowTests: XCTestCase {
             XCTAssertTrue(flow.status?.contains("No assistant message was synthesized") == true)
         }
     }
+}
+
+private final class OpenTaskEventURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+            headerFields: ["Content-Type": "text/event-stream"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("id: 1-0\r\nevent: task.state\r\ndata: {\"note\":\"Caf".utf8) + Data([0xC3]))
+        client?.urlProtocol(self, didLoad: Data([0xA9]) + Data("\"}\r\n\r\n".utf8))
+        // Leave the connection open so waiting for EOF fails the test.
+    }
+
+    override func stopLoading() {}
 }
 
 private final class ComposerURLProtocol: URLProtocol {

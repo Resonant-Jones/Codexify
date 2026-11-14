@@ -6,6 +6,9 @@ struct ScoutChatThreadSummary: Codable, Equatable {
     let summary: String?
     let created_at: String?
     let updated_at: String?
+    let project_id: Int?
+    let origin_system: String?
+    let archived_at: String?
 }
 
 struct ScoutChatThreadsResponse: Codable, Equatable {
