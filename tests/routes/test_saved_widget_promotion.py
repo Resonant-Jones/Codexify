@@ -267,6 +267,42 @@ def _promotion_body(thread_id: int, message_id: int, name: str = "My Widget"):
     }
 
 
+def test_library_pages_and_revisions_preserve_identity_and_account(client, seeded):
+    adapter, make_thread, make_message, make_attempt = seeded
+    thread = make_thread(ACCOUNT_A)
+    message = make_message(thread, ACCOUNT_A, _marker(ELIGIBLE_ARTIFACT))
+    make_attempt(thread, message)
+    first = client.post("/saved-widgets", json=_promotion_body(thread, message)).json()
+    copy = client.post("/saved-widgets", json=_promotion_body(thread, message, "Music adaptation")).json()
+    assert first["widget_id"] != copy["widget_id"]
+    page = client.get("/saved-widgets?limit=1").json()
+    assert page["count"] == 1 and page["next_offset"] == 1
+    assert "artifact_snapshot" not in page["widgets"][0]
+    rest = client.get("/saved-widgets?limit=1&offset=1").json()
+    assert rest["next_offset"] is None
+    assert {page["widgets"][0]["widget_id"], rest["widgets"][0]["widget_id"]} == {first["widget_id"], copy["widget_id"]}
+    path = "/saved-widgets/" + first["widget_id"]
+    original = client.get(path + "/revisions/1").json()["artifact_snapshot"]
+    body = {"thread_id": thread, "message_id": message, "artifact_index": 0, "base_revision": 1}
+    appended = client.post(path + "/revisions", json=body)
+    assert appended.status_code == 200, appended.text
+    assert appended.json()["revision"] == 2
+    assert client.post(path + "/revisions", json=body).status_code == 409
+    assert client.get(path + "/revisions/1").json()["artifact_snapshot"] == original
+    assert client.get("/saved-widgets/" + copy["widget_id"]).json()["current_revision"] == 1
+    client.app.dependency_overrides[get_account_user_id] = lambda: ACCOUNT_B
+    assert client.get("/saved-widgets").json()["widgets"] == []
+    assert client.get(path + "/revisions/1").status_code == 404
+    client.app.dependency_overrides[get_account_user_id] = lambda: ACCOUNT_A
+    with adapter._sa_session() as session:
+        row = session.query(SavedWidget).filter_by(widget_id=first["widget_id"]).one()
+        row.lifecycle_state = "deleted"
+    assert first["widget_id"] not in {w["widget_id"] for w in client.get("/saved-widgets").json()["widgets"]}
+    assert client.get(path + "/revisions/1").json()["artifact_snapshot"] is None
+    for query in ("limit=0", "limit=101", "offset=-1"):
+        assert client.get("/saved-widgets?" + query).status_code == 422
+
+
 def _widget_rows(adapter) -> int:
     with adapter._sa_session() as session:
         return session.query(SavedWidget).count()
@@ -877,3 +913,22 @@ def test_saved_widgets_route_is_enabled_in_every_supported_profile() -> None:
     for profile in profiles:
         text = profile.read_text()
         assert "    - saved_widgets\n" in text, profile.name
+
+
+def test_inline_script_promotes_and_reopens_without_rewriting_source(client, seeded):
+    _, make_thread, make_message, make_attempt = seeded
+    thread = make_thread(ACCOUNT_A)
+    artifact = {
+        "version": 1,
+        "kind": "sandbox",
+        "html": "<button id='go'>Go</button><script>document.getElementById('go').onclick = () => {};</script>",
+    }
+    message = make_message(thread, ACCOUNT_A, _marker(artifact))
+    make_attempt(thread, message)
+    response = client.post("/saved-widgets", json=_promotion_body(thread, message))
+    assert response.status_code == 201, response.text
+    widget = response.json()["widget_id"]
+    assert (
+        client.get(f"/saved-widgets/{widget}/revisions/1").json()["artifact_snapshot"]
+        == artifact
+    )
