@@ -6,6 +6,7 @@ import WebKit
 struct ScoutSandboxWidgetView: View {
     let widget: ScoutSandboxWidget
     let isActive: Bool
+    var fillsAvailableHeight = false
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.scoutSystemAccent) private var systemAccent
@@ -39,7 +40,8 @@ struct ScoutSandboxWidgetView: View {
                     ScoutWidgetContent(playback: playback, showLoading: isActive)
                 }
             }
-            .frame(height: CGFloat(widget.inlineHeight))
+            .frame(height: fillsAvailableHeight ? nil : CGFloat(widget.inlineHeight))
+            .frame(maxHeight: fillsAvailableHeight ? .infinity : nil)
             .clipShape(RoundedRectangle(cornerRadius: ScoutVisualStyle.radius / 2))
         }
         .modifier(ScoutPanel(secondary: true, verticalInset: ScoutVisualStyle.inset / 2))
@@ -102,6 +104,64 @@ struct ScoutSandboxWidgetView: View {
     }
 }
 
+struct ScoutWidgetThumbnail: View {
+    let widget: ScoutSandboxWidget
+
+    @State private var session: ScoutSandboxWebSession?
+    @State private var image: UIImage?
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let session {
+                    let width: CGFloat = 360
+                    let height = max(240, CGFloat(widget.inlineHeight))
+                    ScoutSandboxWebView(session: session, zoom: 1, scale: 1,
+                                        fixedViewport: nil, framedFill: false)
+                        .frame(width: width, height: height)
+                        .scaleEffect(min(geometry.size.width / width, geometry.size.height / height))
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else if let image {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: widget) {
+            guard image == nil, let preview = try? await ScoutSandboxWebSession.make(interactive: false) else { return }
+            guard !Task.isCancelled else { preview.close(); return }
+            session = preview
+            preview.onFailure = { [weak preview] in
+                if let preview, session === preview { stopPreview() }
+            }
+            preview.onDocumentReady = { [weak preview] in
+                guard let preview, session === preview else { return }
+                let config = WKSnapshotConfiguration()
+                config.snapshotWidth = 360
+                preview.webView.takeSnapshot(with: config) { [weak preview] snapshot, _ in
+                    guard let preview, session === preview else { return }
+                    image = snapshot
+                    stopPreview()
+                }
+            }
+            preview.load(widget)
+            try? await Task.sleep(for: .seconds(5))
+            if session === preview { stopPreview() }
+        }
+        .onDisappear { stopPreview() }
+    }
+
+    private func stopPreview() {
+        let preview = session
+        session = nil
+        preview?.close()
+    }
+}
+
 private struct ScoutFocusedWidget: View {
     let title: String
     let widget: ScoutSandboxWidget
@@ -149,7 +209,7 @@ private struct ScoutFocusedWidget: View {
                             let scale = landscape ? landscapeScale(for: content.size) : 1
                             if !isFloating && !landscape {
                                 ContentUnavailableView("Turn iPhone Sideways", systemImage: "iphone.landscape",
-                                    description: Text("Rotate to play in landscape, or tap Done to play in chat."))
+                                    description: Text("Rotate to play in landscape, or tap Done to return."))
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else {
                                 ScoutWidgetContent(
@@ -343,8 +403,10 @@ private final class ScoutWidgetFocusPresentation {
         systemAccent: Int, onFocusChange: @escaping (Bool) -> Void
     ) {
         guard host == nil, let anchor, let window = anchor.window, let scene = window.windowScene,
-              let presenter = window.rootViewController, presenter.viewIfLoaded?.window === window,
-              presenter.presentedViewController == nil, !presenter.isBeingDismissed else { return }
+              var presenter = window.rootViewController else { return }
+        while let presented = presenter.presentedViewController { presenter = presented }
+        guard let view = presenter.viewIfLoaded, view.window === window,
+              anchor.isDescendant(of: view), !presenter.isBeingDismissed, !presenter.isBeingPresented else { return }
         let isFloating = window.traitCollection.userInterfaceIdiom != .phone
         let orientation = scene.effectiveGeometry.interfaceOrientation
         let landscape = UIApplication.shared.supportedInterfaceOrientations(for: window).intersection(.landscape)

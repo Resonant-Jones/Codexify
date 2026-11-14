@@ -36,6 +36,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
     }
 
     let webView: WKWebView
+    var onDocumentReady: (() -> Void)?
     var onFailure: (() -> Void)?
     var onAudioFailure: (() -> Void)?
     var onSoundDisabled: (() -> Void)?
@@ -44,12 +45,13 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
     private var didAllowWidget = false
     private var closing = false
     private var framedFill = false
+    private let interactive: Bool
     private let audioSession: String
     private var output: ScoutWidgetAudioOutput?
     private var lastClip: UInt32 = 0
     private var receivedAudio = false
 
-    static func make() async throws -> ScoutSandboxWebSession {
+    static func make(interactive: Bool = true) async throws -> ScoutSandboxWebSession {
         // The file-picker denial callback is available on iOS 18.4 and later.
         #if os(iOS)
         guard #available(iOS 18.4, *) else { throw SetupError.unsupportedSystem }
@@ -65,6 +67,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
             config.defaultWebpagePreferences.isLockdownModeEnabled = true
         }
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        config.defaultWebpagePreferences.allowsContentJavaScript = interactive
         config.allowsAirPlayForMediaPlayback = false
         config.mediaTypesRequiringUserActionForPlayback = .all
         #if os(iOS)
@@ -73,7 +76,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
         config.dataDetectorTypes = []
         #endif
         let session = UUID().uuidString
-        if supportsAudio {
+        if interactive && supportsAudio {
             config.userContentController.addUserScript(WKUserScript(
                 source: audioRelay(session: session),
                 injectionTime: .atDocumentStart,
@@ -81,10 +84,11 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
                 in: audioWorld
             ))
         }
-        return ScoutSandboxWebSession(configuration: config, session: session)
+        return ScoutSandboxWebSession(configuration: config, session: session, interactive: interactive)
     }
 
-    private init(configuration: WKWebViewConfiguration, session: String) {
+    private init(configuration: WKWebViewConfiguration, session: String, interactive: Bool) {
+        self.interactive = interactive
         audioSession = session
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
@@ -95,7 +99,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
         webView.isOpaque = false
         #endif
         webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
-        if Self.supportsAudio {
+        if interactive && Self.supportsAudio {
             webView.configuration.userContentController.add(
                 AudioMessageHandler(session: self), contentWorld: Self.audioWorld, name: Self.audioHandler
             )
@@ -103,8 +107,8 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
     }
 
     func load(_ widget: ScoutSandboxWidget) {
-        let shim = Self.audioShim.map { $0 + "\ninstallScoutWidgetAudio(\"\(audioSession)\");" }
-        webView.loadHTMLString(widget.document(audioScript: shim), baseURL: nil)
+        let shim = interactive ? Self.audioShim.map { $0 + "\ninstallScoutWidgetAudio(\"\(audioSession)\");" } : nil
+        webView.loadHTMLString(widget.document(audioScript: shim, interactive: interactive), baseURL: nil)
     }
 
     func setFramedFill(_ enabled: Bool) {
@@ -118,6 +122,9 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if framedFill { updateFramedFill() }
+        let ready = onDocumentReady
+        onDocumentReady = nil
+        ready?()
     }
 
     private func updateFramedFill() {
@@ -134,7 +141,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
     }
 
     func enableSound() throws {
-        guard output == nil, !closing, Self.supportsAudio else { return }
+        guard interactive, output == nil, !closing, Self.supportsAudio else { return }
         Self.audibleSession?.disableSound()
         let newOutput = ScoutWidgetAudioOutput()
         do {
@@ -196,6 +203,7 @@ final class ScoutSandboxWebSession: NSObject, WKNavigationDelegate, WKUIDelegate
         guard !closing else { return }
         disableSound()
         webView.stopLoading()
+        onDocumentReady = nil
         onFailure = nil
         onAudioFailure = nil
         onSoundDisabled = nil

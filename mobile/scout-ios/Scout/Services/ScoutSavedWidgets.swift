@@ -39,7 +39,7 @@ struct ScoutSavedWidgets {
         return try JSONDecoder().decode(Response.self, from: data).revisions.map(\.revision)
     }
 
-    func launch(_ widget: ScoutSavedWidget, revision: Int) async throws -> ScoutSandboxWidget {
+    func artifact(_ widget: ScoutSavedWidget, revision: Int) async throws -> ScoutSandboxWidget {
         guard revision > 0 else { throw ScoutLibraryError.invalidResponse }
         let url = try transport.apiURL(path: path(widget.id) + "/revisions/" + String(revision))
         let data = try await transport.read(url, maxBytes: 2 * 1024 * 1024).data
