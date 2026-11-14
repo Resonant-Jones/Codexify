@@ -1,4 +1,5 @@
 import SwiftUI
+import Network
 
 struct TaskNav: Hashable {
     let taskId: String
@@ -746,6 +747,8 @@ private struct ThreadMessagesView: View {
     @State private var keychainError: String?
     @State private var isLoading = false
     @State private var isRefreshing = false
+    @State private var responseNetworkAvailable: Bool?
+    @State private var requestedResponseRecovery: ResponseRecoveryKey?
     @AppStorage("scout.accountSessionGeneration") private var accountGeneration = 0
     @State private var documents: [ScoutThreadDocumentSummary]?
     @State private var docMessage: String?
@@ -789,7 +792,7 @@ private struct ThreadMessagesView: View {
                 send: { Task { await submitMessage() } },
                 sendOnly: { Task { await submitMessage(messageOnly: true) } },
                 requestResponse: { Task { await submitMessage(responseOnly: true) } },
-                checkResponse: { Task { await checkResponse() } })
+                checkResponse: { requestResponseRecovery() })
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -839,9 +842,19 @@ private struct ThreadMessagesView: View {
         }
         .onDisappear { refreshNotice = nil }
         .task(id: composer.taskID) { await observeResponse() }
+        .task(id: pendingResponseID) {
+            if pendingResponseID != nil { await watchResponseConnectivity() }
+        }
+        .task(id: responseRecoveryKey) {
+            if let recovery = responseRecoveryKey { await recoverResponse(recovery) }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await loadMessages(); await checkResponse(showUnconfirmed: false) }
+                if pendingResponseID != nil {
+                    requestResponseRecovery()
+                } else {
+                    Task { await loadMessages() }
+                }
             }
         }
         .sheet(isPresented: $showRename) {
@@ -1001,6 +1014,44 @@ private struct ThreadMessagesView: View {
         return .init(connection: .init(endpoint: profile), threadID: threadId, accountGeneration: accountGeneration)
     }
 
+    private struct ResponseRecoveryKey: Equatable {
+        let scope: ScoutComposerFlow.Scope
+        let taskID: String
+        let generation: Int
+    }
+
+    private var pendingResponseID: String? { composer.phase == .pending ? composer.taskID : nil }
+
+    private var responseRecoveryKey: ResponseRecoveryKey? {
+        guard responseNetworkAvailable != false, let key = requestedResponseRecovery,
+              pendingResponseID == key.taskID, composerScope == key.scope else { return nil }
+        return key
+    }
+
+    private func requestResponseRecovery() {
+        guard let taskID = pendingResponseID, let scope = composerScope else { return }
+        requestedResponseRecovery = .init(scope: scope, taskID: taskID,
+                                          generation: (requestedResponseRecovery?.generation ?? 0) + 1)
+    }
+
+    private func watchResponseConnectivity() async {
+        // AsyncStream preserves the offline-to-online transition even if SwiftUI
+        // coalesces the view updates during a short interruption.
+        let monitor = NWPathMonitor()
+        let (updates, continuation) = AsyncStream<Bool>.makeStream()
+        monitor.pathUpdateHandler = { continuation.yield($0.status == .satisfied) }
+        continuation.onTermination = { _ in monitor.cancel() }
+        monitor.start(queue: DispatchQueue(label: "scout.reply.connectivity"))
+        defer { monitor.cancel() }
+        var wasAvailable: Bool?
+        for await available in updates {
+            guard !Task.isCancelled else { return }
+            if available && wasAvailable == false { requestResponseRecovery() }
+            responseNetworkAvailable = available
+            wasAvailable = available
+        }
+    }
+
     private func submitMessage(messageOnly: Bool = false, responseOnly: Bool = false) async {
         guard let scope = composerScope,
               let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
@@ -1045,48 +1096,47 @@ private struct ThreadMessagesView: View {
             for try await event in stream {
                 guard !Task.isCancelled, isCurrent() else { return }
                 if event.isTerminal {
-                    await finishResponse(event.eventType ?? "", taskID: taskID, scope: scope, profile: profile, apiKey: apiKey, context: context)
+                    let finished = await composer.finishResponse(event.eventType ?? "", taskID: taskID, scope: scope,
+                                                                 isCurrent: isCurrent) {
+                        await readRecoveredMessages(profile: profile, apiKey: apiKey, isCurrent: isCurrent)
+                    }
+                    if !finished, !Task.isCancelled, isCurrent() { requestResponseRecovery() }
                     return
                 }
                 composer.observeProgress(event, taskID: taskID, scope: scope)
             }
         } catch { /* Observation failure cannot change execution truth or replay work. */ }
-        guard !Task.isCancelled, composerScope == scope else { return }
-        composer.observationEnded(taskID: taskID, scope: scope)
+        guard !Task.isCancelled, composerScope == scope, composer.isPending(taskID: taskID, scope: scope) else { return }
+        requestResponseRecovery()
     }
 
-    private func checkResponse(showUnconfirmed: Bool = true) async {
-        guard let taskID = composer.taskID, composer.phase == .pending,
-              let scope = composerScope,
+    private func recoverResponse(_ key: ResponseRecoveryKey) async {
+        let (taskID, scope) = (key.taskID, key.scope)
+        guard responseRecoveryKey == key,
               let profile = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData) else { return }
         do {
             let context = try ScoutThreadActionContext.selected()
             let apiKey = profile.authenticationMode == .localAPIKey ? try keychainStore.loadAPIKey(for: profile) : nil
-            let result = await ScoutThreadTasksProbe.probe(endpoint: profile, threadId: threadId, apiKey: apiKey)
-            guard !Task.isCancelled, composerScope == scope,
-                  (try? ScoutThreadActionContext.selected()).map({ context.isCurrent($0) }) == true else { return }
-            if let event = result.tasks?.first(where: { $0.task_id == taskID })?.event_type,
-               ["task.completed", "task.failed", "task.cancelled"].contains(event) {
-                await finishResponse(event, taskID: taskID, scope: scope, profile: profile, apiKey: apiKey, context: context)
-            } else if showUnconfirmed {
-                composer.observationEnded(taskID: taskID, scope: scope)
+            let isCurrent = {
+                responseRecoveryKey == key && conversation.selection == .init(endpoint: profile, threadID: threadId) &&
+                    (try? ScoutThreadActionContext.selected()).map { context.isCurrent($0) } == true
             }
-        } catch {
-            if showUnconfirmed, !Task.isCancelled, composerScope == scope {
-                composer.observationEnded(taskID: taskID, scope: scope)
-            }
+            await composer.recoverResponse(taskID: taskID, scope: scope, isCurrent: isCurrent, readReceipts: {
+                await ScoutThreadTasksProbe.probe(endpoint: profile, threadId: threadId, apiKey: apiKey)
+            }, refreshMessages: {
+                await readRecoveredMessages(profile: profile, apiKey: apiKey, isCurrent: isCurrent)
+            })
+        } catch { /* No authenticated read can run for this selection. */ }
+        if !Task.isCancelled, responseRecoveryKey == key {
+            composer.observationEnded(taskID: taskID, scope: scope)
         }
     }
 
-    private func finishResponse(_ event: String, taskID: String, scope: ScoutComposerFlow.Scope,
-                                profile: ScoutEndpointProfile, apiKey: String?, context: ScoutThreadActionContext) async {
-        guard composerScope == scope, composer.scope == scope, composer.phase == .pending, composer.taskID == taskID else { return }
-        // Read canonical output through the established shared conversation seam.
-        let outcome = await conversation.handleTerminalEvent(event, endpoint: profile, threadID: threadId, apiKey: apiKey)
-        guard !Task.isCancelled, composerScope == scope,
-              (try? ScoutThreadActionContext.selected()).map({ context.isCurrent($0) }) == true,
-              composer.terminal(event, taskID: taskID, scope: scope) else { return }
-        if let outcome { composer.report(outcome) }
+    private func readRecoveredMessages(profile: ScoutEndpointProfile, apiKey: String?,
+                                       isCurrent: () -> Bool) async -> ScoutConversationState.RefreshOutcome? {
+        let outcome = await conversation.refresh(endpoint: profile, threadID: threadId, apiKey: apiKey)
+        if case .refreshed? = outcome, isCurrent(), !Task.isCancelled { statusMessage = nil }
+        return outcome
     }
 
     private func refreshMessages() async {

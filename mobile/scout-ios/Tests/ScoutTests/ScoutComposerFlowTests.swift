@@ -19,6 +19,52 @@ final class ScoutComposerFlowTests: XCTestCase {
         return flow
     }
 
+    func testRecoveryWaitsForOriginalTaskAndSuccessfulMessageRead() async {
+        let flow = prepared(), selected = scope()
+        var submissions = 0
+        await flow.requestResponse(scope: selected, isCurrent: { true }) {
+            submissions += 1
+            return self.completion()
+        }
+        flow.observationEnded(taskID: "task-1", scope: selected)
+        var receiptsRead = 0, messagesRead = 0
+        await flow.recoverResponse(taskID: "task-1", scope: selected,
+            retryDelays: [.zero, .zero, .zero], isCurrent: { true }, readReceipts: {
+                receiptsRead += 1
+                if receiptsRead == 1 { return .init(httpStatus: nil, tasks: nil, message: "Offline") }
+                let other = ScoutTaskReceiptSummary(task_id: "task-2", state: "terminal", event_type: "task.completed", reason: nil)
+                let original = ScoutTaskReceiptSummary(task_id: "task-1", state: "terminal", event_type: "task.completed", reason: nil)
+                return .init(httpStatus: 200, tasks: receiptsRead == 2 ? [other] : [other, original], message: "Read receipts")
+            }, refreshMessages: {
+                messagesRead += 1
+                XCTAssertGreaterThan(receiptsRead, 2)
+                XCTAssertEqual(flow.phase, .pending)
+                return messagesRead == 1 ? .failed("Offline") : .refreshed
+            })
+        XCTAssertEqual(submissions, 1)
+        XCTAssertEqual(receiptsRead, 4)
+        XCTAssertEqual(messagesRead, 2)
+        XCTAssertEqual(flow.taskID, "task-1")
+        XCTAssertEqual(flow.phase, .idle)
+        XCTAssertEqual(flow.status, "Task completed. Messages refreshed.")
+    }
+
+    func testRecoveryIgnoresReceiptFromPreviousAccount() async {
+        let flow = prepared(), selected = scope(), changed = scope(account: 1)
+        await flow.requestResponse(scope: selected, isCurrent: { true }) { self.completion() }
+        await flow.recoverResponse(taskID: "task-1", scope: selected,
+            retryDelays: [], isCurrent: { true }, readReceipts: {
+                flow.select(changed)
+                return .init(httpStatus: 200, tasks: [.init(task_id: "task-1", state: "terminal", event_type: "task.completed", reason: nil)], message: "Read receipt")
+            }, refreshMessages: {
+                XCTFail("A stale receipt must not cause a message read")
+                return .refreshed
+            })
+        XCTAssertEqual(flow.scope, changed)
+        XCTAssertNil(flow.taskID)
+        XCTAssertNil(flow.status)
+    }
+
     func testEmptyMessageNeverDispatches() async {
         let flow = prepared()
         flow.draft = " \n "
