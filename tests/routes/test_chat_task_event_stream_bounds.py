@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from redis.exceptions import AuthenticationError, ConnectionError, TimeoutError
 
 from guardian import guardian_api
 from guardian.core import task_event_access
@@ -42,6 +43,56 @@ async def test_transport_error_closes_subscription_without_inventing_terminal(mo
     body = await collect(Request())
     assert body == "retry: 3000\n\n"
     reader.assert_called_once_with("task-a", "0-0", block_ms=1000, count=100)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [ConnectionError, TimeoutError])
+async def test_transient_read_failure_resumes_after_last_delivered_event(
+    monkeypatch, error
+):
+    reader = MagicMock(
+        side_effect=[
+            [("6-0", {"type": "task.chunk", "data": {"delta": "Hi"}})],
+            error("temporary read failure"),
+            [("7-0", {"type": "task.completed", "data": {"thread_id": 1}})],
+        ]
+    )
+    monkeypatch.setattr(task_events, "read_events_bounded", reader)
+
+    body = await collect(Request([False] * 3), header="5-0")
+
+    assert [call.args for call in reader.call_args_list] == [
+        ("task-a", "5-0"),
+        ("task-a", "6-0"),
+        ("task-a", "6-0"),
+    ]
+    assert body.count("id: 6-0") == 1
+    assert body.count("event: task.completed") == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_retry_budget_ends_stream_without_terminal_event(monkeypatch):
+    reader = MagicMock(side_effect=TimeoutError("held Redis connection"))
+    monkeypatch.setattr(task_events, "read_events_bounded", reader)
+
+    assert await collect(Request([False] * 4)) == "retry: 3000\n\n"
+    assert reader.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_disconnect_stops_retry_and_redis_authentication_failure_is_not_retried(
+    monkeypatch,
+):
+    reader = MagicMock(side_effect=TimeoutError("temporary read failure"))
+    monkeypatch.setattr(task_events, "read_events_bounded", reader)
+
+    assert await collect(Request([False, True])) == "retry: 3000\n\n"
+    assert reader.call_count == 1
+
+    reader.reset_mock()
+    reader.side_effect = AuthenticationError("invalid Redis credentials")
+    assert await collect(Request([False] * 4)) == "retry: 3000\n\n"
+    assert reader.call_count == 1
 
 
 @pytest.mark.asyncio
