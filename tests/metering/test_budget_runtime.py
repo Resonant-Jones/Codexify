@@ -172,10 +172,23 @@ def test_disabled_is_unchanged_and_local_survives_bad_config(monkeypatch):
     monkeypatch.setenv(runtime.ENV, "not-json")
     with runtime.accepted_budget_context(None, "local", None):
         runtime.require_context("local")
-        assert (
-            runtime.guarded_http("http://127.0.0.1:8000/chat", {}, lambda p, b: "local")
-            == "local"
+        # guarded_http is a cloud-adapter choke point, not the local route.
+        # A loopback URL cannot turn an unqualified cloud call into local spend.
+        with pytest.raises(HTTPException):
+            runtime.guarded_http(
+                "http://127.0.0.1:8000/chat", {}, lambda *a: pytest.fail("sent")
+            )
+        from guardian.providers.local_ollama import ollama_chat
+
+        local_response = SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"message": {"content": "local"}},
         )
+        monkeypatch.setattr(
+            "guardian.providers.local_ollama.requests.post",
+            lambda *a, **kw: local_response,
+        )
+        assert ollama_chat(model="local-test", messages=[]) == "local"
     with pytest.raises(HTTPException):
         runtime.require_context("openai")
 
