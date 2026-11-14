@@ -90,10 +90,11 @@ struct ScoutLibrarySnapshot {
 
 enum ScoutLibraryError: LocalizedError {
     case invalidResponse, http(Int), tooLarge, unavailablePreview
+    case rejected(Int, Data)
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "The server returned an unreadable Library response."
-        case .http(let status):
+        case .http(let status), .rejected(let status, _):
             return [401, 403].contains(status) ? "Sign in again in Settings (HTTP \(status))." : "The server returned HTTP \(status)."
         case .tooLarge: return "This resource is too large for the mobile preview."
         case .unavailablePreview: return "A preview is not available for this resource."
@@ -240,15 +241,33 @@ struct ScoutLibraryService {
         return url
     }
 
-    func read(_ url: URL, maxBytes: Int) async throws -> (data: Data, mimeType: String?) {
+    func read(_ url: URL, maxBytes: Int, body: Data? = nil) async throws -> (data: Data, mimeType: String?) {
         let generation = UserDefaults.standard.integer(forKey: "scout.accountSessionGeneration")
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
-        request.httpMethod = "GET"
+        request.httpMethod = body == nil ? "GET" : "POST"
+        request.httpBody = body
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw ScoutLibraryError.invalidResponse }
         try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
-        guard (200..<300).contains(http.statusCode) else { throw ScoutLibraryError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            guard body != nil else { throw ScoutLibraryError.http(http.statusCode) }
+            // Preserve a bounded save-rejection payload so the caller can map
+            // known reason codes to useful text without displaying server HTML.
+            let errorLimit = min(maxBytes, 16 * 1024)
+            guard response.expectedContentLength <= errorLimit else { throw ScoutLibraryError.http(http.statusCode) }
+            var detail = Data()
+            for try await byte in bytes {
+                guard detail.count < errorLimit else { throw ScoutLibraryError.http(http.statusCode) }
+                detail.append(byte)
+            }
+            try Task.checkCancellation()
+            guard generation == UserDefaults.standard.integer(forKey: "scout.accountSessionGeneration") else {
+                throw ScoutRequestAuthenticationError.sessionRequired
+            }
+            throw ScoutLibraryError.rejected(http.statusCode, detail)
+        }
         guard response.expectedContentLength <= maxBytes else { throw ScoutLibraryError.tooLarge }
         var data = Data()
         for try await byte in bytes {

@@ -5,6 +5,7 @@
  * open events for attachments without navigating away from the chat view.
  */
 import React from "react";
+import { SaveWidgetControls } from "@/components/library/SavedWidgets";
 import { motion } from "framer-motion";
 import { Volume2 } from "lucide-react";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
@@ -421,6 +422,7 @@ function RenderableChatImage({
 
 export function ChatBubble({
   message,
+  threadId,
   isGuardian,
   showPlay = false,
   playing = false,
@@ -429,6 +431,7 @@ export function ChatBubble({
   isPhoneShell = false,
 }: {
   message: Message;
+  threadId?: number;
   isGuardian: boolean;
   showPlay?: boolean;
   playing?: boolean;
@@ -677,6 +680,7 @@ export function ChatBubble({
             onSendPrompt={requestComposerPrefill}
           />
         ) : null}
+        {hasUiArtifacts && isGenerativeUiEnabled() && <SaveWidgetControls content={message.content} threadId={threadId} messageId={message.id} />}
         {hasDocumentTiles ? (
           <div className="flex flex-col gap-2">
             {visibleDocumentTiles.map((tile) => (

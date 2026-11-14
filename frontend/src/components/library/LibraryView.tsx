@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { SavedWidgetLibrary } from "./SavedWidgets";
 import type { GalleryItem } from "@/components/gallery/GalleryView";
 import GalleryGrid from "@/components/gallery/GalleryGrid";
 import DocumentsView from "@/components/documents/DocumentsView";
@@ -142,6 +143,7 @@ export default function LibraryView({
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
+    if (filter === "widgets") { setProjection(null); setLoading(false); return; }
     void buildLibraryResourceProjection({
       filter,
       scope,
@@ -237,6 +239,7 @@ export default function LibraryView({
       className="flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)] overflow-auto"
       data-testid="library-all-surface"
     >
+      <SavedWidgetLibrary />
       {images.length > 0 && (
         <section aria-labelledby="library-all-images-heading">
           <h2 id="library-all-images-heading" className="mb-2 text-base font-semibold">
@@ -366,16 +369,7 @@ export default function LibraryView({
         className="min-h-0 flex-1 overflow-hidden"
       >
         {filter === "widgets" ? (
-          <div
-            className="flex h-full min-h-[12rem] items-center justify-center text-center text-sm"
-            data-testid="library-widgets-unavailable"
-            style={{ color: "var(--muted)" }}
-          >
-            <p>
-              Widgets are unavailable until an authoritative persistence and
-              listing mechanism exists. Nothing is synthesized here.
-            </p>
-          </div>
+          <SavedWidgetLibrary />
         ) : filter === "documents" ? (
           <DocumentsView
             documents={documents}

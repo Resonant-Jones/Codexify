@@ -769,3 +769,50 @@ def test_validation_never_executes_artifact_content() -> None:
     assert artifact is not None
     reasons, _ = evaluate_eligibility(artifact, decoded_payload=artifact)
     assert reasons == ()
+
+
+@pytest.mark.parametrize("attributes", ["", "type='text/javascript'", "type='module'"])
+def test_inline_script_is_supported_executable_behavior(attributes: str) -> None:
+    artifact = validate_ui_artifact(
+        _sandbox(
+            js="",
+            html=f"<button>Go</button><script {attributes}>document.body.onclick = () => {{}};</script>",
+        )
+    )
+    assert artifact is not None
+    assert _reasons(artifact) == ()
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<!-- <script>run()</script> -->",
+        "<script> \n </script>",
+        '<script type="application/json">{"data":1}</script>',
+        "<script src='data:text/javascript,run()'>run()</script>",
+        "<script nomodule>run()</script>",
+        "<template><script>run()</script></template>",
+        "<noscript><script>run()</script></noscript>",
+        "<textarea><script>run()</script></textarea>",
+        "<script>run()",
+    ],
+)
+def test_nonexecuting_script_markup_does_not_qualify(html: str) -> None:
+    artifact = validate_ui_artifact(_sandbox(js="", html=html))
+    assert artifact is not None
+    assert REASON_MISSING_EXECUTABLE_CODE in _reasons(artifact)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<script type='module'>import synth from 'https://cdn.example/synth.js';</script>",
+        "<script>import('https://cdn.example/synth.js');</script>",
+        "<style>@import 'https://cdn.example/style.css';</style><script>run()</script>",
+        "<style>body {background: url(https://cdn.example/bg.png)}</style><script>run()</script>",
+    ],
+)
+def test_inline_program_dependencies_are_checked(html: str) -> None:
+    artifact = validate_ui_artifact(_sandbox(js="", html=html))
+    assert artifact is not None
+    assert REASON_EXTERNAL_DEPENDENCY in _reasons(artifact)

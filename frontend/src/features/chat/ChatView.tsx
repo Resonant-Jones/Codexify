@@ -1054,6 +1054,7 @@ export function ChatView({
                   : "idle";
             const renderedMessageBubble = (
               <ChatBubble
+                threadId={threadId}
                 message={{
                   id: String(message.id ?? `${message.role}-${message.created_at ?? index}`),
                   authorId: message.role === "user" ? "me" : "bot",
