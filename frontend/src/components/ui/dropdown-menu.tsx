@@ -121,6 +121,7 @@ type DropdownMenuContentProps = React.HTMLAttributes<HTMLDivElement> & {
   side?: "top" | "bottom";
   sideOffset?: number;
   collisionPadding?: number;
+  portalContainer?: HTMLElement | null;
 };
 
 type Placement = {
@@ -209,6 +210,7 @@ export const DropdownMenuContent = ({
   sideOffset = 8,
   collisionPadding = 0,
   align,
+  portalContainer,
   className,
   style,
   ...props
@@ -341,7 +343,7 @@ export const DropdownMenuContent = ({
     >
       {children}
     </div>,
-    getDropdownPortalTarget()
+    portalContainer ?? getDropdownPortalTarget()
   );
 };
 
