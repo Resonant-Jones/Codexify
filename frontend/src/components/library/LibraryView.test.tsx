@@ -4,6 +4,7 @@ import LibraryView from "@/components/library/LibraryView";
 import type { LibraryResourceProjection } from "@/components/library/libraryResourceProjection";
 
 const buildProjection = vi.fn();
+vi.mock("@/components/library/SavedWidgets", () => ({ SavedWidgetLibrary: () => <div data-testid="saved-widget-library">Saved widgets</div> }));
 vi.mock("@/components/library/libraryResourceProjection", async () => {
   const actual = await vi.importActual<typeof import("@/components/library/libraryResourceProjection")>(
     "@/components/library/libraryResourceProjection"
@@ -130,12 +131,11 @@ describe("LibraryView", () => {
     expect(screen.getByTestId("documents-view-mock")).toBeInTheDocument();
   });
 
-  it("states that Widgets are unavailable without creating records", async () => {
+  it("opens the authoritative saved-widget surface without reading image or document sources", async () => {
     render(<LibraryView scope={scope} extColors={extColors} />);
     await waitFor(() => screen.getByRole("tab", { name: "Widgets" }));
     fireEvent.click(screen.getByRole("tab", { name: "Widgets" }));
-    await waitFor(() => expect(screen.getByTestId("library-widgets-unavailable")).toBeInTheDocument());
-    expect(screen.getByTestId("library-unavailable")).toHaveTextContent(/no authoritative widget/i);
-    expect(buildProjection).toHaveBeenLastCalledWith(expect.objectContaining({ filter: "widgets" }));
+    await waitFor(() => expect(screen.getByTestId("saved-widget-library")).toBeInTheDocument());
+    expect(buildProjection).not.toHaveBeenCalledWith(expect.objectContaining({ filter: "widgets" }));
   });
 });
