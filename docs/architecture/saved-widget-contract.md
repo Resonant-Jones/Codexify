@@ -151,6 +151,14 @@ the artifact payload itself. These are **necessary conditions**, not a sufficien
 E1, E2, E3, and E6 are structural properties of the payload and its envelope. E4 is an eligibility judgement derived
 from the payload's declared dependencies. E5 is a property of the source message's lineage.
 
+E3 recognizes the executable forms already supported by the sandbox renderers:
+a non-empty `js` field or a non-empty, closed inline JavaScript `<script>` element
+in `html` (classic JavaScript or module, without `src` or `nomodule`). Data scripts,
+inert template/noscript/text markup, and event-handler attributes alone do not
+satisfy E3. E4 checks imports in these inline scripts and resource references in
+inline stylesheet bodies as well as the separate envelope fields. This packaging
+parity does not rewrite source, relax E5, or grant any runtime capability.
+
 ### Three separate boundaries
 
 Three different questions are easy to conflate here, and this contract keeps them apart:

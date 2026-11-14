@@ -69,3 +69,36 @@ Live cross-client save/reopen verification awaits the user's chosen widget.
 Installation, an empty authenticated list, and automated tests do not prove that
 the phone save/reopen interaction has passed.
 
+## Follow-up: Scout save rejected with HTTP 422
+
+The user reported that saving failed. Device Hub showed the Save widget form
+for the user-named “Triad Test Synth” with HTTP 422. Origin request logs located
+the active conversation. A read-only assessment of its stored artifact found
+`artifact_missing_executable_code`, with accepted completion lineage present
+and no dependency violation. The artifact places its JavaScript in an inline
+HTML script element, which both existing sandbox renderers support; E3 had
+checked only the separate `js` envelope field.
+
+The validator now recognizes non-empty, closed inline classic/module script
+elements and applies dependency checks to their imports and to inline stylesheet
+bodies. Data scripts, inert markup, event-handler-only markup, external assets,
+unproven provenance, and account isolation retain their existing gates. Source
+is not rewritten. ADR-102's executable-payload requirement is unchanged; the
+Saved Widget contract documents the supported packaging forms.
+
+Scout now consumes a bounded rejection payload and maps known reason codes to
+actionable messages. A definite validation rejection no longer advises checking
+for a duplicate or refreshing a version conflict. Unknown save outcomes still
+advise checking Library before retrying. Arbitrary server response text is not
+displayed. Scout commit: `e56acdd51`.
+
+Validation: 91 validator tests passed; 172 Scout tests and the signed iOS build
+passed. Both physical devices received the updated build. A read-only assessment
+using the patched validator accepted the exact stored artifact with no failing
+reasons and intact completion lineage. No widget was persisted during diagnosis.
+All 178 database route/revision/Scout-transport regression tests passed against
+disposable PostgreSQL 16, including inline-program promotion and immutable
+readback. Commands: the same three backend selectors above, plus
+`python -m pytest -q tests/core/test_saved_widget_validation.py` for the 91
+validator checks. Live retry is pending deployment of this repair.
+

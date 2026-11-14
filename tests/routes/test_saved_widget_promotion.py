@@ -913,3 +913,22 @@ def test_saved_widgets_route_is_enabled_in_every_supported_profile() -> None:
     for profile in profiles:
         text = profile.read_text()
         assert "    - saved_widgets\n" in text, profile.name
+
+
+def test_inline_script_promotes_and_reopens_without_rewriting_source(client, seeded):
+    _, make_thread, make_message, make_attempt = seeded
+    thread = make_thread(ACCOUNT_A)
+    artifact = {
+        "version": 1,
+        "kind": "sandbox",
+        "html": "<button id='go'>Go</button><script>document.getElementById('go').onclick = () => {};</script>",
+    }
+    message = make_message(thread, ACCOUNT_A, _marker(artifact))
+    make_attempt(thread, message)
+    response = client.post("/saved-widgets", json=_promotion_body(thread, message))
+    assert response.status_code == 201, response.text
+    widget = response.json()["widget_id"]
+    assert (
+        client.get(f"/saved-widgets/{widget}/revisions/1").json()["artifact_snapshot"]
+        == artifact
+    )
