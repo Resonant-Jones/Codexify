@@ -3158,8 +3158,8 @@ export default function AppShell({
     ? {
         padding: "var(--board-edge)",
         flex: "0 0 auto",
-        width: mobileShellProfile.workspace.drawerWidth,
-        minWidth: mobileShellProfile.workspace.drawerWidth,
+        width: mobileShellProfile.guardian.drawerWidth,
+        minWidth: mobileShellProfile.guardian.drawerWidth,
         height: "100%",
         minHeight: "100%",
         maxHeight: "100%",
@@ -3216,7 +3216,7 @@ export default function AppShell({
         <div
           data-testid="workspace-drawer-pane"
           data-overlay="true"
-          data-pane-basis={mobileShellProfile.workspace.drawerWidth}
+          data-pane-basis={mobileShellProfile.guardian.drawerWidth}
           data-pane-min-width="0px"
           data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
           className="relative z-10 h-full min-h-0 min-w-0 overflow-visible rounded-[var(--radius)]"
