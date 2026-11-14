@@ -103,6 +103,9 @@ async def chat(request: ChatRequest, model: str = Query("pro")):
     model : str
         Key from MODEL_ALIASES. Defaults to "pro".
     """
+    from guardian.metering.runtime import deny_unqualified_spend
+
+    deny_unqualified_spend()
     model_name = MODEL_ALIASES.get(model, "models/gemini-1.5-pro")
     gen_model = GenerativeModel(model_name)
 

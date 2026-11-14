@@ -15,6 +15,8 @@ name in the voice runtime.
 
 from __future__ import annotations
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import logging
 import os
 from typing import List, Optional
@@ -147,6 +149,7 @@ class DeepgramProvider(TTSProvider):
             VoiceNotFoundError: If the requested voice is not an Aura voice
             SynthesisError: If synthesis fails
         """
+        deny_unqualified_spend()
         content = (text or "").strip()
         if not content:
             raise SynthesisError("Deepgram synthesis requires non-empty text")
@@ -164,6 +167,7 @@ class DeepgramProvider(TTSProvider):
         return audio
 
     def _synthesize_chunk(self, chunk: str, voice: str) -> bytes:
+        deny_unqualified_spend()
         endpoint = f"{self.base_url}/speak"
         params = {
             "model": voice,

@@ -2,6 +2,8 @@
 Groq chat adapter.
 """
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Iterator, Optional
@@ -33,6 +35,7 @@ class GroqChat(ChatProvider):
         self.timeout = float(os.getenv("GROQ_TIMEOUT", timeout))
 
     def generate(self, prompt: str, model: Optional[str] = None, **kw) -> str:
+        deny_unqualified_spend()
         model = model or _DEFAULT
         r = self.client.chat.completions.create(
             model=model,
@@ -45,6 +48,7 @@ class GroqChat(ChatProvider):
     def stream(
         self, prompt: str, model: Optional[str] = None, **kw
     ) -> Iterator[str]:
+        deny_unqualified_spend()
         model = model or _DEFAULT
         s = self.client.chat.completions.create(
             model=model,

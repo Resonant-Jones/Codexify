@@ -238,6 +238,12 @@ def test_strict_explicit_provider_model_preserves_exact_model_and_token_bound(
 
 def test_chat_with_ai_dispatches_to_deepseek_provider(monkeypatch):
     _disable_supported_profile(monkeypatch)
+    # Discovery is a separate contract; this dispatch unit test must not contact
+    # the provider model-index endpoint with even synthetic credentials.
+    monkeypatch.setattr(
+        provider_registry.requests, "get",
+        lambda *a, **kw: _MockResponse({"data": [{"id": "deepseek-v4-flash"}]}),
+    )
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, timeout):
@@ -286,6 +292,10 @@ def test_deepseek_health_capability_uses_an_opaque_native_alias_without_tool_cho
     monkeypatch,
 ):
     _disable_supported_profile(monkeypatch)
+    monkeypatch.setattr(
+        provider_registry.requests, "get",
+        lambda *a, **kw: _MockResponse({"data": [{"id": "deepseek-v4-flash"}]}),
+    )
     captured: dict[str, object] = {}
 
     def _mock_post(url: str, *, json, headers, timeout):
