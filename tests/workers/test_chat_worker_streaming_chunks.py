@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState
 from guardian.core.completion_terminal import CompletionTerminalEvidence
+from guardian.core.saved_widget_validation import parse_ui_artifacts
 from guardian.protocol_tokens import CompletionTerminalStatus
 from guardian.workers import chat_worker
 
@@ -250,6 +251,32 @@ def test_chat_worker_emits_chunk_events_for_streaming_local_flow(monkeypatch):
     assert "task.progress" in event_types
     assert event_types[-1] == "task.completed"
     assert published[-1][1]["message_id"] == 42
+
+
+def test_chat_worker_streams_prose_and_persists_the_serialized_widget(monkeypatch):
+    monkeypatch.setenv("GUARDIAN_GENERATIVE_UI", "true")
+    html = '<button onclick="play()">C</button>\n<script>function play() {}</script>'
+    published = _prepare_worker_harness(
+        monkeypatch,
+        provider="local",
+        model="test-model",
+        stream_tokens=["Try it.\n<!", "-- cfy-ui:", "sandbox " + html + " -->"],
+    )
+    persisted: list[str] = []
+    monkeypatch.setattr(
+        chat_worker.dependencies.chatlog_db,
+        "create_message",
+        lambda _thread, _role, text: persisted.append(text) or 42,
+    )
+    chat_worker._run_chat_task(_build_task(task_id="task-widget"))
+    (content,) = persisted
+    assert parse_ui_artifacts(content) == [
+        {"version": 1, "kind": "sandbox", "html": html}
+    ]
+    assert [data["delta"] for event, data in published if event == "task.chunk"] == [
+        "Try it.\n"
+    ]
+    assert published[-1][0] == "task.completed"
 
 
 def test_chat_worker_does_not_fabricate_chunks_for_non_streaming_flow(

@@ -1468,4 +1468,4 @@ class TestUploadDedupeAndResolve:
         response = client.get("/api/media/images?tag=uploaded")
 
         assert response.status_code == 200
-        assert response.json() == {"images": [], "count": 0}
+        assert response.json() == {"images": [], "count": 0, "next_offset": None}

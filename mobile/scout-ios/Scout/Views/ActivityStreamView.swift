@@ -20,7 +20,7 @@ struct ActivityStreamView: View {
     private let keychainStore = ScoutKeychainStore()
 
     var body: some View {
-        NavigationStack {
+        Group {
             List {
                 if isLoading {
                     Section {
@@ -128,9 +128,7 @@ struct ActivityStreamView: View {
                     }
                 }
             }
-            .modifier(ScoutCanvas())
-            .navigationTitle("Feed")
-            .toolbar { ScoutAuxiliaryMenu() }
+            .scrollContentBackground(.hidden)
             .onAppear {
                 if !storedProfileData.isEmpty {
                     Task { await loadActivity() }

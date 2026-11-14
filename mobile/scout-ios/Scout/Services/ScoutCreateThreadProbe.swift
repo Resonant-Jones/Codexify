@@ -12,6 +12,7 @@ struct ScoutCreateThreadProbe {
     static func create(
         endpoint: ScoutEndpointProfile,
         title: String,
+        projectID: Int? = nil,
         apiKey: String? = nil,
         accountSession: ScoutAccountSession? = nil,
         session: URLSession = .scoutAuthenticated
@@ -51,11 +52,12 @@ struct ScoutCreateThreadProbe {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 5
 
-        let body: [String: String] = ["title": trimmed]
-        request.httpBody = try? JSONEncoder().encode(body)
+        var body: [String: Any] = ["title": trimmed]
+        if let projectID = projectID { body["project_id"] = projectID }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
+            try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)

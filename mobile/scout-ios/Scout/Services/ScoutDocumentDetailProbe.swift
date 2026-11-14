@@ -46,7 +46,7 @@ struct ScoutDocumentDetailProbe {
         request.timeoutInterval = 5
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey)
+            try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
             let key = cache == nil ? nil : cacheKey(for: request, endpoint: endpoint, accountGeneration: accountGeneration)
             if let cache, let key {
                 if reload {
