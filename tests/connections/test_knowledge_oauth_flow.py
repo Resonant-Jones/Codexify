@@ -406,3 +406,41 @@ def test_unsolicited_installation_callback_does_not_grant_access(setup):
     assert "unsolicited-code" not in response.text
     assert store.credential(db, "a", "github") is None
     assert store.status(db, "a", "github")["generation"] is None
+
+
+@pytest.mark.parametrize("storage_available,mounted", [(True, True), (False, True), (True, False)])
+def test_oauth_only_catalog_admission_is_independent_of_read_routes(
+    setup, monkeypatch, storage_available, mounted
+):
+    """The Preview catalog must not require quarantined reads or legacy setup."""
+    client, db, app = setup
+    from guardian.routes import connections as catalog_routes
+    from guardian.connections import catalog
+
+    # Catalog entries snapshot flags at process import. This test enables OAuth
+    # after collection, so construct the same entry a fresh enabled process uses.
+    monkeypatch.setitem(
+        catalog._CATALOG_BY_ID, "github_knowledge", catalog._github_knowledge_entry()
+    )
+    if not mounted:
+        app.router.routes = [
+            route for route in app.router.routes
+            if not getattr(route, "path", "").startswith("/api/connect/")
+        ]
+    app.include_router(catalog_routes.router)
+    monkeypatch.setattr(catalog_routes, "_get_db", lambda: db if storage_available else None)
+    response = client.get("/api/connections/github_knowledge")
+    assert response.status_code == 200
+    item = response.json()
+    expected = storage_available and mounted
+    assert item["oauth"]["launchable"] is expected
+    assert item["authorization"]["available"] is expected
+    assert item["setup_state"] == ("needs_setup" if expected else "unavailable")
+    assert item["runtime_binding"]["setup_route"] == (
+        "/api/connect/github-knowledge/oauth/start" if expected else None
+    )
+    assert not any(
+        getattr(route, "path", "").startswith("/api/knowledge/")
+        for route in app.routes
+    )
+    assert client.post("/api/connect/github-knowledge/configure", json={}).status_code == 404

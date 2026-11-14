@@ -27,7 +27,10 @@ and `notion_setup` / `github_knowledge_setup` as internal-only. Setup additional
 requires `GUARDIAN_EXPOSURE_MODE=private_preview`, explicit
 `CODEXIFY_ENABLE_KNOWLEDGE_OAUTH=1`, and the existing provider route flags.
 Only OAuth routes mount there: legacy configure/validate/disconnect token routes
-remain absent. Missing operator credentials make the catalog OAuth action
+remain absent. GitHub catalog availability checks the mounted OAuth setup routes
+and account-owned storage directly; it does not require the quarantined legacy
+setup/read routes. Missing storage still fails closed. Browser-modal regression
+tests cover launching setup without requesting any connector reads. Missing operator credentials make the catalog OAuth action
 unavailable. Account, origin, browser nonce, revocation and consent checks remain
 in the existing provider routes. No setup route enters model OpenAPI tools.
 
