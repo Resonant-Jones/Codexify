@@ -401,3 +401,55 @@ This slice does not:
 `docs/architecture/00-current-state.md` remains release truth. MiniMax OAuth
 setup code exists under Connections but is intentionally not promoted to
 Beta-Supported; OAuth-to-inference credential binding remains Out of Beta.
+
+## Accepted trusted-worker pilot direction (2026-11-13)
+
+[ADR-112](adr/112-trusted-worker-account-bound-dispatch.md) selects
+Guardian-verified, account-bound in-process Command Bus dispatch for the trusted
+Private Preview GitHub/Notion read-only pilot. This is accepted architecture,
+not implemented or qualified Preview execution. Account identity, accepted-job
+ownership, current provider permission and execution eligibility remain distinct.
+
+The inspected mainline accepted-chat attempt/thread chain is **PARTIAL**: it
+supplies durable request/task/turn identity and checkpoints but needs a verified
+original-account binding and combined live eligibility/connection authorization
+check. Legacy GitHub `ConnectorRun` creation during execution is a **GAP** for
+previously accepted account-bound work. Neither configuration nor CommandRun
+audit supplies missing acceptance authority. ADR-112 records exact sources and
+the narrow first implementation prerequisite; no new authority store is created.
+
+In-process Command Bus orchestration does not automatically bypass its ordinary
+HTTP-backed execution branch. Future wiring must preserve route-specific account
+and provider checks without using operator credentials as account sessions.
+Command Bus manifest, policy, permissions, idempotency, persistence, events and
+readback remain authoritative; provider-specific execution owners remain separate.
+Retries revalidate current account, attempt, scope and revocation. Shared workers
+must not carry credentials or context between accounts. No writes, sync, ingestion,
+scheduling, memory mutation, global grants or default Beta promotion are added.
+Imported-history access and remote history-recall eligibility are unchanged.
+Release HOLD remains unchanged.
+
+## Experimental GitHub Knowledge pilot
+
+`github_knowledge` is a separate Knowledge identity from the legacy GitHub sync
+connector. It reads bounded issue/PR search metadata and selected issue/PR bodies
+inside an explicit account-owned repository allowlist. It does not read repository
+files, comments or diffs and does not synchronize, ingest or mutate content.
+
+The account-scoped encrypted credential and repository grant live in
+`github_knowledge_credentials`; setup/validation/disconnect are owned by
+`/api/connect/github-knowledge/*`, and read operations by
+`/api/knowledge/github/*`. The catalog never serializes the credential.
+
+The catalog marks this entry experimental. Its setup action is available only
+when its actual setup and read routes are mounted and credential storage is
+usable. A stored credential does not override route quarantine. The setup wizard
+uses provider-specific APIs, clears the token after successful save, and does
+not use browser storage. This is not the legacy GitHub sync wizard.
+
+The separate ordinary Guardian pilot is opt-in and local-single-account only;
+Preview/remote/multi-user invocation remains blocked pending implementation and
+qualification of accepted [ADR-112](adr/112-trusted-worker-account-bound-dispatch.md).
+The earlier [transport comparison](proofs/2026-11-13-knowledge-preview-transport-options.md)
+is historical analysis, not an outstanding architecture decision.
+No supported profile or release promise is widened by catalog visibility.

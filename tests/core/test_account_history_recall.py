@@ -132,10 +132,12 @@ def session_factory():
     ChatMessage.__table__.c.id.type = Integer().with_variant(
         original_message_id, "postgresql"
     )
-    ChatCompletionAttempt.__table__.c.terminal_outcome.type = JSON().with_variant(
+    # Preserve production SQL NULL semantics. JSON null violates the recovery
+    # snapshot/token pair when custody tests initialize the mapper first.
+    ChatCompletionAttempt.__table__.c.terminal_outcome.type = JSON(none_as_null=True).with_variant(
         original_attempt_outcome, "postgresql"
     )
-    ChatCompletionAttempt.__table__.c.deadline_snapshot.type = JSON().with_variant(
+    ChatCompletionAttempt.__table__.c.deadline_snapshot.type = JSON(none_as_null=True).with_variant(
         original_attempt_snapshot, "postgresql"
     )
 

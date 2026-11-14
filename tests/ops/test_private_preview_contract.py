@@ -608,6 +608,18 @@ def test_private_preview_single_origin_proxy_contract() -> None:
     assert "frontend:5173" not in guardian_body
     assert "error_page" not in guardian_body
 
+    image_location = re.search(
+        r"location\s+~\s+\^/media/\(images\|generated_images\)/\s*"
+        r"\{(?P<body>.*?)\n\s*\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    assert image_location is not None
+    image_body = image_location.group("body")
+    assert "proxy_pass http://guardian_backend;" in image_body
+    assert "proxy_set_header Host $host;" in image_body
+    assert "rewrite" not in image_body
+
     health_location = re.search(
         r"location\s+=\s+/health\s*\{(?P<body>.*?)\n\s*\}",
         nginx,

@@ -398,6 +398,94 @@ describe("Connections catalog bay", () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  const githubKnowledge = () => ({
+    ...catalogPayload.items.find((item) => item.id === "notion")!,
+    id: "github_knowledge",
+    display_name: "GitHub Knowledge",
+    runtime_binding: {
+      subsystem: "guardian.connections.github",
+      adapter: "guardian.connections.github.service.GitHubClient",
+      setup_route: "/api/connect/github-knowledge/configure",
+      registry_provider_id: null,
+      oauth_backend_handler_exists: false,
+    },
+    required_fields: [
+      { key: "token", label: "GitHub token", type: "password", secret: true },
+      { key: "repositories", label: "Repositories", type: "text", secret: false },
+    ],
+  });
+
+  async function enterGithubFields() {
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    fireEvent.change(await screen.findByLabelText("GitHub token"), { target: { value: "github-browser-secret" } });
+    fireEvent.change(screen.getByLabelText("Repositories"), { target: { value: "owner/one, owner/two\nowner/one" } });
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+  }
+
+  it("saves bounded GitHub scope and clears its token without browser storage", async () => {
+    mockedApi.post.mockResolvedValueOnce({data: {validation: {state: "unvalidated"}}})
+      .mockResolvedValueOnce({data: {validation: {state: "valid"}}})
+      .mockResolvedValueOnce({data: {removed: true}});
+    const changed = vi.fn();
+    render(<ConnectionConfigModal connection={githubKnowledge()} open onClose={vi.fn()} onChanged={changed} />);
+    expect(screen.getByText(/local single-account pilot/)).toBeInTheDocument();
+    await enterGithubFields();
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledWith("/api/connect/github-knowledge/configure", {
+      token: "github-browser-secret", repositories: ["owner/one", "owner/two"],
+    }));
+    const validate = await screen.findByTestId("github-knowledge-validate");
+    await waitFor(() => expect(validate).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", {name: /^back$/i}));
+    expect(await screen.findByLabelText("GitHub token")).toHaveValue("");
+    expect(window.localStorage.getItem("token")).toBeNull();
+    expect(window.sessionStorage.getItem("token")).toBeNull();
+  });
+
+  it("uses GitHub validation and disconnect endpoints", async () => {
+    mockedApi.post.mockResolvedValueOnce({data: {validation: {state: "unvalidated"}}})
+      .mockResolvedValueOnce({data: {validation: {state: "valid"}}})
+      .mockResolvedValueOnce({data: {removed: true}});
+    render(<ConnectionConfigModal connection={githubKnowledge()} open onClose={vi.fn()} onChanged={vi.fn()} />);
+    await enterGithubFields();
+    const validate = await screen.findByTestId("github-knowledge-validate");
+    await waitFor(() => expect(validate).toBeEnabled());
+    fireEvent.click(validate);
+    expect(await screen.findByText(/Validation succeeded. GitHub/)).toBeInTheDocument();
+    expect(mockedApi.post).toHaveBeenCalledWith("/api/connect/github-knowledge/validate", {});
+    fireEvent.click(screen.getByRole("button", {name: /^continue$/i}));
+    fireEvent.click(await screen.findByTestId("github-knowledge-disconnect"));
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledWith("/api/connect/github-knowledge/disconnect", {}));
+  });
+
+  it("manages a configured GitHub connection without reentering its token", async () => {
+    mockedApi.post.mockResolvedValueOnce({ data: { removed: true } });
+    const connection = { ...githubKnowledge(), setup_state: "configured", validation: {
+      configured: true, state: "unvalidated", last_validated_at: null, repositories: ["owner/repo"],
+    }};
+    render(<ConnectionConfigModal connection={connection} open onClose={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByText(/Repository scope: owner\/repo/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("github-knowledge-existing-disconnect"));
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledWith("/api/connect/github-knowledge/disconnect", {}));
+    expect(screen.queryByLabelText("GitHub token")).not.toBeInTheDocument();
+  });
+
+  it("does not expose raw GitHub save errors or credentials", async () => {
+    mockedApi.post.mockRejectedValueOnce({response: {data: {detail: "github-browser-secret upstream traceback"}}});
+    render(<ConnectionConfigModal connection={githubKnowledge()} open onClose={vi.fn()} onChanged={vi.fn()} />);
+    await enterGithubFields();
+    expect(await screen.findByText("GitHub settings could not be saved.")).toBeInTheDocument();
+    expect(screen.queryByText(/upstream traceback/)).not.toBeInTheDocument();
+  });
+
+  it.each(["unavailable", "authorization"])("disables GitHub setup when backend says %s", async (reason) => {
+    const connection = {...githubKnowledge(), ...(reason === "unavailable" ? {setup_state: "unavailable"} : {authorization: {registered: true, available: false}})};
+    render(<ConnectionConfigModal connection={connection} open onClose={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByText(/Setup is not yet available/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: /^continue$/i}));
+    expect(screen.queryByLabelText("GitHub token")).not.toBeInTheDocument();
+    expect(mockedApi.post).not.toHaveBeenCalled();
+  });
+
   it("launches Google Drive OAuth through the backend and keeps browser storage secret-free", async () => {
     const googleDrive = catalogPayload.items.find((item) => item.id === "google_drive")!;
     const changed = vi.fn();

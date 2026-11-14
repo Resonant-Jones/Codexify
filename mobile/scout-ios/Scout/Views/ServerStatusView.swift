@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ServerStatusView: View {
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @State private var profile: ScoutEndpointProfile?
     @State private var result: ScoutEndpointConnectivityResult?
@@ -32,6 +33,11 @@ struct ServerStatusView: View {
                 }
             }
             .navigationTitle("Server")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .onAppear {
                 loadProfile()
                 if profile != nil {

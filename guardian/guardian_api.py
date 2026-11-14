@@ -61,7 +61,10 @@ from guardian.browser_host.http_adapter import (
 )
 from guardian.config.system_config import ensure_system_dirs
 from guardian.connections.google_drive import router as google_drive_connection_routes
+from guardian.connections.knowledge_oauth_routes import make_router as make_knowledge_oauth_router  # noqa: E402
+from guardian.connections.knowledge_oauth import enabled as knowledge_oauth_enabled  # noqa: E402
 from guardian.connections.notion import router as notion_connection_routes
+from guardian.connections.github import router as github_knowledge_routes  # noqa: E402
 from guardian.connectors.google import router as google_connect_router
 from guardian.connectors.minimax import router as minimax_oauth_router
 
@@ -682,6 +685,7 @@ async def _app_lifespan_body(app: FastAPI):
         command_bus_routes.configure_db(guardian_db)
         connections_routes.configure_db(guardian_db)
         notion_connection_routes.configure_db(guardian_db)
+        github_knowledge_routes.configure_db(guardian_db)
         google_drive_connection_routes.configure_db(guardian_db)
         delegations.configure_db(guardian_db)
         guardian_delegations.configure_db(guardian_db)
@@ -1067,6 +1071,42 @@ def _include_personal_facts_router() -> None:
     app.include_router(personal_facts_router, prefix="/api")
 
 
+def _include_knowledge_setup(
+    provider: str,
+    routes: Any,
+    label: str,
+    flag_name: str,
+    *,
+    default_enabled: bool = True,
+) -> None:
+    """Admit Preview OAuth setup without legacy credentials or read operations."""
+    preview_profile = (
+        _SUPPORTED_PROFILE_MANIFEST is not None
+        and _SUPPORTED_PROFILE_MANIFEST.name == "v1-whooshd-deepseek-web"
+    )
+    if preview_profile and (
+        exposure_mode != "private_preview" or not knowledge_oauth_enabled()
+    ):
+        return
+
+    def include() -> None:
+        include_schema = _include_internal_only_schema(label)
+        if not preview_profile:
+            app.include_router(routes.setup_router, include_in_schema=include_schema)
+        if knowledge_oauth_enabled():
+            app.include_router(
+                make_knowledge_oauth_router(provider, routes._get_db),
+                include_in_schema=include_schema,
+            )
+
+    _include_router(
+        label=label,
+        flag_name=flag_name,
+        include_fn=include,
+        default_enabled=default_enabled,
+    )
+
+
 def _include_music_projects_router() -> None:
     """Mount the Music Project routes.
 
@@ -1346,17 +1386,28 @@ _include_router(
     ),
 )
 _include_router(
+    label="github_knowledge",
+    flag_name="CODEXIFY_ENABLE_GITHUB_KNOWLEDGE_ROUTES",
+    default_enabled=False,
+    include_fn=lambda: app.include_router(github_knowledge_routes.operations_router),
+)
+_include_knowledge_setup(
+    "github",
+    github_knowledge_routes,
+    label="github_knowledge_setup",
+    flag_name="CODEXIFY_ENABLE_GITHUB_KNOWLEDGE_ROUTES",
+    default_enabled=False,
+)
+_include_router(
     label="notion_knowledge",
     flag_name="CODEXIFY_ENABLE_NOTION_KNOWLEDGE_ROUTES",
     include_fn=lambda: app.include_router(notion_connection_routes.operations_router),
 )
-_include_router(
+_include_knowledge_setup(
+    "notion",
+    notion_connection_routes,
     label="notion_setup",
     flag_name="CODEXIFY_ENABLE_NOTION_KNOWLEDGE_ROUTES",
-    include_fn=lambda: app.include_router(
-        notion_connection_routes.setup_router,
-        include_in_schema=_include_internal_only_schema("notion_setup"),
-    ),
 )
 _include_router(
     label="google_drive_knowledge",

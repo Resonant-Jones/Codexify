@@ -114,7 +114,11 @@ describe("Feed customization", () => {
   it("keeps controls working when storage writes fail and explains the limitation", async () => {
     render(<FeedLayout cards={cards} />);
     await customize();
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new Error("unavailable"); });
+    // JSDOM Storage methods live on the prototype; the Node fallback owns them.
+    const storageMethods = typeof Object.getPrototypeOf(localStorage).setItem === "function"
+      ? Object.getPrototypeOf(localStorage)
+      : localStorage;
+    vi.spyOn(storageMethods, "setItem").mockImplementation(() => { throw new Error("unavailable"); });
     fireEvent.click(screen.getByRole("checkbox", { name: "Gallery" }));
     expect(order()).toEqual(["Recent Threads", "Recent Documents"]);
     expect(screen.getByText(/Changes apply for this visit/)).toBeInTheDocument();

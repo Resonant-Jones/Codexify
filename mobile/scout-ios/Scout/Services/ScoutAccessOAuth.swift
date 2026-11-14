@@ -140,10 +140,12 @@ struct ScoutAccessOAuth {
         guard let token = credential.refreshToken, !token.isEmpty else {
             throw ScoutAccessOAuthError.expiredCredential
         }
-        return formRequest(url: tokenEndpoint, fields: [
+        var request = formRequest(url: tokenEndpoint, fields: [
             "grant_type": "refresh_token", "client_id": clientID,
             "refresh_token": token, "resource": resource.absoluteString
         ])
+        request.timeoutInterval = 15
+        return request
     }
 
     struct Credential: Codable {

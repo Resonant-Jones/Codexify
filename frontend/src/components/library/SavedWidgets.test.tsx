@@ -56,4 +56,3 @@ it("keeps inaccessible resources unavailable instead of launching", async () => 
   await screen.findByRole("alert");
   expect(screen.queryByTestId("widget-runtime")).toBeNull();
 });
-

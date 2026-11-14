@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct SettingsAuthView: View {
+    @Binding var systemAccent: Int
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var draftProfile = ScoutEndpointProfile.emptyDraft
     @State private var validationErrors: [ScoutEndpointDraftValidationError] = []
     @State private var showValidationResults = false
@@ -14,15 +18,116 @@ struct SettingsAuthView: View {
     @State private var apiKeyInput: String = ""
     @State private var isKeyStored: Bool = false
     @State private var keychainMessage: String?
+    @State private var isSigningIn = false
+    @State private var isSigningOut = false
+    @State private var signInResult: String?
 
     @StateObject private var accessSignIn = ScoutAccessSignIn()
     @StateObject private var accountSignIn = ScoutAccountSignIn()
 
     private let keychainStore = ScoutKeychainStore()
 
+    private var accentSelection: Binding<Color> {
+        Binding {
+            ScoutAccentTheme(rgb: systemAccent, scheme: scheme, contrast: contrast).sourceColor
+        } set: { color in
+            if let rgb = ScoutAccentTheme.packed(color) { systemAccent = rgb }
+        }
+    }
+
+    private var hasUsableAccount: Bool {
+        guard draftProfile.authenticationMode == .remoteSession,
+              let session = try? ScoutAccountSessionStore().load(for: draftProfile) else { return false }
+        return (try? session.validate(for: draftProfile)) != nil
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                if draftProfile.authenticationMode == .remoteSession {
+                    Section("Account") {
+                        Text(hasUsableAccount ? "Signed in on this device" : "Not signed in")
+                            .foregroundStyle(.secondary)
+                        if isSigningIn || isSigningOut || accountSignIn.isWorking || accessSignIn.isWorking {
+                            ProgressView(isSigningOut ? "Signing out…" : "Signing in…")
+                        } else if hasUsableAccount {
+                            Button("Sign out") {
+                                let profile = draftProfile
+                                isSigningOut = true
+                                signInResult = nil
+                                Task {
+                                    await accountSignIn.logout(profile: profile)
+                                    isSigningOut = false
+                                    if let message = accountSignIn.message,
+                                       message.contains("unconfirmed") || message.contains("not confirmed") || message.contains("did not finish") {
+                                        signInResult = hasUsableAccount
+                                            ? "Sign-out could not finish. Open Advanced for details."
+                                            : "Signed out on this device. Server sign-out could not be confirmed."
+                                    }
+                                }
+                            }
+                        } else {
+                            Button("Sign in") {
+                                let profile = draftProfile
+                                isSigningIn = true
+                                signInResult = nil
+                                Task {
+                                    defer { isSigningIn = false }
+                                    guard await accessSignIn.ensureAuthorized(profile: profile) else {
+                                        signInResult = "Sign-in could not finish. Try again or open Advanced for details."
+                                        return
+                                    }
+                                    guard isSavedHostedProfile,
+                                          ScoutConnectionIdentity(endpoint: profile) == ScoutConnectionIdentity(endpoint: draftProfile) else {
+                                        signInResult = "The connection changed. Try signing in again."
+                                        return
+                                    }
+                                    if let account = try? ScoutAccountSessionStore().load(for: profile),
+                                       (try? account.validate(for: profile)) != nil {
+                                        await accountSignIn.check(profile: profile)
+                                    } else {
+                                        await accountSignIn.signIn(profile: profile)
+                                    }
+                                    if !hasUsableAccount {
+                                        signInResult = "Sign-in could not finish. Try again or open Advanced for details."
+                                    }
+                                }
+                            }.disabled(!isSavedHostedProfile)
+                        }
+                        if !isSavedHostedProfile {
+                            Text("Choose and save a hosted connection to sign in.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        if let signInResult { Text(signInResult).font(.footnote) }
+                    }
+                }
+
+                Section {
+                    ColorPicker("System Accent", selection: accentSelection, supportsOpacity: false)
+                    if systemAccent != ScoutAccentTheme.defaultRGB {
+                        Button("Reset System Accent") { systemAccent = ScoutAccentTheme.defaultRGB }
+                    }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Changes Scout’s controls and background on this device.")
+                }
+
+                Section("Connection") {
+                    HStack {
+                        Text("Server")
+                        Spacer()
+                        Text(draftProfile.isValidDraft ? draftProfile.name : "Not configured")
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(accountSignIn.qualification?.result(for: .protectedRead).status == .passed
+                            ? "Last check succeeded" : "Not checked")
+                            .foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup("Change connection") {
                 Section("Endpoint Profile") {
                     TextField("Name", text: nameBinding)
 
@@ -36,12 +141,14 @@ struct SettingsAuthView: View {
                             Text(transport.title).tag(transport)
                         }
                     }
-                    Button("Use hosted Codexify") {
-                        accessSignIn.cancel()
-                        accountSignIn.cancel()
-                        let saved = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData)
-                        draftProfile = ScoutAccessOAuth.hostedProfile(preserving: saved ?? draftProfile)
-                        persistDraft()
+                    if !isSavedHostedProfile {
+                        Button("Use hosted Codexify") {
+                            accessSignIn.cancel()
+                            accountSignIn.cancel()
+                            let saved = try? JSONDecoder().decode(ScoutEndpointProfile.self, from: storedProfileData)
+                            draftProfile = ScoutAccessOAuth.hostedProfile(preserving: saved ?? draftProfile)
+                            persistDraft()
+                        }
                     }
                 }
 
@@ -61,77 +168,7 @@ struct SettingsAuthView: View {
                     }
                 }
 
-                if draftProfile.authenticationMode == .remoteSession {
-                    Section("Guardian Account") {
-                        Button("Sign in to Guardian") {
-                            let profile = draftProfile
-                            Task { await accountSignIn.signIn(profile: profile) }
-                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking || !isSavedHostedProfile)
-                        Button("Check account session") {
-                            let profile = draftProfile
-                            Task { await accountSignIn.check(profile: profile) }
-                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
-                        Button("Log out of Guardian") {
-                            let profile = draftProfile
-                            Task { await accountSignIn.logout(profile: profile) }
-                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
-                        if let message = accountSignIn.message { Text(message).font(.footnote) }
-                    }
-                    Section("Authentication Qualification") {
-                        if let receipt = accountSignIn.qualification {
-                            Text("Attempt " + receipt.publicID).font(.caption).textSelection(.enabled)
-                            Text(receipt.correlationAvailable ? "Runtime correlation available" : "Runtime correlation unavailable")
-                                .font(.footnote)
-                            if let admission = receipt.hostedAdmission {
-                                Text(admission.summary).font(.footnote)
-                            }
-                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
-                                VStack(alignment: .leading) {
-                                    Text(stage.title)
-                                    Text(receipt.result(for: stage).summary).font(.caption).foregroundStyle(.secondary)
-                                }.accessibilityElement(children: .combine)
-                            }
-                            if let failed = receipt.firstFailedStage {
-                                Text("First failed stage: " + failed.title).font(.footnote)
-                            }
-                            if let first = receipt.firstUnqualifiedStage {
-                                Text("First unqualified stage: " + first.title).font(.footnote)
-                            } else { Text("All nine stages qualified.").font(.footnote) }
-                        } else {
-                            Text("No sign-in attempt recorded for this connection.").font(.footnote)
-                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
-                                VStack(alignment: .leading) {
-                                    Text(stage.title)
-                                    Text("Waiting · pending").font(.caption).foregroundStyle(.secondary)
-                                }.accessibilityElement(children: .combine)
-                            }
-                        }
-                    }
-                    Section("Hosted Ingress") {
-                        Button("Authorize hosted ingress") {
-                            let profile = draftProfile
-                            Task { await accessSignIn.signIn(profile: profile) }
-                        }
-                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
-                        Button("Check stored ingress") {
-                            let profile = draftProfile
-                            Task { await accessSignIn.checkStoredIngress(profile: profile) }
-                        }
-                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
-                        Button("Revoke hosted ingress") {
-                            let profile = draftProfile
-                            Task { await accessSignIn.revoke(profile: profile) }
-                        }
-                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
-                        if accessSignIn.isWorking { ProgressView("Waiting for sign-in…") }
-                        if let message = accessSignIn.message {
-                            Text(message).font(.footnote)
-                        }
-                        Text("Ingress admission and Guardian account authentication are separate. Personal nodes keep their own explicitly supported authentication mode.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-
+                if draftProfile.authenticationMode == .localAPIKey {
                 Section("Status") {
                     HStack {
                         Text("Authentication")
@@ -159,6 +196,7 @@ struct SettingsAuthView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
                 }
 
                 if let error = loadError {
@@ -354,8 +392,81 @@ struct SettingsAuthView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                    }
+                }
+
+                if draftProfile.authenticationMode == .remoteSession {
+                    DisclosureGroup("Advanced authentication") {
+                    Section("Authentication Qualification") {
+                        if let receipt = accountSignIn.qualification {
+                            Text("Attempt " + receipt.publicID).font(.caption).textSelection(.enabled)
+                            Text(receipt.correlationAvailable ? "Runtime correlation available" : "Runtime correlation unavailable")
+                                .font(.footnote)
+                            if let admission = receipt.hostedAdmission {
+                                Text(admission.summary).font(.footnote)
+                            }
+                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
+                                VStack(alignment: .leading) {
+                                    Text(stage.title)
+                                    Text(receipt.result(for: stage).summary).font(.caption).foregroundStyle(.secondary)
+                                }.accessibilityElement(children: .combine)
+                            }
+                            if let failed = receipt.firstFailedStage {
+                                Text("First failed stage: " + failed.title).font(.footnote)
+                            }
+                            if let first = receipt.firstUnqualifiedStage {
+                                Text("First unqualified stage: " + first.title).font(.footnote)
+                            } else { Text("All nine stages qualified.").font(.footnote) }
+                        } else {
+                            Text("No sign-in attempt recorded for this connection.").font(.footnote)
+                            ForEach(ScoutAuthenticationQualification.Stage.allCases) { stage in
+                                VStack(alignment: .leading) {
+                                    Text(stage.title)
+                                    Text("Waiting · pending").font(.caption).foregroundStyle(.secondary)
+                                }.accessibilityElement(children: .combine)
+                            }
+                        }
+                    }
+                    Section("Authentication details") {
+                        if let message = accountSignIn.message { Text(message).font(.footnote) }
+                    }
+                    Section("Hosted Ingress") {
+                        Button("Check account session") {
+                            let profile = draftProfile
+                            Task { await accountSignIn.check(profile: profile) }
+                        }.disabled(accountSignIn.isWorking || accessSignIn.isWorking)
+                        Button("Authorize hosted ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.signIn(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
+                        Button("Check stored ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.checkStoredIngress(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
+                        Button("Revoke hosted ingress") {
+                            let profile = draftProfile
+                            Task { await accessSignIn.revoke(profile: profile) }
+                        }
+                        .disabled(accessSignIn.isWorking || accountSignIn.isWorking || !isSavedHostedProfile)
+                        if accessSignIn.isWorking { ProgressView("Waiting for sign-in…") }
+                        if let message = accessSignIn.message {
+                            Text(message).font(.footnote)
+                        }
+                        Text("Ingress admission and Guardian account authentication are separate. Personal nodes keep their own explicitly supported authentication mode.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    }
+                }
+
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .onChange(of: sessionGeneration) { _, _ in
                 if draftProfile.authenticationMode == .remoteSession {
                     accountSignIn.authorityDidChange(profile: draftProfile)
@@ -453,5 +564,5 @@ struct SettingsAuthView: View {
 }
 
 #Preview {
-    SettingsAuthView()
+    SettingsAuthView(systemAccent: .constant(ScoutAccentTheme.defaultRGB))
 }

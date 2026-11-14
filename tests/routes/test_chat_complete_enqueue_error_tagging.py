@@ -26,6 +26,9 @@ def test_chat_complete_enqueue_failure_returns_503(
     test_client, mock_db, monkeypatch, caplog
 ):
     error, cause = _build_enqueue_error("codexify:queue:chat")
+    # Canonical thread and User lookups at authenticated acceptance.
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
 
     def _raise_enqueue(*_args, **_kwargs):
         raise error

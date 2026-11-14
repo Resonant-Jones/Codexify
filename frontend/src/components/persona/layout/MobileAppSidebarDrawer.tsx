@@ -4,7 +4,7 @@ import { Pin, X } from "lucide-react";
 
 import FrameCard from "@/components/surface/FrameCard";
 import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
-import codexifyMarkSrc from "@/assets/brands/codexify/codexify-mark.png";
+import codexifySidebarMarkSrc from "@/assets/brands/codexify/codexify-sidebar-mark.png";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import {
   getMobileNavigationControlStyle,
@@ -270,7 +270,7 @@ export default function MobileAppSidebarDrawer({
                   }
                 >
                   <img
-                    src={codexifyMarkSrc}
+                    src={codexifySidebarMarkSrc}
                     alt=""
                     aria-hidden="true"
                     data-testid="mobile-app-sidebar-codexify-mark"
