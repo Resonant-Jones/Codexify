@@ -100,5 +100,9 @@ All 178 database route/revision/Scout-transport regression tests passed against
 disposable PostgreSQL 16, including inline-program promotion and immutable
 readback. Commands: the same three backend selectors above, plus
 `python -m pytest -q tests/core/test_saved_widget_validation.py` for the 91
-validator checks. Live retry is pending deployment of this repair.
+validator checks. The repair was committed as `7bb9d22e3` and deployed as
+`586b4426f`. The backend returned healthy with HTTP 200 from `/health` after its
+normal model-loading startup. The disposable database was stopped and removed.
+The user has been asked to retry saving the existing widget and launch it from
+Library; that live retry remains pending.
 
