@@ -45,6 +45,10 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from redis.exceptions import AuthenticationError as RedisAuthenticationError
+from redis.exceptions import AuthorizationError as RedisAuthorizationError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy import exc as sa_exc
 
 # Configure logging early
@@ -1778,7 +1782,7 @@ async def stream_task_events(
     """
     from starlette.responses import StreamingResponse
 
-# Authenticate, resolve the durable backend-task mapping, and authorize
+    # Authenticate, resolve the durable backend-task mapping, and authorize
     # its canonical thread before constructing a response or reaching Redis.
     await asyncio.to_thread(
         authorize_task_event_read, task_id, principal, chatlog_db=chatlog_db
@@ -1792,6 +1796,7 @@ async def stream_task_events(
 
         heartbeat_elapsed = 0.0
         heartbeat_interval = 15.0
+        read_failures = 0
         try:
             block_ms = max(1, min(1000, int(os.getenv("TASK_EVENT_BLOCK_MS", "1000"))))
         except ValueError:
@@ -1810,12 +1815,32 @@ async def stream_task_events(
                     block_ms=block_ms,
                     count=100,
                 )
+            except (RedisAuthenticationError, RedisAuthorizationError):
+                logger.warning("[task-events] Redis access denied")
+                return
+            except (RedisConnectionError, RedisTimeoutError) as exc:
+                read_failures += 1
+                reason = (
+                    "timeout" if isinstance(exc, RedisTimeoutError) else "connection"
+                )
+                if read_failures > 2:
+                    logger.warning(
+                        "[task-events] Redis read retries exhausted",
+                        extra={"failure_class": reason},
+                    )
+                    return
+                logger.warning(
+                    "[task-events] Retrying Redis read", extra={"failure_class": reason}
+                )
+                await asyncio.sleep(0.25 * read_failures)
+                continue
             except Exception as exc:
                 logger.warning("[task-events] read failed: %s", exc)
                 # Transport uncertainty grants no request terminal outcome.
                 # Close this subscription; existing client recovery may rejoin.
                 return
 
+            read_failures = 0
             if events:
                 for ev_id, ev in events:
                     data_str = json.dumps(ev.get("data") or {}, default=str)
