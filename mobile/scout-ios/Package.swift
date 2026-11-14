@@ -29,6 +29,8 @@ let package = Package(
                 "Services/ScoutConversationState.swift",
                 "Services/ScoutComposerFlow.swift",
                 "Services/ScoutGenerativeUI.swift",
+                "Services/ScoutOpenUI.swift",
+                "Services/ScoutSandboxWidget.swift",
                 "Services/ScoutTranscriptFormat.swift",
                 "Services/ScoutThreadActions.swift",
                 "AppIntents/Entities/ScoutThreadEntity.swift",

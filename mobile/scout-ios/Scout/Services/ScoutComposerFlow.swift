@@ -13,16 +13,23 @@ final class ScoutComposerFlow: ObservableObject {
     }
     enum Phase: Equatable { case idle, saving, requesting, pending, messageRejected, responseRejected, unconfirmed }
 
+    enum ReplyProgress: String {
+        case preparing = "AWAITING_FIRST_TOKEN"
+        case writing = "STREAMING"
+    }
+
     @Published var draft = ""
     @Published var optionsPresented = false
     @Published private(set) var phase = Phase.idle
     @Published private(set) var status: String?
+    @Published private(set) var replyProgress: ReplyProgress?
     @Published private(set) var acceptedMessageID: Int?
     @Published private(set) var taskID: String?
     private(set) var scope: Scope?
     private var revision = 0
 
     var isWorking: Bool { phase == .saving || phase == .requesting }
+    var isWaitingForReply: Bool { phase == .requesting || (phase == .pending && status == nil) }
     var canWrite: Bool { phase == .idle || phase == .messageRejected }
     var canSubmit: Bool { canWrite && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var canRequestResponse: Bool { phase == .idle || phase == .responseRejected }
@@ -36,6 +43,7 @@ final class ScoutComposerFlow: ObservableObject {
         optionsPresented = false
         phase = .idle
         status = nil
+        replyProgress = nil
         acceptedMessageID = nil
         taskID = nil
     }
@@ -99,7 +107,8 @@ final class ScoutComposerFlow: ObservableObject {
                          complete: () async -> ScoutCompleteThreadResult) async {
         guard stillCurrent(scope, ticket: ticket, isCurrent: isCurrent) else { return }
         phase = .requesting
-        status = "Requesting response…"
+        status = nil
+        replyProgress = nil
         let result = await complete()
         guard stillCurrent(scope, ticket: ticket, isCurrent: isCurrent, allowCancelled: true) else { return }
         if let code = result.httpStatus, (200..<300).contains(code),
@@ -108,7 +117,7 @@ final class ScoutComposerFlow: ObservableObject {
             phase = .pending
             status = result.acceptanceStatus == "accepted_degraded"
                 ? "Response accepted; task visibility may be delayed."
-                : "Response accepted. Waiting for task status…"
+                : nil
         } else {
             phase = Self.isRejection(result.httpStatus) ? .responseRejected : .unconfirmed
             status = (acceptedMessageID == nil ? "" : "Message saved. ") +
@@ -127,6 +136,16 @@ final class ScoutComposerFlow: ObservableObject {
         return true
     }
 
+    func observeProgress(_ event: ScoutTaskEvent, taskID: String, scope: Scope) {
+        guard self.scope == scope, self.taskID == taskID, phase == .pending,
+              event.eventType == "task.state", let payload = event.parsedData,
+              payload["task_id"] as? String == taskID,
+              let threadID = scope.threadID, payload["thread_id"] as? Int == threadID,
+              let state = payload["state"] as? String, let progress = ReplyProgress(rawValue: state),
+              replyProgress != progress else { return }
+        replyProgress = progress
+    }
+
     func observationEnded(taskID: String, scope: Scope) {
         guard self.scope == scope, self.taskID == taskID, phase == .pending else { return }
         status = "Response outcome is unconfirmed. Check response status; nothing was retried."
@@ -141,6 +160,7 @@ final class ScoutComposerFlow: ObservableObject {
         case "task.cancelled": status = "Response cancelled. No assistant message was synthesized."
         default: return false
         }
+        replyProgress = nil
         phase = .idle
         return true
     }
