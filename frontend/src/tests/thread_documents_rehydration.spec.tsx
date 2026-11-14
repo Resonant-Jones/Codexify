@@ -1,5 +1,4 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { AxiosResponse } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -114,8 +113,6 @@ describe("Thread document rehydration", () => {
   });
 
   it("rehydrates linked documents on bootstrap and thread switch", async () => {
-    const user = userEvent.setup();
-
     const getSpy = vi.spyOn(api, "get").mockImplementation((url: string, config?: any) => {
       if (url === "/api/projects") {
         return Promise.resolve({
@@ -184,7 +181,11 @@ describe("Thread document rehydration", () => {
     render(<App />);
 
     await screen.findByText("Thread 101");
-    await user.click(screen.getByRole("button", { name: /^documents$/i }));
+    // The consolidated Library navigation preserves this legacy document route.
+    await act(async () => {
+      window.history.pushState({}, "", "/documents");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
 
     await waitFor(() => {
       expect(
@@ -203,7 +204,11 @@ describe("Thread document rehydration", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     await screen.findByText("Thread 202");
-    await user.click(screen.getByRole("button", { name: /^documents$/i }));
+    // The consolidated Library navigation preserves this legacy document route.
+    await act(async () => {
+      window.history.pushState({}, "", "/documents");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
 
     await waitFor(() => {
       expect(

@@ -221,7 +221,7 @@ describe("DashboardView beta contract", () => {
     expect(screen.queryByLabelText("Dismiss demo gallery")).not.toBeInTheDocument();
   });
 
-  it("switches Dashboard into a mobile stack and opens recent documents explicitly", async () => {
+  it("keeps Feed in a mobile stack and opens recent documents explicitly", async () => {
     setViewportWidth(390);
     authState.allowGate = true;
     apiState.get.mockImplementation(async (url: string) => {
@@ -265,10 +265,10 @@ describe("DashboardView beta contract", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelector('[data-layout-mode="mobile-stack"]')).toBeTruthy();
+      expect(container.querySelector('[data-layout-mode="feed-stack"]')).toBeTruthy();
       expect(screen.getByTestId("dashboard-layout")).toHaveAttribute(
         "data-dashboard-layout",
-        "mobile_stack"
+        "feed-stack"
       );
     });
 
