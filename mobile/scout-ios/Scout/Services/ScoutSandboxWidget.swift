@@ -49,13 +49,12 @@ struct ScoutSandboxWidget: Equatable {
     ]
     """#
 
-    private static let policy = """
-    default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
-    img-src data: blob:; media-src data: blob:; connect-src 'none';
-    frame-src 'none'; form-action 'none'; base-uri 'none'
-    """
-
-    func document(audioScript: String? = nil) -> String {
+    func document(audioScript: String? = nil, interactive: Bool = true) -> String {
+        let policy = """
+        default-src 'none'; script-src \(interactive ? "'unsafe-inline'" : "'none'"); style-src 'unsafe-inline';
+        img-src data: blob:; media-src \(interactive ? "data: blob:" : "'none'"); connect-src 'none';
+        frame-src 'none'; form-action 'none'; base-uri 'none'
+        """
         let bootstrap = """
         <script>
           // Keep sizing calls compatible in Scout's scrollable viewport.
@@ -75,7 +74,7 @@ struct ScoutSandboxWidget: Equatable {
         let content = """
         <!doctype html><html lang="en"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="\(Self.policy)">
+        <meta http-equiv="Content-Security-Policy" content="\(policy)">
         <meta name="referrer" content="no-referrer">
         <meta http-equiv="X-DNS-Prefetch-Control" content="off">
         <style>
@@ -95,9 +94,9 @@ struct ScoutSandboxWidget: Equatable {
         </style>
         <style>\(Self.escapeRawText(css, element: "style"))</style>
         </head><body>
-        \(bootstrap)
+        \(interactive ? bootstrap : "")
         \(html)
-        \(widgetScript)
+        \(interactive ? widgetScript : "")
         </body></html>
         """
 
@@ -106,7 +105,7 @@ struct ScoutSandboxWidget: Equatable {
         return """
         <!doctype html><html lang="en"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="\(Self.policy)">
+        <meta http-equiv="Content-Security-Policy" content="\(policy)">
         <style>
           :root { color-scheme: light dark; }
           html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
@@ -114,7 +113,7 @@ struct ScoutSandboxWidget: Equatable {
         </style>
         </head><body>
         <iframe title="\(Self.escapeAttribute(title.isEmpty ? "Interactive widget" : title))"
-          sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="\(Self.escapeAttribute(content))"></iframe>
+          sandbox="\(interactive ? "allow-scripts" : "")" referrerpolicy="no-referrer" srcdoc="\(Self.escapeAttribute(content))"></iframe>
         </body></html>
         """
     }
