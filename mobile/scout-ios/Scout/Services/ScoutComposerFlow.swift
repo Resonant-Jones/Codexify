@@ -27,6 +27,7 @@ final class ScoutComposerFlow: ObservableObject {
     @Published private(set) var taskID: String?
     private(set) var scope: Scope?
     private var revision = 0
+    private var finishingResponse: UUID?
 
     var isWorking: Bool { phase == .saving || phase == .requesting }
     var isWaitingForReply: Bool { phase == .requesting || (phase == .pending && status == nil) }
@@ -38,6 +39,7 @@ final class ScoutComposerFlow: ObservableObject {
     func select(_ scope: Scope?) {
         guard self.scope != scope else { return }
         revision += 1
+        finishingResponse = nil
         self.scope = scope
         draft = ""
         optionsPresented = false
@@ -149,6 +151,50 @@ final class ScoutComposerFlow: ObservableObject {
     func observationEnded(taskID: String, scope: Scope) {
         guard self.scope == scope, self.taskID == taskID, phase == .pending else { return }
         status = "Response outcome is unconfirmed. Check response status; nothing was retried."
+    }
+
+    func isPending(taskID: String, scope: Scope) -> Bool {
+        self.scope == scope && self.taskID == taskID && phase == .pending
+    }
+
+    /// Reconcile the accepted task using read-only operations. A completed receipt
+    /// remains pending here until the canonical messages have been read successfully.
+    func recoverResponse(
+        taskID: String, scope: Scope,
+        retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8)]
+            + Array(repeating: .seconds(10), count: 28),
+        isCurrent: () -> Bool,
+        readReceipts: () async -> ScoutThreadTasksResult,
+        refreshMessages: () async -> ScoutConversationState.RefreshOutcome?
+    ) async {
+        var delays = retryDelays.makeIterator()
+        while isPending(taskID: taskID, scope: scope), isCurrent(), !Task.isCancelled {
+            let result = await readReceipts()
+            guard isPending(taskID: taskID, scope: scope), isCurrent(), !Task.isCancelled else { return }
+            if let code = result.httpStatus, [400, 401, 403, 404, 422].contains(code) { return }
+            if let event = result.tasks?.first(where: { $0.task_id == taskID })?.event_type,
+               await finishResponse(event, taskID: taskID, scope: scope, isCurrent: isCurrent,
+                                    refreshMessages: refreshMessages) { return }
+            guard let delay = delays.next() else { return }
+            do { try await Task.sleep(for: delay) } catch { return }
+        }
+    }
+
+    @discardableResult
+    func finishResponse(
+        _ event: String, taskID: String, scope: Scope, isCurrent: () -> Bool,
+        refreshMessages: () async -> ScoutConversationState.RefreshOutcome?
+    ) async -> Bool {
+        guard isPending(taskID: taskID, scope: scope), isCurrent(), !Task.isCancelled else { return false }
+        guard event == "task.completed" else { return terminal(event, taskID: taskID, scope: scope) }
+        guard finishingResponse == nil else { return false }
+        let ticket = UUID()
+        finishingResponse = ticket
+        defer { if finishingResponse == ticket { finishingResponse = nil } }
+        guard case .refreshed? = await refreshMessages(), isCurrent(), !Task.isCancelled,
+              finishingResponse == ticket, terminal(event, taskID: taskID, scope: scope) else { return false }
+        status = "Task completed. Messages refreshed."
+        return true
     }
 
     @discardableResult
