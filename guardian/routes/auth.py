@@ -34,6 +34,7 @@ from guardian.core.preview_access import (
     normalize_preview_email,
     role_for_preview_email,
 )
+from guardian.core.preview_login_limit import enforce_preview_login_limit
 from guardian.core.request_correlation import normalize_request_id
 from guardian.core.session_store import DEFAULT_SESSION_TTL_SECONDS, get_session_store
 from guardian.db.models import User
@@ -238,6 +239,8 @@ def login_user(body: AuthLoginRequest, request: Request = None) -> dict[str, Any
     identity = qualification.request_attempt(request)
     qualification.observe(identity, "account_login", "waiting")
     try:
+        if is_private_preview():
+            enforce_preview_login_limit(body.username, request)
         result = _login_user(body)
     except HTTPException as exc:
         qualification.observe(identity, "account_login", "failed", exc.status_code)
