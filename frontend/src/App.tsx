@@ -341,7 +341,7 @@ function WelcomeScreen({ onEnter }: { onEnter: () => void }) {
                 className="mt-2 text-sm leading-6"
                 style={{ color: "var(--text)" }}
               >
-                Guardian, Dashboard, Documents, and Gallery stay locked until
+                Guardian, Feed, and Library stay locked until
                 the real runtime proves it is ready.
               </p>
             </div>
