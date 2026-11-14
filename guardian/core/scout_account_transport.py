@@ -103,6 +103,26 @@ def account_route(path: str, method: str) -> bool:
         in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
         or (path == "/api/projects" and method in {"GET", "POST"})
         or library_read_route(path, method)
+        or saved_widget_route(path, method)
+    )
+
+
+def saved_widget_route(path: str, method: str) -> bool:
+    """Explicit promotion and existing account-scoped reads only."""
+    if path.startswith("/api/"):
+        path = path[4:]
+    if path == "/saved-widgets":
+        return method in {"GET", "POST"}
+    parts = path.split("/")
+    if len(parts) not in {3, 4, 5} or parts[1] != "saved-widgets":
+        return False
+    if not parts[2] or parts[2] in {".", ".."} or "\\" in parts[2]:
+        return False
+    if len(parts) == 4 and parts[3] == "revisions" and method == "POST":
+        return True
+    return method == "GET" and (
+        len(parts) == 3
+        or (parts[3] == "revisions" and (len(parts) == 4 or parts[4].isdigit()))
     )
 
 

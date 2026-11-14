@@ -88,6 +88,109 @@ final class ScoutLibraryTests: XCTestCase {
         }
     }
 
+    func testWidgetCandidatesKeepOriginalMarkerIndexAndRequirePersistedAssistant() throws {
+        let raw = #"{"version":1,"kind":"sandbox","html":"<button>Go</button>","js":"document.body.onclick=()=>{}"}"#
+        let encoded = raw.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+        let content = "<!-- cfy-ui:invalid --> <!-- cfy-ui:\(encoded) -->"
+        let message = ScoutChatMessageSummary(id: 12, role: "assistant", content: content, created_at: nil, updated_at: nil)
+        XCTAssertEqual(ScoutSavedWidgets.candidates(message).map(\.id), [1])
+        let user = ScoutChatMessageSummary(id: 12, role: "user", content: content, created_at: nil, updated_at: nil)
+        XCTAssertTrue(ScoutSavedWidgets.candidates(user).isEmpty)
+    }
+
+    func testWidgetSaveSendsCoordinatesAndVersionWithoutExecutableContent() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScoutLibraryURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ScoutLibraryURLProtocol.handler = nil }
+        ScoutLibraryURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/saved-widgets/sw_test/revisions")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-API-Key"), "test-key")
+            var body = request.httpBody ?? Data()
+            if let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    body.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            let fields = try JSONSerialization.jsonObject(with: body) as! [String: Int]
+            XCTAssertEqual(fields, ["thread_id": 10, "message_id": 20, "artifact_index": 1, "base_revision": 1])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"revision":2}"#.utf8))
+        }
+        let service = ScoutSavedWidgets(transport: ScoutLibraryService(endpoint: endpoint, apiKey: "test-key", session: session))
+        let target = ScoutSavedWidget(widget_id: "sw_test", name: "Calculator", current_revision: 1)
+        let version = try await service.save(thread: 10, message: 20, index: 1, name: "Ignored", target: target)
+        XCTAssertEqual(version, 2)
+    }
+
+    func testWithheldSavedWidgetCannotLaunch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScoutLibraryURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ScoutLibraryURLProtocol.handler = nil }
+        ScoutLibraryURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"widget_id":"sw_test","revision":1,"artifact_snapshot":null}"#.utf8))
+        }
+        let service = ScoutSavedWidgets(transport: ScoutLibraryService(endpoint: endpoint, apiKey: "test-key", session: session))
+        do {
+            _ = try await service.launch(.init(widget_id: "sw_test", name: "Unavailable", current_revision: 1), revision: 1)
+            XCTFail("Withheld code must not launch")
+        } catch { XCTAssertTrue(error is ScoutLibraryError) }
+    }
+
+    func testWidgetSaveExplainsKnownServerRejectionWithoutDuplicateAdvice() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScoutLibraryURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ScoutLibraryURLProtocol.handler = nil }
+        ScoutLibraryURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"detail":{"error":"artifact_not_eligible","reasons":["artifact_missing_executable_code"]}}"#.utf8))
+        }
+        let service = ScoutSavedWidgets(transport: ScoutLibraryService(endpoint: endpoint, apiKey: "test-key", session: session))
+        do {
+            _ = try await service.save(thread: 10, message: 20, index: 0, name: "Synth", target: nil)
+            XCTFail("Rejected save succeeded")
+        } catch {
+            let message = ScoutSavedWidgets.saveFailureMessage(error)
+            XCTAssertTrue(message.contains("no supported widget program"))
+            XCTAssertFalse(message.contains("duplicate"))
+        }
+    }
+
+    func testWidgetSaveBoundsUntrustedErrorBodies() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScoutLibraryURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ScoutLibraryURLProtocol.handler = nil }
+        ScoutLibraryURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!,
+             Data(repeating: 65, count: 20 * 1024))
+        }
+        do {
+            _ = try await ScoutSavedWidgets(transport: ScoutLibraryService(endpoint: endpoint, apiKey: "test-key", session: session))
+                .save(thread: 10, message: 20, index: 0, name: "Synth", target: nil)
+            XCTFail("Rejected save succeeded")
+        } catch {
+            guard case ScoutLibraryError.http(422) = error else { return XCTFail("Oversized error body was retained") }
+        }
+    }
+
+    func testWidgetSaveOnlyShowsKnownReasonsAndDistinguishesConflicts() {
+        let body = Data(#"{"detail":{"error":"artifact_not_eligible","reasons":["untrusted server text"]}}"#.utf8)
+        let text = ScoutSavedWidgets.saveFailureMessage(ScoutLibraryError.rejected(422, body))
+        XCTAssertFalse(text.contains("untrusted server text"))
+        XCTAssertTrue(text.contains("did not pass validation"))
+        XCTAssertTrue(ScoutSavedWidgets.saveFailureMessage(ScoutLibraryError.http(409)).contains("refresh its versions"))
+        XCTAssertFalse(ScoutSavedWidgets.saveFailureMessage(ScoutLibraryError.http(409)).contains("duplicate"))
+        XCTAssertTrue(ScoutSavedWidgets.saveFailureMessage(ScoutLibraryError.http(500)).contains("Check Library"))
+    }
+
     func testPagingDistinguishesAFullFinalPageFromMoreResults() throws {
         let records = (0..<100).map { ["id": String($0)] }
         let finalData = try JSONSerialization.data(withJSONObject: ["images": records, "count": 100, "next_offset": NSNull()])
