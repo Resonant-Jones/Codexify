@@ -81,8 +81,25 @@ def test_preview_nginx_uses_only_query_free_metadata():
     ):
         assert forbidden not in declaration
     assert "access_log /var/log/nginx/access.log preview_metadata;" in config
-    # Error logs have no redaction formatter; even pre-location parse errors
-    # must be discarded. Query strings still reach Guardian unchanged.
-    assert config.index("error_log /dev/null;") < config.index("server {")
+    for diagnostic in (
+        "$time_iso8601",
+        "$request_id",
+        "$upstream_status",
+        "$upstream_connect_time",
+        "$upstream_header_time",
+        "$upstream_response_time",
+    ):
+        assert diagnostic in declaration
+    # The public server is the explicit default: early request parse errors
+    # inherit its suppression. Do not suppress unrelated internal/process logs.
+    public_start = config.index("server {")
+    internal_start = config.rindex("server {")
+    public = config[public_start:internal_start]
+    internal = config[internal_start:]
+    assert "listen 8080 default_server;" in public
+    assert "error_log /dev/null;" in public
+    assert "error_log" not in config[:public_start]
+    assert "error_log" not in internal
+    assert config.count("error_log /dev/null;") == 1
     assert "proxy_pass http://guardian_backend;" in config
     assert "proxy_pass http://guardian_backend$uri" not in config

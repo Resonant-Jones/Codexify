@@ -132,6 +132,12 @@ export function toWorkspaceDocument(raw: unknown): DocumentLike | null {
     title,
     ext,
     type: candidate.type === "codex_entry" ? "codex_entry" : "file",
+    artifactType:
+      candidate.artifactType === "generated" || candidate.artifact_type === "generated"
+        ? "generated"
+        : candidate.artifactType === "uploaded" || candidate.artifact_type === "uploaded"
+          ? "uploaded"
+          : undefined,
     content:
       normalizeString(candidate.content) ??
       normalizeString(candidate.parsed_text) ??

@@ -138,7 +138,7 @@ final class ScoutLibraryTests: XCTestCase {
         }
         let service = ScoutSavedWidgets(transport: ScoutLibraryService(endpoint: endpoint, apiKey: "test-key", session: session))
         do {
-            _ = try await service.launch(.init(widget_id: "sw_test", name: "Unavailable", current_revision: 1), revision: 1)
+            _ = try await service.artifact(.init(widget_id: "sw_test", name: "Unavailable", current_revision: 1), revision: 1)
             XCTFail("Withheld code must not launch")
         } catch { XCTAssertTrue(error is ScoutLibraryError) }
     }

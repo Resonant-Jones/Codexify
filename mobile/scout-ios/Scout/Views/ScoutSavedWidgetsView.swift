@@ -9,6 +9,7 @@ private func widgetService(_ data: Data) throws -> ScoutSavedWidgets {
 struct ScoutSavedWidgetsView: View {
     var isActive: Bool
     @AppStorage("scout.activeEndpointProfile") private var profile = Data()
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var widgets: [ScoutSavedWidget] = []
     @State private var next: Int?
     @State private var busy = false
@@ -18,15 +19,30 @@ struct ScoutSavedWidgetsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Saved widgets", systemImage: "square.stack.3d.up").font(.headline)
-            Text("Launch independently. Each launch starts fresh.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).foregroundStyle(.secondary) }
             if busy { ProgressView("Loading widgets…") }
             if widgets.isEmpty && !busy && error == nil { Text("Save a widget from a Guardian response to see it here.") }
-            ForEach(widgets) { widget in
-                Button { selected = widget } label: {
-                    HStack { Text(widget.name); Spacer(); Text("Version \(widget.current_revision)").font(.caption) }
-                        .frame(minHeight: 44)
-                }.buttonStyle(.bordered)
+            if let service = try? widgetService(profile) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 240 : 145),
+                                             spacing: ScoutVisualStyle.inset)], spacing: ScoutVisualStyle.inset) {
+                    ForEach(widgets) { widget in
+                        Button { selected = widget } label: {
+                            VStack(alignment: .leading, spacing: ScoutVisualStyle.gap) {
+                                ScoutSavedWidgetThumbnail(widget: widget, service: service)
+                                    .frame(height: 126)
+                                    .frame(maxWidth: .infinity)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: ScoutVisualStyle.radius / 2))
+                                    .clipShape(RoundedRectangle(cornerRadius: ScoutVisualStyle.radius / 2))
+                                Text(widget.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                Text("Version \(widget.current_revision)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .modifier(ScoutPanel(secondary: true, verticalInset: ScoutVisualStyle.inset / 2))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens this widget’s launch controls")
+                    }
+                }
             }
             if let next { Button("Load more widgets") { Task { await load(next) } }.disabled(busy) }
             Button("Refresh widgets") { Task { await load() } }.disabled(busy)
@@ -52,6 +68,29 @@ struct ScoutSavedWidgetsView: View {
     }
 }
 
+private struct ScoutSavedWidgetThumbnail: View {
+    let widget: ScoutSavedWidget
+    let service: ScoutSavedWidgets
+    @State private var source: ScoutSandboxWidget?
+
+    var body: some View {
+        Group {
+            if let source {
+                ScoutWidgetThumbnail(widget: source)
+            } else {
+                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: widget) {
+            source = nil
+            let preview = try? await service.artifact(widget, revision: widget.current_revision)
+            if !Task.isCancelled { source = preview }
+        }
+    }
+}
+
 private struct ScoutSavedWidgetLaunch: View {
     let widget: ScoutSavedWidget
     let service: ScoutSavedWidgets
@@ -63,17 +102,27 @@ private struct ScoutSavedWidgetLaunch: View {
     @State private var error: String?
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    Picker("Version", selection: $revision) {
-                        ForEach(revisions, id: \.self) { Text("Version \($0)").tag($0) }
-                    }.disabled(busy)
-                    if let error { Text(error) }
-                    if busy { ProgressView() }
-                    if let running { ScoutSandboxWidgetView(widget: running, isActive: true).id(revision) }
-                    else { Button("Launch widget") { Task { await launch() } }.buttonStyle(.borderedProminent).disabled(busy || revision < 1) }
-                }.padding()
+            VStack(spacing: ScoutVisualStyle.gap) {
+                Picker("Version", selection: $revision) {
+                    ForEach(revisions, id: \.self) { Text("Version \($0)").tag($0) }
+                }.disabled(busy)
+                if let error { Text(error).font(.footnote).foregroundStyle(.secondary) }
+                if let running {
+                    ScoutSandboxWidgetView(widget: running, isActive: true, fillsAvailableHeight: true).id(revision)
+                } else {
+                    Spacer()
+                    if busy {
+                        ProgressView("Opening widget…")
+                    } else {
+                        Button("Launch widget") { Task { await launch() } }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(revision < 1)
+                    }
+                    Spacer()
+                }
             }
+            .padding(ScoutVisualStyle.inset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(widget.name)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { running = nil; dismiss() } } }
         }
@@ -81,14 +130,20 @@ private struct ScoutSavedWidgetLaunch: View {
         .task {
             revision = widget.current_revision
             revisions = [revision]
-            do { revisions = try await service.revisions(widget) } catch { self.error = error.localizedDescription }
+            do {
+                let available = try await service.revisions(widget)
+                if !Task.isCancelled { revisions = available.isEmpty ? [revision] : available }
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
     @MainActor private func launch() async {
         busy = true; error = nil
         defer { busy = false }
-        do { running = try await service.launch(widget, revision: revision) }
-        catch { self.error = error.localizedDescription }
+        let requested = revision
+        do {
+            let artifact = try await service.artifact(widget, revision: requested)
+            if !Task.isCancelled, revision == requested { running = artifact }
+        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }
 

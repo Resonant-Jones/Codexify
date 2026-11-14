@@ -42,16 +42,29 @@ account authenticated; availability is not proof of a successful consent flow.
 
 Nginx's inherited combined log includes `$request` and Referer, both of which can
 contain callback code/state. The prepared HTTP-level format logs only method,
-normalized URI path, status, byte count and duration. It deliberately does not log
+normalized URI path, status, byte count, timestamp, generated request ID, duration
+and upstream status/connect/header/response timing, encoded as JSON. It deliberately does not log
 request headers, query strings, upstream URLs or Referer. Proxy traffic still
 carries the original query to Guardian.
 
 Nginx error messages cannot be reformatted reliably and can include the entire
-request before location selection. The prepared config discards HTTP-context
-error logs via `/dev/null`; access status/timing remain available. This is an
-explicit diagnostic tradeoff to review in the final deployment candidate. Do not
-restore raw error logging during real consent troubleshooting. Startup config
-errors outside HTTP request processing remain operational diagnostics.
+request before location selection. The public Preview server is explicitly the
+default server and discards its request error logs via `/dev/null`; query-free
+access correlation/status/timing remain available, including upstream failures.
+Suppression is **server-scoped**, not HTTP-global: internal capability server
+errors and process/startup configuration errors retain their inherited logging.
+The tradeoff is loss of detailed public request error text, including errors on
+non-callback public routes. Exact callback-location suppression is insufficient
+for malformed/oversized requests that fail before location selection. Restoring
+raw public errors requires an independently proven redacting sink first.
+
+Nginx documents the [error-log inheritance boundary](https://docs.nginx.com/nginx/admin-guide/monitoring/logging/)
+and [default-server selection stages](https://nginx.org/en/docs/http/server_names.html#virtual_server_selection).
+The narrower configuration follows those documented boundaries; effective
+behavior on the deployed nginx version still requires the sentinel proof below.
+Do not apply debug logging or add a second raw public error sink while consent
+is active. Confirm the actual tunnel routes registered public callbacks to the
+public server, not the internal capability Host.
 
 Backend log sanitization removes the entire known callback query, including
 unknown/encoded parameter names and provider error text. Standalone `state`
@@ -70,8 +83,8 @@ cloudflared diagnostics, or third-party telemetry omit query strings.
 1. Establish a stable final serving candidate incorporating Preview-specific
    source and preserved local configuration. Use a disposable deployment with no
    real secrets, accounts or provider access. Never point its mounts/DB/volumes at
-   the live project. Validate effective `nginx -T` inheritance, not just this
-   source fragment, and confirm the backend logging entry point installs the
+   the live project. Validate effective `nginx -T` inheritance and default-server selection, not
+   just this source fragment, and confirm the backend logging entry point installs the
    sanitizer before serving requests.
 2. Send unique synthetic `code`, `state`, `error_description` and unknown-parameter
    sentinels to both callback paths, with no account cookie and no OAuth nonce.
@@ -84,7 +97,9 @@ cloudflared diagnostics, or third-party telemetry omit query strings.
 3. Capture only this disposable run's nginx access/error, backend access/error,
    process stdout/stderr, tunnel logs and telemetry. Assert zero occurrences of
    every raw and percent-encoded sentinel; retain counts and test IDs, not full
-   logs from real traffic. Access records must still show status and timing.
+   logs from real traffic. Access records must still show generated request ID, timestamp, status and
+   upstream timing. Verify process/startup and internal capability diagnostics
+   are retained using disposable, non-sensitive faults; never induce live faults.
    A passing application sanitizer test cannot replace effective logger testing.
 4. Map the actual public callback ingress chain through DNS/tunnel/any Worker.
    Review enabled Cloudflare HTTP/Access/WAF/Logpush fields, retention, request-URL
