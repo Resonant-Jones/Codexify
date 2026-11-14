@@ -871,6 +871,7 @@ function extractTransportErrorSignal(error: any): string {
 
 export function isBackendRuntimeUnavailableError(error: any): boolean {
   if (!error) return false;
+  if (["ERR_BACKEND_OUTAGE_FUSE", "ERR_CLIENT_RATE_GUARD", "ERR_CANCELED"].includes(error?.code)) return false;
   if (isBackendTransportError(error)) return true;
   if (isBackendProxyOutageResponse(error)) return true;
   return Boolean(extractTransportErrorSignal(error));
@@ -1116,6 +1117,7 @@ export async function preflightBackendAvailability(
         technicalDetail: `health returned ${response.status}`,
       };
     }
+    clearBackendOutage();
     return { ok: true };
   } catch (error: any) {
     if (error?.response) {
@@ -1144,6 +1146,31 @@ function computeBackendOutageDelayMs(failures: number): number {
   );
 }
 
+function isCanonicalBackendProbe(url: unknown): boolean {
+  if (typeof url !== "string") return false;
+  let path: string;
+  try {
+    path = new URL(url, "http://localhost").pathname.replace(/\/+$/, "");
+  } catch {
+    return false;
+  }
+  if (/^(?:\/api)?\/(?:health(?:\/chat|\/llm)?|llm\/catalog)$/i.test(path)) return true;
+
+  const actual = new URL(url, "http://localhost");
+  return ["/health", "/health/chat", "/health/llm", "/llm/catalog",
+    "/api/health", "/api/health/chat", "/api/health/llm", "/api/llm/catalog"]
+    .some((probe) => {
+      const resolved = new URL(resolveApiUrl(probe), "http://localhost");
+      const base = new URL(getRuntimeConfigSync().apiBaseUrl, "http://localhost");
+      const basePath = base.pathname.replace(/\/+$/, "");
+      const suffix = basePath.toLowerCase().endsWith("/api") ? probe.replace(/^\/api(?=\/)/i, "") : probe;
+      const joinedPath = `${basePath}${suffix}`;
+      const actualPath = actual.pathname.replace(/\/+$/, "").toLowerCase();
+      return (actual.origin === resolved.origin && actualPath === resolved.pathname.replace(/\/+$/, "").toLowerCase()) ||
+        (actual.origin === base.origin && actualPath === joinedPath.toLowerCase());
+    });
+}
+
 function shouldApplyBackendOutageFuse(url: unknown): boolean {
   if (typeof url !== "string") return true;
   // Canonical health and catalog probes must always reach the backend, even
@@ -1155,9 +1182,7 @@ function shouldApplyBackendOutageFuse(url: unknown): boolean {
   // the fuse via the response interceptor, so exempting these paths here
   // restores the recovered-backend signal without disabling outage throttling
   // for the routes that the fuse was designed to protect.
-  if (/\/health(?:\/chat)?(?:[/?#]|$)/i.test(url)) return false;
-  if (/\/api\/health\/llm(?:[/?#]|$)/i.test(url)) return false;
-  if (/\/llm\/catalog(?:[/?#]|$)/i.test(url)) return false;
+  if (isCanonicalBackendProbe(url)) return false;
   if (/\/assets\/|\.hot-update/i.test(url)) return false;
   return true;
 }
@@ -1372,6 +1397,8 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  const canonicalProbe = isCanonicalBackendProbe(config.url);
+  (config as any).__cfyCanonicalBackendProbe = canonicalProbe;
   const now = Date.now();
   if (
     shouldApplyBackendOutageFuse(config.url) &&
@@ -1509,7 +1536,7 @@ api.interceptors.response.use(
     // healthy enough to lift a latched outage fuse. A successful chat or asset
     // response does not — those routes can succeed while the canonical
     // surfaces are still in transport-failure recovery.
-    if (shouldApplyBackendOutageFuse(response?.config?.url)) {
+    if ((response?.config as any)?.__cfyCanonicalBackendProbe) {
       clearBackendOutage();
     }
     return response;
@@ -1527,15 +1554,6 @@ api.interceptors.response.use(
       applyBackendOutage("transport");
     } else if (isBackendProxyOutageResponse(error)) {
       applyBackendOutage(`proxy:${Number(error?.response?.status ?? 0)}`);
-    } else if (
-      error?.response &&
-      shouldApplyBackendOutageFuse(error?.config?.url)
-    ) {
-      // A server response to a non-canonical route only proves that route is
-      // reachable. It is not authoritative evidence that the Guardian backend
-      // itself is healthy; do not let it clear a fuse latched by canonical
-      // health or catalog transport failures.
-      clearBackendOutage();
     }
 
     if (
