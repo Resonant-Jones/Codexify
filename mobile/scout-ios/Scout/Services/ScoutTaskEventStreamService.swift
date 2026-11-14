@@ -90,77 +90,43 @@ struct ScoutSSEParser {
 }
 
 struct ScoutTaskEventStreamService {
+    private struct HTTPFailure: LocalizedError {
+        let status: Int
+
+        var errorDescription: String? { "The task event stream returned HTTP \(status)." }
+    }
 
     static func streamEvents(
         endpoint: ScoutEndpointProfile,
         taskId: String,
         apiKey: String? = nil,
         lastId: String = "0-0",
-        session: URLSession = .scoutAuthenticated
+        session: URLSession = .scoutAuthenticated,
+        retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8)],
+        isCurrent: @escaping @MainActor () -> Bool = { true }
     ) -> AsyncThrowingStream<ScoutTaskEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var cursor = lastId
+                var delays = retryDelays.makeIterator()
+
                 do {
-                    var urlString = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if urlString.hasSuffix("/") {
-                        urlString = String(urlString.dropLast())
-                    }
-                    urlString += "/api/tasks/\(taskId)/events?last_id=\(lastId)"
-
-                    guard let url = URL(string: urlString),
-                          let scheme = url.scheme, !scheme.isEmpty,
-                          url.host != nil else {
-                        continuation.finish(throwing: URLError(.badURL))
-                        return
-                    }
-
-                    var request = URLRequest(url: url)
-                    request.timeoutInterval = 30
-
-                    try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
-
-                    let (bytes, response) = try await session.bytes(for: request)
-                    if let http = response as? HTTPURLResponse {
-                        try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
-                    }
-
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          (200..<300).contains(httpResponse.statusCode) else {
-                        continuation.finish(throwing: URLError(.badServerResponse))
-                        return
-                    }
-
-                    var line = Data()
-                    var frame = Data()
-
-                    for try await byte in bytes {
-                        guard !Task.isCancelled else {
+                    while !Task.isCancelled, await isCurrent() {
+                        do {
+                            try await readConnection(endpoint: endpoint, taskId: taskId, apiKey: apiKey,
+                                                     cursor: cursor, session: session, isCurrent: isCurrent) { event in
+                                if let id = event.eventId {
+                                    guard id != cursor else { return }
+                                    cursor = id
+                                }
+                                continuation.yield(event)
+                            }
                             continuation.finish()
                             return
+                        } catch {
+                            guard isRetryable(error), let delay = delays.next() else { throw error }
+                            try await Task.sleep(for: delay)
                         }
-
-                        line.append(byte)
-                        guard byte == 0x0A else { continue }
-
-                        frame.append(line)
-                        let blankLine = line.count == 1 || (line.count == 2 && line.first == 0x0D)
-                        line.removeAll(keepingCapacity: true)
-                        guard blankLine else { continue }
-
-                        let events = ScoutSSEParser.parse(String(decoding: frame, as: UTF8.self))
-                        frame.removeAll(keepingCapacity: true)
-                        for event in events {
-                            continuation.yield(event)
-                            if event.isTerminal {
-                                continuation.finish()
-                                return
-                            }
-                        }
-                    }
-
-                    frame.append(line)
-                    for event in ScoutSSEParser.parse(String(decoding: frame, as: UTF8.self)) {
-                        continuation.yield(event)
                     }
                     continuation.finish()
                 } catch {
@@ -171,6 +137,68 @@ struct ScoutTaskEventStreamService {
             continuation.onTermination = { _ in
                 task.cancel()
             }
+        }
+    }
+
+    private static func readConnection(
+        endpoint: ScoutEndpointProfile, taskId: String, apiKey: String?, cursor: String, session: URLSession,
+        isCurrent: @MainActor () -> Bool, receive: (ScoutTaskEvent) -> Void
+    ) async throws {
+        var baseURL = endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if baseURL.hasSuffix("/") { baseURL.removeLast() }
+        guard var components = URLComponents(string: baseURL + "/api/tasks/\(taskId)/events"),
+              let scheme = components.scheme, !scheme.isEmpty, components.host != nil else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "last_id", value: cursor)]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey)
+        guard await isCurrent() else { return }
+        try Task.checkCancellation()
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
+        guard (200..<300).contains(http.statusCode) else { throw HTTPFailure(status: http.statusCode) }
+
+        var line = Data()
+        var frame = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            line.append(byte)
+            guard byte == 0x0A else { continue }
+
+            frame.append(line)
+            let blankLine = line.count == 1 || (line.count == 2 && line.first == 0x0D)
+            line.removeAll(keepingCapacity: true)
+            guard blankLine else { continue }
+
+            let events = ScoutSSEParser.parse(String(decoding: frame, as: UTF8.self))
+            frame.removeAll(keepingCapacity: true)
+            for event in events {
+                receive(event)
+                if event.isTerminal { return }
+            }
+        }
+
+        // A partial final frame cannot advance the cursor or establish completion.
+        throw URLError(.networkConnectionLost)
+    }
+
+    private static func isRetryable(_ error: Error) -> Bool {
+        if let http = error as? HTTPFailure {
+            return [408, 500, 502, 503, 504].contains(http.status)
+        }
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .networkConnectionLost, .timedOut, .notConnectedToInternet, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .resourceUnavailable:
+            return true
+        default:
+            return false
         }
     }
 }
