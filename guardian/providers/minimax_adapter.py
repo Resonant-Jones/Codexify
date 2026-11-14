@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import json
 import os
 from typing import Any, Iterator
@@ -277,6 +279,7 @@ class MiniMaxAdapter(ChatProvider):
         }
 
     def generate(self, prompt: str, model: str | None = None, **kw) -> str:
+        deny_unqualified_spend()
         if self.api_flavor == "anthropic":
             return self._generate_anthropic(prompt, model=model, **kw)
 
@@ -322,6 +325,7 @@ class MiniMaxAdapter(ChatProvider):
     def _generate_anthropic(
         self, prompt: str, model: str | None = None, **kw
     ) -> str:
+        deny_unqualified_spend()
         resolved_model = self._resolve_model(model)
         messages, system_prompt = _normalize_anthropic_messages(prompt, kw)
         request_timeout = float(kw.pop("timeout", self.timeout))
@@ -357,6 +361,7 @@ class MiniMaxAdapter(ChatProvider):
     def stream(
         self, prompt: str, model: str | None = None, **kw
     ) -> Iterator[str]:
+        deny_unqualified_spend()
         if self.api_flavor == "anthropic":
             yield from self._stream_anthropic(prompt, model=model, **kw)
             return
@@ -424,6 +429,7 @@ class MiniMaxAdapter(ChatProvider):
     def _stream_anthropic(
         self, prompt: str, model: str | None = None, **kw
     ) -> Iterator[str]:
+        deny_unqualified_spend()
         resolved_model = self._resolve_model(model)
         messages, system_prompt = _normalize_anthropic_messages(prompt, kw)
         request_timeout = float(kw.pop("timeout", self.timeout))

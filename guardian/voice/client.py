@@ -45,6 +45,11 @@ def transcribe(
             timeout_seconds=timeout_seconds,
         )
 
+    # A remote voice service has independent credentials and configuration.
+    # Do not forward a request whose spend cannot be bounded here.
+    from guardian.metering.runtime import deny_unqualified_spend
+
+    deny_unqualified_spend()
     endpoint = f"{service_url.rstrip('/')}/transcribe"
     files = {
         "audio_file": ("voice-input.wav", audio_bytes, mime_type or "audio/wav")
@@ -87,6 +92,11 @@ def synthesize(
             timeout_seconds=timeout_seconds,
         )
 
+    # A remote voice service has independent credentials and configuration.
+    # Do not forward a request whose spend cannot be bounded here.
+    from guardian.metering.runtime import deny_unqualified_spend
+
+    deny_unqualified_spend()
     endpoint = f"{service_url.rstrip('/')}/synthesize"
     timeout = float(timeout_seconds or cfg.tts_timeout_seconds)
     payload = {

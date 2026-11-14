@@ -1,3 +1,5 @@
+
+from guardian.metering.runtime import deny_unqualified_spend
 # guardian/providers/groq_client.py
 
 import json
@@ -32,6 +34,7 @@ class GroqChatClient:
         self, prompt: str, model: str = "llama-3.1-70b-versatile"
     ) -> str:
         """Synchronous call to Groq chat completions."""
+        deny_unqualified_spend()
         try:
             assert_egress_allowed("groq")
         except EgressDeniedError as exc:
@@ -57,6 +60,7 @@ class GroqChatClient:
         self, prompt: str, model: str = "llama-3.1-70b-versatile"
     ) -> Iterator[str]:
         """Stream tokens from Groq chat completions via SSE."""
+        deny_unqualified_spend()
         try:
             assert_egress_allowed("groq")
         except EgressDeniedError as exc:

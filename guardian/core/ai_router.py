@@ -170,7 +170,19 @@ def _deadline_timeout_pair(timeout: Any) -> tuple[float, float]:
     return seconds, seconds
 
 
-def _post_provider_request(
+def _post_provider_request(url, *, json, **kwargs):
+    from guardian.metering.runtime import guarded_http
+
+    def send(payload, bounded):
+        transport_kwargs = dict(kwargs)
+        if bounded:
+            transport_kwargs["allow_redirects"] = False
+        return _post_provider_request_unbudgeted(url, json=payload, **transport_kwargs)
+
+    return guarded_http(url, json, send)
+
+
+def _post_provider_request_unbudgeted(
     url,
     *,
     json: Any,
@@ -2010,6 +2022,9 @@ def chat_with_ai(
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
+    from guardian.metering.runtime import require_context
+
+    require_context(provider_name)
     target_model = model or _default_model_for_provider(provider_name, settings)
     local_model_resolution: LocalModelResolution | None = None
 
@@ -3955,6 +3970,9 @@ def _call_openai_compatible_chat(
     typed_failure_kinds: bool = False,
     accepted_deadline: AcceptedChatTaskDeadline | None = None,
 ):
+    from guardian.metering.runtime import require_context
+
+    require_context(provider_name)
     try:
         assert_egress_allowed(egress_target, settings=settings)
     except EgressDeniedError as exc:
