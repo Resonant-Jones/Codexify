@@ -594,6 +594,46 @@ def append_saved_widget_revision(
     )
 
 
+def list_saved_widgets(
+    chatlog_db: Any, *, account_id: str, limit: int = 50, offset: int = 0
+) -> tuple[list[dict[str, Any]], int | None]:
+    """List active account-owned metadata without disclosing executable source."""
+    account_id = _require_account_id(account_id)
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("Invalid page")
+    with chatlog_db._sa_session() as session:
+        rows = (
+            session.query(SavedWidget, SavedWidgetRevision.provenance_snapshot)
+            .join(
+                SavedWidgetRevision,
+                (SavedWidgetRevision.widget_id == SavedWidget.widget_id)
+                & (SavedWidgetRevision.revision == SavedWidget.current_revision),
+            )
+            .filter(
+                SavedWidget.owner_user_id == account_id,
+                SavedWidget.lifecycle_state == SAVED_WIDGET_LIFECYCLE_ACTIVE,
+            )
+            .order_by(SavedWidget.updated_at.desc(), SavedWidget.widget_id.desc())
+            .offset(offset)
+            .limit(limit + 1)
+            .all()
+        )
+        return (
+            [
+                {
+                    "widget_id": widget.widget_id,
+                    "name": widget.name,
+                    "current_revision": widget.current_revision,
+                    "created_at": widget.created_at,
+                    "updated_at": widget.updated_at,
+                    "provenance": dict(provenance or {}),
+                }
+                for widget, provenance in rows[:limit]
+            ],
+            offset + limit if len(rows) > limit else None,
+        )
+
+
 def read_saved_widget(
     chatlog_db: Any,
     *,

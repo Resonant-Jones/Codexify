@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceDrawer from "../components/WorkspaceDrawer";
+import type { WorkspaceSelection } from "../workspaceSelection";
 import { useWorkspaceUiState } from "../state/useWorkspaceUiState";
 import {
   BALANCED_SPLIT_MIN_RATIO,
@@ -55,6 +56,7 @@ function WorkspaceDrawerHarness({
   });
   const [layoutMode, setLayoutMode] = React.useState<WorkspaceLayoutMode>(initialLayoutMode);
   const paneRatio = getWorkspacePaneRatioForLayoutMode(layoutMode);
+  const [selectedItem, setSelectedItem] = React.useState<WorkspaceSelection | null>(null);
 
   return (
     <>
@@ -75,6 +77,8 @@ function WorkspaceDrawerHarness({
         routeContext={routeContext}
         isOpen={isOpen}
         activeTab={activeTab}
+        selectedItem={selectedItem}
+        onSelectionChange={setSelectedItem}
         layoutMode={layoutMode}
         paneRatio={paneRatio}
         minPaneRatio={minPaneRatio}

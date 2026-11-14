@@ -12,6 +12,7 @@ struct ScoutGuardianThreadsProbe {
     static func probe(
         endpoint: ScoutEndpointProfile,
         apiKey: String? = nil,
+        offset: Int? = nil,
         accountSession: ScoutAccountSession? = nil,
         session: URLSession = .scoutAuthenticated
     ) async -> ScoutGuardianThreadsResult {
@@ -30,6 +31,7 @@ struct ScoutGuardianThreadsProbe {
             urlString = String(urlString.dropLast())
         }
         urlString += "/api/chat/threads"
+        if let offset = offset { urlString += "?limit=200&offset=\(offset)" }
 
         guard let url = URL(string: urlString),
               let scheme = url.scheme, !scheme.isEmpty,
@@ -47,7 +49,7 @@ struct ScoutGuardianThreadsProbe {
         request.timeoutInterval = 5
 
         do {
-            try ScoutRequestAuthentication.apply(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
+            try await ScoutRequestAuthentication.prepare(to: &request, endpoint: endpoint, apiKey: apiKey, accountSession: accountSession)
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse {
                 try ScoutRequestAuthentication.validate(response: http, endpoint: endpoint, request: request)
@@ -66,13 +68,15 @@ struct ScoutGuardianThreadsProbe {
 
             switch statusCode {
             case 200..<300:
-                let decoded = try? JSONDecoder().decode(ScoutChatThreadsResponse.self, from: data)
+                guard let decoded = try? JSONDecoder().decode(ScoutChatThreadsResponse.self, from: data), decoded.threads != nil else {
+                    return ScoutGuardianThreadsResult(httpStatus: statusCode, threads: nil, hasMore: nil, message: "Could not read threads response.")
+                }
                 return ScoutGuardianThreadsResult(
                     httpStatus: statusCode,
-                    threads: decoded?.threads,
-                    hasMore: decoded?.has_more,
-                    message: decoded?.threads?.isEmpty == false
-                        ? "Loaded \(decoded?.threads?.count ?? 0) threads."
+                    threads: decoded.threads,
+                    hasMore: decoded.has_more,
+                    message: decoded.threads?.isEmpty == false
+                        ? "Loaded \(decoded.threads?.count ?? 0) threads."
                         : "No threads found."
                 )
             case 401, 403:

@@ -50,6 +50,9 @@ def test_chat_complete_queues_latest_user_turn_identity(
     test_client, mock_db, monkeypatch
 ):
     expected_user_id = get_test_user_id()
+    # Canonical thread and User lookups at authenticated acceptance.
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = expected_user_id
     mock_db.get_chat_thread.return_value = {
         "id": 1,
         "user_id": expected_user_id,

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 
 import FrameCard from "@/components/surface/FrameCard";
 
@@ -19,6 +19,8 @@ type WorkspaceDrawerProps = {
   routeContext: WorkspaceRouteContext;
   isOpen: boolean;
   activeTab: WorkspaceDrawerTab;
+  selectedItem: WorkspaceSelection | null;
+  onSelectionChange: (item: WorkspaceSelection) => void;
   layoutMode?: WorkspaceLayoutMode;
   paneRatio?: number;
   minPaneRatio?: number;
@@ -41,6 +43,8 @@ export default function WorkspaceDrawer({
   routeContext,
   isOpen,
   activeTab,
+  selectedItem,
+  onSelectionChange,
   layoutMode = "chat_focus",
   paneRatio = getWorkspacePaneRatioForLayoutMode(layoutMode),
   minPaneRatio,
@@ -51,14 +55,12 @@ export default function WorkspaceDrawer({
   projectId,
   onMoveScratchpadToComposer,
 }: WorkspaceDrawerProps) {
-  const [selectedItem, setSelectedItem] = useState<WorkspaceSelection | null>(null);
-
   const handleShelfItemClick = React.useCallback(
     (item: WorkspaceSelection) => {
-      setSelectedItem(item);
+      onSelectionChange(item);
       onActiveTabChange("inspector");
     },
-    [onActiveTabChange]
+    [onActiveTabChange, onSelectionChange]
   );
 
   const layoutModeLabel = getWorkspaceLayoutModeLabel(layoutMode);

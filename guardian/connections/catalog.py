@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from guardian.connections.knowledge_oauth import enabled as knowledge_oauth_enabled
+
 from guardian.protocol_tokens import (
     ConnectionAuthMethod,
     ConnectionCapability,
@@ -307,26 +309,76 @@ def _notion_knowledge_entry() -> ConnectionCatalogEntry:
             "user-authorized Notion integration. Results remain external "
             "evidence; this connection does not sync, ingest, or write."
         ),
-        auth_methods=(_TOKEN,),
+        auth_methods=(_OAUTH_BROWSER,) if knowledge_oauth_enabled() else (_TOKEN,),
         capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
         implementation_state=_IMPLEMENTED,
         default_setup_state=_NEEDS_SETUP,
         runtime_binding=ConnectionRuntimeBinding(
             subsystem="guardian.connections.notion",
             adapter="guardian.connections.notion.service.NotionClient",
-            setup_route="/api/connect/notion/configure",
+            setup_route="/api/connect/notion/oauth/start"
+            if knowledge_oauth_enabled()
+            else "/api/connect/notion/configure",
         ),
-        required_fields=(
+        required_fields=()
+        if knowledge_oauth_enabled()
+        else (
             ConnectionFieldSpec(
                 "integration_token", "Notion integration token", "password", True
             ),
         ),
         scopes=("content_read",),
         setup_help=(
-            "Create or select a Notion integration with read-content access, "
-            "then share the pages or data sources you want it to search with "
-            "that integration. The token is stored server-side and is never "
-            "returned to the browser."
+            "Authorize selected Notion pages in your browser; credentials remain encrypted server-side. Disconnect removes local access, not provider authorization."
+            if knowledge_oauth_enabled()
+            else (
+                "Create or select a Notion integration with read-content access, "
+                "then share the pages or data sources you want it to search with "
+                "that integration. The token is stored server-side and is never "
+                "returned to the browser."
+            )
+        ),
+    )
+
+
+def _github_knowledge_entry() -> ConnectionCatalogEntry:
+    return ConnectionCatalogEntry(
+        id="github_knowledge",
+        display_name="GitHub Knowledge",
+        category=ConnectionCategory.KNOWLEDGE.value,
+        description="Read-only issue and pull-request discovery and body reading within explicitly allowed repositories; separate from GitHub sync.",
+        auth_methods=(_OAUTH_BROWSER,) if knowledge_oauth_enabled() else (_TOKEN,),
+        capabilities=frozenset({_CONTENT_SEARCH, _CONTENT_READ}),
+        implementation_state=ConnectionImplementationState.EXPERIMENTAL.value,
+        default_setup_state=_UNAVAILABLE,
+        runtime_binding=ConnectionRuntimeBinding(
+            subsystem="guardian.connections.github",
+            adapter="guardian.connections.github.service.GitHubClient",
+            setup_route="/api/connect/github-knowledge/oauth/start"
+            if knowledge_oauth_enabled()
+            else "/api/connect/github-knowledge/configure",
+        ),
+        required_fields=()
+        if knowledge_oauth_enabled()
+        else (
+            ConnectionFieldSpec("token", "GitHub read-only token", "password", True),
+            ConnectionFieldSpec(
+                "repositories",
+                "Allowed repositories (owner/repo, comma or newline separated)",
+            ),
+        ),
+        scopes=("content_search", "content_read"),
+        setup_help=(
+            "Authorize in your browser; credentials remain encrypted server-side. GitHub requires explicit repository selection. Disconnect removes local access, not the provider installation."
+            if knowledge_oauth_enabled()
+            else (
+                "Use a fine-grained GitHub token limited to the selected repositories "
+                "with read access to issues and pull requests. Supply one to twenty "
+                "owner/repo names. Codexify stores the token encrypted server-side. "
+                "This pilot reads issue/PR bodies, not files, comments or diffs, and "
+                "does not sync or write. Guardian use currently requires the opt-in "
+                "local single-account DeepSeek lane; Private Preview remains unavailable."
+            )
         ),
     )
 
@@ -587,7 +639,7 @@ def _build_catalog() -> tuple[ConnectionCatalogEntry, ...]:
     )
 
     # =========================== Knowledge =================================
-    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry()])
+    entries.extend([_notion_knowledge_entry(), _google_drive_knowledge_entry(), _github_knowledge_entry()])
 
     # ============================ Inference ================================
     entries.extend(

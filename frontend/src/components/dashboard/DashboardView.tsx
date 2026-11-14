@@ -1,4 +1,5 @@
 import * as React from "react";
+import FeedLayout from "./FeedLayout";
 import { BookOpen, ChevronRight, FileText, ImagePlus } from "lucide-react";
 import DocumentTile, { type DocumentFile } from "@/components/documents/DocumentTile";
 import { DocumentEmbeddingStatusBadge } from "@/components/documents/documentEmbeddingStatus";
@@ -308,18 +309,7 @@ export default function DashboardView({
 
   const galleryToRender = React.useMemo(() => gallery.filter((item) => !item.mock), [gallery]);
 
-  const dashboardLayoutMode = isPhoneShell ? "mobile_stack" : "desktop_split";
-  const dashboardSurfaceClassName = isPhoneShell
-    ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex h-full min-h-0 gap-[var(--shell-gap)]";
-  const dashboardOuterClassName = isPhoneShell
-    ? "flex-1 min-h-0 overflow-auto p-[var(--board-edge)]"
-    : "flex-1 min-h-0 p-[var(--board-edge)]";
-  const primaryColumnClassName = isPhoneShell
-    ? "flex min-h-0 flex-col gap-[var(--shell-gap)]"
-    : "flex min-h-0 flex-1 flex-col gap-[var(--shell-gap)]";
-  const cardFrameClassName = isPhoneShell ? "w-full min-h-[248px]" : "flex-1 min-h-[260px]";
-  const cardContentClassName = "flex h-full min-h-0 flex-col gap-[var(--shell-gap)]";
+  const cardContentClassName = "flex min-h-0 flex-col gap-[var(--shell-gap)]";
   const cardHeaderClassName = isPhoneShell
     ? "flex flex-col items-start gap-[var(--card-pad)]"
     : "flex items-center justify-between gap-[var(--shell-gap)]";
@@ -340,202 +330,200 @@ export default function DashboardView({
     }),
     [mobileShellProfile.dashboard.documentColumns]
   );
-  const dashboardGalleryOuterClassName = "flex-1 min-h-0 overflow-auto pr-1";
+  const dashboardGalleryOuterClassName = "min-w-0";
+
+  const cards = {
+    threads: (
+      <FrameCard
+        fill={false}
+        refractiveFallback
+        shimmerMode="subtle"
+        className="w-full min-h-[240px]"
+      >
+        <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
+          <div className={cardHeaderClassName}>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
+              <p className="text-xs leading-6 opacity-70">
+                Jump back into a conversation or spin up something new.
+              </p>
+            </div>
+            <div className={compactButtonRowClassName} style={surfaceActionClusterStyle}>
+              <button
+                type="button"
+                className="pill-tab text-xs"
+                data-state="active"
+                onClick={onRequestNewThread}
+                aria-label="Create new thread"
+              >
+                New Thread
+              </button>
+              <button
+                type="button"
+                className="pill-tab text-xs"
+                onClick={onRequestNewProject}
+                aria-label="Create new project"
+              >
+                New Project
+              </button>
+            </div>
+          </div>
+          <div className="relative flex-1 min-h-0">
+            {threadList.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
+                No threads yet. Start one above.
+              </div>
+            ) : (
+              <div
+                className="grid gap-[var(--shell-gap)]"
+                style={threadGridStyle}
+                data-testid="dashboard-recent-threads-grid"
+              >
+                {threadList.map((t) => (
+                  <TileShell
+                    key={t.id}
+                    as="button"
+                    type="button"
+                    className="flex h-full w-full cursor-pointer flex-col justify-between gap-[var(--shell-gap)] px-[var(--card-pad)] py-[var(--card-pad)] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
+                    style={{
+                      background:
+                        "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
+                      borderColor: "color-mix(in oklab,var(--panel-border) 85%,transparent)",
+                    }}
+                    onClick={() => openThread(t.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openThread(t.id);
+                    }}
+                    aria-label={`Open thread ${t.title}`}
+                  >
+                    <span className="text-base font-semibold truncate">{t.title}</span>
+                    {t.lastMessage ? (
+                      <span className="text-xs opacity-70 truncate">{t.lastMessage}</span>
+                    ) : (
+                      <span className="text-xs italic opacity-50">No replies yet</span>
+                    )}
+                  </TileShell>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </FrameCard>
+    ),
+    documents: (
+      <FrameCard
+        fill={false}
+        refractiveFallback
+        shimmerMode="subtle"
+        className="w-full min-h-[240px]"
+      >
+        <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
+          <div className={cardHeaderClassName}>
+            <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
+            <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
+              See All
+            </Button>
+          </div>
+          {!hasRealDocs && (
+            <div className="flex items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
+              <p className="text-xs leading-6 opacity-75">
+                Demo documents. Create or upload to replace.
+              </p>
+            </div>
+          )}
+          <div className="min-w-0">
+            {docsToRender.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
+                No documents yet. Create or upload to get started.
+              </div>
+            ) : (
+              <div
+                className={`content-start justify-start gap-[var(--shell-gap)] ${
+                  isPhoneShell ? "flex flex-col overflow-visible" : "grid"
+                }`}
+                style={isPhoneShell ? undefined : recentDocumentsGridStyle}
+              >
+                {docsToRender.map((d) =>
+                  isPhoneShell ? (
+                    <MobileRecentDocumentRow
+                      key={d.id ?? d.name}
+                      doc={d}
+                      extColors={extColors}
+                      onClick={() => openRecentDocument(d)}
+                    />
+                  ) : (
+                    <DocumentTile
+                      key={d.id ?? d.name}
+                      file={d}
+                      onClick={() => openRecentDocument(d)}
+                      onDeleted={(deletedDoc) => {
+                        if (!deletedDoc.id) return;
+                        setRecentDocs((prev) =>
+                          prev.filter((doc) => doc.id !== deletedDoc.id)
+                        );
+                      }}
+                      className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
+                    />
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </FrameCard>
+    ),
+    gallery: (
+      <FrameCard
+        fill={false}
+        refractiveFallback
+        shimmerMode="subtle"
+        className="w-full min-h-[240px]"
+      >
+        <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
+          <div className={cardHeaderClassName}>
+            <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
+            <div className={`flex items-center gap-[var(--pill-gap)] ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowImgGen(true)}>
+                <ImagePlus className="mr-1 h-4 w-4" />
+                Generate
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={onNavigateGallery}>
+                See All
+              </Button>
+            </div>
+          </div>
+          <div className={dashboardGalleryOuterClassName}>
+            {galleryToRender.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
+                No gallery images yet. Generate or upload to get started.
+              </div>
+            ) : (
+              <DashboardGallery
+                items={galleryToRender}
+                activeItemSrc={previewImage?.src ?? null}
+                onOpenPreview={(item) =>
+                  setPreviewImage({
+                    src: normalizeMediaUrl(item.src),
+                    alt: item.prompt || "Gallery image",
+                  })
+                }
+                onAddToThread={(item) =>
+                  _onImagePrompt(item.prompt || normalizeMediaUrl(item.src))
+                }
+              />
+            )}
+          </div>
+        </div>
+      </FrameCard>
+    ),
+  };
 
   return (
-    <section
-      className="flex h-full w-full min-h-0 flex-col"
-      data-dashboard-layout={dashboardLayoutMode}
-      data-testid="dashboard-layout"
-    >
-      <div className={dashboardOuterClassName}>
-        <div
-          className={dashboardSurfaceClassName}
-          data-layout-mode={isPhoneShell ? "mobile-stack" : "desktop-split"}
-        >
-          <div className={primaryColumnClassName}>
-            <FrameCard
-              refractiveFallback
-              shimmerMode="subtle"
-              className={cardFrameClassName}
-            >
-              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
-                <div className={cardHeaderClassName}>
-                  <div>
-                    <h2 className="text-lg font-semibold tracking-tight">Recent Threads</h2>
-                    <p className="text-xs leading-6 opacity-70">
-                      Jump back into a conversation or spin up something new.
-                    </p>
-                  </div>
-                  <div className={compactButtonRowClassName} style={surfaceActionClusterStyle}>
-                    <button
-                      type="button"
-                      className="pill-tab text-xs"
-                      data-state="active"
-                      onClick={onRequestNewThread}
-                      aria-label="Create new thread"
-                    >
-                      New Thread
-                    </button>
-                    <button
-                      type="button"
-                      className="pill-tab text-xs"
-                      onClick={onRequestNewProject}
-                      aria-label="Create new project"
-                    >
-                      New Project
-                    </button>
-                  </div>
-                </div>
-                <div className="relative flex-1 min-h-0">
-                  {threadList.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
-                      No threads yet. Start one above.
-                    </div>
-                  ) : (
-                    <div
-                      className="grid h-full gap-[var(--shell-gap)]"
-                      style={threadGridStyle}
-                      data-testid="dashboard-recent-threads-grid"
-                    >
-                      {threadList.map((t) => (
-                        <TileShell
-                          key={t.id}
-                          as="button"
-                          type="button"
-                          className="flex h-full w-full cursor-pointer flex-col justify-between gap-[var(--shell-gap)] px-[var(--card-pad)] py-[var(--card-pad)] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)]"
-                          style={{
-                            background:
-                              "color-mix(in oklab,var(--panel-sheet,rgba(12,19,32,0.78)) 96%,transparent)",
-                            borderColor: "color-mix(in oklab,var(--panel-border) 85%,transparent)",
-                          }}
-                          onClick={() => openThread(t.id)}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openThread(t.id);
-                          }}
-                          aria-label={`Open thread ${t.title}`}
-                        >
-                          <span className="text-base font-semibold truncate">{t.title}</span>
-                          {t.lastMessage ? (
-                            <span className="text-xs opacity-70 truncate">{t.lastMessage}</span>
-                          ) : (
-                            <span className="text-xs italic opacity-50">No replies yet</span>
-                          )}
-                        </TileShell>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </FrameCard>
-
-            <FrameCard
-              refractiveFallback
-              shimmerMode="subtle"
-              className={isPhoneShell ? "w-full min-h-[240px]" : "flex-1 min-h-[240px]"}
-            >
-              <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
-                <div className={cardHeaderClassName}>
-                  <h2 className="text-lg font-semibold tracking-tight">Recent Documents</h2>
-                  <Button type="button" variant="ghost" size="sm" onClick={onNavigateDocuments}>
-                    See All
-                  </Button>
-                </div>
-                {!hasRealDocs && (
-                  <div className="flex items-center justify-between gap-[var(--shell-gap)] rounded-[var(--tile-radius)] border border-[var(--panel-border)] bg-[color-mix(in oklab,var(--panel-bg) 95%,transparent)] p-[var(--card-pad)]">
-                    <p className="text-xs leading-6 opacity-75">
-                      Demo documents. Create or upload to replace.
-                    </p>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {docsToRender.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
-                      No documents yet. Create or upload to get started.
-                    </div>
-                  ) : (
-                    <div
-                      className={`h-full content-start justify-start gap-[var(--shell-gap)] ${
-                        isPhoneShell ? "flex flex-col overflow-visible" : "grid"
-                      }`}
-                      style={isPhoneShell ? undefined : recentDocumentsGridStyle}
-                    >
-                      {docsToRender.map((d) =>
-                        isPhoneShell ? (
-                          <MobileRecentDocumentRow
-                            key={d.id ?? d.name}
-                            doc={d}
-                            extColors={extColors}
-                            onClick={() => openRecentDocument(d)}
-                          />
-                        ) : (
-                          <DocumentTile
-                            key={d.id ?? d.name}
-                            file={d}
-                            onClick={() => openRecentDocument(d)}
-                            onDeleted={(deletedDoc) => {
-                              if (!deletedDoc.id) return;
-                              setRecentDocs((prev) =>
-                                prev.filter((doc) => doc.id !== deletedDoc.id)
-                              );
-                            }}
-                            className="dashboard-doc-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-strong)] focus-visible:ring-offset-2"
-                          />
-                        )
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </FrameCard>
-          </div>
-
-          <FrameCard
-            refractiveFallback
-            shimmerMode="subtle"
-            className={isPhoneShell ? "w-full min-h-[336px]" : "flex-[1.15] min-h-0"}
-          >
-            <div className={cardContentClassName} style={{ padding: dashboardCardPadding }}>
-              <div className={cardHeaderClassName}>
-                <h2 className="text-lg font-semibold tracking-tight">Gallery</h2>
-                <div className={`flex items-center gap-[var(--pill-gap)] ${isPhoneShell ? "flex-wrap justify-start" : ""}`}>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowImgGen(true)}>
-                    <ImagePlus className="mr-1 h-4 w-4" />
-                    Generate
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={onNavigateGallery}>
-                    See All
-                  </Button>
-                </div>
-              </div>
-              <div className={dashboardGalleryOuterClassName}>
-                {galleryToRender.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm leading-6 opacity-70">
-                    No gallery images yet. Generate or upload to get started.
-                  </div>
-                ) : (
-                  <DashboardGallery
-                    items={galleryToRender}
-                    activeItemSrc={previewImage?.src ?? null}
-                    onOpenPreview={(item) =>
-                      setPreviewImage({
-                        src: normalizeMediaUrl(item.src),
-                        alt: item.prompt || "Gallery image",
-                      })
-                    }
-                    onAddToThread={(item) =>
-                      _onImagePrompt(item.prompt || normalizeMediaUrl(item.src))
-                    }
-                  />
-                )}
-              </div>
-            </div>
-          </FrameCard>
-        </div>
-      </div>
+    <>
+      <FeedLayout cards={cards} />
       <ImageGenModal open={showImgGen} onOpenChange={setShowImgGen} />
       <ImagePreviewModal
         open={!!previewImage}
@@ -545,6 +533,6 @@ export default function DashboardView({
           if (!next) setPreviewImage(null);
         }}
       />
-    </section>
+    </>
   );
 }

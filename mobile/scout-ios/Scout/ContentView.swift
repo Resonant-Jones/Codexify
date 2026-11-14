@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorContrast
+    @AppStorage("scout.appearance.systemAccentRGB") private var systemAccent = ScoutAccentTheme.defaultRGB
     @AppStorage("scout.activeEndpointProfile") private var storedProfileData: Data = Data()
     @AppStorage("scout.accountSessionGeneration") private var sessionGeneration = 0
+    @State private var presentedAuxiliary: ScoutAuxiliaryDestination?
     private struct ViewIdentity: Hashable {
         let connection: ScoutConnectionIdentity?
         let sessionGeneration: Int
@@ -13,32 +17,19 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView {
-            ForEach(ScoutAppRoute.allCases) { route in
-                rootView(for: route)
-                    .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: route == .settings ? 0 : sessionGeneration))
-                    .tabItem {
-                        Label(route.title, systemImage: route.systemImage)
-                    }
+        GuardianChatView()
+        .id(ViewIdentity(connection: connectionIdentity, sessionGeneration: sessionGeneration))
+        .environment(\.scoutOpenAuxiliary, { presentedAuxiliary = $0 })
+        .sheet(item: $presentedAuxiliary) { destination in
+            switch destination {
+            case .settings: SettingsAuthView(systemAccent: $systemAccent)
+            case .server: ServerStatusView()
             }
         }
+        .tint(ScoutAccentTheme(rgb: systemAccent, scheme: colorScheme, contrast: colorContrast).tint)
+        .environment(\.scoutSystemAccent, systemAccent)
     }
 
-    @ViewBuilder
-    private func rootView(for route: ScoutAppRoute) -> some View {
-        switch route {
-        case .server:
-            ServerStatusView()
-        case .guardian:
-            GuardianChatView()
-        case .activity:
-            ActivityStreamView()
-        case .artifacts:
-            ArtifactsView()
-        case .settings:
-            SettingsAuthView()
-        }
-    }
 }
 
 #Preview {

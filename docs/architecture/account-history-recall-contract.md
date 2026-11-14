@@ -914,6 +914,16 @@ subject to the worker** — for example a short-lived, purpose-scoped account
 credential in the loopback adapter — or an approved alternative binding. The
 transport change is out of scope for this task.
 
+[ADR-112](adr/112-trusted-worker-account-bound-dispatch.md) now accepts a
+Guardian-verified in-process binding direction **only for the trusted Private
+Preview GitHub/Notion read-only connector pilot**. Its accepted-job reconciliation
+is PARTIAL and its implementation remains pending. It does not activate this
+remote/multi-user history-recall worker lane, supply a HistoryRecallGrant, or
+authorize reuse of connector permission for history. Any future recall integration
+must independently satisfy this contract's request-scoped grant, canonical
+account/Project ownership, provenance and content restrictions. Section 9.3 and
+ADR-016/084 imported-history consent boundaries remain unchanged.
+
 ### 9.3 Imported archive model exposure — not permitted
 
 See [section 7](#7-imported-history-authorization-behavior). The decision

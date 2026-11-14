@@ -25,26 +25,27 @@ _TRUTHY = {"1", "true", "yes", "on", "enabled"}
 GENERATIVE_UI_MARKER_PREFIX = "cfy-ui"
 
 # Kept deliberately compact. This competes for the system-prompt token budget.
-# Not an f-string: the payload examples are full of literal braces.
-GENERATIVE_UI_GUIDANCE = """## Generative UI (interactive replies)
+GENERATIVE_UI_GUIDANCE = f"""## Generative UI (interactive replies)
 
-You can reply with an interactive interface instead of plain prose, by ending
-your reply with a marker comment on its own line:
+For a working tool or instrument, end your reply with one sandbox widget
+comment. Put the HTML fragment directly inside it. Inline CSS in a
+`<style>` tag and JavaScript in a `<script>` tag. Use ordinary HTML
+quotes. Guardian encodes this draft for the client. Here is a complete example:
 
-<!-- cfy-ui:PERCENT_ENCODED_JSON -->
+<!-- {GENERATIVE_UI_MARKER_PREFIX}:sandbox <button onclick="this.textContent=Number(this.textContent)+1">0</button> -->
 
-The payload is compact JSON, percent-encoded (escape `{`, `}`, `"`, `:` and
-spaces as their `%XX` forms so it never contains `>`). Two shapes are valid:
+Write a new widget for the user in the same form. Start the comment on its own
+line outside code fences. Put any introduction before it, with nothing after
+the closing delimiter. Keep it on one line where practical. Omit HTML and
+JavaScript comments from the widget so they cannot end the wrapper early.
 
-Registered native component (preferred for structured data):
-`{"version":1,"kind":"native","component":"chart.bar","props":{"title":"Weekly volume","series":[{"label":"Mon","value":42}]}}`
+For registered native charts and tables, continue to put the percent-encoded
+compact JSON envelope inside a `cfy-ui` HTML comment. Native envelope:
+`{{"version":1,"kind":"native","component":"chart.bar","props":{{"title":"Weekly volume","series":[{{"label":"Mon","value":42}}]}}}}`
 
 Available components: `chart.bar` (props: `title`, `series` of
-`{label, value}`, `height`, `valueFormat` as number|percent|currency|compact)
+`{{label, value}}`, `height`, `valueFormat` as number|percent|currency|compact)
 and `table.rows` (props: `title`, `columns` of key strings, `rows` of objects).
-
-Sandboxed custom interface:
-`{"version":1,"kind":"sandbox","title":"Calculator","layout":"wide","initialHeight":260,"html":"<button>..</button>","css":"button{...}","js":"document.querySelector('button').onclick=()=>{...}"}`
 
 Rules:
 - Use `native` for data visualization. Use `sandbox` only when the user needs
@@ -52,10 +53,8 @@ Rules:
 - Prefer plain prose for ordinary answers. Do not emit a marker for simple
   factual replies, summaries, or anything a sentence handles well.
 - At most one artifact per reply.
-- Either artifact kind may declare `"layout":"wide"` for a broad canvas;
-  otherwise it uses compact width. The host always bounds layout to chat width.
-- Sandbox content is measured and fitted vertically up to a safe height cap;
-  `initialHeight` is a starting size, not a clipping requirement.
+- Native envelopes may declare `"layout":"wide"`. Keep widget controls usable
+  at narrow widths.
 - Any prose before the marker is rendered normally; keep the marker last.
 - The artifact source is stripped before you see it again later, so do not
   refer to it as if it persisted in conversation history.
@@ -66,6 +65,8 @@ access and no direct access to the host. Therefore:
   There is no import map. Inline all CSS and JS.
 - No `eval` and no `new Function`. Dynamic compilation is blocked; write the
   logic out directly.
+- For instruments in Scout on iOS and iPadOS, use Web Audio oscillators,
+  gain envelopes, and biquad filters.
 - The only host functions available are `window.cfyUI.sendPrompt(text)`, which
   prefills the user's composer for them to review and send themselves, and
   `window.cfyUI.resize(height)`. Calling `sendPrompt` never sends anything.
@@ -77,8 +78,8 @@ access and no direct access to the host. Therefore:
 def generative_ui_enabled(env: dict[str, str] | None = None) -> bool:
     """Return whether generative UI emission guidance is enabled.
 
-    Default is off. Enabling only adds the guidance block; it grants the model
-    no capability beyond emitting a marker the renderer already validates.
+    Default is off. The flag enables draft formatting guidance and the
+    conversion to a marker the renderer already validates.
     """
 
     source = env if env is not None else os.environ

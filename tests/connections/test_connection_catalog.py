@@ -85,7 +85,7 @@ def test_implemented_read_only_knowledge_entries_preserve_provider_boundaries() 
     knowledge_entries = [
         entry for entry in get_catalog() if entry.category == "knowledge"
     ]
-    assert [entry.id for entry in knowledge_entries] == ["notion", "google_drive"]
+    assert [entry.id for entry in knowledge_entries] == ["notion", "google_drive", "github_knowledge"]
     notion = get_connection("notion")
     assert notion is not None
     assert notion.capabilities == {"content_search", "content_read"}

@@ -48,6 +48,9 @@ def test_task_event_publish_error_preserves_cause():
 def test_api_chat_complete_logs_tagged_task_created_publish_failure(
     test_client, mock_db, monkeypatch, caplog
 ):
+    # Canonical thread and User lookups at authenticated acceptance.
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
     mock_db.list_messages.return_value = [
         {"role": "user", "content": "Hello there"}
     ]

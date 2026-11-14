@@ -220,6 +220,7 @@ class DocumentArtifactResponse(BaseModel):
 class DocumentArtifactListResponse(BaseModel):
     documents: list[DocumentArtifactResponse]
     count: int
+    next_offset: int | None = None
 
 
 class DocumentArtifactDetailResponse(DocumentArtifactResponse):
@@ -2377,7 +2378,8 @@ async def list_images(
     project_id: Optional[int] = Query(None),
     thread_id: Optional[int] = Query(None),
     user_id: Optional[str] = Query(None),
-    limit: int = Query(50, le=100),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     tag: Optional[str] = Query(None),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -2410,11 +2412,13 @@ async def list_images(
                 query = query.filter_by(thread_id=thread_id)
             if effective_user_id:
                 query = query.filter_by(user_id=effective_user_id)
-            images = (
-                query.order_by(GeneratedImage.created_at.desc())
-                .limit(limit)
-                .all()
+            query = query.order_by(
+                GeneratedImage.created_at.desc(), GeneratedImage.id.desc()
             )
+            if offset:
+                query = query.offset(offset)
+            rows = query.limit(limit + 1).all()
+            images = rows[:limit]
             return {
                 "images": [
                     {
@@ -2426,14 +2430,13 @@ async def list_images(
                         "filesize": None,
                         "source_tag": "generated",
                         "created_at": (
-                            img.created_at.isoformat()
-                            if img.created_at
-                            else None
+                            img.created_at.isoformat() if img.created_at else None
                         ),
                     }
                     for img in images
                 ],
                 "count": len(images),
+                "next_offset": offset + limit if len(rows) > limit else None,
             }
 
         query = session.query(UploadedImage).filter(
@@ -2458,9 +2461,11 @@ async def list_images(
             else:
                 query = query.filter_by(source_tag=normalized_tag)
 
-        images = (
-            query.order_by(UploadedImage.created_at.desc()).limit(limit).all()
-        )
+        query = query.order_by(UploadedImage.created_at.desc(), UploadedImage.id.desc())
+        if offset:
+            query = query.offset(offset)
+        rows = query.limit(limit + 1).all()
+        images = rows[:limit]
 
         return {
             "images": [
@@ -2479,6 +2484,7 @@ async def list_images(
                 for img in images
             ],
             "count": len(images),
+            "next_offset": offset + limit if len(rows) > limit else None,
         }
 
 
@@ -2841,7 +2847,14 @@ def _list_document_artifact_payloads(
         )
         for (artifact_type, document_id), row in rows_by_key.items()
     ]
-    payloads.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    payloads.sort(
+        key=lambda item: (
+            item.get("created_at") or "",
+            item["artifact_type"],
+            item["id"],
+        ),
+        reverse=True,
+    )
     return payloads
 
 
@@ -2854,6 +2867,7 @@ async def list_document_artifacts(
     project_id: Optional[int] = Query(None),
     thread_id: Optional[int] = Query(None),
     limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     tag: Optional[str] = Query(None),
     request_user_scope: RequestUserScope = Depends(get_request_user_scope),
 ):
@@ -2892,8 +2906,13 @@ async def list_document_artifacts(
             or str(document.get("source_tag") or "").lower() == normalized_tag
         ]
 
-    documents = documents[:limit]
-    return {"documents": documents, "count": len(documents)}
+    next_offset = offset + limit if len(documents) > offset + limit else None
+    documents = documents[offset : offset + limit]
+    return {
+        "documents": documents,
+        "count": len(documents),
+        "next_offset": next_offset,
+    }
 
 
 @router.get(
