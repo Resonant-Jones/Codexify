@@ -117,7 +117,11 @@ struct ScoutWidgetThumbnail: View {
                     let width: CGFloat = 360
                     let height = max(240, CGFloat(widget.inlineHeight))
                     ScoutSandboxWebView(session: session, zoom: 1, scale: 1,
-                                        fixedViewport: nil, framedFill: false)
+                                        fixedViewport: nil, framedFill: false,
+                                        onViewportReady: { [weak session] in
+                                            guard let session else { return }
+                                            session.load(widget)
+                                        })
                         .frame(width: width, height: height)
                         .scaleEffect(min(geometry.size.width / width, geometry.size.height / height))
                         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -140,15 +144,23 @@ struct ScoutWidgetThumbnail: View {
             }
             preview.onDocumentReady = { [weak preview] in
                 guard let preview, session === preview else { return }
-                let config = WKSnapshotConfiguration()
-                config.snapshotWidth = 360
-                preview.webView.takeSnapshot(with: config) { [weak preview] snapshot, _ in
-                    guard let preview, session === preview else { return }
-                    image = snapshot
-                    stopPreview()
+                Task { @MainActor [weak preview] in
+                    // The navigation can finish before WebKit paints the child frame.
+                    for _ in 0..<3 {
+                        try? await Task.sleep(for: .milliseconds(180))
+                        guard let preview, session === preview, preview.webView.window != nil else { return }
+                        let config = WKSnapshotConfiguration()
+                        config.snapshotWidth = 360
+                        if let snapshot = try? await preview.webView.takeSnapshot(configuration: config),
+                           Self.hasVisibleDetail(snapshot), session === preview {
+                            image = snapshot
+                            stopPreview()
+                            return
+                        }
+                    }
+                    if let preview, session === preview { stopPreview() }
                 }
             }
-            preview.load(widget)
             try? await Task.sleep(for: .seconds(5))
             if session === preview { stopPreview() }
         }
@@ -159,6 +171,20 @@ struct ScoutWidgetThumbnail: View {
         let preview = session
         session = nil
         preview?.close()
+    }
+
+    private static func hasVisibleDetail(_ snapshot: UIImage) -> Bool {
+        guard let image = snapshot.cgImage,
+              let context = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8,
+                                      bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let bytes = context.data?.assumingMemoryBound(to: UInt8.self) else { return false }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+        return (1..<256).contains { pixel in
+            (0..<4).contains { channel in
+                abs(Int(bytes[4 * pixel + channel]) - Int(bytes[channel])) > 8
+            }
+        }
     }
 }
 
@@ -576,6 +602,7 @@ private struct ScoutSandboxWebView: UIViewRepresentable {
     let scale: CGFloat
     let fixedViewport: CGSize?
     let framedFill: Bool
+    var onViewportReady: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> Container {
         Container()
@@ -593,6 +620,7 @@ private struct ScoutSandboxWebView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = fixedViewport == nil ? .automatic : .never
         container.widgetScale = scale
         container.fixedViewport = fixedViewport
+        container.onViewportReady = onViewportReady
         container.setNeedsLayout()
     }
 
@@ -605,6 +633,8 @@ private struct ScoutSandboxWebView: UIViewRepresentable {
         let content = UIView()
         var widgetScale: CGFloat = 1
         var fixedViewport: CGSize?
+        var onViewportReady: (() -> Void)?
+        private var reportedViewport = false
 
         init() {
             super.init(frame: .zero)
@@ -634,6 +664,15 @@ private struct ScoutSandboxWebView: UIViewRepresentable {
             content.bounds.size = size
             content.center = CGPoint(x: bounds.midX, y: bounds.midY)
             content.transform = CGAffineTransform(scaleX: scale, y: scale)
+            if !reportedViewport, window != nil, let ready = onViewportReady {
+                reportedViewport = true
+                ready()
+            }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { setNeedsLayout() }
         }
     }
 }
