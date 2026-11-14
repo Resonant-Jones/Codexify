@@ -23,6 +23,7 @@ from urllib.parse import unquote
 
 from fastapi import HTTPException
 
+from guardian.cognition.generative_ui_prompt import generative_ui_enabled
 from guardian.cognition.prompts import (
     build_context_system_message as _compat_build_context_system_message,
 )
@@ -128,8 +129,10 @@ from guardian.core.request_correlation import (
 )
 from guardian.core.chat_acceptance_participant import ChatAcceptanceParticipant
 from guardian.core.chat_attachments import (
+    WidgetDraftStream,
     extract_attachments_and_text,
     render_content_for_inference,
+    serialize_widget_draft,
 )
 from guardian.core.config import (
     LLMConfigError,
@@ -6732,6 +6735,17 @@ def _execute_bounded_tool_turn_completion(
 ) -> dict[str, Any]:
     current_messages = [dict(message) for message in messages_for_llm]
     accepted_deadline = accepted_chat_deadline_for_task(task)
+    widget_enabled = generative_ui_enabled()
+    widget_token_stream = (
+        WidgetDraftStream(token_callback) if widget_enabled and token_callback else None
+    )
+    widget_chunk_stream = (
+        WidgetDraftStream(chunk_callback) if widget_enabled and chunk_callback else None
+    )
+    if widget_token_stream is not None:
+        token_callback = widget_token_stream.feed
+    if widget_chunk_stream is not None:
+        chunk_callback = widget_chunk_stream.feed
 
     def _require_tool_work_budget() -> None:
         if accepted_deadline and datetime.now(UTC) >= accepted_deadline.work_deadline_at:
@@ -6859,9 +6873,20 @@ def _execute_bounded_tool_turn_completion(
         )
         if request_correlation:
             payload_summary["request_correlation"] = request_correlation
+        for stream in (widget_token_stream, widget_chunk_stream):
+            if stream is not None:
+                stream.finish()
         result = _tool_turn_completion_result(
             task=task,
-            assistant_text=assistant_text,
+            assistant_text=(
+                serialize_widget_draft(
+                    assistant_text,
+                    completed=terminal_evidence.successful
+                    and terminal_evidence.finish_reason in (None, "stop"),
+                )
+                if widget_enabled
+                else assistant_text
+            ),
             provider=final_provider,
             model=final_model,
             bundle=bundle,
