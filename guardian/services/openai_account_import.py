@@ -475,7 +475,6 @@ class OpenAIAccountImportService:
                 code="batch_size_limit_exceeded",
             )
 
-        uploaded_urls: list[str] = []
         with self.db.get_session() as session:
             job = self._require_job(
                 session, job_id, user_id, for_update=True
@@ -521,56 +520,48 @@ class OpenAIAccountImportService:
                     code="declared_byte_count_exceeded",
                 )
 
-            try:
-                for item in additions:
-                    storage_name = f"{job.staging_locator}/{item['path']}"
-                    metadata = {
-                        "job_id": job.id,
-                        "relative_path": item["path"],
-                    }
-                    if item["data"] is not None:
-                        storage_path = self.staging_storage.upload_file(
-                            item["data"],
-                            storage_name,
-                            content_type=item.get("content_type"),
-                            metadata=metadata,
-                        )
-                    else:
-                        storage_path = self.staging_storage.upload_stream(
-                            item["stream"],
-                            storage_name,
-                            content_type=item.get("content_type"),
-                            metadata=metadata,
-                        )
-                    uploaded_urls.append(storage_path)
-                    manifest.append(
-                        {
-                            "path": item["path"],
-                            "size": item["size"],
-                            "sha256": item["sha256"],
-                            "content_type": item.get("content_type"),
-                            "storage_path": storage_path,
-                        }
+            # A failed write leaves the manifest transaction uncommitted. Keep
+            # any bytes already written: a retry can reuse these storage names.
+            for item in additions:
+                storage_name = f"{job.staging_locator}/{item['path']}"
+                metadata = {
+                    "job_id": job.id,
+                    "relative_path": item["path"],
+                }
+                if item["data"] is not None:
+                    storage_path = self.staging_storage.upload_file(
+                        item["data"],
+                        storage_name,
+                        content_type=item.get("content_type"),
+                        metadata=metadata,
                     )
-                job.staged_manifest = manifest
-                job.uploaded_file_count = len(manifest)
-                job.uploaded_byte_count = projected_bytes
-                job.duplicate_count = int(job.duplicate_count or 0) + duplicate_count
-                job.updated_at = _utcnow()
-                session.commit()
-                session.refresh(job)
-                return self.serialize_job(job)
-            except Exception:
-                session.rollback()
-                for storage_path in uploaded_urls:
-                    try:
-                        self.staging_storage.delete_file(storage_path)
-                    except Exception:
-                        logger.warning(
-                            "[account-import] unable to clean staged path=%s",
-                            storage_path,
-                        )
-                raise
+                else:
+                    storage_path = self.staging_storage.upload_stream(
+                        item["stream"],
+                        storage_name,
+                        content_type=item.get("content_type"),
+                        metadata=metadata,
+                    )
+                manifest.append(
+                    {
+                        "path": item["path"],
+                        "size": item["size"],
+                        "sha256": item["sha256"],
+                        "content_type": item.get("content_type"),
+                        "storage_path": storage_path,
+                    }
+                )
+            job.staged_manifest = manifest
+            job.uploaded_file_count = len(manifest)
+            job.uploaded_byte_count = projected_bytes
+            job.duplicate_count = int(job.duplicate_count or 0) + duplicate_count
+            job.updated_at = _utcnow()
+
+            # A commit exception can leave the manifest durable. Once commit
+            # returns, any refresh or serialization error only affects the reply.
+            session.commit()
+            session.refresh(job)
+            return self.serialize_job(job)
 
     def finalize_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:

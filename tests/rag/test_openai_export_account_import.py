@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import os
+from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.schema import CreateSchema, DropSchema
 
 from backend.rag.openai_export_adapter import (
     OpenAIExportFileRecord,
@@ -226,23 +232,7 @@ class _TestDB:
         return self._session_factory()
 
 
-@pytest.fixture
-def account_import_service(tmp_path: Path):
-    engine = create_engine("sqlite+pysqlite:///:memory:")
-    tables = [
-        User.__table__,
-        Project.__table__,
-        OpenAIAccountImportJob.__table__,
-        MediaAsset.__table__,
-        MediaAlias.__table__,
-        GeneratedImage.__table__,
-        UploadedImage.__table__,
-        UploadedDocument.__table__,
-        ThreadDocument.__table__,
-        ProjectDocumentLink.__table__,
-    ]
-    Base.metadata.create_all(engine, tables=tables)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+def _build_account_import_service(tmp_path: Path, sessions):
     with sessions() as session:
         session.add(User(id="account-a", username="account-a", password_hash="x"))
         session.add(User(id="account-b", username="account-b", password_hash="x"))
@@ -284,6 +274,230 @@ def account_import_service(tmp_path: Path):
         emit_event=emit,
     )
     return service, sessions, trace, staging, media
+
+
+@pytest.fixture
+def account_import_service(tmp_path: Path):
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    tables = [
+        User.__table__,
+        Project.__table__,
+        OpenAIAccountImportJob.__table__,
+        MediaAsset.__table__,
+        MediaAlias.__table__,
+        GeneratedImage.__table__,
+        UploadedImage.__table__,
+        UploadedDocument.__table__,
+        ThreadDocument.__table__,
+        ProjectDocumentLink.__table__,
+    ]
+    try:
+        Base.metadata.create_all(engine, tables=tables)
+        sessions = sessionmaker(bind=engine, expire_on_commit=False)
+        yield _build_account_import_service(tmp_path, sessions)
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(params=["sqlite", "postgresql"])
+def staging_integrity_service(request, tmp_path: Path):
+    """Run fault injection on a test schema with real Postgres when opted in."""
+    if request.param == "sqlite":
+        yield request.getfixturevalue("account_import_service")
+        return
+
+    raw_url = os.getenv("CODEXIFY_TEST_ACCOUNT_IMPORT_POSTGRES_URL")
+    if not raw_url:
+        pytest.skip("requires an explicit disposable account import PostgreSQL URL")
+    url = make_url(raw_url)
+    assert url.get_backend_name() == "postgresql"
+    url = url.set(drivername="postgresql+psycopg")
+
+    schema = f"account_import_staging_{uuid4().hex}"
+    admin = create_engine(url)
+    try:
+        with admin.begin() as connection:
+            connection.execute(CreateSchema(schema))
+        engine = create_engine(
+            url, connect_args={"options": f"-csearch_path={schema}"}
+        )
+        try:
+            Base.metadata.create_all(
+                engine, tables=[User.__table__, OpenAIAccountImportJob.__table__]
+            )
+            yield _build_account_import_service(
+                tmp_path, sessionmaker(bind=engine, autoflush=False)
+            )
+        finally:
+            engine.dispose()
+            with admin.begin() as connection:
+                connection.execute(DropSchema(schema, cascade=True))
+    finally:
+        admin.dispose()
+
+
+def _assert_staged_contents(sessions, storage, job_id, expected, *, duplicates=0):
+    with sessions() as session:
+        job = session.get(OpenAIAccountImportJob, job_id)
+        assert job.status == "receiving"
+        assert job.uploaded_file_count == len(expected)
+        assert job.uploaded_byte_count == sum(len(data) for data in expected.values())
+        assert job.duplicate_count == duplicates
+        assert len(job.staged_manifest) == len(expected)
+        manifest = {entry["path"]: entry for entry in job.staged_manifest}
+        assert manifest.keys() == expected.keys()
+        for path, data in expected.items():
+            entry = manifest[path]
+            assert entry["size"] == len(data)
+            assert entry["sha256"] == hashlib.sha256(data).hexdigest()
+            assert storage.download_file(entry["storage_path"]) == data
+
+
+def test_staging_integrity_normal_upload_and_replay(
+    staging_integrity_service, monkeypatch, tmp_path: Path
+):
+    service, sessions, trace, staging, _media = staging_integrity_service
+    job_id = service.create_job(
+        user_id="account-a", total_file_count=2, total_byte_count=6
+    )["job_id"]
+    job = {"job_id": job_id, "user_id": "account-a"}
+    original = StagedImportFile("conversations.json", b"[]")
+    attachment = StagedImportFile("attachments/item.bin", stream=BytesIO(b"data"))
+
+    staged = service.stage_files(**job, files=[original])
+    assert staged["uploaded_file_count"] == 1
+    assert staged["uploaded_byte_count"] == 2
+    _assert_staged_contents(sessions, staging, job_id, {"conversations.json": b"[]"})
+
+    with pytest.raises(AccountImportError) as incomplete:
+        service.finalize_job(**job)
+    assert incomplete.value.code == "staged_upload_incomplete"
+    assert trace == []
+
+    staged = service.stage_files(**job, files=[attachment])
+    expected = {"conversations.json": b"[]", "attachments/item.bin": b"data"}
+    assert staged["uploaded_file_count"] == 2
+    assert staged["uploaded_byte_count"] == 6
+    _assert_staged_contents(sessions, staging, job_id, expected)
+
+    def unexpected_write(*_args, **_kwargs):
+        pytest.fail("matching-file replay attempted a storage write")
+
+    monkeypatch.setattr(staging, "upload_file", unexpected_write)
+    monkeypatch.setattr(staging, "upload_stream", unexpected_write)
+    replayed = service.stage_files(**job, files=[original, attachment])
+    assert replayed["uploaded_file_count"] == 2
+    assert replayed["uploaded_byte_count"] == 6
+    _assert_staged_contents(sessions, staging, job_id, expected, duplicates=2)
+
+    assert service.finalize_job(**job)["status"] == "queued"
+    assert service.finalize_job(**job)["status"] == "queued"
+    assert [item for item in trace if item[0] == "enqueue"] == [
+        ("enqueue", job_id, "account-a")
+    ]
+    destination = tmp_path / "materialized"
+    service.materialize_staged_export(**job, destination=destination)
+    for path, data in expected.items():
+        assert (destination / path).read_bytes() == data
+
+
+@pytest.mark.parametrize("failure_point", ["storage", "flush"])
+def test_staging_integrity_pre_commit_failure(
+    staging_integrity_service, monkeypatch, failure_point: str
+):
+    service, sessions, trace, staging, _media = staging_integrity_service
+    job_id = service.create_job(
+        user_id="account-a", total_file_count=3, total_byte_count=6
+    )["job_id"]
+    job = {"job_id": job_id, "user_id": "account-a"}
+    service.stage_files(**job, files=[StagedImportFile("conversations.json", b"[]")])
+    existing = {"conversations.json": b"[]"}
+    _assert_staged_contents(sessions, staging, job_id, existing)
+    new_files = [
+        StagedImportFile("attachments/first.bin", b"ab"),
+        StagedImportFile("attachments/second.bin", stream=BytesIO(b"cd")),
+    ]
+    error = f"injected pre-commit {failure_point} failure"
+
+    def fail_storage(*_args, **_kwargs):
+        # The first write succeeded before the second file could be stored.
+        assert len(staging.list_files("account-imports")) == 2
+        raise RuntimeError(error)
+
+    def fail_after_flush(session):
+        session.flush()
+        raise RuntimeError(error)
+
+    with monkeypatch.context() as fault:
+        if failure_point == "storage":
+            fault.setattr(staging, "upload_stream", fail_storage)
+        else:
+            fault.setattr(sessions.class_, "commit", fail_after_flush)
+        with pytest.raises(RuntimeError, match=error):
+            service.stage_files(**job, files=new_files)
+    _assert_staged_contents(sessions, staging, job_id, existing)
+    with pytest.raises(AccountImportError) as incomplete:
+        service.finalize_job(**job)
+    assert incomplete.value.code == "staged_upload_incomplete"
+    assert trace == []
+
+    service.stage_files(**job, files=new_files)
+    _assert_staged_contents(
+        sessions, staging, job_id,
+        {**existing, "attachments/first.bin": b"ab", "attachments/second.bin": b"cd"},
+    )
+
+
+@pytest.mark.parametrize("failure_point", ["commit_ack", "refresh", "serialization"])
+def test_staging_integrity_preserves_committed_blobs_after_error(
+    staging_integrity_service, monkeypatch, tmp_path: Path, failure_point: str
+):
+    service, sessions, trace, staging, _media = staging_integrity_service
+    job_id = service.create_job(
+        user_id="account-a", total_file_count=2, total_byte_count=6
+    )["job_id"]
+    job = {"job_id": job_id, "user_id": "account-a"}
+    service.stage_files(**job, files=[StagedImportFile("conversations.json", b"[]")])
+    existing = {"conversations.json": b"[]"}
+    _assert_staged_contents(sessions, staging, job_id, existing)
+    expected = {**existing, "attachments/item.bin": b"data"}
+    files = [StagedImportFile("attachments/item.bin", stream=BytesIO(b"data"))]
+    error = f"injected {failure_point} failure"
+    actual_commit = sessions.class_.commit
+
+    def fail_commit_ack(session):
+        actual_commit(session)
+        raise RuntimeError(error)
+
+    def fail_readback(*_args, **_kwargs):
+        raise RuntimeError(error)
+
+    with monkeypatch.context() as fault:
+        if failure_point == "commit_ack":
+            fault.setattr(sessions.class_, "commit", fail_commit_ack)
+        elif failure_point == "refresh":
+            fault.setattr(sessions.class_, "refresh", fail_readback)
+        else:
+            fault.setattr(service, "serialize_job", fail_readback)
+        with pytest.raises(RuntimeError, match=error):
+            service.stage_files(**job, files=files)
+
+    _assert_staged_contents(sessions, staging, job_id, expected)
+    assert trace == []
+
+    def unexpected_write(*_args, **_kwargs):
+        pytest.fail("a committed file was written again after an uncertain response")
+
+    monkeypatch.setattr(staging, "upload_stream", unexpected_write)
+    replayed = service.stage_files(**job, files=files)
+    assert replayed["uploaded_file_count"] == 2
+    assert replayed["uploaded_byte_count"] == 6
+    _assert_staged_contents(sessions, staging, job_id, expected, duplicates=1)
+
+    assert service.finalize_job(**job)["status"] == "queued"
+    destination = tmp_path / "materialized"
+    service.materialize_staged_export(**job, destination=destination)
+    assert (destination / "attachments/item.bin").read_bytes() == b"data"
 
 
 def test_staged_job_conflicts_events_and_media_replay_are_durable(
