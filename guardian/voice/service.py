@@ -292,9 +292,11 @@ def _request_transcription_deepgram(
     endpoint = os.getenv(
         "DEEPGRAM_STT_ENDPOINT", "https://api.deepgram.com/v1/listen"
     )
-    headers = {"Authorization": f"Token {api_key}"}
-    files = {"file": ("voice-input.wav", audio_bytes, mime_type or "audio/wav")}
-    data = {
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": mime_type or "audio/wav",
+    }
+    params = {
         "model": model,
         "smart_format": "true",
     }
@@ -303,8 +305,8 @@ def _request_transcription_deepgram(
         resp = requests.post(
             endpoint,
             headers=headers,
-            files=files,
-            data=data,
+            params=params,
+            data=audio_bytes,
             timeout=float(timeout_seconds),
         )
         resp.raise_for_status()
