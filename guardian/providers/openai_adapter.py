@@ -3,6 +3,8 @@ OpenAI chat and embeddings adapters (SDK >= 1.x)
 """
 
 # SPDX-License-Identifier: MIT
+from guardian.metering.runtime import deny_unqualified_spend
+
 import os
 from typing import Iterator, List, Optional
 
@@ -36,6 +38,7 @@ class OpenAIChat(ChatProvider):
         self.timeout = float(os.getenv("OPENAI_TIMEOUT", timeout))
 
     def generate(self, prompt: str, model: Optional[str] = None, **kw) -> str:
+        deny_unqualified_spend()
         model = model or _DEFAULT_CHAT
         r = self.client.chat.completions.create(
             model=model,
@@ -49,6 +52,7 @@ class OpenAIChat(ChatProvider):
     def stream(
         self, prompt: str, model: Optional[str] = None, **kw
     ) -> Iterator[str]:
+        deny_unqualified_spend()
         model = model or _DEFAULT_CHAT
         s = self.client.chat.completions.create(
             model=model,
@@ -83,6 +87,7 @@ class OpenAIEmbeddings(EmbeddingsProvider):
     def embed(
         self, texts: List[str], model: Optional[str] = None, **kw
     ) -> List[List[float]]:
+        deny_unqualified_spend()
         model = model or _DEFAULT_EMB
         if not model:
             raise ValueError(

@@ -1,3 +1,5 @@
+from guardian.metering.runtime import deny_unqualified_spend
+
 import base64
 from typing import Any, Dict
 
@@ -41,6 +43,7 @@ class OpenAIImageGen(ImageGenProvider):
         model: str | None = None,
         **kwargs: Dict[str, Any],
     ) -> bytes:
+        deny_unqualified_spend()
         if not model:
             raise HTTPException(
                 status_code=400,

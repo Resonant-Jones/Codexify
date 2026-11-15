@@ -6,6 +6,8 @@ Implementation of TTSProvider for Google Cloud Text-to-Speech API.
 
 from __future__ import annotations
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import logging
 import os
 from typing import List, Optional
@@ -124,6 +126,7 @@ class GoogleProvider(TTSProvider):
             AuthenticationError: If credentials are invalid
             SynthesisError: If synthesis fails
         """
+        deny_unqualified_spend()
         if not text:
             raise ValueError("Text cannot be empty")
 

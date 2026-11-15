@@ -1,3 +1,5 @@
+
+from guardian.metering.runtime import deny_unqualified_spend
 import base64
 import os
 
@@ -29,6 +31,7 @@ def run_groq_vision_url(
     image_url: str, prompt_text: str = "What's in this image?"
 ) -> str:
     """Run a Groq vision model on an image URL and return the response text."""
+    deny_unqualified_spend()
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     messages = [
         {
@@ -51,6 +54,7 @@ def run_groq_vision_file(
     image_path: str, prompt_text: str = "What's in this image?"
 ) -> str:
     """Run a Groq vision model on a local image file and return the response text."""
+    deny_unqualified_spend()
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     messages = [
         {

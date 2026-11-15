@@ -1,3 +1,5 @@
+
+from guardian.metering.runtime import deny_unqualified_spend
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -32,6 +34,7 @@ class Gork(Model):
         self.api_key = api_key
 
     def completion(self, query):
+        deny_unqualified_spend()
         self._add_message(query)
         response = self.client.chat.completions.create(
             model=self.model, messages=self.messages, stream=False
@@ -42,9 +45,11 @@ class Gork(Model):
         pass
 
     def get_llm_config(self):
+        deny_unqualified_spend()
         return LLMConfig(provider="groq/" + self.model, api_token=self.api_key)
 
     def get_client(self):
+        deny_unqualified_spend()
         return self.client
 
     def get_model(self):

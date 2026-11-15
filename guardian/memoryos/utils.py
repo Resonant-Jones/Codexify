@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import logging
 from typing import List, Protocol, runtime_checkable
 
@@ -113,6 +115,7 @@ class GroqClient:
         temperature: float = 0.7,
         max_tokens: int = 1500,
     ) -> str:
+        deny_unqualified_spend()
         resp = self._client.chat.completions.create(
             model=model,
             messages=messages,
@@ -155,6 +158,7 @@ class OpenAIClient:
         temperature: float = 0.7,
         max_tokens: int = 2000,
     ) -> str:
+        deny_unqualified_spend()
         logger.info(f"Calling OpenAI API. Model: {model}")
         try:
             response = self._client.chat.completions.create(

@@ -5,6 +5,8 @@ This module intentionally excludes thread/task orchestration concerns.
 
 from __future__ import annotations
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import io
 import json
 import logging
@@ -286,6 +288,7 @@ def _request_transcription_deepgram(
     timeout_seconds: int,
 ) -> str:
     """Transcribe audio with Deepgram's prerecorded `listen` endpoint."""
+    deny_unqualified_spend()
     endpoint = os.getenv(
         "DEEPGRAM_STT_ENDPOINT", "https://api.deepgram.com/v1/listen"
     )
@@ -366,6 +369,9 @@ def transcribe_audio(
         )
 
     if active_provider == "openai":
+        from guardian.metering.runtime import deny_unqualified_spend
+
+        deny_unqualified_spend()
         base_url = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com"
         api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
         if not api_key:

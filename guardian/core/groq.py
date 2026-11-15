@@ -1,9 +1,12 @@
+
+from guardian.metering.runtime import deny_unqualified_spend
 from openai import OpenAI
 
 from guardian.config import get_settings
 
 
 def groq_chat(messages, max_tokens=512, temperature=0.7):
+    deny_unqualified_spend()
     settings = get_settings()
     client = OpenAI(
         api_key=settings.GROQ_API_KEY,

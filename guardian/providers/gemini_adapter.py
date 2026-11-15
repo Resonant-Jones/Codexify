@@ -2,6 +2,8 @@
 Gemini chat adapter (google-generativeai)
 """
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 # SPDX-License-Identifier: MIT
 import os
 from typing import Iterator, Optional
@@ -26,6 +28,7 @@ class GeminiChat(ChatProvider):
         genai.configure(api_key=api_key or os.getenv("GEMINI_API_KEY"))
 
     def generate(self, prompt: str, model: Optional[str] = None, **kw) -> str:
+        deny_unqualified_spend()
         model = model or _DEFAULT
         g = genai.GenerativeModel(model)
         r = g.generate_content(prompt, **kw)
@@ -34,6 +37,7 @@ class GeminiChat(ChatProvider):
     def stream(
         self, prompt: str, model: Optional[str] = None, **kw
     ) -> Iterator[str]:
+        deny_unqualified_spend()
         model = model or _DEFAULT
         g = genai.GenerativeModel(model)
         for ev in g.generate_content(prompt, stream=True, **kw):

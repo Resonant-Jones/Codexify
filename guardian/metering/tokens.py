@@ -12,3 +12,12 @@ class InferenceUsageSource(str, Enum):
 class InferenceCostSource(str, Enum):
     RATE_SNAPSHOT_ESTIMATE = "rate_snapshot_estimate"
     UNAVAILABLE = "unavailable"
+
+
+class InferenceBudgetState(str, Enum):
+    """Internal reservation lifecycle, not a public runtime event domain."""
+
+    RESERVED = "reserved"
+    DISPATCHED = "dispatched"
+    SETTLED = "settled"
+    RELEASED = "released"

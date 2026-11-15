@@ -4,6 +4,8 @@ ElevenLabs TTS Provider
 Implementation of TTSProvider for ElevenLabs API.
 """
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import logging
 import os
 from typing import List, Optional
@@ -103,6 +105,7 @@ class ElevenLabsProvider(TTSProvider):
             AuthenticationError: If API key is invalid
             SynthesisError: If synthesis fails
         """
+        deny_unqualified_spend()
         if not text:
             raise ValueError("Text cannot be empty")
 

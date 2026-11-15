@@ -3,6 +3,8 @@ OpenAI Embedder for MemoryOS
 Uses OpenAI's embedding API for generating text embeddings
 """
 
+from guardian.metering.runtime import deny_unqualified_spend
+
 import logging
 import os
 from functools import lru_cache
@@ -71,6 +73,7 @@ class OpenAIEmbedder:
         Returns:
             List[float]: The embedding vector as a list of floats.
         """
+        deny_unqualified_spend()
         try:
             response = self.client.embeddings.create(
                 input=text, model=self.model
@@ -90,6 +93,7 @@ class OpenAIEmbedder:
         Returns:
             List[List[float]]: List of embedding vectors for each input string.
         """
+        deny_unqualified_spend()
         try:
             response = self.client.embeddings.create(
                 input=texts, model=self.model

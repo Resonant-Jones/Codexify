@@ -8416,3 +8416,85 @@ class KnowledgeOAuthFlow(Base):
     expires_at: Mapped[float] = mapped_column(Float, nullable=False)
     consumed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     repositories: Mapped[list] = mapped_column(JSON, nullable=False)
+
+
+class InferenceBudgetWindow(Base):
+    """Fixed operator-owned estimate window; never reset a window in place."""
+
+    __tablename__ = "inference_budget_windows"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    payer_scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    ends_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    limit_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    held_units: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    spent_units: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    __table_args__ = (
+        CheckConstraint("kind IN ('monthly', 'funding')", name="ck_budget_window_kind"),
+        CheckConstraint("ends_at > starts_at", name="ck_budget_window_dates"),
+        CheckConstraint(
+            "limit_units >= 0 AND held_units >= 0 AND spent_units >= 0",
+            name="ck_budget_window_amounts",
+        ),
+    )
+
+
+class InferenceBudgetReservation(Base):
+    """One trusted attempt's estimate; not a financial charge or entitlement."""
+
+    __tablename__ = "inference_budget_reservations"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    account_id: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    thread_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    payer_scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    reserved_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    settled_units: Mapped[int | None] = mapped_column(BigInteger)
+    input_ceiling: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    output_ceiling: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    price_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    settlement_hash: Mapped[str | None] = mapped_column(String(64))
+    settlement_usage: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('reserved','dispatched','settled','released')",
+            name="ck_budget_reservation_state",
+        ),
+        CheckConstraint(
+            "reserved_units > 0 AND input_ceiling >= 0 AND output_ceiling >= 0",
+            name="ck_budget_reservation_bounds",
+        ),
+        CheckConstraint(
+            "(state = 'settled' AND settled_units IS NOT NULL AND settled_units >= 0 AND settlement_hash IS NOT NULL AND settlement_usage IS NOT NULL) OR (state != 'settled' AND settled_units IS NULL AND settlement_hash IS NULL AND settlement_usage IS NULL)",
+            name="ck_budget_settlement_presence",
+        ),
+        Index("ix_budget_reservation_account", "account_id", "created_at"),
+    )
+
+
+class InferenceBudgetAllocation(Base):
+    __tablename__ = "inference_budget_allocations"
+    attempt_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("inference_budget_reservations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    window_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("inference_budget_windows.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )

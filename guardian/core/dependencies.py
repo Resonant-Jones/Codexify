@@ -1511,6 +1511,9 @@ def _groq_complete(
     Raises:
         HTTPException: If GROQ_API_KEY not configured or completion fails
     """
+    from guardian.metering.runtime import deny_unqualified_spend
+
+    deny_unqualified_spend()
     import requests
 
     try:

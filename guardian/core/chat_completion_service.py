@@ -1824,7 +1824,11 @@ def _execute_completion_attempt(
         observer = _provider_request_capture_observer(task, provider=provider, model=model)
     except Exception:
         observer = None
-    with observe_provider_requests(observer):
+    from guardian.metering.runtime import accepted_budget_context
+
+    with accepted_budget_context(
+        task, provider, getattr(dependencies, "chatlog_db", None)
+    ), observe_provider_requests(observer):
         result = _dispatch_completion_attempt(
             task=task, messages_for_llm=messages_for_llm, provider=provider,
             model=model, bundle=bundle, accepted_deadline=accepted_deadline,
