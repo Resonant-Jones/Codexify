@@ -453,7 +453,7 @@ def test_voice_turn_dedupe_hit(test_client, monkeypatch):
         "guardian.routes.voice._voice_worker_available", lambda: True
     )
     monkeypatch.setattr(
-        "guardian.routes.voice.chatlog_db",
+        "guardian.core.dependencies.chatlog_db",
         SimpleNamespace(get_chat_thread=lambda *_: {"id": 1}),
     )
     monkeypatch.setattr(
@@ -515,7 +515,7 @@ def test_voice_turn_missing_turn_id_uses_unique_per_request_turn_ids(
         "guardian.routes.voice._voice_worker_available", lambda: True
     )
     monkeypatch.setattr(
-        "guardian.routes.voice.chatlog_db",
+        "guardian.core.dependencies.chatlog_db",
         SimpleNamespace(get_chat_thread=lambda *_: {"id": 1}),
     )
     monkeypatch.setattr(
@@ -574,7 +574,7 @@ def test_voice_turn_completed(test_client, mock_db, monkeypatch):
     monkeypatch.setattr(
         "guardian.routes.voice._voice_worker_available", lambda: True
     )
-    monkeypatch.setattr("guardian.routes.voice.chatlog_db", mock_db)
+    monkeypatch.setattr("guardian.core.dependencies.chatlog_db", mock_db)
     monkeypatch.setattr(
         "guardian.routes.voice.normalize_audio_input",
         lambda *_a, **_k: (
@@ -658,7 +658,7 @@ def test_voice_turn_lock_conflict(test_client, monkeypatch):
         "guardian.routes.voice._voice_worker_available", lambda: True
     )
     monkeypatch.setattr(
-        "guardian.routes.voice.chatlog_db",
+        "guardian.core.dependencies.chatlog_db",
         SimpleNamespace(get_chat_thread=lambda *_: {"id": 1}),
     )
     monkeypatch.setattr(
@@ -693,12 +693,16 @@ def test_voice_turn_lock_conflict(test_client, monkeypatch):
 
 def test_speak_message_returns_cached_asset(test_client, monkeypatch):
     monkeypatch.setattr(
+        "guardian.core.dependencies.chatlog_db",
+        SimpleNamespace(get_chat_thread=lambda *_: {"id": 1}),
+    )
+    monkeypatch.setattr(
         "guardian.routes.voice.STREAM_PROXY_ENABLED",
         True,
     )
     monkeypatch.setattr(
         "guardian.routes.voice._load_message",
-        lambda *_: SimpleNamespace(id=55, content="hello world"),
+        lambda *_: SimpleNamespace(id=55, thread_id=1, content="hello world"),
     )
     monkeypatch.setattr(
         "guardian.routes.voice.find_cached_asset",

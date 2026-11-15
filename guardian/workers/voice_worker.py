@@ -21,6 +21,7 @@ from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     run_chat_completion_task,
 )
+from guardian.core.dependencies import RequestUserScope
 from guardian.queue import task_events
 from guardian.queue.redis_queue import (
     clear_cancelled,
@@ -34,6 +35,7 @@ from guardian.tasks.types import (
     VoiceTurnTask,
     task_from_dict,
 )
+from guardian.voice.account_access import require_voice_thread_access
 from guardian.voice.audio_assets import save_message_audio_asset
 from guardian.voice.client import synthesize, transcribe
 from guardian.voice.config import get_voice_runtime_config
@@ -49,6 +51,27 @@ logger = logging.getLogger(__name__)
 
 QUEUE_NAME = VOICE_QUEUE_NAME
 CONCURRENCY = int(os.getenv("VOICE_WORKER_CONCURRENCY", "1"))
+
+
+def _voice_task_scope(task: VoiceTurnTask) -> RequestUserScope:
+    if task.account_id is not None:
+        if not isinstance(task.account_id, str) or not task.account_id.strip():
+            raise VoiceValidationError("Missing authenticated user")
+        account_id = task.account_id.strip()
+        if task.user_id != account_id:
+            raise VoiceValidationError(
+                "Thread does not belong to the authenticated account"
+            )
+        return RequestUserScope(
+            user_id=account_id, account_id=account_id, multi_user_enabled=True
+        )
+    if (
+        dependencies.is_private_preview()
+        or dependencies._auth_mode() == "remote"
+        or dependencies._multi_user_mode_enabled()
+    ):
+        raise VoiceValidationError("Missing authenticated user")
+    return RequestUserScope(user_id=task.user_id or dependencies.get_single_user_id())
 
 
 def _safe_publish(task_id: str, event_type: str, data: dict) -> None:
@@ -85,6 +108,8 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
     )
 
     try:
+        scope = _voice_task_scope(task)
+        require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -111,6 +136,8 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
             timeout_seconds=cfg.stt_timeout_seconds,
         )
 
+        require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
+
         user_message_id = dependencies.chatlog_db.create_message(
             task.thread_id,
             "user",
@@ -121,7 +148,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
                 "create",
                 "chat_message",
                 str(user_message_id),
-                user_id="default",
+                user_id=scope.user_id,
             )
         except Exception:
             pass
@@ -154,7 +181,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
         if task.turn_id:
             completion_origin = f"{completion_origin}|turn_id={task.turn_id}"
         completion_task = ChatCompletionTask(
-            user_id="local",
+            user_id=scope.user_id,
             thread_id=task.thread_id,
             provider=task.completion_provider,
             model=task.completion_model,
@@ -204,6 +231,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
         assistant_text = str(completion_result.get("assistant_text") or "")
 
         audio_asset = None
+        require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
         if task.tts_enabled and assistant_text.strip():
             _safe_publish(
                 task.task_id,
