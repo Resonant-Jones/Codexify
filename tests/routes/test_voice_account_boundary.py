@@ -313,3 +313,47 @@ async def test_denied_turn_does_not_read_upload(boundary):
         )
     assert denied.value.status_code == 403
     upload.read.assert_not_called()
+
+
+def test_owner_change_during_synthesis_prevents_asset_write(boundary):
+    def synthesize(*args, **kwargs):
+        boundary.threads[1]["user_id"] = "account-b"
+        return b"synthetic-audio", "wav"
+
+    boundary.calls["synthesize"].side_effect = synthesize
+    response = boundary.client.post(
+        "/api/voice/messages/11/speak", json={"force_regenerate": True}
+    )
+    assert response.status_code == 403, response.text
+    boundary.calls["save_message_audio_asset"].assert_not_called()
+
+
+def test_owner_change_during_download_prevents_audio_delivery(boundary):
+    def download(*args, **kwargs):
+        boundary.threads[1]["user_id"] = "account-b"
+        return b"synthetic-audio"
+
+    boundary.download.side_effect = download
+    response = boundary.client.get("/api/voice/audio/111")
+    assert response.status_code == 403, response.text
+    assert b"synthetic-audio" not in response.content
+
+
+def test_owner_change_while_waiting_prevents_turn_result(boundary, monkeypatch):
+    boundary.calls["_get_dedupe_hit"].return_value = None
+    boundary.calls["acquire_turn_lock"].return_value = True
+    monkeypatch.setattr(voice, "_set_dedupe_record", Mock())
+    monkeypatch.setattr(voice.task_events, "publish", Mock())
+
+    async def terminal(*args, **kwargs):
+        boundary.threads[1]["user_id"] = "account-b"
+        return "task.completed", {"assistant_text": "protected synthetic answer"}
+
+    monkeypatch.setattr(voice, "_await_terminal_task_event", terminal)
+    response = boundary.client.post(
+        "/api/voice/turn",
+        data={"thread_id": 1},
+        files={"audio_file": ("synthetic.wav", b"synthetic", "audio/wav")},
+    )
+    assert response.status_code == 403, response.text
+    assert "protected synthetic answer" not in response.text

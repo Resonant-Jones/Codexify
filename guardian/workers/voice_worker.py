@@ -110,6 +110,23 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
     try:
         scope = _voice_task_scope(task)
         require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
+
+        def check_cancelled() -> bool:
+            require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
+            return is_cancelled(task.task_id)
+
+        def publish_token(token: str) -> None:
+            require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
+            _safe_publish(
+                task.task_id,
+                "task.progress",
+                {
+                    "stage": "completion.token",
+                    "thread_id": task.thread_id,
+                    "token": token,
+                },
+            )
+
         if is_cancelled(task.task_id):
             _safe_publish(
                 task.task_id,
@@ -207,16 +224,8 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
                 run_chat_completion_task,
                 completion_task,
                 user_id=completion_task.user_id,
-                token_callback=lambda token: _safe_publish(
-                    task.task_id,
-                    "task.progress",
-                    {
-                        "stage": "completion.token",
-                        "thread_id": task.thread_id,
-                        "token": token,
-                    },
-                ),
-                cancel_check=lambda: is_cancelled(task.task_id),
+                token_callback=publish_token,
+                cancel_check=check_cancelled,
                 persist_assistant_message=True,
             )
             try:
@@ -245,6 +254,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
                 output_format=task.output_format,
                 timeout_seconds=cfg.tts_timeout_seconds,
             )
+            require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
             audio_asset = save_message_audio_asset(
                 message_id=assistant_message_id,
                 text=assistant_text,
@@ -262,6 +272,7 @@ def _run_voice_task(task: VoiceTurnTask) -> None:
                 },
             )
 
+        require_voice_thread_access(dependencies.chatlog_db, task.thread_id, scope)
         _safe_publish(
             task.task_id,
             "task.completed",

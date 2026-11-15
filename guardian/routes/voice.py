@@ -620,6 +620,11 @@ def stream_audio_asset(
     except Exception:
         raise HTTPException(status_code=404, detail="audio_asset_not_found")
 
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        message.thread_id,
+        request_user_scope,
+    )
     media_type = _content_type_for_format(asset.internal_format)
     return Response(content=raw, media_type=media_type)
 
@@ -666,6 +671,7 @@ async def voice_turn(
         )
 
     audio_raw = await audio_file.read()
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
 
     # 3) MIME + limits + normalization
     try:
@@ -688,6 +694,7 @@ async def voice_turn(
 
     normalized_turn_id = _normalize_turn_id(turn_id)
     audio_sha256 = hashlib.sha256(audio_raw).hexdigest()
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
 
     # 4) Dedupe before lock/enqueue
     dedupe_hit = _get_dedupe_hit(
@@ -786,6 +793,7 @@ async def voice_turn(
     except TimeoutError:
         raise HTTPException(status_code=504, detail="voice_turn_timeout")
 
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
     if event_type == "task.completed":
         payload.setdefault("task_id", task.task_id)
         payload.setdefault("thread_id", thread_id)
@@ -852,6 +860,11 @@ def speak_message(
             text_hash=text_hash,
         )
         if cached:
+            require_voice_thread_access(
+                dependencies.chatlog_db or load_guardian_db_from_env(),
+                row.thread_id,
+                request_user_scope,
+            )
             return SpeakResponse(
                 message_id=message_id,
                 audio_asset=_with_stream_url(cached),
@@ -872,6 +885,11 @@ def speak_message(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"tts_failed:{exc}")
 
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        row.thread_id,
+        request_user_scope,
+    )
     asset = save_message_audio_asset(
         message_id=message_id,
         text=text,
@@ -883,6 +901,11 @@ def speak_message(
             "requested_format": output_format,
             "stream_proxy_enabled": bool(STREAM_PROXY_ENABLED),
         },
+    )
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        row.thread_id,
+        request_user_scope,
     )
     return SpeakResponse(
         message_id=message_id,

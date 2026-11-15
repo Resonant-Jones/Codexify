@@ -156,3 +156,42 @@ def test_local_legacy_task_still_completes(execution):
     voice_worker._run_voice_task(task(account_id=None, user_id=""))
     assert execution.completion.call_args.args[0].user_id == "local"
     execution.save.assert_called_once()
+
+
+def test_owner_change_during_tts_prevents_save_and_completion(execution):
+    def synthesize(*args, **kwargs):
+        execution.thread["user_id"] = "account-b"
+        return b"synthetic-audio", "wav"
+
+    execution.tts.side_effect = synthesize
+    voice_worker._run_voice_task(task())
+    execution.save.assert_not_called()
+    assert not any(
+        call.args[1] == "task.completed" for call in execution.publish.call_args_list
+    )
+
+
+@pytest.mark.parametrize("callback", ["token_callback", "cancel_check"])
+def test_owner_change_during_completion_revalidates_before_output_or_persist(
+    execution, callback
+):
+    persist = Mock()
+
+    def complete(*args, **kwargs):
+        execution.thread["user_id"] = "account-b"
+        if callback == "token_callback":
+            kwargs[callback]("protected synthetic token")
+        else:
+            kwargs[callback]()
+        persist()
+        return {"message_id": 12, "assistant_text": "synthetic answer"}
+
+    execution.completion.side_effect = complete
+    voice_worker._run_voice_task(task())
+    assert not any(
+        call.args[1] == "task.completed"
+        or call.args[2].get("stage") == "completion.token"
+        for call in execution.publish.call_args_list
+    )
+    execution.save.assert_not_called()
+    persist.assert_not_called()
