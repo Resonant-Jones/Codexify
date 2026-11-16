@@ -457,3 +457,80 @@ def test_late_native_pdf_parse_cannot_start_canonical_writer(ready, monkeypatch)
     assert error.value.code == repair.Code.MEDIA_REPAIR_LIMIT.value
     with sessions() as session:
         assert session.query(UploadedDocument).count() == 0
+
+
+@pytest.mark.parametrize("projectless", [True, False])
+def test_original_owned_thread_attachment_uses_canonical_project_fallback(
+    ready, projectless
+):
+    service, sessions, _, _, args, _, _ = ready
+    with sessions() as session:
+        project = session.query(Project).filter_by(user_id="account-a").one()
+        thread = ChatThread(
+            user_id="account-a",
+            title="Original source",
+            origin_system="openai",
+            project_id=None if projectless else project.id,
+        )
+        session.add(thread)
+        session.flush()
+        session.add(
+            ChatMessage(
+                thread_id=thread.id,
+                user_id="account-a",
+                role="user",
+                content="proof",
+                extra_meta={
+                    "source_thread_id": "source-thread",
+                    "source_message_id": "message",
+                },
+            )
+        )
+        session.commit()
+        thread_id = thread.id
+    audit = repair.repair_retained_pdf(service, **args)
+    assert audit["job"]["imported_media_count"] == 1
+    with sessions() as session:
+        document = session.query(UploadedDocument).one()
+        assert document.thread_id == thread_id
+        assert (
+            session.query(ThreadDocument)
+            .filter_by(thread_id=thread_id, document_id=document.id)
+            .count()
+            == 1
+        )
+    assert not repair.repair_retained_pdf(service, **args)["busy"]
+
+
+def test_foreign_project_on_owned_source_thread_is_rejected_before_admission(ready):
+    service, sessions, _, _, args, _, _ = ready
+    with sessions() as session:
+        foreign = Project(name="Other account", user_id="account-b")
+        session.add(foreign)
+        session.flush()
+        thread = ChatThread(
+            user_id="account-a",
+            title="Conflicting Project",
+            origin_system="openai",
+            project_id=foreign.id,
+        )
+        session.add(thread)
+        session.flush()
+        session.add(
+            ChatMessage(
+                thread_id=thread.id,
+                user_id="account-a",
+                role="user",
+                content="proof",
+                extra_meta={
+                    "source_thread_id": "source-thread",
+                    "source_message_id": "message",
+                },
+            )
+        )
+        session.commit()
+    with pytest.raises(AccountImportError) as error:
+        repair.repair_retained_pdf(service, **args)
+    assert error.value.code == repair.Code.MEDIA_REPAIR_INTEGRITY.value
+    with sessions() as session:
+        assert session.query(UploadedDocument).count() == 0

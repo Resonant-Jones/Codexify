@@ -546,7 +546,7 @@ def _existing(service, user_id, project_id, job_id, path, sha, size, fingerprint
             if (
                 thread is None
                 or str(thread.user_id) != user_id
-                or thread.project_id != project_id
+                or thread.project_id not in {None, project_id}
             ):
                 _fail(
                     Code.MEDIA_REPAIR_INTEGRITY,
