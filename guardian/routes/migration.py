@@ -640,6 +640,26 @@ async def get_openai_account_import(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/api/imports/openai-account/{job_id}/manifest")
+async def get_openai_account_import_manifest(
+    job_id: str,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Read the authenticated owner's upload checkpoint, without storage URLs."""
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(
+            service.get_upload_manifest, job_id=job_id, user_id=user_id
+        )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/api/imports/openai-account/{job_id}/retry")
 async def retry_openai_account_import(
     job_id: str,
