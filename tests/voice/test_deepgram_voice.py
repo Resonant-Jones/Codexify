@@ -185,10 +185,10 @@ def test_long_text_is_chunked_to_the_aura_request_limit(monkeypatch):
 def test_transcribe_uses_deepgram_listen_endpoint(monkeypatch):
     captured = {}
 
-    def fake_post(url, headers=None, files=None, data=None, timeout=None):
+    def fake_post(url, headers=None, params=None, data=None, timeout=None):
         captured["url"] = url
         captured["headers"] = headers
-        captured["files"] = files
+        captured["params"] = params
         captured["data"] = data
         return _Response(
             200,
@@ -206,7 +206,9 @@ def test_transcribe_uses_deepgram_listen_endpoint(monkeypatch):
     assert transcript == "hello from deepgram"
     assert captured["url"] == "https://api.deepgram.com/v1/listen"
     assert captured["headers"]["Authorization"] == "Token test-deepgram-key"
-    assert captured["data"]["model"] == "nova-3"
+    assert captured["params"] == {"model": "nova-3", "smart_format": "true"}
+    assert captured["headers"]["Content-Type"] == "audio/wav"
+    assert captured["data"] == b"RIFFfake"
 
 
 def test_transcribe_reports_an_empty_transcript(monkeypatch):

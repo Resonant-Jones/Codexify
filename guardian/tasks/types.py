@@ -969,6 +969,9 @@ class EvalTask(BaseTask):
 @dataclass
 class VoiceTurnTask(BaseTask):
     type: str = "voice_turn"
+    user_id: str = ""
+    # None is the bounded local legacy lane, never a missing remote binding.
+    account_id: str | None = None
     thread_id: int = 0
     audio_b64: str = ""
     audio_mime: str | None = None
@@ -992,6 +995,8 @@ class VoiceTurnTask(BaseTask):
         return cls(
             thread_id=int(payload.get("thread_id") or 0),
             audio_b64=str(payload.get("audio_b64") or ""),
+            user_id=str(payload.get("user_id") or ""),
+            account_id=payload.get("account_id"),
             audio_mime=payload.get("audio_mime"),
             stt_provider=payload.get("stt_provider"),
             tts_enabled=bool(payload.get("tts_enabled", True)),

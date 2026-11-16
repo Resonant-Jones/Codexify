@@ -24,8 +24,13 @@ from fastapi import (
 )
 from pydantic import BaseModel
 
+from guardian.core import dependencies
 from guardian.core.db import load_guardian_db_from_env
-from guardian.core.dependencies import chatlog_db, require_account_session as require_api_key
+from guardian.core.dependencies import (
+    RequestUserScope,
+    get_account_user_scope,
+    require_account_session as require_api_key,
+)
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import ChatMessage, MessageAudioAsset
 from guardian.queue import task_events
@@ -43,7 +48,9 @@ from guardian.tts.tts_manager import (
     TTSManager,
 )
 from guardian.tts.tts_service import ProviderNotFoundError
+from guardian.voice.account_access import require_voice_thread_access
 from guardian.voice.audio_assets import (
+    _open_audio_asset_session,
     compute_text_hash,
     find_cached_asset,
     save_message_audio_asset,
@@ -106,8 +113,13 @@ def _get_voice_turn_task_cls():
     return VoiceTurnTask
 
 
-def _dedupe_key(thread_id: int, turn_id: str, audio_sha256: str) -> str:
-    return f"{_DEDUPE_KEY_PREFIX}:{thread_id}:{turn_id}:{audio_sha256}"
+def _dedupe_key(
+    thread_id: int, turn_id: str, audio_sha256: str, account_id: str | None = None
+) -> str:
+    key = f"{_DEDUPE_KEY_PREFIX}:{thread_id}:{turn_id}:{audio_sha256}"
+    if account_id is not None:
+        key += ":" + hashlib.sha256(account_id.encode("utf-8")).hexdigest()
+    return key
 
 
 def _normalize_turn_id(raw: str | None) -> str:
@@ -142,8 +154,9 @@ def _get_dedupe_hit(
     thread_id: int,
     turn_id: str,
     audio_sha256: str,
+    account_id: str | None = None,
 ) -> dict[str, Any] | None:
-    key = _dedupe_key(thread_id, turn_id, audio_sha256)
+    key = _dedupe_key(thread_id, turn_id, audio_sha256, account_id)
     try:
         client = get_redis_client()
         raw = client.get(key)
@@ -184,8 +197,9 @@ def _set_dedupe_record(
     audio_sha256: str,
     task_id: str,
     ttl_seconds: int,
+    account_id: str | None = None,
 ) -> None:
-    key = _dedupe_key(thread_id, turn_id, audio_sha256)
+    key = _dedupe_key(thread_id, turn_id, audio_sha256, account_id)
     payload = {
         "task_id": task_id,
         "created_at": int(time.time()),
@@ -399,20 +413,25 @@ def preview_voice(
 
 
 def _load_message(message_id: int) -> ChatMessage | None:
-    db = chatlog_db or load_guardian_db_from_env()
-    if not db or not hasattr(db, "get_session"):
+    db = dependencies.chatlog_db or load_guardian_db_from_env()
+    if db is None:
         return None
-    with db.get_session() as session:
+    with _open_audio_asset_session(db) as session:
         row = session.query(ChatMessage).filter_by(id=message_id).first()
+        if row is not None:
+            session.expunge(row)
         return row
 
 
 def _load_audio_asset(asset_id: int) -> MessageAudioAsset | None:
-    db = chatlog_db or load_guardian_db_from_env()
-    if not db or not hasattr(db, "get_session"):
+    db = dependencies.chatlog_db or load_guardian_db_from_env()
+    if db is None:
         return None
-    with db.get_session() as session:
-        return session.query(MessageAudioAsset).filter_by(id=asset_id).first()
+    with _open_audio_asset_session(db) as session:
+        row = session.query(MessageAudioAsset).filter_by(id=asset_id).first()
+        if row is not None:
+            session.expunge(row)
+        return row
 
 
 def _content_type_for_format(fmt: str | None) -> str:
@@ -483,15 +502,6 @@ def _normalize_turn_id(raw: Any) -> str:
                     candidate,
                 )
     return str(uuid.uuid4())
-
-
-def _load_message(message_id: int) -> ChatMessage | None:
-    db = chatlog_db or load_guardian_db_from_env()
-    if not db or not hasattr(db, "get_session"):
-        return None
-    with db.get_session() as session:
-        row = session.query(ChatMessage).filter_by(id=message_id).first()
-        return row
 
 
 @router.get("/capabilities")
@@ -589,18 +599,32 @@ def voice_capabilities(
 def stream_audio_asset(
     asset_id: int,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_account_user_scope),
 ):
     if not STREAM_PROXY_ENABLED:
         raise HTTPException(status_code=404, detail="route_not_found")
     asset = _load_audio_asset(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="audio_asset_not_found")
+    message = _load_message(asset.message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="audio_asset_not_found")
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        message.thread_id,
+        request_user_scope,
+    )
 
     try:
         raw = _storage.download_file(asset.src_url)
     except Exception:
         raise HTTPException(status_code=404, detail="audio_asset_not_found")
 
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        message.thread_id,
+        request_user_scope,
+    )
     media_type = _content_type_for_format(asset.internal_format)
     return Response(content=raw, media_type=media_type)
 
@@ -621,6 +645,7 @@ async def voice_turn(
     system_override: str | None = Form(None),
     max_context: int | None = Form(None),
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_account_user_scope),
 ):
     cfg = get_voice_runtime_config()
 
@@ -632,11 +657,12 @@ async def voice_turn(
     if not _voice_worker_available():
         raise HTTPException(status_code=503, detail="voice_worker_missing")
 
-    if not chatlog_db or not hasattr(chatlog_db, "get_chat_thread"):
-        raise HTTPException(status_code=503, detail="chat_db_unavailable")
-    thread = chatlog_db.get_chat_thread(thread_id)
-    if not thread:
-        raise HTTPException(status_code=404, detail="thread_not_found")
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
+    account_id = (
+        str(request_user_scope.account_id or request_user_scope.user_id).strip()
+        if request_user_scope.multi_user_enabled
+        else None
+    )
 
     voice_turn_task_cls = _get_voice_turn_task_cls()
     if voice_turn_task_cls is None:
@@ -645,6 +671,7 @@ async def voice_turn(
         )
 
     audio_raw = await audio_file.read()
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
 
     # 3) MIME + limits + normalization
     try:
@@ -667,17 +694,21 @@ async def voice_turn(
 
     normalized_turn_id = _normalize_turn_id(turn_id)
     audio_sha256 = hashlib.sha256(audio_raw).hexdigest()
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
 
     # 4) Dedupe before lock/enqueue
     dedupe_hit = _get_dedupe_hit(
         thread_id=thread_id,
         turn_id=normalized_turn_id,
         audio_sha256=audio_sha256,
+        account_id=account_id,
     )
     if dedupe_hit:
         return dedupe_hit
 
     task = voice_turn_task_cls(
+        user_id=account_id or request_user_scope.user_id,
+        account_id=account_id,
         thread_id=thread_id,
         audio_b64=base64.b64encode(normalized_audio).decode("ascii"),
         audio_mime=normalized_mime,
@@ -725,6 +756,7 @@ async def voice_turn(
         audio_sha256=audio_sha256,
         task_id=task.task_id,
         ttl_seconds=cfg.turn_dedupe_ttl_seconds,
+        account_id=account_id,
     )
 
     try:
@@ -761,6 +793,7 @@ async def voice_turn(
     except TimeoutError:
         raise HTTPException(status_code=504, detail="voice_turn_timeout")
 
+    require_voice_thread_access(dependencies.chatlog_db, thread_id, request_user_scope)
     if event_type == "task.completed":
         payload.setdefault("task_id", task.task_id)
         payload.setdefault("thread_id", thread_id)
@@ -794,10 +827,16 @@ def speak_message(
     message_id: int,
     request: SpeakRequest,
     api_key: str = Depends(require_api_key),
+    request_user_scope: RequestUserScope = Depends(get_account_user_scope),
 ):
     row = _load_message(message_id)
     if not row:
         raise HTTPException(status_code=404, detail="message_not_found")
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        row.thread_id,
+        request_user_scope,
+    )
 
     text = str(row.content or "").strip()
     if not text:
@@ -821,6 +860,11 @@ def speak_message(
             text_hash=text_hash,
         )
         if cached:
+            require_voice_thread_access(
+                dependencies.chatlog_db or load_guardian_db_from_env(),
+                row.thread_id,
+                request_user_scope,
+            )
             return SpeakResponse(
                 message_id=message_id,
                 audio_asset=_with_stream_url(cached),
@@ -841,6 +885,11 @@ def speak_message(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"tts_failed:{exc}")
 
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        row.thread_id,
+        request_user_scope,
+    )
     asset = save_message_audio_asset(
         message_id=message_id,
         text=text,
@@ -852,6 +901,11 @@ def speak_message(
             "requested_format": output_format,
             "stream_proxy_enabled": bool(STREAM_PROXY_ENABLED),
         },
+    )
+    require_voice_thread_access(
+        dependencies.chatlog_db or load_guardian_db_from_env(),
+        row.thread_id,
+        request_user_scope,
     )
     return SpeakResponse(
         message_id=message_id,

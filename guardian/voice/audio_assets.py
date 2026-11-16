@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 from sqlalchemy.exc import IntegrityError
 
 from guardian.config.db_defaults import DEFAULT_PG_DSN
+from guardian.core import dependencies
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
-from guardian.core.dependencies import chatlog_db
 from guardian.core.media_signing import sign_media_url
 from guardian.core.storage import create_storage_from_env
 from guardian.db.models import MessageAudioAsset
@@ -26,7 +26,7 @@ def _database_url() -> str:
 
 
 def _db() -> Any:
-    shared = chatlog_db or load_guardian_db_from_env()
+    shared = dependencies.chatlog_db or load_guardian_db_from_env()
     if shared is not None:
         return shared
     return GuardianDB(_database_url())
