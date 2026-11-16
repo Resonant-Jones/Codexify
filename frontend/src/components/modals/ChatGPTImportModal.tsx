@@ -508,11 +508,21 @@ export function ChatGPTImportModal({
               }}
             >
               <div className="font-semibold">
-                {accountImport.phase === "preflighting"
+                {accountImport.verification
+                  ? "Verifying staged files on this device..."
+                  : accountImport.phase === "preflighting"
                   ? "Checking import runtime..."
                   : "Transferring export..."}
               </div>
               <div className="mt-1 text-xs opacity-80">
+                {accountImport.verification && (
+                  <div role="status" aria-live="polite">
+                    {accountImport.verification.completed} of {accountImport.verification.total} files verified
+                    {" "}({formatFileSize(accountImport.verification.bytes)} of {formatFileSize(accountImport.verification.totalBytes)}).
+                    {" "}{accountImport.verification.stage === "reading" ? "Reading" : "Hashing"} the next selected file.
+                    {" "}No remaining files are uploaded until verification completes.
+                  </div>
+                )}
                 {accountImport.job
                   ? `${accountImport.job.uploaded_file_count} of ${accountImport.job.total_file_count} files staged. `
                   : "Preparing staged intake. "}

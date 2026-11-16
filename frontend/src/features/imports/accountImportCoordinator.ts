@@ -2,6 +2,7 @@ import {
   commitOpenAIAccountImport,
   createOpenAIAccountImport,
   fetchOpenAIAccountImport,
+  fetchOpenAIAccountImportManifest,
   normalizeImportRuntimeError,
   preflightBackendAvailability,
   uploadOpenAIAccountImportBatch,
@@ -25,6 +26,7 @@ export type AccountImportCoordinatorSnapshot = {
   job: AccountImportJob | null;
   error: string | null;
   technicalDetail: string | null;
+  verification?: { completed: number; total: number; bytes: number; totalBytes: number; stage: "reading" | "hashing" };
   selectedFileCount: number;
   selectedByteCount: number;
 };
@@ -33,6 +35,9 @@ const STORAGE_KEY = "cfy.accountImport:v1";
 const POLL_INTERVAL_MS = 1500;
 const UPLOAD_BATCH_FILES = 25;
 const UPLOAD_BATCH_TARGET_BYTES = 32 * 1024 * 1024;
+// WebCrypto has no streaming digest interface. Bound its one-file allocation;
+// large-file resume requires a separately qualified streaming verifier.
+const MAX_BROWSER_RESUME_HASH_BYTES = 128 * 1024 * 1024;
 
 const EMPTY_SNAPSHOT: AccountImportCoordinatorSnapshot = {
   phase: "idle",
@@ -48,6 +53,7 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshRun = 0;
 let activeRun = 0;
 let initialized = false;
+let transferController: AbortController | null = null;
 let accountStatusListener: EventListener | null = null;
 const listeners = new Set<() => void>();
 
@@ -122,7 +128,7 @@ async function refreshJob(
         phase: "failed",
         job,
         error:
-          "The browser transfer ended before server queue acceptance. Select the export again to retry.",
+          "The browser transfer ended before server queue acceptance. Select the same export folder again to verify and resume this job.",
         technicalDetail: null,
       });
       return;
@@ -257,7 +263,7 @@ function ensureInitialized(): void {
   if (typeof window !== "undefined") {
     accountStatusListener = ((event: CustomEvent) => {
       const jobId = String(event.detail?.job_id || "");
-      if (jobId && jobId === snapshot.job?.job_id) {
+      if (!transferController && jobId && jobId === snapshot.job?.job_id) {
         void refreshJob(jobId);
       }
     }) as EventListener;
@@ -267,7 +273,7 @@ function ensureInitialized(): void {
 
 export function normalizeBrowserRelativePath(value: string): string {
   const raw = String(value || "")
-    .replaceAll("\\", "/")
+    .replace(/\\/g, "/")
     .trim()
     .normalize("NFC");
   if (!raw || raw.startsWith("/") || /^[A-Za-z]:/.test(raw)) {
@@ -305,86 +311,213 @@ function uploadBatches(
   return batches;
 }
 
+function isTransientUploadError(error: unknown): boolean {
+  const status = extractHttpStatus(error);
+  const code = (error as { code?: string } | null)?.code;
+  return [408, 502, 503, 504].includes(status ?? 0) ||
+    ["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(code ?? "");
+}
+
+function assertCurrentTransfer(run: number, signal: AbortSignal): void {
+  if (run !== activeRun || signal.aborted) {
+    throw new Error("Account import transfer was stopped.");
+  }
+}
+
+// Deadlines stop admission, not native WebCrypto itself. Never retry a timed-out
+// local operation or advance to upload; late completion cannot mutate state.
+export const ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS = 30_000;
+function boundedVerification<T>(operation: () => Promise<T>, signal: AbortSignal, stage: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error: Error | null, value?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", aborted);
+      if (error) reject(error); else resolve(value as T);
+    };
+    const aborted = () => finish(new Error("Account import transfer was stopped."));
+    const timer = setTimeout(() => finish(new Error(`Local export verification timed out while ${stage}. No remaining files were uploaded.`)), ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) { aborted(); return; }
+    Promise.resolve().then(operation).then(value => finish(null, value), () =>
+      finish(new Error(`Local export verification failed while ${stage}. No remaining files were uploaded.`)));
+  });
+}
+
+async function remainingFiles(
+  job: AccountImportJob,
+  files: AccountImportBrowserFile[],
+  run: number,
+  signal: AbortSignal
+): Promise<AccountImportBrowserFile[]> {
+  const manifest = await fetchOpenAIAccountImportManifest(job.job_id);
+  assertCurrentTransfer(run, signal);
+  if (manifest.job_id !== job.job_id || manifest.source_system !== job.source_system ||
+      manifest.status !== "receiving" || manifest.total_file_count !== files.length ||
+      manifest.total_byte_count !== files.reduce((sum, item) => sum + item.file.size, 0)) {
+    throw new Error("The selected export does not match this receiving job. Nothing was uploaded.");
+  }
+  if (manifest.files.some((entry) => entry.size > MAX_BROWSER_RESUME_HASH_BYTES)) {
+    throw new Error("A staged file exceeds the browser's safe verification limit. Keep this job; use verified large-file recovery instead of starting over.");
+  }
+  const selected = new Map(files.map((item) => [item.relativePath, item]));
+  if (selected.size !== files.length) throw new Error("Export contains duplicate normalized paths.");
+  const staged = new Set<string>();
+  // Verify every durable checkpoint entry before sending any remaining bytes.
+  // Hash one file at a time; do not hold a multi-gigabyte export in memory.
+  const totalBytes = manifest.files.reduce((sum, entry) => sum + entry.size, 0);
+  let verifiedBytes = 0;
+  for (const entry of manifest.files) {
+    const item = selected.get(entry.path);
+    if (!item || staged.has(entry.path) || item.file.size !== entry.size ||
+        !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+      throw new Error("The selected export conflicts with staged files. Nothing was uploaded.");
+    }
+    assertCurrentTransfer(run, signal);
+    const progress = { completed: staged.size, total: manifest.files.length, bytes: verifiedBytes, totalBytes };
+    setSnapshot({ ...snapshot, verification: { ...progress, stage: "reading" } });
+    const bytes = await boundedVerification(() => item.file.arrayBuffer(), signal, "reading a selected file");
+    assertCurrentTransfer(run, signal);
+    setSnapshot({ ...snapshot, verification: { ...progress, stage: "hashing" } });
+    const digest = await boundedVerification(() => crypto.subtle.digest("SHA-256", bytes), signal, "hashing a selected file");
+    assertCurrentTransfer(run, signal);
+    const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (hex !== entry.sha256) {
+      throw new Error("The selected export conflicts with staged files. Nothing was uploaded.");
+    }
+    staged.add(entry.path);
+    verifiedBytes += entry.size;
+    setSnapshot({ ...snapshot, verification: { completed: staged.size, total: manifest.files.length, bytes: verifiedBytes, totalBytes, stage: "hashing" } });
+  }
+  return files.filter((item) => !staged.has(item.relativePath));
+}
+
+async function transferBatch(
+  job: AccountImportJob,
+  batch: AccountImportBrowserFile[],
+  run: number,
+  signal: AbortSignal
+): Promise<AccountImportJob> {
+  // Only file staging is replayed. Path+hash+size are checked under the server
+  // row lock, so a lost success response cannot create a second file.
+  for (let attempt = 0; ; attempt += 1) {
+    assertCurrentTransfer(run, signal);
+    try {
+      return await uploadOpenAIAccountImportBatch(job.job_id, batch, signal);
+    } catch (error) {
+      assertCurrentTransfer(run, signal);
+      if (!isTransientUploadError(error) || attempt >= 2) throw error;
+      const current = await fetchOpenAIAccountImport(job.job_id);
+      assertCurrentTransfer(run, signal);
+      if (current.status !== "receiving") return current;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
+}
+
 export async function startOpenAIAccountImport(
   selectedFiles: AccountImportBrowserFile[],
   sourceSystem: AccountImportSourceSystem = "openai"
 ): Promise<AccountImportJob> {
   ensureInitialized();
+  // A status event or unmount must not allow a second upload loop in this tab.
+  if (transferController) throw new Error("An account export transfer is already active.");
   const normalizedFiles = selectedFiles.map((item) => ({
     file: item.file,
     relativePath: normalizeBrowserRelativePath(item.relativePath),
   }));
-  if (normalizedFiles.length === 0) {
-    throw new Error("No export files were selected.");
+  if (!normalizedFiles.length) throw new Error("No export files were selected.");
+  if (new Set(normalizedFiles.map((item) => item.relativePath)).size !== normalizedFiles.length) {
+    throw new Error("Export contains duplicate normalized paths.");
   }
-  if (
-    ["preflighting", "transferring", "accepted", "running"].includes(
-      snapshot.phase
-    )
-  ) {
+  if (["preflighting", "transferring", "accepted", "running"].includes(snapshot.phase)) {
     if (snapshot.job && snapshot.job.source_system !== sourceSystem) {
-      throw new Error(
-        `An account export import is already active for ${snapshot.job.source_system}; finish or cancel it before starting a ${sourceSystem} import.`
-      );
+      throw new Error(`An account export import is already active for ${snapshot.job.source_system}; finish or cancel it before starting a ${sourceSystem} import.`);
     }
     throw new Error("An account export import is already active.");
   }
-
-  const run = ++activeRun;
-  const selectedByteCount = normalizedFiles.reduce(
-    (total, item) => total + item.file.size,
-    0
-  );
-  setSnapshot({
-    phase: "preflighting",
-    job: null,
-    error: null,
-    technicalDetail: null,
-    selectedFileCount: normalizedFiles.length,
-    selectedByteCount,
-  });
-
-  try {
-    const availability = await preflightBackendAvailability();
-    if (!availability.ok) {
-      throw Object.assign(new Error(availability.message), {
-        technicalDetail: availability.technicalDetail,
-      });
-    }
-    let job = await createOpenAIAccountImport({
-      total_file_count: normalizedFiles.length,
-      total_byte_count: selectedByteCount,
-      source_system: sourceSystem,
-    });
-    if (run !== activeRun) return job;
-    setSnapshot({ ...snapshot, phase: "transferring", job });
-    for (const batch of uploadBatches(normalizedFiles)) {
-      job = await uploadOpenAIAccountImportBatch(job.job_id, batch);
-      if (run !== activeRun) return job;
-      setSnapshot({ ...snapshot, phase: "transferring", job });
-    }
-    job = await commitOpenAIAccountImport(job.job_id);
-    if (run !== activeRun) return job;
-    setSnapshot({ ...snapshot, phase: phaseForJob(job), job });
-    if (["queued", "running"].includes(job.status)) {
-      startPolling(job.job_id);
-    }
-    return job;
-  } catch (error: unknown) {
-    const normalized = normalizeImportRuntimeError(error, { phase: "upload" });
-    const errorRecord =
-      error instanceof Error
-        ? (error as Error & { technicalDetail?: string })
-        : null;
-    setSnapshot({
-      ...snapshot,
-      phase: "failed",
-      error: normalized.message || errorRecord?.message || String(error),
-      technicalDetail:
-        normalized.technicalDetail || errorRecord?.technicalDetail || null,
-    });
-    throw error;
+  const resume = snapshot.job?.status === "receiving" ? snapshot.job : null;
+  if (resume && resume.source_system !== sourceSystem) {
+    throw new Error("Resume requires the original account source.");
   }
+  // Web Locks survive component lifetimes and exclude concurrent updated tabs.
+  // No unsafe localStorage lease or silent takeover when the owner is unknown.
+  if (!navigator.locks) {
+    const message = "Safe account import requires a browser with Web Locks support.";
+    setSnapshot({ ...snapshot, phase: "failed", error: message, technicalDetail: null });
+    throw new Error(message);
+  }
+  return navigator.locks.request("cfy.account-import-transfer", { ifAvailable: true }, async (lock) => {
+    if (!lock || transferController) {
+      const message = "An account export transfer is already active in another tab.";
+      if (!transferController) setSnapshot({ ...snapshot, phase: "failed", error: message, technicalDetail: null });
+      throw new Error(message);
+    }
+    const controller = new AbortController();
+    transferController = controller;
+    const run = ++activeRun;
+    refreshRun += 1;
+    stopPolling();
+    const selectedByteCount = normalizedFiles.reduce((sum, item) => sum + item.file.size, 0);
+    setSnapshot({
+      phase: "preflighting", job: resume, error: null, technicalDetail: null,
+      selectedFileCount: normalizedFiles.length, selectedByteCount,
+    });
+    try {
+      const availability = await preflightBackendAvailability();
+      assertCurrentTransfer(run, controller.signal);
+      if (!availability.ok) throw Object.assign(new Error(availability.message), { technicalDetail: availability.technicalDetail });
+      let job = resume
+        ? await fetchOpenAIAccountImport(resume.job_id)
+        : await createOpenAIAccountImport({
+            total_file_count: normalizedFiles.length,
+            total_byte_count: selectedByteCount,
+            source_system: sourceSystem,
+          });
+      assertCurrentTransfer(run, controller.signal);
+      if (job.source_system !== sourceSystem) throw new Error("The account import source changed.");
+      if (job.status === "receiving") {
+        const pending = resume
+          ? await remainingFiles(job, normalizedFiles, run, controller.signal)
+          : normalizedFiles;
+        setSnapshot({ ...snapshot, phase: "transferring", job, verification: undefined });
+        for (const batch of uploadBatches(pending)) {
+          job = await transferBatch(job, batch, run, controller.signal);
+          assertCurrentTransfer(run, controller.signal);
+          setSnapshot({ ...snapshot, phase: phaseForJob(job), job });
+          if (job.status !== "receiving") break;
+        }
+        if (job.status === "receiving") {
+          try {
+            job = await commitOpenAIAccountImport(job.job_id);
+          } catch (error) {
+            // A lost commit response is not authority to enqueue another worker.
+            const current = await fetchOpenAIAccountImport(job.job_id);
+            if (current.status === "receiving") throw error;
+            job = current;
+          }
+        }
+      }
+      assertCurrentTransfer(run, controller.signal);
+      setSnapshot({ ...snapshot, phase: phaseForJob(job), job });
+      if (["queued", "running"].includes(job.status)) startPolling(job.job_id);
+      return job;
+    } catch (error: unknown) {
+      if (run === activeRun) {
+        const normalized = normalizeImportRuntimeError(error, { phase: "upload" });
+        setSnapshot({ ...snapshot, phase: "failed",
+          error: snapshot.job?.status === "receiving"
+            ? `${normalized.message} Staged files are retained. Select the same export folder to verify and resume.`
+            : normalized.message,
+          technicalDetail: normalized.technicalDetail || null });
+      }
+      throw error;
+    } finally {
+      if (transferController === controller) transferController = null;
+    }
+  });
 }
 
 export function subscribeAccountImportCoordinator(listener: () => void): () => void {
@@ -399,6 +532,7 @@ export function getAccountImportCoordinatorSnapshot(): AccountImportCoordinatorS
 }
 
 export function clearAccountImportCoordinatorResult(): void {
+  transferController?.abort();
   stopPolling();
   refreshRun += 1;
   activeRun += 1;
@@ -406,6 +540,7 @@ export function clearAccountImportCoordinatorResult(): void {
 }
 
 export function resetAccountImportCoordinatorForTests(): void {
+  transferController?.abort();
   stopPolling();
   refreshRun += 1;
   activeRun += 1;

@@ -1003,6 +1003,16 @@ export interface AccountImportBrowserFile {
 
 const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 
+// Durable imports have their own finite deadline and replay rules. A late
+// failure on unrelated shell traffic must not block a verified export locally.
+// This flag affects only the client outage throttle; credentials and server
+// ownership/content checks still run through the ordinary Axios interceptors.
+export const ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
+const ACCOUNT_IMPORT_REQUEST_CONFIG = {
+  timeout: ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS,
+  __cfyDurableAccountImport: true,
+};
+
 export async function createOpenAIAccountImport(
   declaration: {
     total_file_count: number;
@@ -1023,7 +1033,8 @@ export async function createOpenAIAccountImport(
       total_file_count: declaration.total_file_count,
       total_byte_count: declaration.total_byte_count,
       source_system: declaration.source_system,
-    }
+    },
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   // Provenance boundary: the Web client must never assign or accept
   // canonical conversation origin. If the server were ever to return one
@@ -1039,9 +1050,27 @@ export async function createOpenAIAccountImport(
   return response.data;
 }
 
+export interface AccountImportManifest {
+  job_id: string;
+  source_system: AccountImportSourceSystem;
+  status: AccountImportStatus;
+  total_file_count: number;
+  total_byte_count: number;
+  files: Array<{ path: string; size: number; sha256: string }>;
+}
+
+export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<AccountImportManifest> {
+  const response = await api.get<AccountImportManifest>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/manifest`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG
+  );
+  return response.data;
+}
+
 export async function uploadOpenAIAccountImportBatch(
   jobId: string,
-  files: AccountImportBrowserFile[]
+  files: AccountImportBrowserFile[],
+  signal?: AbortSignal
 ): Promise<AccountImportJob> {
   const formData = new FormData();
   for (const item of files) {
@@ -1051,7 +1080,7 @@ export async function uploadOpenAIAccountImportBatch(
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
     formData,
-    { timeout: 0 }
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
   );
   return response.data;
 }
@@ -1060,14 +1089,15 @@ export async function commitOpenAIAccountImport(jobId: string): Promise<AccountI
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/commit`,
     undefined,
-    { timeout: 0 }
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
 
 export async function fetchOpenAIAccountImport(jobId: string): Promise<AccountImportJob> {
   const response = await api.get<AccountImportJob>(
-    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
@@ -1401,6 +1431,7 @@ api.interceptors.request.use((config) => {
   (config as any).__cfyCanonicalBackendProbe = canonicalProbe;
   const now = Date.now();
   if (
+    !(config as { __cfyDurableAccountImport?: boolean }).__cfyDurableAccountImport &&
     shouldApplyBackendOutageFuse(config.url) &&
     backendOutageUntil > now
   ) {

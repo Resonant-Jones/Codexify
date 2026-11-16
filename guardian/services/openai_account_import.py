@@ -374,6 +374,22 @@ class OpenAIAccountImportService:
             }
             return self.serialize_job(SimpleNamespace(**values))
 
+    def get_upload_manifest(self, *, job_id: str, user_id: str) -> dict[str, Any]:
+        """Owner-only receiving checkpoint. Never expose internal storage locators."""
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id)
+            return {
+                "job_id": job.id,
+                "source_system": job.source_system,
+                "status": job.status,
+                "total_file_count": job.total_file_count,
+                "total_byte_count": job.total_byte_count,
+                "files": [
+                    {"path": item["path"], "size": item["size"], "sha256": item["sha256"]}
+                    for item in (job.staged_manifest or [])
+                ],
+            }
+
     def get_worker_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
