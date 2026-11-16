@@ -803,7 +803,7 @@ function isAbsoluteUrl(value: string): boolean {
 }
 
 function isBackendTransportError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
   if (error?.code === "ERR_BACKEND_OUTAGE_FUSE") return false;
   if (error?.code === "ERR_CLIENT_RATE_GUARD") return false;
   if (error?.response) return false;
@@ -870,7 +870,7 @@ function extractTransportErrorSignal(error: any): string {
 }
 
 export function isBackendRuntimeUnavailableError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
   if (["ERR_BACKEND_OUTAGE_FUSE", "ERR_CLIENT_RATE_GUARD", "ERR_CANCELED"].includes(error?.code)) return false;
   if (isBackendTransportError(error)) return true;
   if (isBackendProxyOutageResponse(error)) return true;
@@ -1003,6 +1003,9 @@ export interface AccountImportBrowserFile {
 
 const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 
+// Local verification/receipt failures are not backend transport failures.
+class AccountImportLocalError extends Error {}
+
 // Durable imports have their own finite deadline and replay rules. A late
 // failure on unrelated shell traffic must not block a verified export locally.
 // This flag affects only the client outage throttle; credentials and server
@@ -1076,11 +1079,92 @@ export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<A
   return response.data;
 }
 
+export const ACCOUNT_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+export const ACCOUNT_IMPORT_DIRECT_FILE_BYTES = 32 * 1024 * 1024;
+export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
+export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;
+
+function boundedImportVerification<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error: unknown, value?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", aborted);
+      if (error) reject(new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained."));
+      else resolve(value as T);
+    };
+    const aborted = () => finish(new AccountImportLocalError("Upload stopped"));
+    const timer = setTimeout(() => finish(new AccountImportLocalError("Verification timeout")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
+    signal?.addEventListener("abort", aborted, { once: true });
+    if (signal?.aborted) { aborted(); return; }
+    Promise.resolve().then(() => {
+      if (settled || signal?.aborted) throw new AccountImportLocalError("Verification stopped");
+      return operation();
+    }).then(value => finish(null, value), error => finish(error));
+  });
+}
+
+async function digestImportBlob(blob: Blob, signal?: AbortSignal): Promise<string> {
+  const bytes = await boundedImportVerification(() => blob.arrayBuffer(), signal);
+  if (bytes.byteLength !== blob.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
+  const digest = await boundedImportVerification(() => crypto.subtle.digest("SHA-256", bytes), signal);
+  return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function uploadLargeAccountImportFile(
+  jobId: string, item: AccountImportBrowserFile, signal?: AbortSignal
+): Promise<AccountImportJob> {
+  if (item.file.size > ACCOUNT_IMPORT_BROWSER_HASH_BYTES) {
+    throw new AccountImportLocalError("This file exceeds the browser's bounded whole-file verification limit. Keep this import and its staged bytes.");
+  }
+  // The whole original identity is pinned before the first transport part.
+  // Native reads/hashing can finish late, but must never lead to a late POST.
+  const wholeHash = await digestImportBlob(item.file, signal);
+  let offset = 0;
+  let job: AccountImportJob | undefined;
+  while (offset < item.file.size) {
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const piece = item.file.slice(offset, Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, item.file.size));
+    const pieceHash = await digestImportBlob(piece, signal);
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const form = new FormData();
+    form.append("chunk", piece, item.file.name);
+    form.append("relative_path", item.relativePath);
+    form.append("file_size", String(item.file.size));
+    form.append("file_sha256", wholeHash);
+    form.append("chunk_sha256", pieceHash);
+    form.append("offset", String(offset));
+    if (item.file.type) form.append("content_type", item.file.type);
+    const response = await api.post<{ job: AccountImportJob; received_bytes: number; complete: boolean }>(
+      `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/file-chunks`, form,
+      { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+    );
+    const receipt = response.data;
+    const received = receipt?.received_bytes;
+    if (receipt?.job?.job_id !== jobId || !Number.isSafeInteger(received) ||
+        received < offset + piece.size || received > item.file.size ||
+        (received < item.file.size && received % ACCOUNT_IMPORT_CHUNK_BYTES !== 0) ||
+        receipt.complete !== (received === item.file.size)) {
+      throw new AccountImportLocalError("Invalid bounded upload receipt; staged bytes are retained.");
+    }
+    job = receipt.job;
+    offset = received;
+  }
+  if (!job) throw new AccountImportLocalError("No logical file was admitted.");
+  return job;
+}
+
 export async function uploadOpenAIAccountImportBatch(
   jobId: string,
   files: AccountImportBrowserFile[],
   signal?: AbortSignal
 ): Promise<AccountImportJob> {
+  if (files.some(item => item.file.size > ACCOUNT_IMPORT_DIRECT_FILE_BYTES)) {
+    if (files.length !== 1) throw new Error("Large files must use one bounded logical-file transfer.");
+    return uploadLargeAccountImportFile(jobId, files[0], signal);
+  }
   const formData = new FormData();
   for (const item of files) {
     formData.append("files", item.file, item.file.name);
