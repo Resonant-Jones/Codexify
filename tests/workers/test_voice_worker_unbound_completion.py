@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from guardian.core import chat_completion_service, dependencies
 from guardian.core.chatlog_postgres import PostgresChatLogDB
 from guardian.core.db import GuardianDB
-from guardian.db.models import ChatCompletionAttempt, ChatThread, User
+from guardian.db.models import ChatCompletionAttempt, ChatMessage, ChatThread, User
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
 from guardian.tasks.types import ChatCompletionTask, VoiceTurnTask
 from guardian.workers import voice_worker
@@ -58,8 +58,9 @@ def disposable_database(monkeypatch: pytest.MonkeyPatch):
     )
     config.set_main_option("sqlalchemy.url", test_dsn.replace("%", "%%"))
     try:
-        command.upgrade(config, "head")
+        # Alembic prefers DATABASE_URL over its config; bind the scratch DB first.
         monkeypatch.setenv("DATABASE_URL", test_dsn)
+        command.upgrade(config, "head")
         yield test_dsn
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -159,8 +160,12 @@ def _seed_completion_service(
     return []
 
 
-def _voice_task(*, thread_id: int, tts_enabled: bool = False) -> VoiceTurnTask:
+def _voice_task(
+    *, thread_id: int, tts_enabled: bool = False, account_id: str | None = None
+) -> VoiceTurnTask:
     return VoiceTurnTask(
+        user_id=account_id or "",
+        account_id=account_id,
         thread_id=thread_id,
         audio_b64=base64.b64encode(b"fake-audio").decode("ascii"),
         audio_mime="audio/webm",
@@ -173,9 +178,11 @@ def _voice_task(*, thread_id: int, tts_enabled: bool = False) -> VoiceTurnTask:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("account_id", [None, "voice-account"], ids=["local", "account"])
 def test_voice_turn_persists_plain_assistant_answer_without_checkpoint(
     disposable_database: str,
     monkeypatch: pytest.MonkeyPatch,
+    account_id: str | None,
 ) -> None:
     """Requirement 1/3: a normal voice request answers and persists."""
 
@@ -208,7 +215,7 @@ def test_voice_turn_persists_plain_assistant_answer_without_checkpoint(
         monkeypatch, chat_db, answer="It is sunny and mild."
     )
 
-    voice_worker._run_voice_task(_voice_task(thread_id=thread_id))
+    voice_worker._run_voice_task(_voice_task(thread_id=thread_id, account_id=account_id))
 
     completed = [data for event, data in published if event == "task.completed"]
     assert not [data for event, data in published if event == "task.failed"]
@@ -231,9 +238,11 @@ def test_voice_turn_persists_plain_assistant_answer_without_checkpoint(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("account_id", [None, "voice-account"], ids=["local", "account"])
 def test_voice_turn_reaches_tts_downstream_lifecycle(
     disposable_database: str,
     monkeypatch: pytest.MonkeyPatch,
+    account_id: str | None,
 ) -> None:
     """Requirement 2: response generation continues into the TTS lifecycle."""
 
@@ -275,7 +284,9 @@ def test_voice_turn_reaches_tts_downstream_lifecycle(
         monkeypatch, chat_db, answer="All systems are nominal."
     )
 
-    voice_worker._run_voice_task(_voice_task(thread_id=thread_id, tts_enabled=True))
+    voice_worker._run_voice_task(
+        _voice_task(thread_id=thread_id, tts_enabled=True, account_id=account_id)
+    )
 
     assert not [data for event, data in published if event == "task.failed"]
     assert synthesized == ["All systems are nominal."]
@@ -288,9 +299,11 @@ def test_voice_turn_reaches_tts_downstream_lifecycle(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("account_id", [None, "voice-account"], ids=["local", "account"])
 def test_unbound_task_tool_decision_is_blocked_before_dispatch(
     disposable_database: str,
     monkeypatch: pytest.MonkeyPatch,
+    account_id: str | None,
 ) -> None:
     """Requirement 5: an unbound path cannot dispatch a tool command."""
 
@@ -338,7 +351,7 @@ def test_unbound_task_tool_decision_is_blocked_before_dispatch(
 
     monkeypatch.setattr(voice_worker, "ChatCompletionTask", _task_with_tools)
 
-    voice_worker._run_voice_task(_voice_task(thread_id=thread_id))
+    voice_worker._run_voice_task(_voice_task(thread_id=thread_id, account_id=account_id))
 
     # No assistant answer is persisted and no terminal success is claimed.
     with chat_db._sa_session() as session:
@@ -350,6 +363,38 @@ def test_unbound_task_tool_decision_is_blocked_before_dispatch(
         ).all()
     assert [row[0] for row in rows] == ["user"]
     assert not [data for event, data in published if event == "task.completed"]
+
+
+@pytest.mark.integration
+def test_foreign_account_task_is_denied_before_stt_and_persistence(
+    disposable_database: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import Mock
+
+    from guardian.tasks.types import task_from_dict
+
+    db = GuardianDB(disposable_database)
+    chat_db = PostgresChatLogDB(disposable_database)
+    _seed_thread(db, account_id="account-a")
+    foreign_thread = _seed_thread(db, account_id="account-b")
+    monkeypatch.setattr(dependencies, "chatlog_db", chat_db)
+    stt, completion, published = Mock(), Mock(), Mock()
+    monkeypatch.setattr(voice_worker, "transcribe", stt)
+    monkeypatch.setattr(voice_worker, "run_chat_completion_task", completion)
+    monkeypatch.setattr(voice_worker, "_safe_publish", published)
+    monkeypatch.setattr(voice_worker, "release_turn_lock", lambda *a, **k: None)
+    task = _voice_task(thread_id=foreign_thread, account_id="account-a")
+
+    voice_worker._run_voice_task(task_from_dict(task.to_dict()))
+
+    stt.assert_not_called()
+    completion.assert_not_called()
+    with db.get_session() as session:
+        assert session.query(ChatMessage).count() == 0
+    events = [call.args[1] for call in published.call_args_list]
+    assert "task.failed" in events
+    assert "task.completed" not in events
 
 
 def test_accepted_task_without_durable_attempt_fails_closed(
