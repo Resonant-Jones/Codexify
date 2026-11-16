@@ -1071,6 +1071,53 @@ export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<A
 }
 
 export const ACCOUNT_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+export interface RetainedPdfIdentity {
+  relative_path: string;
+  file_size: number;
+  file_sha256: string;
+  source_export_fingerprint: string;
+}
+
+export interface RetainedPdfAudit {
+  job: AccountImportJob;
+  busy: boolean;
+  events: Array<{ path: string; sha256: string; size: number; completed_at?: string;
+    requested_at?: string; failed_at?: string; error_code?: string; asset_id?: string;
+    document_id?: string; text_extracted?: boolean; credited?: boolean }>;
+}
+
+export async function fetchRetainedPdfAudit(jobId: string): Promise<RetainedPdfAudit> {
+  const response = await api.get<RetainedPdfAudit>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/pdf-repair`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG);
+  return response.data;
+}
+
+export async function repairRetainedPdf(jobId: string, identity: RetainedPdfIdentity): Promise<RetainedPdfAudit> {
+  const response = await api.post<RetainedPdfAudit>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/pdf-repair`, identity,
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: 360_000 });
+  return response.data;
+}
+
+export async function identifyRetainedPdf(job: AccountImportJob, file: File, signal?: AbortSignal): Promise<RetainedPdfIdentity> {
+  if (!job.source_export_fingerprint || file.size <= 0 || file.size > 16 * 1024 * 1024) {
+    throw new AccountImportLocalError("Choose an original retained PDF no larger than 16 MiB.");
+  }
+  const head = await boundedImportVerification(() => file.slice(0, 5).arrayBuffer(), signal);
+  if (new TextDecoder().decode(head) !== "%PDF-") throw new AccountImportLocalError("The selected file is not a PDF.");
+  const sha = await digestImportBlob(file, signal);
+  const manifest = await fetchOpenAIAccountImportManifest(job.job_id);
+  if (signal?.aborted) throw new AccountImportLocalError("PDF selection stopped.");
+  if (manifest.job_id !== job.job_id || manifest.source_system !== "openai" || manifest.status !== "completed_with_warnings") {
+    throw new AccountImportLocalError("The original import is not ready for retained-file repair.");
+  }
+  const matches = manifest.files.filter(item => item.path.split("/").pop() === file.name && item.size === file.size && item.sha256 === sha);
+  if (matches.length !== 1) throw new AccountImportLocalError("The selected PDF must match exactly one retained original path, size and hash.");
+  return { relative_path: matches[0].path, file_size: file.size, file_sha256: sha,
+    source_export_fingerprint: job.source_export_fingerprint };
+}
+
 export const ACCOUNT_IMPORT_DIRECT_FILE_BYTES = 32 * 1024 * 1024;
 export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
 export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;

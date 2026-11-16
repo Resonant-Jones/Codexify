@@ -203,6 +203,11 @@ def test_account_import_protocol_tokens() -> None:
         "account_import.retry_attempt"
     )
     assert ACCOUNT_IMPORT_ERROR_CODES == {
+        "account_import_media_repair_invalid",
+        "account_import_media_repair_busy",
+        "account_import_media_repair_integrity_failed",
+        "account_import_media_repair_unavailable",
+        "account_import_media_repair_limit_exceeded",
         "account_import_chunk_invalid",
         "account_import_chunk_conflict",
         "account_import_chunk_integrity_failed",

@@ -8,6 +8,7 @@
 import React, { useState, useRef, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+import RetainedPdfRepair from "./RetainedPdfRepair";
 import {
   clearAccountImportCoordinatorResult,
   getAccountImportCoordinatorSnapshot,
@@ -597,6 +598,9 @@ export function ChatGPTImportModal({
                   {accountImport.job.skipped_count}. Warnings: {" "}
                   {accountImport.job.warning_count}.
                 </div>
+                {accountImport.job.source_system === "openai" && accountImport.job.status === "completed_with_warnings" && (
+                  <RetainedPdfRepair key={accountImport.job.job_id} job={accountImport.job} />
+                )}
                 {accountImport.job.warning_details.length > 0 && (
                   <details className="mt-2 text-[11px] opacity-80">
                     <summary className="cursor-pointer">

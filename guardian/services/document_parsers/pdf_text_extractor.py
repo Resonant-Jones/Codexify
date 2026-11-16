@@ -20,14 +20,21 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
     reader = _load_pdf_reader()
     if reader is not None:
         try:
-            return _extract_with_reader(reader, pdf_bytes)
+            return _normalize_extracted_text(_extract_with_reader(reader, pdf_bytes))
         except Exception as exc:  # pragma: no cover - fallback handles parsing
             raise PdfTextExtractionError(f"PDF parsing failed: {exc}") from exc
 
     text = _extract_with_fallback(pdf_bytes)
     if not text.strip():
         raise PdfTextExtractionError("No text could be extracted from PDF.")
-    return text
+    return _normalize_extracted_text(text)
+
+
+def _normalize_extracted_text(text: str) -> str:
+    """Keep undecodable glyphs visible without passing NULs to text storage."""
+    if not text.replace("\x00", "").strip():
+        raise PdfTextExtractionError("No text could be extracted from PDF.")
+    return text.replace("\x00", "\ufffd")
 
 
 def _load_pdf_reader():

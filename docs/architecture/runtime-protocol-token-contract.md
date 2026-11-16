@@ -26,6 +26,14 @@ inline literals.
 
 ## Current token domains
 
+- Owner-authorized retained PDF repair errors, from `AccountImportErrorCode`:
+  `account_import_media_repair_invalid`, `account_import_media_repair_busy`,
+  `account_import_media_repair_integrity_failed`,
+  `account_import_media_repair_unavailable`,
+  `account_import_media_repair_limit_exceeded`. These refuse a bounded repair
+  under an existing terminal owned import; they confer no account authority,
+  create no job status and do not relax generic zero-write retry.
+
 - Bounded account-import transport errors, from `AccountImportErrorCode`:
   `account_import_chunk_invalid`, `account_import_chunk_conflict`,
   `account_import_chunk_integrity_failed`,

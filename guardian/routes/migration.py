@@ -18,6 +18,9 @@ from guardian.protocol_tokens import AccountImportErrorCode
 from guardian.services.account_import_chunks import (
     CHUNK_BYTES, CHUNK_REQUEST_BYTES, stage_account_import_chunk,
 )
+from guardian.services.account_import_pdf_repair import (
+    get_pdf_repair_audit, repair_retained_pdf,
+)
 
 from guardian.core.dependencies import (
     chatlog_db,
@@ -746,6 +749,69 @@ async def get_openai_account_import_manifest(
         _raise_account_import_error(exc)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class RetainedPdfRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    relative_path: str = Field(min_length=1, max_length=2048)
+    file_size: int = Field(strict=True, gt=0, le=16 * 1024**2)
+    file_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_export_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class _PdfRepairRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        async def private_handler(request: Request):
+            try:
+                response = await handler(request)
+            except RequestValidationError:
+                response = JSONResponse(status_code=422, content={"detail": "Invalid retained PDF identity"})
+            except StarletteHTTPException as exc:
+                response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail},
+                    headers=exc.headers)
+            except Exception:
+                response = JSONResponse(status_code=503, content={"detail": "Retained PDF repair is unavailable"})
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        return private_handler
+
+
+async def post_retained_pdf_repair(job_id: str, request: RetainedPdfRepairRequest,
+    user_id: str = Depends(get_request_user_id), api_key: str = Depends(require_api_key)):
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(repair_retained_pdf, service,
+            job_id=job_id, user_id=user_id, **request.model_dump())
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except Exception:
+        raise HTTPException(status_code=503, detail={
+            "code": AccountImportErrorCode.MEDIA_REPAIR_UNAVAILABLE.value,
+            "message": "Retained PDF repair is unavailable; check its saved audit before retrying."}) from None
+
+
+async def read_retained_pdf_repair(job_id: str,
+    user_id: str = Depends(get_request_user_id), api_key: str = Depends(require_api_key)):
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(get_pdf_repair_audit, service, job_id=job_id, user_id=user_id)
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except Exception:
+        raise HTTPException(status_code=503, detail={
+            "code": AccountImportErrorCode.MEDIA_REPAIR_UNAVAILABLE.value,
+            "message": "Retained PDF audit is unavailable."}) from None
+
+
+router.add_api_route("/api/imports/openai-account/{job_id}/pdf-repair", post_retained_pdf_repair,
+    methods=["POST"], route_class_override=_PdfRepairRoute)
+router.add_api_route("/api/imports/openai-account/{job_id}/pdf-repair", read_retained_pdf_repair,
+    methods=["GET"], route_class_override=_PdfRepairRoute)
 
 
 @router.post("/api/imports/openai-account/{job_id}/retry")
