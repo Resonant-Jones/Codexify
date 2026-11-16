@@ -203,6 +203,10 @@ def test_account_import_protocol_tokens() -> None:
         "account_import.retry_attempt"
     )
     assert ACCOUNT_IMPORT_ERROR_CODES == {
+        "account_import_chunk_invalid",
+        "account_import_chunk_conflict",
+        "account_import_chunk_integrity_failed",
+        "account_import_chunk_storage_unavailable",
         "account_import_no_committed_entities",
         "account_import_restaging_required",
         "account_import_retry_not_zero_write",
