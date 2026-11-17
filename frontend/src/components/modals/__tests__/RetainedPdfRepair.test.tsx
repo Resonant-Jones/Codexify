@@ -1,0 +1,31 @@
+import {fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {afterEach,beforeEach,expect,it,vi} from "vitest";
+import {fetchRetainedPdfAudit,identifyRetainedPdf,repairRetainedPdf,type AccountImportJob} from "@/lib/api";
+import RetainedPdfRepair from "../RetainedPdfRepair";
+vi.mock("@/lib/api",()=>({identifyRetainedPdf:vi.fn(),repairRetainedPdf:vi.fn(),fetchRetainedPdfAudit:vi.fn()}));
+const job={job_id:"original-job",source_system:"openai",status:"completed_with_warnings"} as AccountImportJob;
+const identity={relative_path:"original/pdf.dat",file_size:10,file_sha256:"a".repeat(64),source_export_fingerprint:"b".repeat(64)};
+beforeEach(()=>{vi.resetAllMocks();localStorage.setItem("preserved-original-job","original-job");vi.mocked(identifyRetainedPdf).mockResolvedValue(identity);});
+afterEach(()=>vi.restoreAllMocks());
+it("dedicated selection preserves pointer, sends once and reconciles a timed out outcome by GET",async()=>{
+  vi.mocked(repairRetainedPdf).mockRejectedValue(new Error("timeout"));
+  vi.mocked(fetchRetainedPdfAudit).mockResolvedValue({job,busy:false,events:[{path:identity.relative_path,sha256:identity.file_sha256,size:10,completed_at:"now",text_extracted:true}]});
+  render(<RetainedPdfRepair job={job}/>);
+  fireEvent.change(screen.getByLabelText("Original PDF for retained repair"),{target:{files:[new File(["x"],"pdf.dat")]}});
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Repair retained PDF"})).toBeEnabled());
+  fireEvent.click(screen.getByRole("button",{name:"Repair retained PDF"}));
+  await screen.findByText(/outcome is uncertain/);
+  fireEvent.click(screen.getByRole("button",{name:"Repair retained PDF"}));
+  expect(repairRetainedPdf).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button",{name:"Check repair status"}));
+  await screen.findByText(/Retained PDF repaired/);
+  expect(fetchRetainedPdfAudit).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem("preserved-original-job")).toBe("original-job");
+});
+it("unmount aborts selection without submitting",async()=>{
+  let signal:AbortSignal|undefined;
+  vi.mocked(identifyRetainedPdf).mockImplementation(async(_job,_file,s)=>{signal=s;return new Promise(()=>{});});
+  const view=render(<RetainedPdfRepair job={job}/>);
+  fireEvent.change(screen.getByLabelText("Original PDF for retained repair"),{target:{files:[new File(["x"],"pdf.dat")]}});
+  view.unmount();expect(signal?.aborted).toBe(true);expect(repairRetainedPdf).not.toHaveBeenCalled();
+});

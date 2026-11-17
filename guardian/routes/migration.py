@@ -11,6 +11,16 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
+
+from guardian.protocol_tokens import AccountImportErrorCode
+from guardian.services.account_import_chunks import (
+    CHUNK_BYTES, CHUNK_REQUEST_BYTES, stage_account_import_chunk,
+)
+from guardian.services.account_import_pdf_repair import (
+    get_pdf_repair_audit, repair_retained_pdf,
+)
 
 from guardian.core.dependencies import (
     chatlog_db,
@@ -530,6 +540,87 @@ async def create_openai_account_import(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+class _BoundedAccountImportChunkRoute(APIRoute):
+    """Limit multipart spooling, including clients without Content-Length."""
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def bounded(request: Request):
+            def too_large():
+                return JSONResponse(status_code=413, content={"detail": {
+                    "code": AccountImportErrorCode.CHUNK_INVALID.value,
+                    "message": "Upload part request exceeds the bounded transport limit.",
+                }})
+            declared = request.headers.get("content-length")
+            if declared is not None:
+                try:
+                    length = int(declared)
+                    if length < 0:
+                        raise ValueError("negative length")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid request length") from None
+                if length > CHUNK_REQUEST_BYTES:
+                    return too_large()
+            received = 0
+            exceeded = False
+
+            async def receive():
+                nonlocal received, exceeded
+                message = await request.receive()
+                if message["type"] == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > CHUNK_REQUEST_BYTES:
+                        exceeded = True
+                        # Starlette closes multipart temporary files on this
+                        # specific exception; remap only our own limit failure.
+                        raise MultiPartException("Bounded upload part request exceeded")
+                return message
+            try:
+                return await handler(Request(request.scope, receive=receive))
+            except StarletteHTTPException:
+                if exceeded:
+                    return too_large()
+                raise
+        return bounded
+
+
+async def upload_openai_account_import_chunk(
+    job_id: str,
+    chunk: UploadFile = File(...),
+    relative_path: str = Form(...),
+    file_size: int = Form(...),
+    file_sha256: str = Form(...),
+    chunk_sha256: str = Form(...),
+    offset: int = Form(...),
+    content_type: Optional[str] = Form(default=None, max_length=256),
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        data = await chunk.read(CHUNK_BYTES + 1)
+        result = await run_in_threadpool(
+            stage_account_import_chunk, service, job_id=job_id, user_id=user_id,
+            relative_path=relative_path, file_size=file_size, file_sha256=file_sha256,
+            chunk_sha256=chunk_sha256, offset=offset, data=data,
+            content_type=content_type,
+        )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    finally:
+        await chunk.close()
+
+
+router.add_api_route(
+    "/api/imports/openai-account/{job_id}/file-chunks",
+    upload_openai_account_import_chunk,
+    methods=["POST"],
+    route_class_override=_BoundedAccountImportChunkRoute,
+)
+
+
 @router.post("/api/imports/openai-account/{job_id}/files")
 async def upload_openai_account_import_batch(
     job_id: str,
@@ -638,6 +729,89 @@ async def get_openai_account_import(
         _raise_account_import_error(exc)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/imports/openai-account/{job_id}/manifest")
+async def get_openai_account_import_manifest(
+    job_id: str,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Read the authenticated owner's upload checkpoint, without storage URLs."""
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(
+            service.get_upload_manifest, job_id=job_id, user_id=user_id
+        )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+class RetainedPdfRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    relative_path: str = Field(min_length=1, max_length=2048)
+    file_size: int = Field(strict=True, gt=0, le=16 * 1024**2)
+    file_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_export_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class _PdfRepairRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        async def private_handler(request: Request):
+            try:
+                response = await handler(request)
+            except RequestValidationError:
+                response = JSONResponse(status_code=422, content={"detail": "Invalid retained PDF identity"})
+            except StarletteHTTPException as exc:
+                response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail},
+                    headers=exc.headers)
+            except Exception:
+                response = JSONResponse(status_code=503, content={"detail": "Retained PDF repair is unavailable"})
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        return private_handler
+
+
+async def post_retained_pdf_repair(job_id: str, request: RetainedPdfRepairRequest,
+    user_id: str = Depends(get_request_user_id), api_key: str = Depends(require_api_key)):
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(repair_retained_pdf, service,
+            job_id=job_id, user_id=user_id, **request.model_dump())
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except Exception:
+        raise HTTPException(status_code=503, detail={
+            "code": AccountImportErrorCode.MEDIA_REPAIR_UNAVAILABLE.value,
+            "message": "Retained PDF repair is unavailable; check its saved audit before retrying."}) from None
+
+
+async def read_retained_pdf_repair(job_id: str,
+    user_id: str = Depends(get_request_user_id), api_key: str = Depends(require_api_key)):
+    _ = api_key
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(get_pdf_repair_audit, service, job_id=job_id, user_id=user_id)
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except Exception:
+        raise HTTPException(status_code=503, detail={
+            "code": AccountImportErrorCode.MEDIA_REPAIR_UNAVAILABLE.value,
+            "message": "Retained PDF audit is unavailable."}) from None
+
+
+router.add_api_route("/api/imports/openai-account/{job_id}/pdf-repair", post_retained_pdf_repair,
+    methods=["POST"], route_class_override=_PdfRepairRoute)
+router.add_api_route("/api/imports/openai-account/{job_id}/pdf-repair", read_retained_pdf_repair,
+    methods=["GET"], route_class_override=_PdfRepairRoute)
 
 
 @router.post("/api/imports/openai-account/{job_id}/retry")

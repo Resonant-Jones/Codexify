@@ -803,7 +803,7 @@ function isAbsoluteUrl(value: string): boolean {
 }
 
 function isBackendTransportError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
   if (error?.code === "ERR_BACKEND_OUTAGE_FUSE") return false;
   if (error?.code === "ERR_CLIENT_RATE_GUARD") return false;
   if (error?.response) return false;
@@ -870,7 +870,8 @@ function extractTransportErrorSignal(error: any): string {
 }
 
 export function isBackendRuntimeUnavailableError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
+  if (["ERR_BACKEND_OUTAGE_FUSE", "ERR_CLIENT_RATE_GUARD", "ERR_CANCELED"].includes(error?.code)) return false;
   if (isBackendTransportError(error)) return true;
   if (isBackendProxyOutageResponse(error)) return true;
   return Boolean(extractTransportErrorSignal(error));
@@ -1002,6 +1003,19 @@ export interface AccountImportBrowserFile {
 
 const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 
+// Local verification/receipt failures are not backend transport failures.
+class AccountImportLocalError extends Error {}
+
+// Durable imports have their own finite deadline and replay rules. A late
+// failure on unrelated shell traffic must not block a verified export locally.
+// This flag affects only the client outage throttle; credentials and server
+// ownership/content checks still run through the ordinary Axios interceptors.
+export const ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
+const ACCOUNT_IMPORT_REQUEST_CONFIG = {
+  timeout: ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS,
+  __cfyDurableAccountImport: true,
+};
+
 export async function createOpenAIAccountImport(
   declaration: {
     total_file_count: number;
@@ -1022,7 +1036,8 @@ export async function createOpenAIAccountImport(
       total_file_count: declaration.total_file_count,
       total_byte_count: declaration.total_byte_count,
       source_system: declaration.source_system,
-    }
+    },
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   // Provenance boundary: the Web client must never assign or accept
   // canonical conversation origin. If the server were ever to return one
@@ -1038,10 +1053,156 @@ export async function createOpenAIAccountImport(
   return response.data;
 }
 
+export interface AccountImportManifest {
+  job_id: string;
+  source_system: AccountImportSourceSystem;
+  status: AccountImportStatus;
+  total_file_count: number;
+  total_byte_count: number;
+  files: Array<{ path: string; size: number; sha256: string }>;
+}
+
+export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<AccountImportManifest> {
+  const response = await api.get<AccountImportManifest>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/manifest`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG
+  );
+  return response.data;
+}
+
+export const ACCOUNT_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+export interface RetainedPdfIdentity {
+  relative_path: string;
+  file_size: number;
+  file_sha256: string;
+  source_export_fingerprint: string;
+}
+
+export interface RetainedPdfAudit {
+  job: AccountImportJob;
+  busy: boolean;
+  events: Array<{ path: string; sha256: string; size: number; completed_at?: string;
+    requested_at?: string; failed_at?: string; error_code?: string; asset_id?: string;
+    document_id?: string; text_extracted?: boolean; credited?: boolean }>;
+}
+
+export async function fetchRetainedPdfAudit(jobId: string): Promise<RetainedPdfAudit> {
+  const response = await api.get<RetainedPdfAudit>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/pdf-repair`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG);
+  return response.data;
+}
+
+export async function repairRetainedPdf(jobId: string, identity: RetainedPdfIdentity): Promise<RetainedPdfAudit> {
+  const response = await api.post<RetainedPdfAudit>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/pdf-repair`, identity,
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: 360_000 });
+  return response.data;
+}
+
+export async function identifyRetainedPdf(job: AccountImportJob, file: File, signal?: AbortSignal): Promise<RetainedPdfIdentity> {
+  if (!job.source_export_fingerprint || file.size <= 0 || file.size > 16 * 1024 * 1024) {
+    throw new AccountImportLocalError("Choose an original retained PDF no larger than 16 MiB.");
+  }
+  const head = await boundedImportVerification(() => file.slice(0, 5).arrayBuffer(), signal);
+  if (new TextDecoder().decode(head) !== "%PDF-") throw new AccountImportLocalError("The selected file is not a PDF.");
+  const sha = await digestImportBlob(file, signal);
+  const manifest = await fetchOpenAIAccountImportManifest(job.job_id);
+  if (signal?.aborted) throw new AccountImportLocalError("PDF selection stopped.");
+  if (manifest.job_id !== job.job_id || manifest.source_system !== "openai" || manifest.status !== "completed_with_warnings") {
+    throw new AccountImportLocalError("The original import is not ready for retained-file repair.");
+  }
+  const matches = manifest.files.filter(item => item.path.split("/").pop() === file.name && item.size === file.size && item.sha256 === sha);
+  if (matches.length !== 1) throw new AccountImportLocalError("The selected PDF must match exactly one retained original path, size and hash.");
+  return { relative_path: matches[0].path, file_size: file.size, file_sha256: sha,
+    source_export_fingerprint: job.source_export_fingerprint };
+}
+
+export const ACCOUNT_IMPORT_DIRECT_FILE_BYTES = 32 * 1024 * 1024;
+export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
+export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;
+
+function boundedImportVerification<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error: unknown, value?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", aborted);
+      if (error) reject(new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained."));
+      else resolve(value as T);
+    };
+    const aborted = () => finish(new AccountImportLocalError("Upload stopped"));
+    const timer = setTimeout(() => finish(new AccountImportLocalError("Verification timeout")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
+    signal?.addEventListener("abort", aborted, { once: true });
+    if (signal?.aborted) { aborted(); return; }
+    Promise.resolve().then(() => {
+      if (settled || signal?.aborted) throw new AccountImportLocalError("Verification stopped");
+      return operation();
+    }).then(value => finish(null, value), error => finish(error));
+  });
+}
+
+async function digestImportBlob(blob: Blob, signal?: AbortSignal): Promise<string> {
+  const bytes = await boundedImportVerification(() => blob.arrayBuffer(), signal);
+  if (bytes.byteLength !== blob.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
+  const digest = await boundedImportVerification(() => crypto.subtle.digest("SHA-256", bytes), signal);
+  return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function uploadLargeAccountImportFile(
+  jobId: string, item: AccountImportBrowserFile, signal?: AbortSignal
+): Promise<AccountImportJob> {
+  if (item.file.size > ACCOUNT_IMPORT_BROWSER_HASH_BYTES) {
+    throw new AccountImportLocalError("This file exceeds the browser's bounded whole-file verification limit. Keep this import and its staged bytes.");
+  }
+  // The whole original identity is pinned before the first transport part.
+  // Native reads/hashing can finish late, but must never lead to a late POST.
+  const wholeHash = await digestImportBlob(item.file, signal);
+  let offset = 0;
+  let job: AccountImportJob | undefined;
+  while (offset < item.file.size) {
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const piece = item.file.slice(offset, Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, item.file.size));
+    const pieceHash = await digestImportBlob(piece, signal);
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const form = new FormData();
+    form.append("chunk", piece, item.file.name);
+    form.append("relative_path", item.relativePath);
+    form.append("file_size", String(item.file.size));
+    form.append("file_sha256", wholeHash);
+    form.append("chunk_sha256", pieceHash);
+    form.append("offset", String(offset));
+    if (item.file.type) form.append("content_type", item.file.type);
+    const response = await api.post<{ job: AccountImportJob; received_bytes: number; complete: boolean }>(
+      `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/file-chunks`, form,
+      { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+    );
+    const receipt = response.data;
+    const received = receipt?.received_bytes;
+    if (receipt?.job?.job_id !== jobId || !Number.isSafeInteger(received) ||
+        received < offset + piece.size || received > item.file.size ||
+        (received < item.file.size && received % ACCOUNT_IMPORT_CHUNK_BYTES !== 0) ||
+        receipt.complete !== (received === item.file.size)) {
+      throw new AccountImportLocalError("Invalid bounded upload receipt; staged bytes are retained.");
+    }
+    job = receipt.job;
+    offset = received;
+  }
+  if (!job) throw new AccountImportLocalError("No logical file was admitted.");
+  return job;
+}
+
 export async function uploadOpenAIAccountImportBatch(
   jobId: string,
-  files: AccountImportBrowserFile[]
+  files: AccountImportBrowserFile[],
+  signal?: AbortSignal
 ): Promise<AccountImportJob> {
+  if (files.some(item => item.file.size > ACCOUNT_IMPORT_DIRECT_FILE_BYTES)) {
+    if (files.length !== 1) throw new Error("Large files must use one bounded logical-file transfer.");
+    return uploadLargeAccountImportFile(jobId, files[0], signal);
+  }
   const formData = new FormData();
   for (const item of files) {
     formData.append("files", item.file, item.file.name);
@@ -1050,7 +1211,7 @@ export async function uploadOpenAIAccountImportBatch(
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
     formData,
-    { timeout: 0 }
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
   );
   return response.data;
 }
@@ -1059,14 +1220,15 @@ export async function commitOpenAIAccountImport(jobId: string): Promise<AccountI
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/commit`,
     undefined,
-    { timeout: 0 }
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
 
 export async function fetchOpenAIAccountImport(jobId: string): Promise<AccountImportJob> {
   const response = await api.get<AccountImportJob>(
-    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
@@ -1116,6 +1278,7 @@ export async function preflightBackendAvailability(
         technicalDetail: `health returned ${response.status}`,
       };
     }
+    clearBackendOutage();
     return { ok: true };
   } catch (error: any) {
     if (error?.response) {
@@ -1144,6 +1307,31 @@ function computeBackendOutageDelayMs(failures: number): number {
   );
 }
 
+function isCanonicalBackendProbe(url: unknown): boolean {
+  if (typeof url !== "string") return false;
+  let path: string;
+  try {
+    path = new URL(url, "http://localhost").pathname.replace(/\/+$/, "");
+  } catch {
+    return false;
+  }
+  if (/^(?:\/api)?\/(?:health(?:\/chat|\/llm)?|llm\/catalog)$/i.test(path)) return true;
+
+  const actual = new URL(url, "http://localhost");
+  return ["/health", "/health/chat", "/health/llm", "/llm/catalog",
+    "/api/health", "/api/health/chat", "/api/health/llm", "/api/llm/catalog"]
+    .some((probe) => {
+      const resolved = new URL(resolveApiUrl(probe), "http://localhost");
+      const base = new URL(getRuntimeConfigSync().apiBaseUrl, "http://localhost");
+      const basePath = base.pathname.replace(/\/+$/, "");
+      const suffix = basePath.toLowerCase().endsWith("/api") ? probe.replace(/^\/api(?=\/)/i, "") : probe;
+      const joinedPath = `${basePath}${suffix}`;
+      const actualPath = actual.pathname.replace(/\/+$/, "").toLowerCase();
+      return (actual.origin === resolved.origin && actualPath === resolved.pathname.replace(/\/+$/, "").toLowerCase()) ||
+        (actual.origin === base.origin && actualPath === joinedPath.toLowerCase());
+    });
+}
+
 function shouldApplyBackendOutageFuse(url: unknown): boolean {
   if (typeof url !== "string") return true;
   // Canonical health and catalog probes must always reach the backend, even
@@ -1155,9 +1343,7 @@ function shouldApplyBackendOutageFuse(url: unknown): boolean {
   // the fuse via the response interceptor, so exempting these paths here
   // restores the recovered-backend signal without disabling outage throttling
   // for the routes that the fuse was designed to protect.
-  if (/\/health(?:\/chat)?(?:[/?#]|$)/i.test(url)) return false;
-  if (/\/api\/health\/llm(?:[/?#]|$)/i.test(url)) return false;
-  if (/\/llm\/catalog(?:[/?#]|$)/i.test(url)) return false;
+  if (isCanonicalBackendProbe(url)) return false;
   if (/\/assets\/|\.hot-update/i.test(url)) return false;
   return true;
 }
@@ -1372,8 +1558,11 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  const canonicalProbe = isCanonicalBackendProbe(config.url);
+  (config as any).__cfyCanonicalBackendProbe = canonicalProbe;
   const now = Date.now();
   if (
+    !(config as { __cfyDurableAccountImport?: boolean }).__cfyDurableAccountImport &&
     shouldApplyBackendOutageFuse(config.url) &&
     backendOutageUntil > now
   ) {
@@ -1509,7 +1698,7 @@ api.interceptors.response.use(
     // healthy enough to lift a latched outage fuse. A successful chat or asset
     // response does not — those routes can succeed while the canonical
     // surfaces are still in transport-failure recovery.
-    if (shouldApplyBackendOutageFuse(response?.config?.url)) {
+    if ((response?.config as any)?.__cfyCanonicalBackendProbe) {
       clearBackendOutage();
     }
     return response;
@@ -1527,15 +1716,6 @@ api.interceptors.response.use(
       applyBackendOutage("transport");
     } else if (isBackendProxyOutageResponse(error)) {
       applyBackendOutage(`proxy:${Number(error?.response?.status ?? 0)}`);
-    } else if (
-      error?.response &&
-      shouldApplyBackendOutageFuse(error?.config?.url)
-    ) {
-      // A server response to a non-canonical route only proves that route is
-      // reachable. It is not authoritative evidence that the Guardian backend
-      // itself is healthy; do not let it clear a fuse latched by canonical
-      // health or catalog transport failures.
-      clearBackendOutage();
     }
 
     if (

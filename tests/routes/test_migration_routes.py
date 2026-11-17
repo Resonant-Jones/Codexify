@@ -1145,3 +1145,23 @@ def test_retry_response_has_no_absolute_host_path(
     assert "/Users/" not in body
     assert "/Volumes/" not in body
     assert ".codex/worktrees" not in body
+
+
+def test_account_import_manifest_route_uses_authenticated_owner(test_client, monkeypatch):
+    service = MagicMock()
+    service.get_upload_manifest.return_value = {"job_id": "job-account-1", "files": []}
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/job-account-1/manifest", headers={"X-User-Id": "account-b"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID)
+
+
+def test_account_import_manifest_route_preserves_owner_not_found(test_client, monkeypatch):
+    from guardian.services.openai_account_import import AccountImportError
+    service = MagicMock()
+    service.get_upload_manifest.side_effect = AccountImportError("Not found", code="account_import_not_found", status_code=404)
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/other-account-job/manifest")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "account_import_not_found"

@@ -8,6 +8,7 @@
 import React, { useState, useRef, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+import RetainedPdfRepair from "./RetainedPdfRepair";
 import {
   clearAccountImportCoordinatorResult,
   getAccountImportCoordinatorSnapshot,
@@ -508,11 +509,21 @@ export function ChatGPTImportModal({
               }}
             >
               <div className="font-semibold">
-                {accountImport.phase === "preflighting"
+                {accountImport.verification
+                  ? "Verifying staged files on this device..."
+                  : accountImport.phase === "preflighting"
                   ? "Checking import runtime..."
                   : "Transferring export..."}
               </div>
               <div className="mt-1 text-xs opacity-80">
+                {accountImport.verification && (
+                  <div role="status" aria-live="polite">
+                    {accountImport.verification.completed} of {accountImport.verification.total} files verified
+                    {" "}({formatFileSize(accountImport.verification.bytes)} of {formatFileSize(accountImport.verification.totalBytes)}).
+                    {" "}{accountImport.verification.stage === "reading" ? "Reading" : "Hashing"} the next selected file.
+                    {" "}No remaining files are uploaded until verification completes.
+                  </div>
+                )}
                 {accountImport.job
                   ? `${accountImport.job.uploaded_file_count} of ${accountImport.job.total_file_count} files staged. `
                   : "Preparing staged intake. "}
@@ -587,6 +598,9 @@ export function ChatGPTImportModal({
                   {accountImport.job.skipped_count}. Warnings: {" "}
                   {accountImport.job.warning_count}.
                 </div>
+                {accountImport.job.source_system === "openai" && accountImport.job.status === "completed_with_warnings" && (
+                  <RetainedPdfRepair key={accountImport.job.job_id} job={accountImport.job} />
+                )}
                 {accountImport.job.warning_details.length > 0 && (
                   <details className="mt-2 text-[11px] opacity-80">
                     <summary className="cursor-pointer">

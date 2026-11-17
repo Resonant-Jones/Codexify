@@ -682,6 +682,7 @@ export default function SidebarRoot({
             threads={filteredThreads}
             activeId={activeId}
             scopeLabel={scopeLabel}
+            projectScope={{ projects: projectList, currentId: currentProjectId, onPick: setScope }}
             originSystem={selectedOriginSystem}
             originOptions={originOptions}
             onOriginSystemChange={setOriginSystem}

@@ -374,6 +374,22 @@ class OpenAIAccountImportService:
             }
             return self.serialize_job(SimpleNamespace(**values))
 
+    def get_upload_manifest(self, *, job_id: str, user_id: str) -> dict[str, Any]:
+        """Owner-only receiving checkpoint. Never expose internal storage locators."""
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id)
+            return {
+                "job_id": job.id,
+                "source_system": job.source_system,
+                "status": job.status,
+                "total_file_count": job.total_file_count,
+                "total_byte_count": job.total_byte_count,
+                "files": [
+                    {"path": item["path"], "size": item["size"], "sha256": item["sha256"]}
+                    for item in (job.staged_manifest or [])
+                ],
+            }
+
     def get_worker_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
@@ -475,7 +491,6 @@ class OpenAIAccountImportService:
                 code="batch_size_limit_exceeded",
             )
 
-        uploaded_urls: list[str] = []
         with self.db.get_session() as session:
             job = self._require_job(
                 session, job_id, user_id, for_update=True
@@ -542,7 +557,6 @@ class OpenAIAccountImportService:
                             content_type=item.get("content_type"),
                             metadata=metadata,
                         )
-                    uploaded_urls.append(storage_path)
                     manifest.append(
                         {
                             "path": item["path"],
@@ -562,14 +576,10 @@ class OpenAIAccountImportService:
                 return self.serialize_job(job)
             except Exception:
                 session.rollback()
-                for storage_path in uploaded_urls:
-                    try:
-                        self.staging_storage.delete_file(storage_path)
-                    except Exception:
-                        logger.warning(
-                            "[account-import] unable to clean staged path=%s",
-                            storage_path,
-                        )
+                # A commit/response failure can be ambiguous; deterministic paths
+                # may already be referenced by committed state or another attempt.
+                # Never delete them here. Unreferenced staging is retained for retry
+                # and must be reclaimed only by a separately fenced retention job.
                 raise
 
     def finalize_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
