@@ -116,8 +116,9 @@ class GitHubClient:
                     "GitHub returned unexpected repository identity"
                 )
 
+    @staticmethod
     def _object(
-        self, row: dict[str, Any], repository: str, retrieved_at: str
+        row: dict[str, Any], repository: str, retrieved_at: str
     ) -> dict[str, Any]:
         number = row.get("number")
         if type(number) is not int or number <= 0:

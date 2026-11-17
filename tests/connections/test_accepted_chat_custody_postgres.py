@@ -63,7 +63,7 @@ def db(engine, monkeypatch):
     with engine.begin() as conn:
         # OAuth tombstones intentionally have no user foreign key, so CASCADE
         # alone does not isolate their credentials/flows between test cases.
-        conn.execute(text("TRUNCATE users, chat_completion_attempts, knowledge_oauth_credentials, knowledge_oauth_flows CASCADE"))
+        conn.execute(text("TRUNCATE users, chat_completion_attempts, knowledge_oauth_credentials, knowledge_oauth_flows, command_runs CASCADE"))
     factory = sessionmaker(engine, expire_on_commit=False)
 
     @contextmanager
@@ -90,10 +90,10 @@ def db(engine, monkeypatch):
     return SimpleNamespace(_sa_session=custody_session, get_session=oauth_session)
 
 
-def accepted(db, owner="a", provider="notion", *, acknowledged=True, legacy=False, expired=False):
-    command = f"op::{provider}_content_search"
-    raw = {"query": "synthetic"}
-    if provider == "github":
+def accepted(db, owner="a", provider="notion", *, acknowledged=True, legacy=False, expired=False, command_id=None, raw_arguments=None):
+    command = command_id or f"op::{provider}_content_search"
+    raw = raw_arguments if raw_arguments is not None else {"query": "synthetic"}
+    if provider == "github" and raw_arguments is None:
         raw["repository"] = "example/selected"
     arguments = chat_pilot.hydrate_arguments(command, raw)
     args_hash = compute_args_hash(arguments.model_dump(mode="json", exclude_none=False))

@@ -75,8 +75,14 @@ def evaluate_tool_policy(
     command_or_tool: dict[str, Any] | Any,
     args: dict[str, Any] | None,
     env: Mapping[str, str] | None = None,
+    *,
+    in_process: bool = False,
 ) -> PolicyDecision:
-    """Evaluate policy once, independent of route/transport."""
+    """Evaluate policy once, independent of route/transport.
+
+    Only server-owned dispatch adapters select in_process. This skips the
+    mechanical loopback-base requirement, not connector or network permission.
+    """
 
     _ = actor, args
     command: dict[str, Any]
@@ -134,7 +140,7 @@ def evaluate_tool_policy(
         reason_codes.append("requires_confirmation")
         decision = "require_confirmation"
 
-    requires_transport_execution = effect == "read" and method in {
+    requires_transport_execution = not in_process and effect == "read" and method in {
         "GET",
         "HEAD",
     }

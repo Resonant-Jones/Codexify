@@ -1,148 +1,157 @@
-# Accepted chat dispatch prerequisite proof
+# Accepted account-bound Knowledge read proof
 
-Status: isolated PostgreSQL prerequisite proof; ADR-112 dispatcher remains
-unimplemented and Private Preview invocation remains quarantined. No provider,
-credential, deployment or release permission changes.
+Status: isolated private Command Bus implementation and synthetic proof. Private
+Preview chat admission, public provider operations and invocation remain
+quarantined. No live provider request, credential provisioning, deployment,
+registration change, migration, invitation or release-permission change occurred.
+ADR-112 remains the accepted topology; this proof does not change HOLD.
 
-## Isolated authority-fence implementation follow-through
+## Implementation boundary
 
-`guardian/command_bus/accepted_knowledge_read.py` now implements the reusable
-revalidation component. It remains **unwired**: no chat admission, public invoke
-contract, Command Bus orchestration, provider adapter or activation flag changed.
-It is not a public capability or a second execution/audit owner.
+The existing connector owner continues in the isolated
+`codex/knowledge-dispatch-proof-20261117` branch. No separate runtime owner was
+found in accessible task metadata; the clean worker-binding docs branch at
+`7815f7735` contains the accepted ADR, not a competing implementation.
 
-Preparation freezes exact canonical arguments and task evidence after resolving
-persisted acceptance. Every boundary method re-resolves original/current owner,
-attempt acceptance/terminal/cancellation/deadline state, current OAuth generation,
-expiry and selected GitHub repository. Metadata-only `oauth_store.read_grant`
-does not decrypt tokens. Credential resolution is just in time, bracketed by
-revalidation, with no legacy/ambient fallback or automatic provider refresh.
-Refresh claims, reconnects, completed refreshes and repository reselection fence
-the old context. Expired authority fails closed and requires separately governed
-refresh before preparing a new attempt.
+`accepted_knowledge_invoke.execute_accepted_knowledge_read` is a private Python
+entry point, with no HTTP route or chat caller. It resolves original accepted
+account custody and creates the existing database-backed `CommandBusStore`.
+Caller account/actor claims, headers, provenance, idempotency identity, target URL
+and work-order linkage do not supply authority. Server-derived actor and lineage
+replace them. The trusted caller must supply an explicit server-resolved
+permission profile and external policy rules; OAuth consent alone is insufficient.
+A profile must authorize the actual account/task/thread, exact read, network and
+connector use. Fixed-host external allow rules are mandatory; deny rules prevail.
 
-Replay validation requires matching subject, command, argument hash and a
-server-derived key containing exact accepted lineage and connection generation.
-Changing a connection cannot replay old connection evidence. Returned arguments
-are detached copies; caller mutation cannot change the frozen read. The lineage
-projection is secret-free input for existing Command Bus events, **not proof that
-events have been persisted**. The remaining-time helper takes the tighter bound
-of the accepted wall/monotonic deadline and credential expiry; it does not itself
-start a timer or stop network I/O.
+The existing Command Bus still builds the manifest and evaluates policy,
+permissions, idempotency, run persistence, events and readback. The private lane
+accepts exactly GitHub/Notion `content_search` and `content_read`, with the existing
+GET/read/read-only/safe/no-approval manifest tuple. Missing or altered manifest
+entries fail closed. Public invocation semantics and its loopback requirement
+remain unchanged. Only the verified in-process path omits the mechanical loopback
+base requirement; it retains stricter explicit network/connector/host checks.
 
-New real PostgreSQL negative tests cover before-replay/pre-I/O/post-I/O-check
-refusal, disconnect during credential lookup, refresh claim, reconnect,
-repository reselection/removal, expired grant, cancellation/terminal state,
-cross-account replay, detached arguments, monotonic exhaustion and pending
-acceptance. The selected real-database suite passed **87 tests, no skips**.
-Always-on unit tests cover all four command forms and safe bounded refusals.
-The first run found stale OAuth rows in the synthetic fixture because tombstones
-deliberately have no user foreign key; the disposable reset now explicitly clears
-both OAuth tables. The failed receipt is retained, and the corrected suite passes.
+The production Preview app still omits provider-operation routes. This private
+implementation neither mounts them nor fabricates missing manifest entries.
+The synthetic app includes the real operation routers solely for manifest proof;
+HTTP authentication is never bypassed or impersonated. Private command catalog
+integration and controlled chat admission remain future work, with public
+operations still quarantined. No generalized ASGI/executor callback was added.
 
-Remaining wiring is mandatory: enforce this fence at both ordinary and
-idempotency-conflict replay returns, before each provider request and before
-publishing results; retain Command Bus manifest/policy/permission/run/event gates;
-implement native cancellable bounded transport and Notion multi-request traversal.
-No arbitrary executor callback or operator-key impersonation is introduced here.
-Synchronous database checks and the existing blocking provider clients do not
-prove physical deadline/cancellation behavior. A revocation racing an already
-sent request cannot retract it; transport must cancel when observed, start no
-subsequent request, and discard results if post-I/O revalidation fails. That race
-and end-to-end policy/audit lineage remain unproven. No architecture decision is
-superseded, and this component is not sufficient to activate reads.
+## Authority, replay and persistence
 
-## Scope and ownership
+`AcceptedKnowledgeRead` freezes exact task evidence and canonical arguments,
+then re-resolves persisted original/current account ownership, acceptance,
+terminal state, cancellation, accepted deadline, current OAuth generation,
+expiry and selected GitHub repository at every execution boundary. Current
+placement or queue fields cannot select a new accepting account. Missing,
+legacy, conflicting or stale authority fails closed. Publication before the
+acceptance acknowledgement remains a distinct pending refusal for a future
+bounded retry, not permission to execute.
 
-This continues the existing connector task. Accessible native task/worktree
-inventory identified that task as the active connector runtime owner; the
-separate `docs/trusted-worker-account-binding-20261113` worktree was clean at
-`7815f7735`. It contains the accepted ADR, not a second dispatcher implementation.
-No other worker was messaged, interrupted or duplicated.
+`oauth_store.read_grant` reads authority metadata without decrypting credentials.
+Credential resolution is just in time, bracketed by revalidation, with no
+ambient/legacy fallback or automatic refresh. Refresh claims, refresh completion,
+reconnection and repository reselection invalidate the old generation. Expired
+credentials require a separately governed refresh before a fresh attempt.
+Returned argument copies cannot change the accepted hash.
 
-Proof base: serving candidate `2f0278d424e466063138079bef62037ebb04e476`.
-The proof-only worktree keeps that candidate and its exact-head CI independent.
-The installed application code is unchanged by this proof.
+Both ordinary idempotent replay and create-run conflict replay revalidate current
+custody, connection authority and policy. The server-derived key includes exact
+accepted lineage and connection generation. A new connection cannot replay old
+connection evidence. Concurrent duplicate delivery persists one run and sends one
+provider request (or one bounded Notion traversal).
 
-## Real database evidence
+Existing CommandRun rows retain canonical auth subject/delegation, argument hash
+and server-derived key. Existing created/started/completed/failed/blocked events
+carry account/request/task/thread/turn/tool/command/hash/provider/generation
+lineage without tokens or caller-supplied provenance. A denied replay appends a
+`run.blocked` event with `phase=replay` and returns no result; it does not rewrite
+the original execution's completed status. Failures and cancellation persist no
+partial provider result. Audit-storage failure prevents provider dispatch and
+returns a bounded error. Existing account-owned/operator readback restrictions
+remain intact.
 
-`tests/connections/test_accepted_chat_custody_postgres.py` adds 15 opt-in tests
-against a fully migrated disposable PostgreSQL database. Its database guard
-requires the dedicated `dispatch_proof` name, a private synthetic Unix socket,
-and no TCP listener before any schema reset. No ambient application DSN is used.
-Provider HTTP is explicitly refused in the fixture. Synthetic credentials and
-an inert test encryption key are confined to the disposable database/process.
+## Native transport and deadline proof
 
-The tests exercise the real acceptance-row writer, frozen command/argument
-checkpoint and custody resolver, alongside real OAuth storage. They prove:
+The bounded adapter uses a fresh native asynchronous HTTPX client per invocation,
+fixed provider origins, TLS verification defaults, no environment proxy, no
+redirects, one connection and no shared client/token cache. Each request uses
+fresh credential revalidation, current policy checks and a post-response check.
+GitHub issue/PR identities must match the selected repository and issue number.
+Notion uses the existing bounded page-content projection, validates page/child
+UUIDs, limits traversal depth/blocks/requests, and rejects repeated cursors.
+Both providers cap raw responses at 1 MiB and preserve bounded output content.
 
-- Exact Notion/GitHub command and argument-hash binding resolves the original
-  accepted account; altered command/hash values fail closed.
-- Publication before acknowledgement yields acceptance-pending, then a fresh
-  lookup succeeds only after acceptance is recorded.
-- Changed task owner, canonical thread/Project owner, terminal state,
-  cancellation or Preview membership denies a later lookup despite a prior
-  successful binding.
-- Legacy/expired work is refused and the database rejects original-account
-  reassignment.
-- Parallel and sequential A/B lookups retain separate canonical account context.
-- Disconnect removes connection credential availability while the same valid
-  chat custody can still resolve. This is intentional evidence that custody
-  and connector permission are independent authorities, not a dispatch grant.
+Each request has a total 15-second cap shortened by accepted work deadline and
+credential expiry. A 100-ms monitoring interval rechecks authority while I/O is
+pending. Native cancellation is awaited and streams/clients close before the
+operation unwinds; no blocking provider request is abandoned in a thread.
+Parent cancellation persists failure and re-raises cancellation. Accepted work
+expiry propagates the existing `AcceptedChatTaskDeadlineExceeded` contract and
+records its canonical failure code, preserving task terminal handling.
 
-The fresh-schema/predecessor rehearsal reached `d8a90bf32107`, preserved seeded
-legacy rows and NULL custody, verified 145 tables, and rejected six forbidden
-custody changes. The new tests plus existing custody, local knowledge execution
-and Preview-admission tests passed **60/60**, without skips, on PostgreSQL 16.15
-and Python 3.12.13. The synthetic cluster had no TCP listener and was stopped
-and removed. The selected test source tree was
-`3921713c17c67d8b85fe42adb06553a566dfd5d6` before this documentation-only addition.
+Synchronous authority reads run outside the event loop with a 2-second await
+bound. The private PostgreSQL session wrapper applies transaction-local
+1-second statement and lock limits; no global database setting changes.
+A timed-out authority read cannot dispatch provider I/O. Pool acquisition or
+underlying driver cleanup may outlive a cancelled await; this is not a claim
+that Python can kill a blocked database thread. Provider socket cleanup and
+no-result behavior are proven independently, including a real row-lock refusal.
 
-Reproduce using a newly created disposable database and explicit
-`CODEXIFY_DISPATCH_TEST_DATABASE_URL=postgresql+psycopg://<synthetic-user>@/dispatch_proof?host=/tmp/codexify-oauth-pg.<unique>/socket&port=<test-port>`,
-with dotenv disabled. Run the new module together with
-`tests/core/test_chat_account_custody.py`,
-`tests/core/test_knowledge_tool_execution.py` and
-`tests/connections/test_preview_oauth_admission.py`.
-Task-local runnable harness and receipts are retained in
-`dispatch-proof-20261117/` in the existing connector task workspace.
+Revocation cannot retract a request already sent to a provider. Once observed,
+this path cancels pending I/O, starts no subsequent request, and suppresses the
+result. There is no database lock spanning provider I/O and no claim of an atomic
+network transaction with revocation. Post-response checks close observed stale
+results; provider-specific external revocation/consent still needs an authorized
+canary.
 
-## Explicit limits and next implementation seam
+## Executed isolated evidence
 
-The synthetic acceptance scope stands for an already authenticated route
-principal. These tests do not prove HTTP authentication, real queue admission,
-provider I/O, physical timeout/cancellation, Command Bus run/event lineage,
-idempotent dispatch, or restored live-backup recovery. They add no dispatcher.
+- Real PostgreSQL suite: **120 passed, zero skips**, including private entry-point
+  execution for all four operations, durable audit via a new store instance,
+  duplicate deliveries, A/B isolation, revocation/cancellation failures, row-lock
+  timeout, pending acceptance, audit failure, and existing owned readback tests.
+- Broader Command Bus/public/internal/provider/admission/logging regressions:
+  **289 passed** before the final deadline classification adjustment.
+- Final private transport plus existing accepted-loopback deadline tests:
+  **50 passed**, including native synthetic socket EOF/cleanup for both provider
+  paths under deadline, parent cancellation and observed revocation.
+- Architecture/evidence suite: 888 passed with two sandbox Git-metadata failures;
+  the unchanged regeneration module then passed all 15 tests with the needed
+  disposable-worktree access. An earlier run encountered unhydrated LFS JSON
+  pointers; 278 tracked fixtures were hydrated from cache without source edits.
+  These environment failures and receipts are retained, not counted as passes.
+- Native tests use uniquely allocated ephemeral loopback listeners and synthetic
+  HTTP; they prove socket cancellation, not real-provider TLS/DNS/consent.
+- Fresh synthetic PostgreSQL 16.15 migration reaches `d8a90bf32107`, 145 tables;
+  six prohibited custody mutations are rejected. Private Unix socket, no TCP;
+  cluster stopped and removed. This is not a restored live-backup proof.
 
-Source inspection confirms these required follow-through points:
+The real-PG receipt binds staged tree
+`7ae4560d3498a9d29760ac4b4e67515d850476a7`. The later change preserves canonical
+accepted-deadline classification and was covered by the 50-test final batch.
+Task-local receipts and runnable rehearsal are in `dispatch-transport-20261117/`.
+Earlier custody/fence receipts remain under `dispatch-proof-20261117/` and
+`dispatch-fence-20261117/`. One earlier fence-test isolation defect was repaired:
+OAuth tombstones lack a user FK, so the guarded disposable reset explicitly clears
+OAuth tables; it now also clears CommandRun rows/events. No production schema or
+test expectation was weakened.
 
-1. `execute_invoke` returns matching idempotent runs before policy evaluation.
-   The future trusted entry point must re-resolve accepted work and current
-   connector authority before replay as well as before a new provider attempt.
-   Do not change general public readback semantics merely to implement this
-   private execution boundary.
-2. Ordinary OpenAPI-backed provider commands still execute through the loopback
-   HTTP adapter. Supplying `auth_subject` to Command Bus does not authenticate
-   an account to that HTTP route. Preserve manifest/policy/permission/run/event
-   processing while adding only the four accepted knowledge-read operations to
-   an explicit server-owned in-process path. No arbitrary executor callback,
-   client-controlled authority object or operator-key account impersonation.
-3. Provider credential wrappers currently return token/repository values and
-   clients retain those values for requests. The future invocation must carry
-   current generation/resource authority to the actual I/O boundary, recheck
-   after refresh/disconnect/reselection, and create no cross-account cached
-   client. OAuth stale-write fencing alone is not read-execution fencing.
-4. Provider clients use synchronous requests and fixed timeouts; Notion reads
-   may make multiple requests. Removing loopback transport must preserve the
-   accepted deadline, cancellation and network/egress checks rather than drop
-   the adapter's existing enforcement. A timeout of an awaiting wrapper alone
-   is not proof that a blocking provider request stopped.
-5. Complete the ADR-112 A/B, retry, duplicate, revocation-race, lineage and
-   policy-denial matrix with stub providers before any real consent/read canary.
-   Imported-history exposure remains excluded. Existing public operations and
-   knowledge chat admission remain quarantined until full proof and rollout.
+## Remaining gates
 
-The accepted in-process topology does not require another architectural
-reconfirmation. The implementation seam and its proofs are engineering work;
-provider grants, secret custody, operational rollout and diagnostic suppression
-tradeoffs remain operator-owned decisions. No governing ADR is superseded.
+Full exact-final-revision CI, scope review and source integration remain required.
+This private path is not chat admission: trusted policy resolution, command
+catalog projection without public-operation promotion, worker acknowledgement
+retry handling and final tool/result delivery require a bounded follow-through.
+Imported-history exposure remains excluded. No new architecture decision is
+required for the implemented ADR-112 path; it does not authorize broader commands.
+
+Operational gates remain separate: actual-ingress logging proof (including
+cloudflared management/tail sinks and managed-edge visibility), fresh restored
+backup/migration/rollback rehearsal for the exact deployment, named deployment
+owner/window, backend-only secrets and encryption-key custody, exact provider
+registration/permission verification, and a designated consent/read/disconnect/
+revocation canary. Source/unit/synthetic database proof does not establish any of
+those operational outcomes. Setup and invocation stay disabled pending their
+respective gates.

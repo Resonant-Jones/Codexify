@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from pathlib import Path
@@ -49,6 +50,106 @@ from guardian.tools.policy import (
     evaluate_tool_policy,
     get_policy_mode,
 )
+from guardian.command_bus.accepted_knowledge_read import (
+    AcceptedKnowledgeRead,
+    AcceptedKnowledgeReadUnavailable,
+)
+
+
+def _accepted_policy_denial(
+    payload: InvokeRequest, command: Any, subject: str
+) -> str | None:
+    """Current policy for the private read path, including replay and each I/O."""
+    from guardian.connections.chat_pilot import COMMANDS, project_tools
+    from guardian.command_bus.accepted_knowledge_transport import ORIGINS
+
+    if (
+        command.command_id not in COMMANDS
+        or command.layer != "raw"
+        or not project_tools([command], frozenset({COMMANDS[command.command_id][0]}))
+    ):
+        return "accepted_knowledge_manifest_denied"
+    provider = COMMANDS[command.command_id][0]
+    if (
+        payload.external_transport != "https"
+        or payload.external_target_url != ORIGINS[provider]
+        or payload.external_connector_name != provider
+        or payload.external_command_namespace != provider
+        or payload.external_command_name != command.command_id.split("_", 1)[1]
+    ):
+        return "accepted_knowledge_transport_denied"
+    outcome = apply_policy_mode(
+        evaluate_tool_policy(
+            payload.actor.model_dump(mode="json"),
+            command.model_dump(mode="json"),
+            payload.arguments.model_dump(mode="json"),
+            os.environ,
+            in_process=True,
+        ),
+        mode="enforce",
+        confirmation_granted=False,
+    )
+    if outcome.blocked:
+        return "accepted_knowledge_policy_denied"
+    profile = payload.permission_profile
+    if profile is None or not profile.uses_network or not profile.uses_connector:
+        return "accepted_knowledge_permission_required"
+    decision = evaluate_permission_profile(
+        _build_permission_profile(profile),
+        _build_permission_profile_request(
+            payload=payload,
+            profile_payload=profile,
+            command=command,
+            auth_subject=subject,
+            fallback_task_id="unbound",
+        ),
+    )
+    if not decision.allowed:
+        return f"permission_profile_denied:{decision.code}"
+    external = evaluate_external_transport_policy(
+        _build_external_policy_request(payload=payload, auth_subject=subject),
+        _build_external_policy_rules(payload.external_policy_rules),
+    )
+    if not external.allowed:
+        return f"external_transport_policy_denied:{external.code}"
+    return None
+
+
+def _accepted_replay(
+    *,
+    fence: AcceptedKnowledgeRead,
+    run: dict[str, Any],
+    payload: InvokeRequest,
+    command: Any,
+    subject: str,
+    store: CommandBusStore,
+    provenance: dict[str, Any],
+    manifest_version: str,
+) -> dict[str, Any]:
+    try:
+        fence.validate_replay(run)
+        reason = _accepted_policy_denial(payload, command, subject)
+        if reason:
+            raise AcceptedKnowledgeReadUnavailable(reason)
+    except AcceptedKnowledgeReadUnavailable:
+        # A replay refusal does not rewrite the original execution's outcome.
+        store.append_event(
+            run_id=run["run_id"],
+            event_type="run.blocked",
+            payload={
+                "reason": "accepted_knowledge_replay_denied",
+                "phase": "replay",
+                "provenance_json": provenance,
+            },
+        )
+        raise HTTPException(
+            403, detail={"error": "accepted_knowledge_replay_denied"}
+        ) from None
+    return _response_from_existing_run(
+        run=run,
+        manifest_version=manifest_version,
+        fallback_invoke_version=payload.invoke_version,
+    )
 
 
 def validate_invoke_version(version: str) -> None:
@@ -317,6 +418,7 @@ async def execute_invoke(
     confirmation_granted: bool = False,
     work_order_store: Any = None,
     accepted_deadline: AcceptedChatTaskDeadline | None = None,
+    _accepted_knowledge: AcceptedKnowledgeRead | None = None,
 ) -> dict[str, Any]:
     if execution_lane != "tools":
         # Write unlock is tools-lane only; raw/public lane stays read-only.
@@ -355,6 +457,25 @@ async def execute_invoke(
 
     args_hash = compute_args_hash(args_dict)
     idempotency_key = (payload.idempotency_key or "").strip() or None
+    if _accepted_knowledge is not None:
+        if (
+            type(_accepted_knowledge) is not AcceptedKnowledgeRead
+            or execution_lane != "tools"
+        ):
+            raise HTTPException(
+                403, detail={"error": "accepted_knowledge_read_unavailable"}
+            )
+        binding = _accepted_knowledge.revalidate()
+        if (
+            binding.account_id != auth_subject
+            or binding.command_id != payload.command_id
+            or binding.args_hash != args_hash
+        ):
+            raise HTTPException(
+                403, detail={"error": "accepted_knowledge_read_unavailable"}
+            )
+        idempotency_key = _accepted_knowledge.idempotency_key()
+        provenance_json = {"accepted_knowledge": _accepted_knowledge.lineage()}
     if idempotency_key:
         existing_run = store.get_run_by_idempotency_key(
             command.command_id,
@@ -368,6 +489,17 @@ async def execute_invoke(
                 auth_subject=auth_subject,
                 args_hash=args_hash,
             )
+            if _accepted_knowledge is not None:
+                return _accepted_replay(
+                    fence=_accepted_knowledge,
+                    run=existing_run,
+                    payload=payload,
+                    command=command,
+                    subject=auth_subject,
+                    store=store,
+                    provenance=provenance_json,
+                    manifest_version=manifest.manifest_version,
+                )
             return _response_from_existing_run(
                 run=existing_run,
                 manifest_version=manifest.manifest_version,
@@ -381,6 +513,7 @@ async def execute_invoke(
             command.model_dump(mode="json"),
             args_dict,
             os.environ,
+            **({"in_process": True} if _accepted_knowledge is not None else {}),
         ),
         mode=policy_mode,
         confirmation_granted=confirmation_granted,
@@ -389,6 +522,10 @@ async def execute_invoke(
     permission_profile_decision = None
     external_policy_decision: ExternalPolicyDecision | None = None
     pre_dispatch_blocked_reason: str | None = None
+    if _accepted_knowledge is not None:
+        pre_dispatch_blocked_reason = _accepted_policy_denial(
+            payload, command, auth_subject
+        )
     if payload.permission_profile is not None:
         profile = _build_permission_profile(payload.permission_profile)
         permission_request = _build_permission_profile_request(
@@ -487,6 +624,17 @@ async def execute_invoke(
             auth_subject=auth_subject,
             args_hash=args_hash,
         )
+        if _accepted_knowledge is not None:
+            return _accepted_replay(
+                fence=_accepted_knowledge,
+                run=existing_run,
+                payload=payload,
+                command=command,
+                subject=auth_subject,
+                store=store,
+                provenance=provenance_json,
+                manifest_version=manifest.manifest_version,
+            )
         return _response_from_existing_run(
             run=existing_run,
             manifest_version=manifest.manifest_version,
@@ -692,27 +840,71 @@ async def execute_invoke(
         }
 
     try:
-        execution_result = await execute_loopback_request(
-            method=command.method,
-            path_template=command.path_template,
-            path_params=args_dict.get("path_params") or {},
-            query=args_dict.get("query") or {},
-            headers=args_dict.get("headers") or {},
-            body=args_dict.get("body"),
-            inbound_headers=inbound_headers,
-            policy_context={
-                "actor": payload.actor.model_dump(mode="json"),
-                "effect": command.effect,
-                "risk": command.risk,
-                "approval_mode": command.approval_mode,
-                "requires_confirmation": command.approval_mode != "none",
-                "policy_mode": policy_mode,
-                "confirmation_granted": confirmation_granted,
-            },
-            **({"accepted_deadline": accepted_deadline} if accepted_deadline else {}),
-        )
+        if _accepted_knowledge is not None:
+            from guardian.command_bus.accepted_knowledge_transport import (
+                execute_accepted_provider_read,
+            )
+
+            execution_result = await execute_accepted_provider_read(
+                fence=_accepted_knowledge,
+                payload=payload,
+                command=command,
+            )
+            _accepted_knowledge.revalidate()
+        else:
+            execution_result = await execute_loopback_request(
+                method=command.method,
+                path_template=command.path_template,
+                path_params=args_dict.get("path_params") or {},
+                query=args_dict.get("query") or {},
+                headers=args_dict.get("headers") or {},
+                body=args_dict.get("body"),
+                inbound_headers=inbound_headers,
+                policy_context={
+                    "actor": payload.actor.model_dump(mode="json"),
+                    "effect": command.effect,
+                    "risk": command.risk,
+                    "approval_mode": command.approval_mode,
+                    "requires_confirmation": command.approval_mode != "none",
+                    "policy_mode": policy_mode,
+                    "confirmation_granted": confirmation_granted,
+                },
+                **(
+                    {"accepted_deadline": accepted_deadline}
+                    if accepted_deadline
+                    else {}
+                ),
+            )
+    except asyncio.CancelledError:
+        if _accepted_knowledge is not None:
+            store.update_run(
+                run_id=run_id,
+                status="failed",
+                error_text="accepted_knowledge_read_cancelled",
+            )
+            store.append_event(
+                run_id=run_id,
+                event_type="run.failed",
+                payload={
+                    "error": "accepted_knowledge_read_cancelled",
+                    "provenance_json": provenance_json,
+                },
+            )
+        raise
     except Exception as exc:
-        error_text = str(exc)
+        error_text = (
+            "accepted_knowledge_read_unavailable"
+            if _accepted_knowledge is not None
+            else str(exc)
+        )
+        if (
+            _accepted_knowledge is not None
+            and isinstance(exc, HTTPException)
+            and isinstance(exc.detail, dict)
+            and exc.detail.get("failure_code")
+            == ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
+        ):
+            error_text = ErrorCode.CHAT_ACCEPTED_TASK_DEADLINE_EXCEEDED.value
         is_policy_or_guard_block = (
             error_text.startswith("policy_blocked:")
             or error_text == "recursion_guard_blocked"

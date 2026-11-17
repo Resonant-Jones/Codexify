@@ -1,8 +1,7 @@
 """ADR-112 revalidation fence, not an execution owner or public capability.
 
-This module is deliberately not wired to chat, HTTP admission or provider I/O.
-The future bounded Command Bus adapter must consume it before replay, each
-request, and result publication while retaining all existing policy/audit gates.
+The private Command Bus adapter consumes it before replay, each request and
+result publication. It is deliberately not wired to chat or HTTP admission.
 No provider refresh, ambient credential fallback or network call occurs here.
 """
 
@@ -154,7 +153,7 @@ class AcceptedKnowledgeRead:
         }
 
     def arguments(self) -> InvokeArguments:
-        """Detached exact arguments for the future adapter, never caller aliases."""
+        """Detached exact arguments for the bounded adapter, never caller aliases."""
         self.revalidate()
         return InvokeArguments.model_validate_json(self._arguments_json)
 
