@@ -60,6 +60,17 @@ class CredentialSnapshot:
 
 
 @dataclass(frozen=True)
+class ReadGrant:
+    """Current connection authority without decrypting credential material."""
+
+    user_id: str
+    provider: str
+    generation: str
+    expires_at: float | None
+    repositories: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class RefreshClaim:
     credential: CredentialSnapshot
     claim_id: str = field(repr=False)
@@ -249,6 +260,32 @@ def complete_flow(
         )
         session.commit()
         return count == 1
+
+
+def read_grant(db: Any, user_id: str, provider: str) -> ReadGrant | None:
+    """Read current OAuth authority only; never refresh or fall back to legacy.
+
+    The caller must separately verify accepted work and expiration. A returned
+    value is a snapshot, not permission for a later attempt or provider request.
+    """
+    _scope(user_id, provider)
+    with db.get_session() as session:
+        if session.query(User.id).filter_by(id=user_id).scalar() is None:
+            return None
+        row = (
+            _query(session, user_id, provider)
+            .filter_by(status="connected")
+            .one_or_none()
+        )
+        if (
+            row is None
+            or row.refresh_claim is not None
+            or not row.encrypted_access_token
+        ):
+            return None
+        return ReadGrant(
+            user_id, provider, row.generation, row.expires_at, tuple(row.repositories)
+        )
 
 
 def credential(db: Any, user_id: str, provider: str) -> CredentialSnapshot | None:

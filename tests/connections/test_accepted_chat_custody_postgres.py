@@ -61,7 +61,9 @@ def engine():
 def db(engine, monkeypatch):
     # Only the guarded, newly created disposable database can reach this reset.
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE users, chat_completion_attempts CASCADE"))
+        # OAuth tombstones intentionally have no user foreign key, so CASCADE
+        # alone does not isolate their credentials/flows between test cases.
+        conn.execute(text("TRUNCATE users, chat_completion_attempts, knowledge_oauth_credentials, knowledge_oauth_flows CASCADE"))
     factory = sessionmaker(engine, expire_on_commit=False)
 
     @contextmanager

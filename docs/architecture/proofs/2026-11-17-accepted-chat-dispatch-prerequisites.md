@@ -4,6 +4,54 @@ Status: isolated PostgreSQL prerequisite proof; ADR-112 dispatcher remains
 unimplemented and Private Preview invocation remains quarantined. No provider,
 credential, deployment or release permission changes.
 
+## Isolated authority-fence implementation follow-through
+
+`guardian/command_bus/accepted_knowledge_read.py` now implements the reusable
+revalidation component. It remains **unwired**: no chat admission, public invoke
+contract, Command Bus orchestration, provider adapter or activation flag changed.
+It is not a public capability or a second execution/audit owner.
+
+Preparation freezes exact canonical arguments and task evidence after resolving
+persisted acceptance. Every boundary method re-resolves original/current owner,
+attempt acceptance/terminal/cancellation/deadline state, current OAuth generation,
+expiry and selected GitHub repository. Metadata-only `oauth_store.read_grant`
+does not decrypt tokens. Credential resolution is just in time, bracketed by
+revalidation, with no legacy/ambient fallback or automatic provider refresh.
+Refresh claims, reconnects, completed refreshes and repository reselection fence
+the old context. Expired authority fails closed and requires separately governed
+refresh before preparing a new attempt.
+
+Replay validation requires matching subject, command, argument hash and a
+server-derived key containing exact accepted lineage and connection generation.
+Changing a connection cannot replay old connection evidence. Returned arguments
+are detached copies; caller mutation cannot change the frozen read. The lineage
+projection is secret-free input for existing Command Bus events, **not proof that
+events have been persisted**. The remaining-time helper takes the tighter bound
+of the accepted wall/monotonic deadline and credential expiry; it does not itself
+start a timer or stop network I/O.
+
+New real PostgreSQL negative tests cover before-replay/pre-I/O/post-I/O-check
+refusal, disconnect during credential lookup, refresh claim, reconnect,
+repository reselection/removal, expired grant, cancellation/terminal state,
+cross-account replay, detached arguments, monotonic exhaustion and pending
+acceptance. The selected real-database suite passed **87 tests, no skips**.
+Always-on unit tests cover all four command forms and safe bounded refusals.
+The first run found stale OAuth rows in the synthetic fixture because tombstones
+deliberately have no user foreign key; the disposable reset now explicitly clears
+both OAuth tables. The failed receipt is retained, and the corrected suite passes.
+
+Remaining wiring is mandatory: enforce this fence at both ordinary and
+idempotency-conflict replay returns, before each provider request and before
+publishing results; retain Command Bus manifest/policy/permission/run/event gates;
+implement native cancellable bounded transport and Notion multi-request traversal.
+No arbitrary executor callback or operator-key impersonation is introduced here.
+Synchronous database checks and the existing blocking provider clients do not
+prove physical deadline/cancellation behavior. A revocation racing an already
+sent request cannot retract it; transport must cancel when observed, start no
+subsequent request, and discard results if post-I/O revalidation fails. That race
+and end-to-end policy/audit lineage remain unproven. No architecture decision is
+superseded, and this component is not sufficient to activate reads.
+
 ## Scope and ownership
 
 This continues the existing connector task. Accessible native task/worktree
