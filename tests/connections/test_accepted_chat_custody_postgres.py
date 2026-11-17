@@ -90,7 +90,7 @@ def db(engine, monkeypatch):
     return SimpleNamespace(_sa_session=custody_session, get_session=oauth_session)
 
 
-def accepted(db, owner="a", provider="notion", *, acknowledged=True, legacy=False, expired=False, command_id=None, raw_arguments=None):
+def accepted(db, owner="a", provider="notion", *, acknowledged=True, legacy=False, expired=False, command_id=None, raw_arguments=None, freeze=True):
     command = command_id or f"op::{provider}_content_search"
     raw = raw_arguments if raw_arguments is not None else {"query": "synthetic"}
     if provider == "github" and raw_arguments is None:
@@ -108,9 +108,10 @@ def accepted(db, owner="a", provider="notion", *, acknowledged=True, legacy=Fals
     create_chat_completion_attempt(db, request_id=task.request_id, backend_task_id=task.task_id,
         thread_id=task.thread_id, turn_id=task.turn_id, deadline_snapshot=deadline,
         turn_lock_token="synthetic-lock", accepted_account_id=None if legacy else account)
-    freeze_chat_tool_decision(db, request_id=task.request_id, backend_task_id=task.task_id,
-        thread_id=task.thread_id, turn_id=task.turn_id, account_id=owner,
-        command_id=command, args_hash=args_hash)
+    if freeze:
+        freeze_chat_tool_decision(db, request_id=task.request_id, backend_task_id=task.task_id,
+            thread_id=task.thread_id, turn_id=task.turn_id, account_id=owner,
+            command_id=command, args_hash=args_hash)
     if acknowledged:
         mark_chat_completion_attempt_accepted(db, backend_task_id=task.task_id)
     return task, command, args_hash

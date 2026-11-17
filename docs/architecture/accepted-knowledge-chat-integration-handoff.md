@@ -65,19 +65,54 @@ operator key, browser session or account-shaped header to provider routes.
   Do not retry through local/operator/legacy credentials. Any permitted retry
   must prepare fresh current authority and retain the same accepted task budget.
 
-## Deliberately unfinished admission work
+## Private catalog and result-delivery interfaces
 
-The real Preview app still omits public provider operation routes, so the current
-public OpenAPI-backed manifest does not expose those operations. The private
-invocation requires a valid exact manifest entry and refuses missing entries;
-it does not fabricate them. A bounded private catalog/manifest integration is
-needed that preserves Command Bus eligibility without promoting public routes.
+The connector branch now supplies these private, unmounted seams in
+`guardian/command_bus/accepted_knowledge_admission.py`:
 
-Automatic tool exposure happens before there is a frozen tool command. The
-invocation fence requires that frozen command/hash. A catalog-only canonical
-account projection must therefore remain distinct from execution authority;
-do not relax the execution resolver to accept missing command/hash custody or use
-`task.user_id` as an independent account principal.
+```python
+tools = await project_accepted_knowledge_tools(
+    db=canonical_chat_db, task=accepted_chat_task,
+    grants=server_resolved_invoke_policy_templates,
+)
+# After the existing owner freezes the exact command/arguments, invoke as above.
+# Immediately before giving completed evidence to the model, reload/revalidate:
+result = await read_accepted_knowledge_result(
+    db=canonical_chat_db, task=accepted_chat_task,
+    payload=server_constructed_invoke_request, run_id=durable_run_id,
+    app=guardian_app,
+)
+```
+
+Catalog resolution checks the same original accepting-account, current ownership,
+acknowledgement, deadline, cancellation and eligibility chain without requiring a
+not-yet-selected command. It returns a different catalog-only binding with no
+command/hash fields; the execution resolver still requires the exact frozen
+command/hash. Each template must contain trusted server-resolved grants; empty,
+foreign, denied or absent policy cannot advertise a tool. Existing OAuth and
+Knowledge-chat opt-ins must both be present for projection. Neither opt-in is
+changed by this implementation, and no caller is wired to these seams.
+
+Private manifest entries are derived from the existing provider router metadata
+without mounting those routes or mutating public OpenAPI/manifest state. Only the
+verified private invocation uses the detached index. Ordinary public invocation
+still cannot resolve quarantined provider commands. Catalog hints are detached
+copies with the current account's selected GitHub repositories, not execution
+permission. Connection changes are checked again before returning descriptors.
+
+The result reader accepts a durable run ID, not a caller-provided body. It checks
+current command/custody/connection/policy and returns only a completed stored
+result. It never starts a provider request or decrypts credentials. A foreign run
+ID is refused before appending events to that run. The caller must not cache the
+result as continuing authority; dispatch and delivery remain separate checks.
+This seam does not persist or finalize the assistant response.
+
+## Remaining owner integration
+
+The existing accepted attempt still freezes a single command/hash. The separate
+loop candidate must not treat this as an arbitrary multi-step execution receipt;
+any multi-step persistence change needs coordinated canonical checkpoint work.
+No shared `chat_completion_service.py` or `core/db.py` change was made here.
 
 Keep Preview tool projection and worker admission quarantined until that wiring
 has exact end-to-end tests. Required proof crosses authenticated acceptance,

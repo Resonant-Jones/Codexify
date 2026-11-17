@@ -56,26 +56,32 @@ def ordinary_chat_acceptance_account(task: Any, scope: Any) -> str | None:
 
 
 @dataclass(frozen=True)
-class AcceptedChatAccountBinding:
-    """Ephemeral verified lineage; not a bearer capability or provider grant."""
+class AcceptedChatCatalogBinding:
+    """Catalog-only accepted owner; deliberately has no frozen command authority."""
 
     account_id: str
     request_id: str
     backend_task_id: str
     thread_id: int
     turn_id: str
+
+
+@dataclass(frozen=True)
+class AcceptedChatAccountBinding(AcceptedChatCatalogBinding):
+    """Exact frozen execution lineage, independently revalidated at invocation."""
+
     tool_turn_id: str
     command_id: str
     args_hash: str
 
 
-def resolve_accepted_chat_account(
+def _resolve_accepted_chat(
     db: Any,
     task: Any,
     *,
-    command_id: str,
-    args_hash: str,
-) -> AcceptedChatAccountBinding:
+    command_id: str | None,
+    args_hash: str | None,
+) -> AcceptedChatCatalogBinding:
     """Re-read original ownership and live attempt state before future dispatch.
 
     No account is selected from task.user_id: that field is only compared with
@@ -90,9 +96,15 @@ def resolve_accepted_chat_account(
         if (
             str(task.origin or "").split("|", 1)[0] != "api:chat.complete"
             or getattr(task, "hosted_room_invocation", None) is not None
-            or not command_id
-            or len(args_hash) != 64
-            or any(c not in "0123456789abcdef" for c in args_hash)
+            or (
+                command_id is not None
+                and (
+                    not command_id
+                    or not isinstance(args_hash, str)
+                    or len(args_hash) != 64
+                    or any(c not in "0123456789abcdef" for c in args_hash)
+                )
+            )
         ):
             raise ChatAccountCustodyUnavailable(denied)
         with db._sa_session() as session:
@@ -145,6 +157,16 @@ def resolve_accepted_chat_account(
                 raise ChatAccountCustodyUnavailable(denied)
             if attempt.accepted_at is None:
                 raise ChatAccountAcceptancePending("accepted_chat_account_pending")
+            if is_cancelled(attempt.backend_task_id):
+                raise ChatAccountCustodyUnavailable(denied)
+            if command_id is None:
+                return AcceptedChatCatalogBinding(
+                    account_id=account_id,
+                    request_id=attempt.request_id,
+                    backend_task_id=attempt.backend_task_id,
+                    thread_id=attempt.thread_id,
+                    turn_id=attempt.turn_id,
+                )
             if (
                 not attempt.tool_turn_id
                 or attempt.tool_checkpoint_at is None
@@ -168,3 +190,24 @@ def resolve_accepted_chat_account(
         raise
     except Exception:
         raise ChatAccountCustodyUnavailable(denied) from None
+
+
+def resolve_accepted_chat_catalog_account(
+    db: Any, task: Any
+) -> AcceptedChatCatalogBinding:
+    """Verify accepted owner before advertisement; never authorize execution."""
+    return _resolve_accepted_chat(db, task, command_id=None, args_hash=None)
+
+
+def resolve_accepted_chat_account(
+    db: Any, task: Any, *, command_id: str, args_hash: str
+) -> AcceptedChatAccountBinding:
+    """Execution always requires the exact persisted frozen command and hash."""
+    if not isinstance(command_id, str) or not command_id:
+        raise ChatAccountCustodyUnavailable("accepted_chat_account_unavailable")
+    binding = _resolve_accepted_chat(
+        db, task, command_id=command_id, args_hash=args_hash
+    )
+    if type(binding) is not AcceptedChatAccountBinding:
+        raise ChatAccountCustodyUnavailable("accepted_chat_account_unavailable")
+    return binding

@@ -60,41 +60,10 @@ async def execute_accepted_knowledge_read(*, db, task, payload: InvokeRequest, a
         )
     )
     lineage = await _authority(fence.lineage)
-    profile = payload.permission_profile
-    if profile is not None:
-        # Declared grants remain unchanged; actual request metadata is canonical.
-        profile = profile.model_copy(
-            update={
-                "request_task_id": lineage["backend_task_id"],
-                "request_thread_id": str(lineage["thread_id"]),
-                "request_project_id": None,
-                "request_command_class": "connector",
-                "uses_network": True,
-                "uses_connector": True,
-                "uses_shell": False,
-                "requested_write_paths": (),
-            }
-        )
-    provider = lineage["provider"]
-    payload = payload.model_copy(
+    payload = _canonical_payload(payload, lineage).model_copy(
         update={
-            "actor": ActorSpec(
-                kind="agent",
-                id="guardian-accepted-knowledge",
-                delegated_by=lineage["account_id"],
-            ),
             "arguments": await _authority(fence.arguments),
             "idempotency_key": await _authority(fence.idempotency_key),
-            "provenance_json": {"accepted_knowledge": lineage},
-            "permission_profile": profile,
-            "external_transport": "https",
-            "external_target_url": ORIGINS[provider],
-            "external_connector_name": provider,
-            "external_command_namespace": provider,
-            "external_command_name": payload.command_id.split("_", 1)[1],
-            "external_thread_id": str(lineage["thread_id"]),
-            "external_project_id": None,
-            "work_order_id": None,
         }
     )
     try:
@@ -115,3 +84,42 @@ async def execute_accepted_knowledge_read(*, db, task, payload: InvokeRequest, a
         raise AcceptedKnowledgeReadUnavailable(
             "accepted_knowledge_read_unavailable"
         ) from None
+
+
+def _canonical_payload(payload, lineage):
+    """Bind actual request metadata; never manufacture permission grants."""
+    profile = payload.permission_profile
+    if profile is not None:
+        # Declared grants remain unchanged; actual request metadata is canonical.
+        profile = profile.model_copy(
+            update={
+                "request_task_id": lineage["backend_task_id"],
+                "request_thread_id": str(lineage["thread_id"]),
+                "request_project_id": None,
+                "request_command_class": "connector",
+                "uses_network": True,
+                "uses_connector": True,
+                "uses_shell": False,
+                "requested_write_paths": (),
+            }
+        )
+    provider = lineage["provider"]
+    return payload.model_copy(
+        update={
+            "actor": ActorSpec(
+                kind="agent",
+                id="guardian-accepted-knowledge",
+                delegated_by=lineage["account_id"],
+            ),
+            "provenance_json": {"accepted_knowledge": lineage},
+            "permission_profile": profile,
+            "external_transport": "https",
+            "external_target_url": ORIGINS[provider],
+            "external_connector_name": provider,
+            "external_command_namespace": provider,
+            "external_command_name": payload.command_id.split("_", 1)[1],
+            "external_thread_id": str(lineage["thread_id"]),
+            "external_project_id": None,
+            "work_order_id": None,
+        }
+    )

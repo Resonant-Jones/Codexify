@@ -31,12 +31,26 @@ entries fail closed. Public invocation semantics and its loopback requirement
 remain unchanged. Only the verified in-process path omits the mechanical loopback
 base requirement; it retains stricter explicit network/connector/host checks.
 
-The production Preview app still omits provider-operation routes. This private
-implementation neither mounts them nor fabricates missing manifest entries.
-The synthetic app includes the real operation routers solely for manifest proof;
-HTTP authentication is never bypassed or impersonated. Private command catalog
-integration and controlled chat admission remain future work, with public
-operations still quarantined. No generalized ASGI/executor callback was added.
+The production Preview app still omits provider-operation routes. The private
+index now derives exactly four entries from provider-owned route metadata without
+mounting routes or modifying public OpenAPI. A metadata parity test compares them
+to the existing foreground route manifest. The new synthetic lifecycle tests use
+an app with no provider routes; ordinary public invocation remains quarantined.
+No generalized ASGI/executor callback or HTTP impersonation was added.
+
+`project_accepted_knowledge_tools` supplies catalog-only accepted-account checks
+before a frozen decision exists. It requires explicit trusted policy templates,
+current OAuth metadata and both existing opt-ins; it never decrypts credentials.
+Its separate binding has no command/hash execution authority. Returned schemas
+are detached, selected GitHub repositories are account-scoped hints, and current
+connection/ownership is rechecked before advertisement.
+
+`read_accepted_knowledge_result` re-reads a durable completed CommandRun and
+revalidates exact custody, connection and current policy immediately before
+model delivery. It cannot start provider work, decrypt credentials, accept a
+caller-provided result body or finalize an assistant response. Foreign run IDs
+are rejected before any event can be added to another account's run. The separate
+chat owner must integrate these private interfaces; no active chat caller exists.
 
 ## Authority, replay and persistence
 
@@ -106,7 +120,30 @@ network transaction with revocation. Post-response checks close observed stale
 results; provider-specific external revocation/consent still needs an authorized
 canary.
 
-## Executed isolated evidence
+## Current catalog/admission proof
+
+The follow-on rehearsal passed **138 PostgreSQL tests, zero skips**, including
+18 new catalog/delivery cases. Each of the four reads traverses accepted custody
+before a frozen command, policy-filtered catalog projection, the existing frozen
+decision, private Command Bus execution and durable result revalidation. Negative
+cases cover pending acknowledgement, no/foreign/denied policy, account/thread/
+Project changes, cancellation, terminal state, Preview removal, connection or
+flag changes during projection, cross-account run IDs, pending/unknown results,
+revocation before delivery and mutable-schema isolation. Synthetic provider
+responses only; this is not full HTTP/Redis/chat/model or live-provider proof.
+
+The final synthetic PostgreSQL receipt binds staged tree
+`43b0c4b87b5eecdd23ecbe26872eba47164ba99a` at base `f8fca4292`.
+The cluster reached `d8a90bf32107` with 145 tables, rejected all six custody
+mutations and was stopped and removed. Receipts are in
+`dispatch-admission-20261117/`. Focused unit/transport/custody tests passed 78 cases;
+the broader Command Bus/public/internal/custody/admission/logging regression
+passed **250 tests**. An initial six ephemeral-socket tests failed under sandbox bind restrictions,
+then the unchanged suite passed with the required local socket access.
+The final architecture/evidence suite passed **890 tests** with temporary Git
+worktree metadata access; scoped Ruff and diff whitespace checks passed.
+
+## Earlier transport evidence
 
 - Real PostgreSQL suite: **120 passed, zero skips**, including private entry-point
   execution for all four operations, durable audit via a new store instance,
@@ -141,9 +178,11 @@ test expectation was weakened.
 ## Remaining gates
 
 Full exact-final-revision CI, scope review and source integration remain required.
-This private path is not chat admission: trusted policy resolution, command
-catalog projection without public-operation promotion, worker acknowledgement
-retry handling and final tool/result delivery require a bounded follow-through.
+This private path is not active chat admission: the chat owner must supply
+trusted policy resolution and connect the catalog/invoke/delivery interfaces,
+preserve worker acknowledgement retry handling and prove final model/transcript
+completion. The existing frozen attempt supports one command/hash, not an
+arbitrary multi-step loop; coordinate canonical checkpoint changes separately.
 Imported-history exposure remains excluded. No new architecture decision is
 required for the implemented ADR-112 path; it does not authorize broader commands.
 

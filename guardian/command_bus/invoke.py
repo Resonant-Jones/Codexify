@@ -445,6 +445,13 @@ async def execute_invoke(
         )
 
     index, manifest = build_command_index(app)
+    if _accepted_knowledge is not None:
+        if type(_accepted_knowledge) is not AcceptedKnowledgeRead or execution_lane != "tools":
+            raise HTTPException(403, detail={"error": "accepted_knowledge_read_unavailable"})
+        # No change to app routes, public manifest, or ordinary command indexes.
+        from guardian.command_bus.accepted_knowledge_manifest import with_private_knowledge_commands
+
+        index = with_private_knowledge_commands(index)
     command = index.get(payload.command_id)
     if command is None:
         raise HTTPException(
