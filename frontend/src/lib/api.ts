@@ -1084,6 +1084,21 @@ export const ACCOUNT_IMPORT_DIRECT_FILE_BYTES = 32 * 1024 * 1024;
 export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
 export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;
 
+// Native Blob/WebCrypto work cannot be cancelled. A deadline rejects promptly,
+// but quarantines its allocation until settlement; direct API retries also fail
+// closed. The coordinator drains this ownership inside its cross-tab Web Lock.
+const pendingImportVerification = new Set<Promise<void>>();
+export async function waitForAccountImportVerification(): Promise<void> {
+  while (pendingImportVerification.size) {
+    await Promise.all([...pendingImportVerification]);
+  }
+}
+function quarantineImportVerification(work: Promise<unknown>): void {
+  const settled = work.then(() => undefined, () => undefined);
+  pendingImportVerification.add(settled);
+  void settled.then(() => pendingImportVerification.delete(settled));
+}
+
 function boundedImportVerification<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal?.aborted) return Promise.reject(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
   return (async () => {
@@ -1095,13 +1110,14 @@ function boundedImportVerification<T>(operation: () => Promise<T>, signal?: Abor
     const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
     const interrupted = () => rejectDeadline(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
     signal?.addEventListener("abort", interrupted, { once: true });
-    const timer = setTimeout(() => rejectDeadline(new AccountImportLocalError("Local export verification timed out; staged bytes are retained.")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
+    const timer = setTimeout(() => rejectDeadline(new AccountImportLocalError("Local export verification timed out; the current file operation must finish before retrying. Staged bytes are retained.")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
     try {
       return await Promise.race([nativeWork, deadline]);
     } catch (error) {
-      // Blob and WebCrypto operations cannot be cancelled reliably. The outer
-      // coordinator retains its cross-tab lock until this native work settles.
-      await nativeWork.catch(() => undefined);
+      // Report promptly, without pretending that native work was cancelled.
+      // Quarantine prevents allocation by retries; the coordinator holds its
+      // cross-tab lock until waitForAccountImportVerification settles.
+      quarantineImportVerification(nativeWork);
       if (error instanceof AccountImportLocalError) throw error;
       throw new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained.");
     } finally {
@@ -1179,6 +1195,9 @@ export async function uploadOpenAIAccountImportBatch(
   files: AccountImportBrowserFile[],
   signal?: AbortSignal
 ): Promise<AccountImportJob> {
+  if (pendingImportVerification.size) {
+    throw new AccountImportLocalError("Local export verification is still finishing; retry when it settles. Staged bytes are retained.");
+  }
   if (files.some(item => item.file.size > ACCOUNT_IMPORT_DIRECT_FILE_BYTES)) {
     if (files.length !== 1) throw new Error("Large files must use one bounded logical-file transfer.");
     return uploadLargeAccountImportFile(jobId, files[0], signal);

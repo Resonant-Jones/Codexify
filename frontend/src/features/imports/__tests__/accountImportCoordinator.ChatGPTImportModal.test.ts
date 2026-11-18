@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   commit: vi.fn(),
   fetch: vi.fn(),
   manifest: vi.fn(),
+  drain: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -18,6 +19,7 @@ vi.mock("@/lib/api", () => ({
   commitOpenAIAccountImport: apiMocks.commit,
   fetchOpenAIAccountImport: apiMocks.fetch,
   fetchOpenAIAccountImportManifest: apiMocks.manifest,
+  waitForAccountImportVerification: apiMocks.drain,
   normalizeImportRuntimeError: (error: unknown) => ({
     message: error instanceof Error ? error.message : "Import failed",
     technicalDetail: null,
@@ -55,6 +57,7 @@ function jobForSource(sourceSystem: "openai" | "anthropic") {
 describe("account import coordinator continuity", () => {
   beforeEach(() => {
     vi.resetModules();
+    apiMocks.drain.mockReset().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "locks", { configurable: true, value: {
       request: vi.fn(async (_name, _options, callback) => callback({ name: "test" })),
     } });
@@ -381,6 +384,7 @@ describe("account import same-job recovery", () => {
   }
   beforeEach(() => {
     vi.resetModules();
+    apiMocks.drain.mockReset().mockResolvedValue(undefined);
     vi.clearAllMocks();
     window.localStorage.clear();
     Object.defineProperty(navigator, "locks", { configurable: true, value: {
@@ -499,6 +503,29 @@ describe("account import same-job recovery", () => {
     window.dispatchEvent(new CustomEvent("cfy:account-import:status", { detail: { job_id: "job-restore" } }));
     await waitFor(() => expect(apiMocks.fetch).toHaveBeenCalledTimes(2));
     expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("reports an API deadline promptly while retaining the transfer and cross-tab lock for native cleanup", async () => {
+    const coordinator = await restored();
+    let held = false;
+    vi.mocked(navigator.locks.request).mockImplementation(async (_name, _options, callback: any) => {
+      held = true;
+      try { return await callback({ name: "test" }); } finally { held = false; }
+    });
+    let release!: () => void;
+    apiMocks.drain.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
+    apiMocks.upload.mockRejectedValue(new Error("Local export verification timed out; current native operation still finishing."));
+    const attempt = coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")]);
+    const rejected = expect(attempt).rejects.toThrow(/timed out/);
+    await waitFor(() => expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed"));
+    expect(held).toBe(true);
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/already active/);
+    expect(apiMocks.upload).toHaveBeenCalledTimes(1);
+    expect(apiMocks.commit).not.toHaveBeenCalled();
+    release();
+    await rejected;
+    expect(held).toBe(false);
     expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
     coordinator.resetAccountImportCoordinatorForTests();
   });

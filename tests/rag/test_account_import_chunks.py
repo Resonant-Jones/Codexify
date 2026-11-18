@@ -200,3 +200,32 @@ def test_final_admission_failure_keeps_parts_and_retries_existing_admission(acco
     monkeypatch.setattr(service, "stage_files", original)
     assert send(service, record, offset=8)["complete"]
     assert {p: p.read_bytes() for p in before} == before
+
+
+@pytest.mark.parametrize("failure", [OSError, chunks.StorageError])
+def test_storage_admission_failure_returns_retryable_503_and_preserves_parts(account_import_service, monkeypatch, failure):
+    from guardian.core.storage import UploadError
+
+    service, _sessions, _trace, staging, _media = account_import_service
+    record = job(service)
+    send(service, record)
+    send(service, record, offset=4)
+    provider = staging.provider
+    original = provider.upload_stream
+
+    def unavailable(*args, **kwargs):
+        raise (UploadError("synthetic wrapped disk failure") if failure is chunks.StorageError else failure("synthetic disk failure"))
+
+    monkeypatch.setattr(provider, "upload_stream", unavailable)
+    with pytest.raises(AccountImportError) as failed:
+        send(service, record, offset=8)
+    assert failed.value.status_code == 503
+    assert failed.value.code == "account_import_chunk_storage_unavailable"
+    before = {part: part.read_bytes() for part in provider.base_path.rglob("*.part")}
+    assert len(before) == 3
+    assert service.get_job(job_id=record["job_id"], user_id="account-a")["uploaded_file_count"] == 0
+    monkeypatch.setattr(provider, "upload_stream", original)
+    result = send(service, record, offset=8)
+    assert result["complete"] and result["job"]["uploaded_file_count"] == 1
+    assert result["job"]["uploaded_byte_count"] == 10
+    assert {part: part.read_bytes() for part in before} == before

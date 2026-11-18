@@ -1,7 +1,7 @@
 import { webcrypto, createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import api, { normalizeImportRuntimeError, uploadOpenAIAccountImportBatch, ACCOUNT_IMPORT_CHUNK_BYTES, ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS, ACCOUNT_IMPORT_BROWSER_HASH_BYTES } from "@/lib/api";
+import api, { normalizeImportRuntimeError, uploadOpenAIAccountImportBatch, waitForAccountImportVerification, ACCOUNT_IMPORT_CHUNK_BYTES, ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS, ACCOUNT_IMPORT_BROWSER_HASH_BYTES } from "@/lib/api";
 
 const size = 33 * 1024 * 1024;
 function selected(total = size) {
@@ -84,8 +84,15 @@ describe("bounded same-job file parts", () => {
     const rejected = expect(attempt).rejects.toThrow(/Local export verification/);
     await vi.advanceTimersByTimeAsync(ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS + 1);
     expect(post).not.toHaveBeenCalled();
+    await rejected; // The API rejects at the deadline, before native settlement.
+    let drained = false;
+    const cleanup = waitForAccountImportVerification().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    await expect(uploadOpenAIAccountImportBatch("job", [item])).rejects.toThrow(/still finishing/);
+    expect(read).toHaveBeenCalledTimes(1);
     finish(new ArrayBuffer(0));
-    await rejected;
+    await cleanup;
     const localError = await attempt.catch(error => error);
     expect(normalizeImportRuntimeError(localError).isRuntimeUnavailable).toBe(false);
     expect(read).toHaveBeenCalledTimes(1); expect(post).not.toHaveBeenCalled();
@@ -99,7 +106,12 @@ describe("bounded same-job file parts", () => {
     const attempt = uploadOpenAIAccountImportBatch("job", [item], controller.signal);
     const rejected = expect(attempt).rejects.toThrow(/Local export verification/);
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
-    controller.abort(); finish(new ArrayBuffer(0)); await rejected;
+    controller.abort();
+    await rejected;
+    await expect(uploadOpenAIAccountImportBatch("job", [item])).rejects.toThrow(/still finishing/);
+    expect(read).toHaveBeenCalledTimes(1);
+    finish(new ArrayBuffer(0));
+    await waitForAccountImportVerification();
     await Promise.resolve(); expect(post).not.toHaveBeenCalled();
   });
 

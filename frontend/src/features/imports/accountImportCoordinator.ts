@@ -7,6 +7,7 @@ import {
   normalizeImportRuntimeError,
   preflightBackendAvailability,
   uploadOpenAIAccountImportBatch,
+  waitForAccountImportVerification,
   type AccountImportBrowserFile,
   type AccountImportJob,
   type AccountImportSourceSystem,
@@ -697,6 +698,9 @@ export async function startOpenAIAccountImport(
       }
       throw error;
     } finally {
+      // A prompt timeout is not cancellation of native buffers. Retain the
+      // same-tab owner and Web Lock while the API quarantines late work.
+      await waitForAccountImportVerification();
       if (transferController === controller) transferController = null;
     }
   });

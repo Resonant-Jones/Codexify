@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryFile
 from typing import Any
 
-from guardian.core.storage import LocalStorageProvider
+from guardian.core.storage import LocalStorageProvider, StorageError
 from guardian.protocol_tokens import AccountImportErrorCode, AccountImportStatus
 from guardian.services.openai_account_import import (
     AccountImportError, OpenAIAccountImportService, StagedImportFile,
@@ -217,6 +217,6 @@ def stage_account_import_chunk(
                 files=[StagedImportFile(relative_path=path, stream=assembled,
                                         content_type=content_type)])
         return {"job": job_snapshot, "received_bytes": file_size, "complete": True}
-    except OSError as exc:
+    except (OSError, StorageError) as exc:
         raise AccountImportError("Private upload storage unavailable; bytes retained.",
             code=AccountImportErrorCode.CHUNK_STORAGE_UNAVAILABLE.value, status_code=503) from exc

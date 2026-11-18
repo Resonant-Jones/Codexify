@@ -36,3 +36,12 @@ Acceptance proof:
 - Runtime proof must show the normal authenticated original job accepts the original oversized logical file under its original path/hash, then complete ordinary intake/commit/processing and verify source coverage. Do not infer parity from these transport tests or health.
 
 Validation runs from the repository root: focused `pytest` chunk/service/migration/manifest/staging suites, explicitly configured disposable PostgreSQL proofs, protocol-token contract tests, focused frontend Vitest coordinator/transport/chunk/preflight/modal tests, frontend build and `git diff --check`. Record full-TypeScript baseline limitations separately. Stage task-scoped files only and commit successful reviewed corrections; publish a draft PR if needed. Leave the private source archives, account, existing job and unrelated serving changes intact.
+
+
+## November 18 review correction
+
+Canonical staging provider failures include `StorageError`/`UploadError`, not only native `OSError`. Both map to the existing chunk-storage-unavailable 503. Tests inject failure through the real staging provider, retain and compare every uploaded part, then admit the exact original logical file on replay.
+
+A local verification deadline rejects the API operation promptly and reports a local failure. It does not cancel native Blob/WebCrypto work. That work is quarantined until settlement: direct API upload retries fail before another read, and the coordinator retains its active transfer and cross-tab Web Lock while draining native cleanup. No late completion can POST. A browser operation that never settles can therefore keep recovery quarantined indefinitely; this is an explicit ownership limit, not an advertised bounded cancellation or permission to release the lock. Closing the owning browser context terminates its native work; do not tell users to discard their job or clear site data. Genuinely terminable worker execution is a separate improvement.
+
+The request budget is finite and size-dependent, up to the existing 70-minute ceiling. Files above 128 MiB use 8 MiB incremental whole-file SHA-256 slices. These refinements supersede the earlier fixed-120-second and 128-MiB-ceiling description above. No schema, queue, provider, release or live rollout claim changes.
