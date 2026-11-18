@@ -125,6 +125,36 @@ describe("ChatGPTImportModal account export intake", () => {
     apiMocks.post.mockReset();
   });
 
+  it("preserves the receiving job when Choose File reselects the original ZIP", () => {
+    coordinator.state.current = {
+      ...idleSnapshot(),
+      phase: "failed",
+      job: { ...queuedJob, status: "receiving" },
+    };
+    const { container } = render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+    const chooser = container.querySelector('input[type="file"]:not([multiple])') as HTMLInputElement;
+    const archive = new File(["zip"], "openai-export.zip", { type: "application/zip" });
+    fireEvent.change(chooser, { target: { files: [archive] } });
+    expect(coordinator.clear).not.toHaveBeenCalled();
+    expect(coordinator.state.current.job?.job_id).toBe("job-12345678");
+  });
+
+  it("clears a terminal failed job before choosing another export", () => {
+    coordinator.state.current = {
+      ...idleSnapshot(),
+      phase: "failed",
+      job: { ...queuedJob, status: "failed" },
+    };
+    const { container } = render(
+      <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
+    );
+    const chooser = container.querySelector('input[type="file"]:not([multiple])') as HTMLInputElement;
+    fireEvent.change(chooser, { target: { files: [new File(["[]"], "new.json")] } });
+    expect(coordinator.clear).toHaveBeenCalledOnce();
+  });
+
   it("renders both canonical source choices and defaults to OpenAI", () => {
     render(
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />

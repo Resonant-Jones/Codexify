@@ -1008,6 +1008,15 @@ const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 // This flag affects only the client outage throttle; credentials and server
 // ownership/content checks still run through the ordinary Axios interceptors.
 export const ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
+// Uploads have a byte-dependent, finite deadline; the fixed read/commit limit
+// alone would always reject a valid 32 MiB batch on a slow uplink.
+export const ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS = 70 * 60_000;
+const ACCOUNT_IMPORT_MIN_UPLOAD_BYTES_PER_SECOND = 64 * 1024;
+export function accountImportUploadTimeoutMs(totalBytes: number): number {
+  const boundedBytes = Number.isFinite(totalBytes) ? Math.max(0, totalBytes) : 0;
+  const transferBudget = Math.ceil(boundedBytes / ACCOUNT_IMPORT_MIN_UPLOAD_BYTES_PER_SECOND * 1000) + 60_000;
+  return Math.min(ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS, Math.max(ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS, transferBudget));
+}
 const ACCOUNT_IMPORT_REQUEST_CONFIG = {
   timeout: ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS,
   __cfyDurableAccountImport: true,
@@ -1080,7 +1089,7 @@ export async function uploadOpenAIAccountImportBatch(
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
     formData,
-    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: accountImportUploadTimeoutMs(files.reduce((sum, item) => sum + item.file.size, 0)), signal }
   );
   return response.data;
 }

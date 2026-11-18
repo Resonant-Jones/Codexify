@@ -36,8 +36,10 @@ const POLL_INTERVAL_MS = 1500;
 const UPLOAD_BATCH_FILES = 25;
 const UPLOAD_BATCH_TARGET_BYTES = 32 * 1024 * 1024;
 // WebCrypto has no streaming digest interface. Bound its one-file allocation;
-// large-file resume requires a separately qualified streaming verifier.
+// larger staged files use 8 MiB slices with incremental SHA-256.
 const MAX_BROWSER_RESUME_HASH_BYTES = 128 * 1024 * 1024;
+const MAX_BROWSER_IMPORT_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+const LARGE_FILE_VERIFY_CHUNK_BYTES = 8 * 1024 * 1024;
 
 const EMPTY_SNAPSHOT: AccountImportCoordinatorSnapshot = {
   phase: "idle",
@@ -324,26 +326,71 @@ function assertCurrentTransfer(run: number, signal: AbortSignal): void {
   }
 }
 
-// Deadlines stop admission, not native WebCrypto itself. Never retry a timed-out
-// local operation or advance to upload; late completion cannot mutate state.
+// Native File reads and WebCrypto digests cannot be interrupted reliably. A
+// timed-out step retains the Web Lock until the native operation settles, so
+// retry cannot allocate a second large buffer while the first remains live.
 export const ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS = 30_000;
-function boundedVerification<T>(operation: () => Promise<T>, signal: AbortSignal, stage: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error: Error | null, value?: T) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal.removeEventListener("abort", aborted);
-      if (error) reject(error); else resolve(value as T);
-    };
-    const aborted = () => finish(new Error("Account import transfer was stopped."));
-    const timer = setTimeout(() => finish(new Error(`Local export verification timed out while ${stage}. No remaining files were uploaded.`)), ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
-    signal.addEventListener("abort", aborted, { once: true });
-    if (signal.aborted) { aborted(); return; }
-    Promise.resolve().then(operation).then(value => finish(null, value), () =>
-      finish(new Error(`Local export verification failed while ${stage}. No remaining files were uploaded.`)));
+async function boundedVerification<T>(operation: () => Promise<T>, signal: AbortSignal, stage: string): Promise<T> {
+  if (signal.aborted) throw new Error("Account import transfer was stopped.");
+  let rejectGate!: (error: Error) => void;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const gate = new Promise<never>((_resolve, reject) => { rejectGate = reject; });
+  const work = Promise.resolve().then(() => {
+    if (signal.aborted) throw new Error("Account import transfer was stopped.");
+    return operation();
   });
+  const safeWork = work.catch(() => {
+    throw new Error(`Local export verification failed while ${stage}. No remaining files were uploaded.`);
+  });
+  const aborted = () => {
+    if (timer !== null) clearTimeout(timer);
+    rejectGate(new Error("Account import transfer was stopped."));
+  };
+  signal.addEventListener("abort", aborted, { once: true });
+  timer = setTimeout(() => {
+    if (signal.aborted) return;
+    const message = `Local export verification timed out while ${stage}. The current file operation must finish before retrying; no remaining files were uploaded.`;
+    setSnapshot({ ...snapshot, phase: "failed", error: message, technicalDetail: null });
+    rejectGate(new Error(message));
+  }, ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
+  try {
+    return await Promise.race([safeWork, gate]);
+  } catch (error) {
+    // The rejected deadline is not native cancellation. Keep the transfer and
+    // cross-tab lock held until the underlying buffer/digest is no longer live.
+    await work.catch(() => undefined);
+    throw error;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    signal.removeEventListener("abort", aborted);
+  }
+}
+
+async function hashLargeSelectedFile(
+  file: File,
+  run: number,
+  signal: AbortSignal,
+  onProgress: (bytes: number) => void
+): Promise<string> {
+  // Load the incremental implementation only for large files; WebCrypto has
+  // no streaming SHA-256. Each native read is capped to one 8 MiB slice.
+  const { sha256 } = await import("@noble/hashes/sha2.js");
+  assertCurrentTransfer(run, signal);
+  const hash = sha256.create();
+  let readBytes = 0;
+  while (readBytes < file.size) {
+    assertCurrentTransfer(run, signal);
+    const next = Math.min(readBytes + LARGE_FILE_VERIFY_CHUNK_BYTES, file.size);
+    const slice = file.slice(readBytes, next);
+    const bytes = await boundedVerification(() => slice.arrayBuffer(), signal, "reading a selected file");
+    if (bytes.byteLength !== next - readBytes) {
+      throw new Error("The selected export conflicts with staged files. Nothing was uploaded.");
+    }
+    hash.update(new Uint8Array(bytes));
+    readBytes = next;
+    onProgress(readBytes);
+  }
+  return Array.from(hash.digest(), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function remainingFiles(
@@ -359,11 +406,12 @@ async function remainingFiles(
       manifest.total_byte_count !== files.reduce((sum, item) => sum + item.file.size, 0)) {
     throw new Error("The selected export does not match this receiving job. Nothing was uploaded.");
   }
-  if (manifest.files.some((entry) => entry.size > MAX_BROWSER_RESUME_HASH_BYTES)) {
-    throw new Error("A staged file exceeds the browser's safe verification limit. Keep this job; use verified large-file recovery instead of starting over.");
-  }
   const selected = new Map(files.map((item) => [item.relativePath, item]));
   if (selected.size !== files.length) throw new Error("Export contains duplicate normalized paths.");
+  if (manifest.files.some((entry) => entry.size > MAX_BROWSER_RESUME_HASH_BYTES &&
+      typeof selected.get(entry.path)?.file.slice !== "function")) {
+    throw new Error("A staged file exceeds this browser's safe verification limit because bounded file slices are unavailable. Keep this job and use a modern browser.");
+  }
   const staged = new Set<string>();
   // Verify every durable checkpoint entry before sending any remaining bytes.
   // Hash one file at a time; do not hold a multi-gigabyte export in memory.
@@ -378,12 +426,19 @@ async function remainingFiles(
     assertCurrentTransfer(run, signal);
     const progress = { completed: staged.size, total: manifest.files.length, bytes: verifiedBytes, totalBytes };
     setSnapshot({ ...snapshot, verification: { ...progress, stage: "reading" } });
-    const bytes = await boundedVerification(() => item.file.arrayBuffer(), signal, "reading a selected file");
+    let hex: string;
+    if (entry.size > MAX_BROWSER_RESUME_HASH_BYTES) {
+      hex = await hashLargeSelectedFile(item.file, run, signal, (bytes) => {
+        setSnapshot({ ...snapshot, verification: { ...progress, bytes: verifiedBytes + bytes, stage: "hashing" } });
+      });
+    } else {
+      const bytes = await boundedVerification(() => item.file.arrayBuffer(), signal, "reading a selected file");
+      assertCurrentTransfer(run, signal);
+      setSnapshot({ ...snapshot, verification: { ...progress, stage: "hashing" } });
+      const digest = await boundedVerification(() => crypto.subtle.digest("SHA-256", bytes), signal, "hashing a selected file");
+      hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
     assertCurrentTransfer(run, signal);
-    setSnapshot({ ...snapshot, verification: { ...progress, stage: "hashing" } });
-    const digest = await boundedVerification(() => crypto.subtle.digest("SHA-256", bytes), signal, "hashing a selected file");
-    assertCurrentTransfer(run, signal);
-    const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
     if (hex !== entry.sha256) {
       throw new Error("The selected export conflicts with staged files. Nothing was uploaded.");
     }
@@ -431,6 +486,12 @@ export async function startOpenAIAccountImport(
   if (!normalizedFiles.length) throw new Error("No export files were selected.");
   if (new Set(normalizedFiles.map((item) => item.relativePath)).size !== normalizedFiles.length) {
     throw new Error("Export contains duplicate normalized paths.");
+  }
+  if (normalizedFiles.some((item) => item.file.size > MAX_BROWSER_IMPORT_FILE_BYTES)) {
+    throw new Error("Browser account import does not support files larger than the backend 2 GiB limit. No job was created or changed.");
+  }
+  if (normalizedFiles.some((item) => item.file.size > MAX_BROWSER_RESUME_HASH_BYTES && typeof item.file.slice !== "function")) {
+    throw new Error("Large browser imports require bounded file slices for safe resume. No job was created or changed; use a modern browser.");
   }
   if (["preflighting", "transferring", "accepted", "running"].includes(snapshot.phase)) {
     if (snapshot.job && snapshot.job.source_system !== sourceSystem) {

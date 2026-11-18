@@ -504,7 +504,6 @@ class OpenAIAccountImportService:
             manifest = [dict(item) for item in (job.staged_manifest or [])]
             by_path = {str(item.get("path")): item for item in manifest}
             additions: list[dict[str, Any]] = []
-            duplicate_count = 0
             for item in normalized_batch:
                 existing = by_path.get(item["path"])
                 if existing is not None:
@@ -516,7 +515,8 @@ class OpenAIAccountImportService:
                             f"Conflicting duplicate import path: {item['path']}",
                             code="conflicting_duplicate_path",
                         )
-                    duplicate_count += 1
+                    # A matching staged path may be a transport replay after
+                    # the response was lost. It is not a source duplicate.
                     continue
                 additions.append(item)
                 by_path[item["path"]] = item
@@ -570,7 +570,6 @@ class OpenAIAccountImportService:
             job.staged_manifest = manifest
             job.uploaded_file_count = len(manifest)
             job.uploaded_byte_count = projected_bytes
-            job.duplicate_count = int(job.duplicate_count or 0) + duplicate_count
             job.updated_at = _utcnow()
 
             # A commit exception can leave the manifest durable. Once commit

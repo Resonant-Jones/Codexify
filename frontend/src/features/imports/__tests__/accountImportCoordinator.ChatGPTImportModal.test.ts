@@ -394,14 +394,17 @@ describe("account import same-job recovery", () => {
   it("shows aggregate progress and times out an unreadable selected file without uploading", async () => {
     const coordinator = await restored();
     const stuck = file("conversations.json", "[]");
-    // Use a file-like wrapper to model a browser file read that never resolves.
-    const selected = { ...stuck, file: { size: 2, arrayBuffer: () => new Promise<ArrayBuffer>(() => {}) } as File };
+    let finishRead!: (value: ArrayBuffer) => void;
+    const selected = { ...stuck, file: { size: 2, arrayBuffer: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) } as File };
     vi.useFakeTimers();
     const result = coordinator.startOpenAIAccountImport([selected, file("image.png", "png")]);
     const rejected = expect(result).rejects.toThrow(/timed out while reading/);
     await vi.waitFor(() => expect(coordinator.getAccountImportCoordinatorSnapshot().verification?.stage).toBe("reading"));
     expect(coordinator.getAccountImportCoordinatorSnapshot().verification).toMatchObject({ completed: 0, total: 1, bytes: 0, totalBytes: 2 });
     await vi.advanceTimersByTimeAsync(coordinator.ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
+    expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/already active/);
+    finishRead(new TextEncoder().encode("[]").buffer);
     await rejected;
     expect(apiMocks.upload).not.toHaveBeenCalled();
     expect(apiMocks.commit).not.toHaveBeenCalled();
@@ -418,9 +421,10 @@ describe("account import same-job recovery", () => {
     const rejected = expect(result).rejects.toThrow(/timed out while hashing/);
     await vi.waitFor(() => expect(coordinator.getAccountImportCoordinatorSnapshot().verification?.stage).toBe("hashing"));
     await vi.advanceTimersByTimeAsync(coordinator.ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
-    await rejected;
+    expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/already active/);
     finish(new ArrayBuffer(32));
-    await Promise.resolve();
+    await rejected;
     expect(apiMocks.upload).not.toHaveBeenCalled();
     expect(apiMocks.commit).not.toHaveBeenCalled();
     expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
@@ -429,11 +433,14 @@ describe("account import same-job recovery", () => {
   });
   it("stops a pending local read on reset without waiting for its deadline", async () => {
     const coordinator = await restored();
-    const selected = { relativePath: "export/conversations.json", file: { size: 2, arrayBuffer: () => new Promise<ArrayBuffer>(() => {}) } as File };
+    let finishRead!: (value: ArrayBuffer) => void;
+    const selected = { relativePath: "export/conversations.json", file: { size: 2, arrayBuffer: () => new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }) } as File };
     const result = coordinator.startOpenAIAccountImport([selected, file("image.png", "png")]);
     const rejected = expect(result).rejects.toThrow(/stopped/);
     await waitFor(() => expect(coordinator.getAccountImportCoordinatorSnapshot().verification?.stage).toBe("reading"));
     coordinator.clearAccountImportCoordinatorResult();
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/already active/);
+    finishRead(new TextEncoder().encode("[]").buffer);
     await rejected;
     expect(apiMocks.upload).not.toHaveBeenCalled();
     expect(apiMocks.commit).not.toHaveBeenCalled();
@@ -508,10 +515,78 @@ describe("account import same-job recovery", () => {
     coordinator.resetAccountImportCoordinatorForTests();
     vi.useRealTimers();
   });
-  it("blocks unbounded browser hash allocation before any write", async () => {
+  it("rejects a staged entry whose declared size conflicts with the selected file", async () => {
     const coordinator = await restored();
     apiMocks.manifest.mockResolvedValue({ ...job(), files: [{ path: "export/conversations.json", size: 129 * 1024 * 1024, sha256: "a".repeat(64) }] });
-    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/safe verification limit/);
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/conflicts with staged files/);
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(apiMocks.commit).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("rejects large files without bounded-slice support before creating a job", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    const oversized = { relativePath: "export/big.bin", file: { size: 129 * 1024 * 1024 } as File };
+    await expect(coordinator.startOpenAIAccountImport([oversized])).rejects.toThrow(/bounded file slices/);
+    expect(apiMocks.preflight).not.toHaveBeenCalled();
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("refuses files beyond the backend limit even when bounded slices are available", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    const oversized = { relativePath: "export/too-large.bin", file: { size: 2 * 1024 * 1024 * 1024 + 1, slice: vi.fn() } as unknown as File };
+    await expect(coordinator.startOpenAIAccountImport([oversized])).rejects.toThrow(/2 GiB/);
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("resumes a staged 129 MiB file with incremental hashing and 8 MiB reads", async () => {
+    const coordinator = await restored();
+    const { createHash } = await import("node:crypto");
+    const chunk = new Uint8Array(1024 * 1024).fill(97);
+    const largeSize = 129 * chunk.length;
+    const expectedHash = createHash("sha256");
+    for (let i = 0; i < 129; i += 1) expectedHash.update(chunk);
+    const stagedHash = expectedHash.digest("hex");
+    let readCalls = 0;
+    const large = {
+      relativePath: "export/large.bin",
+      file: {
+        size: largeSize,
+        slice: (start: number, end: number) => {
+          readCalls += 1;
+          if (end - start > 8 * 1024 * 1024) throw new Error("oversized slice");
+          return { arrayBuffer: async () => new Uint8Array(end - start).fill(97).buffer };
+        },
+      } as unknown as File,
+    };
+    apiMocks.fetch.mockResolvedValue({ ...job(), total_byte_count: largeSize + 3 });
+    apiMocks.manifest.mockResolvedValue({
+      ...job(), total_byte_count: largeSize + 3,
+      files: [{ path: large.relativePath, size: largeSize, sha256: stagedHash }],
+    });
+    const missing = file("image.png", "png");
+    await coordinator.startOpenAIAccountImport([large, missing]);
+    expect(readCalls).toBe(17);
+    expect(apiMocks.upload).toHaveBeenCalledWith("job-restore", [missing], expect.any(AbortSignal));
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("refuses truncated large-file slices without uploading or committing", async () => {
+    const coordinator = await restored();
+    const largeSize = 129 * 1024 * 1024;
+    const selected = {
+      relativePath: "export/large.bin",
+      file: {
+        size: largeSize,
+        slice: () => ({ arrayBuffer: async () => new Uint8Array([97]).buffer }),
+      } as unknown as File,
+    };
+    apiMocks.fetch.mockResolvedValue({ ...job(), total_byte_count: largeSize + 3 });
+    apiMocks.manifest.mockResolvedValue({
+      ...job(), total_byte_count: largeSize + 3,
+      files: [{ path: selected.relativePath, size: largeSize, sha256: "a".repeat(64) }],
+    });
+    await expect(coordinator.startOpenAIAccountImport([selected, file("image.png", "png")])).rejects.toThrow(/conflicts with staged files/);
     expect(apiMocks.upload).not.toHaveBeenCalled();
     expect(apiMocks.commit).not.toHaveBeenCalled();
     coordinator.resetAccountImportCoordinatorForTests();

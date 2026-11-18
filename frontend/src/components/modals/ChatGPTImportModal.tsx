@@ -214,9 +214,8 @@ export function ChatGPTImportModal({
 
   const setSelectedFile = (nextFile: File | null) => {
     if (
-      ["completed", "completed_with_warnings", "failed"].includes(
-        accountImport.phase
-      )
+      (["completed", "completed_with_warnings"].includes(accountImport.phase) ||
+        (accountImport.phase === "failed" && accountImport.job?.status !== "receiving"))
     ) {
       clearAccountImportCoordinatorResult();
     }
