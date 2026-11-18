@@ -1159,6 +1159,15 @@ def test_account_import_manifest_route_uses_authenticated_owner(test_client, mon
     service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID, cursor=0)
 
 
+def test_manifest_cursor_respects_server_configured_limit_above_default(test_client, monkeypatch):
+    service = MagicMock()
+    service.get_upload_manifest.return_value = {"job_id": "job-account-1", "files": []}
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/job-account-1/manifest?cursor=20001")
+    assert response.status_code == 200
+    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID, cursor=20001)
+
+
 def test_account_import_manifest_route_preserves_owner_not_found(test_client, monkeypatch):
     from guardian.services.openai_account_import import AccountImportError
     service = MagicMock()

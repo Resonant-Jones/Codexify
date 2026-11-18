@@ -1077,7 +1077,10 @@ export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<A
   const all: AccountImportManifest["files"] = [];
   let cursor = 0;
   let first: AccountImportManifest | null = null;
-  for (let page = 0; page < 200; page += 1) {
+  // The server can raise its configured max_files above the default 20,000.
+  // Its declared total remains the upper bound, while 32 entries per page
+  // leaves room for the server's 192 KiB response budget and long paths.
+  for (let page = 0; page < Math.max(200, Math.ceil((first?.total_file_count ?? 20_000) / 32)); page += 1) {
     const response = await api.get<AccountImportManifest>(
       cursor === 0 ? path : `${path}?cursor=${cursor}`,
       ACCOUNT_IMPORT_REQUEST_CONFIG
@@ -1088,14 +1091,14 @@ export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<A
         value.source_system !== first.source_system || value.status !== first.status ||
         value.total_file_count !== first.total_file_count ||
         value.total_byte_count !== first.total_byte_count ||
-        !Array.isArray(value.files) || all.length + value.files.length > 20_000) {
+        !Array.isArray(value.files) || all.length + value.files.length > (first.total_file_count ?? 20_000)) {
       throw new Error("Account import manifest pages changed or exceeded the supported limit.");
     }
     all.push(...value.files);
     const next = value.next_cursor;
     if (next === undefined) return { ...first, files: all };
     if (!Number.isSafeInteger(next) || next <= cursor ||
-        next !== cursor + value.files.length || next > 20_000) {
+        next !== cursor + value.files.length || next > (first.total_file_count ?? 20_000)) {
       throw new Error("Account import manifest pagination is invalid.");
     }
     cursor = next;

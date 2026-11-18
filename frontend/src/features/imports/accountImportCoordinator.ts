@@ -382,7 +382,13 @@ export function normalizeBrowserRelativePath(value: string): string {
   }
   const parts = original.filter((part) => part && part !== ".");
   if (parts.length === 0) throw new Error("Export file path is empty.");
-  return parts.join("/");
+  const normalized = parts.join("/");
+  const encoder = new TextEncoder();
+  if (raw.includes("\0") || parts.some(part => encoder.encode(part).byteLength > 255) ||
+      encoder.encode(normalized).byteLength > 1024) {
+    throw new Error("Export file path exceeds the server's safe path limit. Rename the file before starting the import.");
+  }
+  return normalized;
 }
 
 function uploadBatches(

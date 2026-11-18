@@ -45,4 +45,22 @@ describe("bounded account import transport", () => {
       .mockResolvedValueOnce({ data: { ...next, job_id: "other" } });
     await expect(fetchOpenAIAccountImportManifest("job")).rejects.toThrow(/pages changed/);
   });
+  it("accepts a receiving manifest above the default 20,000-file limit when declared by the server", async () => {
+    const total = 20_001;
+    const get = vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      const cursor = Number(url.match(/cursor=(\d+)/)?.[1] ?? 0);
+      const count = Math.min(512, total - cursor);
+      return { data: {
+        job_id: "large-job", source_system: "openai", status: "receiving",
+        total_file_count: total, total_byte_count: 0,
+        files: Array.from({ length: count }, (_, i) => ({
+          path: `export/${cursor + i}.txt`, size: 0, sha256: "a".repeat(64),
+        })),
+        ...(cursor + count < total ? { next_cursor: cursor + count } : {}),
+      } };
+    });
+    const manifest = await fetchOpenAIAccountImportManifest("large-job");
+    expect(manifest.files).toHaveLength(total);
+    expect(get).toHaveBeenCalledTimes(Math.ceil(total / 512));
+  });
 });

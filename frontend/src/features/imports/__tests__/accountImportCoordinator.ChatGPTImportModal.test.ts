@@ -248,6 +248,23 @@ describe("account import coordinator continuity", () => {
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
+  it("rejects backend-overlong UTF-8 paths before creating a receiving job", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    const paths = [
+      `export/${"é".repeat(128)}.txt`,
+      `${"dir/".repeat(256)}file.txt`,
+      "export/invalid\0name.txt",
+    ];
+    for (const relativePath of paths) {
+      await expect(coordinator.startOpenAIAccountImport([
+        { file: new File(["x"], "file.txt"), relativePath },
+      ])).rejects.toThrow(/safe path limit/);
+    }
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
   it("checks server truth before treating a cached receiving job as unfinished", async () => {
     window.localStorage.setItem(
       "cfy.accountImport:v1",
