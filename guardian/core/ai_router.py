@@ -9,8 +9,9 @@ import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import unquote, urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 import requests
 from fastapi import HTTPException
@@ -21,6 +22,7 @@ from guardian.core.accepted_deadline_transport import AcceptedDeadlineTransport
 from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline, AcceptedChatTaskDeadlineExceeded
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
+from guardian.core.media_signing import verify_media_signature
 from guardian.core.event_contracts import _coerce_text
 from guardian.core.provider_registry import (
     default_model_for_provider,
@@ -1362,19 +1364,35 @@ def _encode_image_url_to_base64(url: str) -> str | None:
         parsed = urlparse(url)
         if parsed.path.startswith("/media/"):
             media_path = unquote(parsed.path[len("/media/") :])
-            local_root = os.environ.get("GUARDIAN_MEDIA_ROOT", "")
+            local_root = os.environ.get("STORAGE_BASE_PATH") or os.environ.get(
+                "GUARDIAN_MEDIA_ROOT", ""
+            )
             if local_root and media_path:
-                file_path = os.path.join(local_root, media_path)
-                with open(file_path, "rb") as fh:
+                signature = parse_qs(parsed.query).get("sig", [None])[0]
+                if not verify_media_signature(parsed.path, signature):
+                    return None
+                root = Path(local_root).resolve()
+                file_path = (root / media_path).resolve()
+                if not file_path.is_relative_to(root):
+                    return None
+                # Documents have an additional account gate on the serving
+                # route; an image block must not bypass it with a local read.
+                relative = file_path.relative_to(root)
+                if Path(media_path).parts[:1] == ("documents",) or relative.parts[
+                    :1
+                ] == ("documents",):
+                    return None
+                with file_path.open("rb") as fh:
                     return base64.b64encode(fh.read()).decode("utf-8")
             from guardian.core.config import get_settings
 
             settings = get_settings()
             host = getattr(settings, "GUARDIAN_INTERNAL_HOST", "localhost")
             port = getattr(settings, "GUARDIAN_INTERNAL_PORT", "8000")
-            resp = requests.get(
-                f"http://{host}:{port}{parsed.path}", timeout=10
-            )
+            media_target = parsed.path
+            if parsed.query:
+                media_target += f"?{parsed.query}"
+            resp = requests.get(f"http://{host}:{port}{media_target}", timeout=10)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
         elif parsed.scheme in ("http", "https"):
@@ -4346,6 +4364,14 @@ def _anthropic_image_block(source: dict[str, Any]) -> dict[str, Any] | None:
         }
 
     url = str(source.get("url") or "").strip()
+    if url.startswith("data:"):
+        media_type, separator, data = url[5:].partition(";base64,")
+        if not separator or not media_type.startswith("image/") or not data:
+            return None
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
     if source_type == "url" or url:
         if not url:
             return None

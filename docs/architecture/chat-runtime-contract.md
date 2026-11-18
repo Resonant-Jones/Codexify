@@ -548,6 +548,42 @@ Message behavior:
 - Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
 - No completion side effect from posting a message: mentions (`@Guardian`, `@Luna`) persist as text; explicit invocation requires one of the two routes above and a source `message_id`.
 
+## Multimodal user content
+
+User image attachments must reach a vision-capable model as image content,
+alongside the user's text. Attachment labels and transcript placeholders alone
+are not image input. OpenAI-compatible requests use `content` arrays containing
+`text` and `image_url` parts; each image retains its options, including `detail`.
+The Anthropic adapter translates image data URLs into `image` blocks with a
+`base64` source, `media_type`, and `data`; Ollama retains its existing native
+`images` adaptation.
+
+The completion service reads both composer attachment markers and structured
+user content preserved in `extra_meta.original_content` or the queued latest
+turn. Media stays bound to its authored user message. In the bounded history
+sent to a known vision-capable model, prior images remain available for follow-up
+questions without being reassigned to the latest user turn. Document text is
+rendered through the existing inference renderer, including when combined with
+images; document/control markers are not provider input.
+
+Codexify `/media/` images are loaded from `STORAGE_BASE_PATH` (with the legacy
+`GUARDIAN_MEDIA_ROOT` fallback) and encoded as image data URLs with MIME types
+identified from their bytes. Direct reads require the same media signature as
+the serving route, stay beneath that root, and exclude document paths, which
+retain their additional account gate. When no root is configured, the internal
+HTTP fallback retains the signed URL's query. An unavailable private image or a
+missing source fails with `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING` before dispatch,
+rather than silently losing the image or forwarding a private media signature.
+Public image URLs remain valid provider inputs when local conversion is
+unavailable.
+
+This is request adaptation under the existing thread and provider authority,
+aligned with ADR-003, ADR-069, and ADR-091. It adds no persistence schema,
+provider/model selection rule, audio/video input support, or release claim.
+The regression tests serialize the GPT-4o adapter request with real fixture
+image bytes and mocked transport; they do not prove live provider understanding
+or deployment. `00-current-state.md` remains release authority.
+
 ## Opt-in provider request inspection
 
 This internal diagnostic slice captures a new actual completion attempt; it
