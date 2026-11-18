@@ -33,9 +33,17 @@ from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
 
 
-def test_media_image_http_fallback_preserves_signature(monkeypatch):
+@pytest.mark.parametrize(
+    "base_variable",
+    [None, "GUARDIAN_INTERNAL_URL", "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"],
+)
+def test_media_image_http_fallback_preserves_signature(monkeypatch, base_variable):
     monkeypatch.delenv("GUARDIAN_MEDIA_ROOT", raising=False)
     monkeypatch.delenv("STORAGE_BASE_PATH", raising=False)
+    monkeypatch.delenv("GUARDIAN_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", raising=False)
+    if base_variable:
+        monkeypatch.setenv(base_variable, "http://backend:8888/")
     monkeypatch.setattr(ai_router, "_resolve_settings", lambda value: value)
     monkeypatch.setattr(
         "guardian.core.config.get_settings",
@@ -55,9 +63,8 @@ def test_media_image_http_fallback_preserves_signature(monkeypatch):
         "/media/images/image.png?sig=test-signature"
     )
     assert result == base64.b64encode(b"image bytes").decode()
-    assert requested == [
-        "http://guardian:8000/media/images/image.png?sig=test-signature"
-    ]
+    base = "http://backend:8888" if base_variable else "http://guardian:8000"
+    assert requested == [f"{base}/media/images/image.png?sig=test-signature"]
 
 
 def test_anthropic_image_adapter_converts_data_url_to_base64_source():

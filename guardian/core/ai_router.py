@@ -1389,10 +1389,17 @@ def _encode_image_url_to_base64(url: str) -> str | None:
             settings = get_settings()
             host = getattr(settings, "GUARDIAN_INTERNAL_HOST", "localhost")
             port = getattr(settings, "GUARDIAN_INTERNAL_PORT", "8000")
+            # Workers have no media mount. Reuse their configured internal
+            # Guardian address rather than fetching from the worker itself.
+            internal_base = str(
+                os.environ.get("GUARDIAN_INTERNAL_URL")
+                or os.environ.get("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE")
+                or f"http://{host}:{port}"
+            ).rstrip("/")
             media_target = parsed.path
             if parsed.query:
                 media_target += f"?{parsed.query}"
-            resp = requests.get(f"http://{host}:{port}{media_target}", timeout=10)
+            resp = requests.get(f"{internal_base}{media_target}", timeout=10)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
         elif parsed.scheme in ("http", "https"):

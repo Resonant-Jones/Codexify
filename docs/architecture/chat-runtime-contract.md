@@ -571,7 +571,9 @@ Codexify `/media/` images are loaded from `STORAGE_BASE_PATH` (with the legacy
 identified from their bytes. Direct reads require the same media signature as
 the serving route, stay beneath that root, and exclude document paths, which
 retain their additional account gate. When no root is configured, the internal
-HTTP fallback retains the signed URL's query. An unavailable private image or a
+HTTP fallback uses `GUARDIAN_INTERNAL_URL` or the existing internal
+`GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` when configured and retains the signed
+URL's query. An unavailable private image or a
 missing source fails with `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING` before dispatch,
 rather than silently losing the image or forwarding a private media signature.
 Public image URLs remain valid provider inputs when local conversion is
