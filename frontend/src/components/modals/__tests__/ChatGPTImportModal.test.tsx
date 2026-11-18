@@ -141,6 +141,23 @@ describe("ChatGPTImportModal account export intake", () => {
     expect(coordinator.state.current.job?.job_id).toBe("job-12345678");
   });
 
+  it("restores the original Anthropic source and prevents changing it during recovery", async () => {
+    coordinator.state.current = {
+      ...idleSnapshot(),
+      phase: "failed",
+      job: { ...queuedJob, status: "receiving", source_system: "anthropic" },
+      error: "Select the original export to resume.",
+    };
+    render(<ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />);
+    const anthropic = screen.getByTestId("account-import-source-anthropic") as HTMLInputElement;
+    const openai = screen.getByTestId("account-import-source-openai") as HTMLInputElement;
+    await waitFor(() => expect(anthropic.checked).toBe(true));
+    expect(openai.checked).toBe(false);
+    expect(anthropic).toBeDisabled();
+    expect(openai).toBeDisabled();
+    expect(coordinator.clear).not.toHaveBeenCalled();
+  });
+
   it("clears a terminal failed job before choosing another export", () => {
     coordinator.state.current = {
       ...idleSnapshot(),

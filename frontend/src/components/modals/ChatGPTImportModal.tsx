@@ -201,6 +201,11 @@ export function ChatGPTImportModal({
     getAccountImportCoordinatorSnapshot,
     getAccountImportCoordinatorSnapshot
   );
+  React.useEffect(() => {
+    const original = accountImport.job?.status === "receiving"
+      ? accountImport.job.source_system : null;
+    if (original && isAccountImportSourceSystem(original)) setSourceSystem(original);
+  }, [accountImport.job?.status, accountImport.job?.source_system]);
   const accountImportActive = accountImport.phase !== "idle";
   const accountImportTransferring = ["preflighting", "transferring"].includes(
     accountImport.phase
@@ -383,7 +388,7 @@ export function ChatGPTImportModal({
                     value={option.value}
                     checked={checked}
                     disabled={
-                      status === "uploading" || accountImportInProgress
+                      status === "uploading" || accountImportInProgress || accountImport.job?.status === "receiving"
                     }
                     onChange={() => {
                       setSourceSystem(option.value);
