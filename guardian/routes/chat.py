@@ -29,6 +29,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
 )
 from fastapi.responses import JSONResponse
 from pydantic import (
@@ -147,6 +148,16 @@ from guardian.queue.turn_lock import (
     release_turn_lock,
 )
 from guardian.services import iddb_settings_service
+from guardian.slash_commands import (
+    MAX_SEARCH_QUERY_LENGTH,
+    MAX_SEARCH_RESULTS,
+    SLASH_COMMAND_MANIFEST,
+    SLASH_INTENT_IDS,
+    SlashCommandCatalog,
+    SlashCommandIntentKind,
+    SlashCommandRetrievalHint,
+    search_slash_commands,
+)
 from guardian.tasks.types import ChatCompletionTask
 from guardian.voice.audio_assets import list_message_audio_assets
 from guardian.utils.log_safety import install_safe_logging
@@ -662,35 +673,6 @@ class ChatCompletionRequest(BaseModel):
     ] = "deep"  # "shallow", "normal", "deep", "diagnostic"
 
 
-SlashCommandId = Literal[
-    "thread",
-    "doc",
-    "project",
-    "workspace",
-    "profile",
-    "flow",
-    "secure",
-    "connect",
-    "obsidian",
-    "codex_entry",
-    "help",
-]
-SlashCommandIntentKind = Literal[
-    "conversation",
-    "knowledge",
-    "workspace",
-    "automation",
-    "security",
-    "integration",
-    "codex",
-    "help",
-]
-SlashCommandRetrievalHint = Literal[
-    "none",
-    "conversation",
-    "project",
-    "personal_knowledge",
-]
 RetrievalOverrideMode = Literal[
     "none",
     "conversation",
@@ -717,12 +699,19 @@ _RETRIEVAL_OVERRIDE_REASON_BY_MODE: dict[
 class SlashIntentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    commandId: SlashCommandId
+    commandId: StrictStr = Field(json_schema_extra={"enum": sorted(SLASH_INTENT_IDS)})
     rawToken: Optional[StrictStr] = None
     queryText: Optional[StrictStr] = None
     intentKind: SlashCommandIntentKind
     retrievalHint: Optional[SlashCommandRetrievalHint] = None
     rawInput: Optional[StrictStr] = None
+
+    @field_validator("commandId")
+    @classmethod
+    def _validate_command_id(cls, value: str) -> str:
+        if value not in SLASH_INTENT_IDS:
+            raise ValueError("unknown chat slash-intent ID")
+        return value
 
     @model_validator(mode="after")
     def _require_raw_input_or_token(self):
@@ -5409,6 +5398,32 @@ async def simple_chat_stream(
 # legacy alias that delegates to the same handler functions.
 
 api_chat_router = APIRouter(prefix="/api/chat", tags=["Chat"])
+
+
+# The Command Bus imports OpenAPI operations. Keep these catalog reads on the
+# chat API alone, with their wire contract documented for clients.
+@api_chat_router.get(
+    "/slash-commands/manifest",
+    include_in_schema=False,
+    dependencies=[Depends(require_api_key), Depends(get_request_user_scope)],
+)
+def api_chat_slash_command_manifest(response: Response) -> SlashCommandCatalog:
+    response.headers["Cache-Control"] = "private, no-store"
+    return SLASH_COMMAND_MANIFEST
+
+
+@api_chat_router.get(
+    "/slash-commands/search",
+    include_in_schema=False,
+    dependencies=[Depends(require_api_key), Depends(get_request_user_scope)],
+)
+def api_chat_search_slash_commands(
+    response: Response,
+    q: Annotated[str, Query(max_length=MAX_SEARCH_QUERY_LENGTH)],
+    limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_RESULTS)] = 10,
+) -> SlashCommandCatalog:
+    response.headers["Cache-Control"] = "private, no-store"
+    return search_slash_commands(q, limit)
 
 
 @api_chat_router.post("")
