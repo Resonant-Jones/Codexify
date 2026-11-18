@@ -1,3 +1,4 @@
+import { getRuntimeConfigSync } from "@/lib/runtimeConfig";
 import {
   commitOpenAIAccountImport,
   createOpenAIAccountImport,
@@ -57,6 +58,30 @@ let activeRun = 0;
 let initialized = false;
 let transferController: AbortController | null = null;
 let accountStatusListener: EventListener | null = null;
+// A client-local continuity check, never server import authority. It binds
+// paths and content of even the files not yet admitted to the server.
+let selectionFingerprint: string | null = null;
+let selectionServer: string | null = null;
+
+function currentImportServer(): string {
+  const url = new URL(getRuntimeConfigSync().apiBaseUrl || "/", window.location.href);
+  return url.origin + url.pathname.replace(/\/$/, "");
+}
+
+function archiveUnavailableJob(): boolean {
+  // A 404 can mean a server/account switch, not loss of the original bytes.
+  // Retain the exact checkpoint before releasing only the active UI reference.
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const key = "cfy.accountImport:unavailable:v1";
+    const prior = JSON.parse(window.localStorage.getItem(key) || "[]");
+    if (!Array.isArray(prior)) return false;
+    if (!prior.includes(raw)) prior.push(raw);
+    window.localStorage.setItem(key, JSON.stringify(prior));
+    return true;
+  } catch { return false; }
+}
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -77,6 +102,8 @@ function persist(next: AccountImportCoordinatorSnapshot): void {
         jobId: next.job.job_id,
         status: next.job.status,
         sourceSystem: next.job.source_system,
+        selectionFingerprint: next.job.status === "receiving" ? selectionFingerprint : null,
+        server: selectionServer,
         updatedAt: next.job.updated_at || null,
       })
     );
@@ -122,6 +149,10 @@ async function refreshJob(
   const run = ++refreshRun;
   stopPolling();
   try {
+    if (selectionServer && selectionServer !== currentImportServer()) {
+      setSnapshot({ ...snapshot, phase: "failed", error: "This saved import belongs to a different server. Return to its original server; the saved job and staged files are retained.", technicalDetail: null });
+      return;
+    }
     const job = await fetchOpenAIAccountImport(jobId);
     if (run !== refreshRun) return;
     if (restoringReceiving && job.status === "receiving") {
@@ -129,8 +160,9 @@ async function refreshJob(
         ...snapshot,
         phase: "failed",
         job,
-        error:
-          "The browser transfer ended before server queue acceptance. Select the same export folder again to verify and resume this job.",
+        error: selectionFingerprint
+          ? "The browser transfer ended before server queue acceptance. Select the same export folder again to verify and resume this job."
+          : "This receiving import has no original complete-export fingerprint. Automatic resume is blocked because unstaged file identity cannot be established. Keep this job and its staged files for verified recovery.",
         technicalDetail: null,
       });
       return;
@@ -153,13 +185,15 @@ async function refreshJob(
     }
   } catch (error) {
     if (run !== refreshRun) return;
-    if (extractHttpStatus(error) === 404) {
+    if (extractHttpStatus(error) === 404 && archiveUnavailableJob()) {
+      selectionFingerprint = null;
+      selectionServer = null;
       setSnapshot({
         ...snapshot,
         phase: "failed",
         job: null,
         error:
-          "This saved account import job is no longer available for this account or server. The stale browser reference was cleared. Start the import again if needed.",
+          "This saved account import job is no longer available for this account or server. Its checkpoint was retained separately and the stale browser reference was cleared. Confirm the selected account and server before starting another import.",
         technicalDetail: `HTTP 404 for job ${jobId}`,
       });
       return;
@@ -192,8 +226,14 @@ function restorePersistedJob(): void {
       jobId?: string;
       status?: AccountImportJob["status"];
       sourceSystem?: unknown;
+      selectionFingerprint?: unknown;
+      server?: unknown;
     };
     if (parsed.v !== 1 || !parsed.jobId) return;
+    selectionFingerprint = typeof parsed.selectionFingerprint === "string" &&
+      /^[a-f0-9]{64}$/.test(parsed.selectionFingerprint)
+      ? parsed.selectionFingerprint : null;
+    selectionServer = typeof parsed.server === "string" ? parsed.server : null;
     // Fail-closed: only accept canonical source-system tokens. If the
     // persisted source is unknown, force the canonical server fetch to
     // re-establish the source-of-truth snapshot instead of carrying a
@@ -330,6 +370,16 @@ function assertCurrentTransfer(run: number, signal: AbortSignal): void {
 // timed-out step retains the Web Lock until the native operation settles, so
 // retry cannot allocate a second large buffer while the first remains live.
 export const ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS = 30_000;
+function blobBytes(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === "function") return blob.arrayBuffer();
+  // Older browser File implementations (and jsdom) expose FileReader instead.
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error("Unable to read the selected export."));
+    reader.readAsArrayBuffer(blob);
+  });
+}
 async function boundedVerification<T>(operation: () => Promise<T>, signal: AbortSignal, stage: string): Promise<T> {
   if (signal.aborted) throw new Error("Account import transfer was stopped.");
   let rejectGate!: (error: Error) => void;
@@ -382,7 +432,7 @@ async function hashLargeSelectedFile(
     assertCurrentTransfer(run, signal);
     const next = Math.min(readBytes + LARGE_FILE_VERIFY_CHUNK_BYTES, file.size);
     const slice = file.slice(readBytes, next);
-    const bytes = await boundedVerification(() => slice.arrayBuffer(), signal, "reading a selected file");
+    const bytes = await boundedVerification(() => blobBytes(slice), signal, "reading a selected file");
     if (bytes.byteLength !== next - readBytes) {
       throw new Error("The selected export conflicts with staged files. Nothing was uploaded.");
     }
@@ -391,6 +441,50 @@ async function hashLargeSelectedFile(
     onProgress(readBytes);
   }
   return Array.from(hash.digest(), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function fingerprintSelection(
+  files: AccountImportBrowserFile[],
+  sourceSystem: AccountImportSourceSystem,
+  run: number,
+  signal: AbortSignal
+): Promise<string> {
+  // Only this digest is persisted in browser storage. Every original path,
+  // byte count and content SHA-256 contributes, including files not uploaded.
+  const { sha256 } = await import("@noble/hashes/sha2.js");
+  const encoder = new TextEncoder();
+  const aggregate = sha256.create().update(encoder.encode(`cfy-account-import-selection:v1\n${sourceSystem}\n`));
+  const ordered = [...files].sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0);
+  const totalBytes = ordered.reduce((total, item) => total + item.file.size, 0);
+  let doneBytes = 0;
+  for (let i = 0; i < ordered.length; i += 1) {
+    assertCurrentTransfer(run, signal);
+    const item = ordered[i];
+    const report = (bytes: number, stage: "reading" | "hashing") => {
+      setSnapshot({ ...snapshot, verification: {
+        completed: i, total: ordered.length, bytes: doneBytes + bytes, totalBytes, stage,
+      } });
+    };
+    report(0, "reading");
+    let digest: string;
+    if (item.file.size > MAX_BROWSER_RESUME_HASH_BYTES) {
+      digest = await hashLargeSelectedFile(item.file, run, signal, (bytes) => report(bytes, "hashing"));
+    } else {
+      const bytes = await boundedVerification(() => blobBytes(item.file), signal, "reading a selected file");
+      if (bytes.byteLength !== item.file.size) throw new Error("Selected export contents changed during verification. Nothing was uploaded.");
+      assertCurrentTransfer(run, signal);
+      report(bytes.byteLength, "hashing");
+      const hashed = await boundedVerification(() => crypto.subtle.digest("SHA-256", bytes), signal, "hashing a selected file");
+      digest = Array.from(new Uint8Array(hashed), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+    assertCurrentTransfer(run, signal);
+    aggregate.update(encoder.encode(JSON.stringify([item.relativePath, item.file.size, digest]) + "\n"));
+    doneBytes += item.file.size;
+    setSnapshot({ ...snapshot, verification: {
+      completed: i + 1, total: ordered.length, bytes: doneBytes, totalBytes, stage: "hashing",
+    } });
+  }
+  return Array.from(aggregate.digest(), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function remainingFiles(
@@ -503,6 +597,9 @@ export async function startOpenAIAccountImport(
   if (resume && resume.source_system !== sourceSystem) {
     throw new Error("Resume requires the original account source.");
   }
+  if (resume && selectionServer && selectionServer !== currentImportServer()) {
+    throw new Error("This saved import belongs to a different server. Return to its original server; the saved job and staged files are retained.");
+  }
   // Web Locks survive component lifetimes and exclude concurrent updated tabs.
   // No unsafe localStorage lease or silent takeover when the owner is unknown.
   if (!navigator.locks) {
@@ -530,16 +627,34 @@ export async function startOpenAIAccountImport(
       const availability = await preflightBackendAvailability();
       assertCurrentTransfer(run, controller.signal);
       if (!availability.ok) throw Object.assign(new Error(availability.message), { technicalDetail: availability.technicalDetail });
-      let job = resume
-        ? await fetchOpenAIAccountImport(resume.job_id)
-        : await createOpenAIAccountImport({
-            total_file_count: normalizedFiles.length,
-            total_byte_count: selectedByteCount,
-            source_system: sourceSystem,
-          });
+      let job: AccountImportJob;
+      if (resume) {
+        job = await fetchOpenAIAccountImport(resume.job_id);
+      } else {
+        const fingerprint = await fingerprintSelection(normalizedFiles, sourceSystem, run, controller.signal);
+        assertCurrentTransfer(run, controller.signal);
+        job = await createOpenAIAccountImport({
+          total_file_count: normalizedFiles.length,
+          total_byte_count: selectedByteCount,
+          source_system: sourceSystem,
+        });
+        // Bind the selection to this new job before the first upload.
+        selectionFingerprint = fingerprint;
+        selectionServer = currentImportServer();
+      }
       assertCurrentTransfer(run, controller.signal);
       if (job.source_system !== sourceSystem) throw new Error("The account import source changed.");
       if (job.status === "receiving") {
+        if (resume) {
+          if (!selectionFingerprint) {
+            throw new Error("This saved job lacks complete-export verification. Keep this job and its staged bytes for verified recovery; automatic resume cannot establish original unstaged file identity.");
+          }
+          const fingerprint = await fingerprintSelection(normalizedFiles, sourceSystem, run, controller.signal);
+          assertCurrentTransfer(run, controller.signal);
+          if (fingerprint !== selectionFingerprint) {
+            throw new Error("The selected export content or file paths differ from the original selection. Nothing was uploaded.");
+          }
+        }
         const pending = resume
           ? await remainingFiles(job, normalizedFiles, run, controller.signal)
           : normalizedFiles;
@@ -568,9 +683,15 @@ export async function startOpenAIAccountImport(
     } catch (error: unknown) {
       if (run === activeRun) {
         const normalized = normalizeImportRuntimeError(error, { phase: "upload" });
-        setSnapshot({ ...snapshot, phase: "failed",
+        const staleResume = Boolean(resume && extractHttpStatus(error) === 404 && archiveUnavailableJob());
+        if (staleResume) { selectionFingerprint = null; selectionServer = null; }
+        setSnapshot({ ...snapshot, phase: "failed", job: staleResume ? null : snapshot.job,
           error: snapshot.job?.status === "receiving"
-            ? `${normalized.message} Staged files are retained. Select the same export folder to verify and resume.`
+            ? staleResume
+              ? "This saved import job is unavailable on the selected server. Its checkpoint was retained separately and its stale browser reference was cleared. Confirm the selected account and server before starting another import."
+              : selectionFingerprint
+                ? `${normalized.message} Staged files are retained. Select the same export folder to verify and resume.`
+                : normalized.message
             : normalized.message,
           technicalDetail: normalized.technicalDetail || null });
       }
@@ -597,6 +718,8 @@ export function clearAccountImportCoordinatorResult(): void {
   stopPolling();
   refreshRun += 1;
   activeRun += 1;
+  selectionFingerprint = null;
+  selectionServer = null;
   setSnapshot(EMPTY_SNAPSHOT);
 }
 
@@ -605,6 +728,8 @@ export function resetAccountImportCoordinatorForTests(): void {
   stopPolling();
   refreshRun += 1;
   activeRun += 1;
+  selectionFingerprint = null;
+  selectionServer = null;
   initialized = false;
   snapshot = EMPTY_SNAPSHOT;
   listeners.clear();

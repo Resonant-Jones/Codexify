@@ -1,4 +1,5 @@
 import { waitFor } from "@testing-library/react";
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -309,7 +310,7 @@ describe("account import coordinator continuity", () => {
       )
     );
     expect(coordinator.getAccountImportCoordinatorSnapshot().error).toMatch(
-      /before server queue acceptance/
+      /no original complete-export fingerprint/
     );
     coordinator.resetAccountImportCoordinatorForTests();
   });
@@ -351,15 +352,27 @@ describe("account import coordinator continuity", () => {
 
 
 describe("account import same-job recovery", () => {
+  const contentHash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const selectionHash = (entries: Array<[string, number, string]>, sourceSystem = "openai") => {
+    const aggregate = createHash("sha256").update(`cfy-account-import-selection:v1\n${sourceSystem}\n`);
+    for (const entry of [...entries].sort((a, b) => a[0].localeCompare(b[0]))) {
+      aggregate.update(JSON.stringify(entry) + "\n");
+    }
+    return aggregate.digest("hex");
+  };
+  const defaultFingerprint = () => selectionHash([
+    ["export/conversations.json", 2, contentHash("[]")],
+    ["export/image.png", 3, contentHash("png")],
+  ]);
   const file = (name: string, content: string) => {
     const value = new File([content], name);
     Object.defineProperty(value, "arrayBuffer", { value: async () => new TextEncoder().encode(content).buffer });
     return { file: value, relativePath: `export/${name}` };
   };
-  async function restored() {
+  async function restored(selectionFingerprint = defaultFingerprint()) {
     const { webcrypto } = await import("node:crypto");
     Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
-    window.localStorage.setItem("cfy.accountImport:v1", JSON.stringify({ v: 1, jobId: "job-restore", status: "receiving", sourceSystem: "openai" }));
+    window.localStorage.setItem("cfy.accountImport:v1", JSON.stringify({ v: 1, jobId: "job-restore", status: "receiving", sourceSystem: "openai", selectionFingerprint }));
     apiMocks.fetch.mockResolvedValue(job());
     const coordinator = await import("@/features/imports/accountImportCoordinator");
     coordinator.getAccountImportCoordinatorSnapshot();
@@ -391,6 +404,85 @@ describe("account import same-job recovery", () => {
     expect(apiMocks.commit).toHaveBeenCalledTimes(1);
     coordinator.resetAccountImportCoordinatorForTests();
   });
+  it("rejects a same-size replacement of an unstaged file before sending any bytes", async () => {
+    const coordinator = await restored();
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "bad"),
+    ])).rejects.toThrow(/content or file paths differ/);
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(apiMocks.commit).not.toHaveBeenCalled();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("rejects a renamed unstaged file with the same byte count", async () => {
+    const coordinator = await restored();
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("other.png", "png"),
+    ])).rejects.toThrow(/content or file paths differ/);
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(apiMocks.commit).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("preserves only a SHA-256 selection fingerprint before initial upload", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    apiMocks.upload.mockRejectedValue({ response: { status: 403 } });
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "png"),
+    ])).rejects.toBeDefined();
+    const state = JSON.parse(window.localStorage.getItem("cfy.accountImport:v1") || "{}");
+    expect(state.selectionFingerprint).toBe(defaultFingerprint());
+    expect(state.jobId).toBe("job-restore");
+    expect(JSON.stringify(state)).not.toContain("conversations.json");
+    expect(JSON.stringify(state)).not.toContain("image.png");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("does not silently resume a legacy receiving job without an original fingerprint", async () => {
+    const coordinator = await restored(null as unknown as string);
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "png"),
+    ])).rejects.toThrow(/lacks complete-export verification/);
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    expect(JSON.parse(window.localStorage.getItem("cfy.accountImport:v1") || "{}").jobId).toBe("job-restore");
+    expect(coordinator.getAccountImportCoordinatorSnapshot().error).not.toMatch(/discard|start again/);
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("clears the receiving browser job if its owner-scoped server lookup returns 404", async () => {
+    const coordinator = await restored();
+    apiMocks.fetch.mockRejectedValueOnce({ response: { status: 404 } });
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "png"),
+    ])).rejects.toBeDefined();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job).toBeNull();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().error).toMatch(/stale browser reference was cleared/);
+    expect(window.localStorage.getItem("cfy.accountImport:v1")).toBeNull();
+    const retained = JSON.parse(window.localStorage.getItem("cfy.accountImport:unavailable:v1") || "[]");
+    expect(JSON.parse(retained[0])).toMatchObject({ jobId: "job-restore", selectionFingerprint: defaultFingerprint() });
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("retains an unavailable checkpoint on manifest 404 without creating another job", async () => {
+    const coordinator = await restored();
+    apiMocks.manifest.mockRejectedValueOnce({ response: { status: 404 } });
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toBeDefined();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job).toBeNull();
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    const retained = JSON.parse(window.localStorage.getItem("cfy.accountImport:unavailable:v1") || "[]");
+    expect(JSON.parse(retained[0]).jobId).toBe("job-restore");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("does not look up or resume a checkpoint belonging to a different server", async () => {
+    window.localStorage.setItem("cfy.accountImport:v1", JSON.stringify({ v: 1, jobId: "job-restore", status: "receiving", sourceSystem: "openai", selectionFingerprint: defaultFingerprint(), server: "https://original.example/api" }));
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
+    expect(apiMocks.fetch).not.toHaveBeenCalled();
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/different server/);
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    expect(JSON.parse(window.localStorage.getItem("cfy.accountImport:v1") || "{}").server).toBe("https://original.example/api");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
   it("shows aggregate progress and times out an unreadable selected file without uploading", async () => {
     const coordinator = await restored();
     const stuck = file("conversations.json", "[]");
@@ -400,7 +492,7 @@ describe("account import same-job recovery", () => {
     const result = coordinator.startOpenAIAccountImport([selected, file("image.png", "png")]);
     const rejected = expect(result).rejects.toThrow(/timed out while reading/);
     await vi.waitFor(() => expect(coordinator.getAccountImportCoordinatorSnapshot().verification?.stage).toBe("reading"));
-    expect(coordinator.getAccountImportCoordinatorSnapshot().verification).toMatchObject({ completed: 0, total: 1, bytes: 0, totalBytes: 2 });
+    expect(coordinator.getAccountImportCoordinatorSnapshot().verification).toMatchObject({ completed: 0, total: 2, bytes: 0, totalBytes: 5 });
     await vi.advanceTimersByTimeAsync(coordinator.ACCOUNT_IMPORT_VERIFY_STEP_TIMEOUT_MS);
     expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
     await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toThrow(/already active/);
@@ -458,7 +550,7 @@ describe("account import same-job recovery", () => {
   });
   it("rejects changed content before uploading or committing", async () => {
     const coordinator = await restored();
-    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "{}"), file("image.png", "png")])).rejects.toThrow(/conflicts/);
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "{}"), file("image.png", "png")])).rejects.toThrow(/differ|conflict/);
     expect(apiMocks.upload).not.toHaveBeenCalled();
     expect(apiMocks.commit).not.toHaveBeenCalled();
     expect(apiMocks.create).not.toHaveBeenCalled();
@@ -467,7 +559,7 @@ describe("account import same-job recovery", () => {
   });
   it("rejects mismatched declared totals before uploading", async () => {
     const coordinator = await restored();
-    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]")])).rejects.toThrow(/does not match/);
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]")])).rejects.toThrow(/does not match|differ/);
     expect(apiMocks.upload).not.toHaveBeenCalled();
     coordinator.resetAccountImportCoordinatorForTests();
   });
@@ -540,13 +632,17 @@ describe("account import same-job recovery", () => {
     coordinator.resetAccountImportCoordinatorForTests();
   });
   it("resumes a staged 129 MiB file with incremental hashing and 8 MiB reads", async () => {
-    const coordinator = await restored();
     const { createHash } = await import("node:crypto");
     const chunk = new Uint8Array(1024 * 1024).fill(97);
     const largeSize = 129 * chunk.length;
     const expectedHash = createHash("sha256");
     for (let i = 0; i < 129; i += 1) expectedHash.update(chunk);
     const stagedHash = expectedHash.digest("hex");
+    const largeFingerprint = selectionHash([
+      ["export/large.bin", largeSize, stagedHash],
+      ["export/image.png", 3, contentHash("png")],
+    ]);
+    const coordinator = await restored(largeFingerprint);
     let readCalls = 0;
     const large = {
       relativePath: "export/large.bin",
@@ -566,14 +662,17 @@ describe("account import same-job recovery", () => {
     });
     const missing = file("image.png", "png");
     await coordinator.startOpenAIAccountImport([large, missing]);
-    expect(readCalls).toBe(17);
+    expect(readCalls).toBe(34);
     expect(apiMocks.upload).toHaveBeenCalledWith("job-restore", [missing], expect.any(AbortSignal));
     expect(apiMocks.create).not.toHaveBeenCalled();
     coordinator.resetAccountImportCoordinatorForTests();
   });
   it("refuses truncated large-file slices without uploading or committing", async () => {
-    const coordinator = await restored();
     const largeSize = 129 * 1024 * 1024;
+    const coordinator = await restored(selectionHash([
+      ["export/large.bin", largeSize, "a".repeat(64)],
+      ["export/image.png", 3, contentHash("png")],
+    ]));
     const selected = {
       relativePath: "export/large.bin",
       file: {
