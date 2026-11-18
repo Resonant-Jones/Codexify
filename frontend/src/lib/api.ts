@@ -1085,28 +1085,46 @@ export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
 export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;
 
 function boundedImportVerification<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error: unknown, value?: T) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", aborted);
-      if (error) reject(new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained."));
-      else resolve(value as T);
-    };
-    const aborted = () => finish(new AccountImportLocalError("Upload stopped"));
-    const timer = setTimeout(() => finish(new AccountImportLocalError("Verification timeout")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
-    signal?.addEventListener("abort", aborted, { once: true });
-    if (signal?.aborted) { aborted(); return; }
-    Promise.resolve().then(() => {
-      if (settled || signal?.aborted) throw new AccountImportLocalError("Verification stopped");
+  if (signal?.aborted) return Promise.reject(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
+  return (async () => {
+    const nativeWork = Promise.resolve().then(() => {
+      if (signal?.aborted) throw new AccountImportLocalError("Verification stopped");
       return operation();
-    }).then(value => finish(null, value), error => finish(error));
-  });
+    });
+    let rejectDeadline!: (error: AccountImportLocalError) => void;
+    const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
+    const interrupted = () => rejectDeadline(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
+    signal?.addEventListener("abort", interrupted, { once: true });
+    const timer = setTimeout(() => rejectDeadline(new AccountImportLocalError("Local export verification timed out; staged bytes are retained.")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
+    try {
+      return await Promise.race([nativeWork, deadline]);
+    } catch (error) {
+      // Blob and WebCrypto operations cannot be cancelled reliably. The outer
+      // coordinator retains its cross-tab lock until this native work settles.
+      await nativeWork.catch(() => undefined);
+      if (error instanceof AccountImportLocalError) throw error;
+      throw new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained.");
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", interrupted);
+    }
+  })();
 }
 
 async function digestImportBlob(blob: Blob, signal?: AbortSignal): Promise<string> {
+  if (blob.size > ACCOUNT_IMPORT_BROWSER_HASH_BYTES) {
+    const { sha256 } = await import("@noble/hashes/sha2.js");
+    const incremental = sha256.create();
+    for (let offset = 0; offset < blob.size; offset += ACCOUNT_IMPORT_CHUNK_BYTES) {
+      if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+      const piece = blob.slice(offset, Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, blob.size));
+      const bytes = await boundedImportVerification(() => piece.arrayBuffer(), signal);
+      if (bytes.byteLength !== piece.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
+      incremental.update(new Uint8Array(bytes));
+    }
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    return Array.from(incremental.digest(), value => value.toString(16).padStart(2, "0")).join("");
+  }
   const bytes = await boundedImportVerification(() => blob.arrayBuffer(), signal);
   if (bytes.byteLength !== blob.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
   const digest = await boundedImportVerification(() => crypto.subtle.digest("SHA-256", bytes), signal);
@@ -1116,8 +1134,8 @@ async function digestImportBlob(blob: Blob, signal?: AbortSignal): Promise<strin
 async function uploadLargeAccountImportFile(
   jobId: string, item: AccountImportBrowserFile, signal?: AbortSignal
 ): Promise<AccountImportJob> {
-  if (item.file.size > ACCOUNT_IMPORT_BROWSER_HASH_BYTES) {
-    throw new AccountImportLocalError("This file exceeds the browser's bounded whole-file verification limit. Keep this import and its staged bytes.");
+  if (item.file.size > 2 * 1024 * 1024 * 1024) {
+    throw new AccountImportLocalError("This file exceeds the backend 2 GiB file limit. Keep this import and its staged bytes.");
   }
   // The whole original identity is pinned before the first transport part.
   // Native reads/hashing can finish late, but must never lead to a late POST.
@@ -1139,7 +1157,7 @@ async function uploadLargeAccountImportFile(
     if (item.file.type) form.append("content_type", item.file.type);
     const response = await api.post<{ job: AccountImportJob; received_bytes: number; complete: boolean }>(
       `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/file-chunks`, form,
-      { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+      { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: accountImportUploadTimeoutMs(piece.size), signal }
     );
     const receipt = response.data;
     const received = receipt?.received_bytes;

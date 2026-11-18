@@ -43,7 +43,7 @@ describe("bounded same-job file parts", () => {
     expect(hashes[0]).toBe(createHash("sha256").update(new Uint8Array(size).fill(7)).digest("hex"));
     for (const [url, form, config] of post.mock.calls) {
       expect(url).toBe("/api/imports/openai-account/job/file-chunks");
-      expect(config).toEqual(expect.objectContaining({ timeout: 120000 }));
+      expect(config).toEqual(expect.objectContaining({ timeout: expect.any(Number) }));
       expect((form as FormData).get("chunk_sha256")).toMatch(/^[a-f0-9]{64}$/);
     }
   });
@@ -58,11 +58,20 @@ describe("bounded same-job file parts", () => {
     expect(post.mock.calls.map(call => Number((call[1] as FormData).get("offset")))).toEqual([0, 16777216, 25165824, 33554432]);
   });
 
-  it("does not allocate or POST beyond the browser whole-file hash bound", async () => {
-    const { item, read } = selected(ACCOUNT_IMPORT_BROWSER_HASH_BYTES + 1);
-    const post = vi.spyOn(api, "post");
-    await expect(uploadOpenAIAccountImportBatch("job", [item])).rejects.toThrow(/bounded whole-file verification/);
-    expect(read).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
+  it("hashes 129 MiB through bounded parts without allocating the entire file", async () => {
+    const large = ACCOUNT_IMPORT_BROWSER_HASH_BYTES + 1024 * 1024;
+    const { item, read } = selected(large);
+    const post = vi.spyOn(api, "post").mockImplementation(async (_url, form: any, config: any) => {
+      const offset = Number(form.get("offset"));
+      const next = Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, large);
+      expect(config.timeout).toBeGreaterThanOrEqual(120_000);
+      if (next - offset === ACCOUNT_IMPORT_CHUNK_BYTES) expect(config.timeout).toBeGreaterThan(120_000);
+      return { data: { job: { job_id: "job", status: "receiving", uploaded_file_count: next === large ? 1 : 0 }, received_bytes: next, complete: next === large } };
+    });
+    const complete = await uploadOpenAIAccountImportBatch("job", [item]);
+    expect(complete.uploaded_file_count).toBe(1);
+    expect(post).toHaveBeenCalledTimes(17);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("times out a native read once and prevents a late completion from POSTing", async () => {
@@ -74,11 +83,11 @@ describe("bounded same-job file parts", () => {
     const attempt = uploadOpenAIAccountImportBatch("job", [item]);
     const rejected = expect(attempt).rejects.toThrow(/Local export verification/);
     await vi.advanceTimersByTimeAsync(ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS + 1);
+    expect(post).not.toHaveBeenCalled();
+    finish(new ArrayBuffer(0));
     await rejected;
     const localError = await attempt.catch(error => error);
     expect(normalizeImportRuntimeError(localError).isRuntimeUnavailable).toBe(false);
-    finish(new ArrayBuffer(0));
-    await Promise.resolve(); await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(1); expect(post).not.toHaveBeenCalled();
   });
 
@@ -90,7 +99,7 @@ describe("bounded same-job file parts", () => {
     const attempt = uploadOpenAIAccountImportBatch("job", [item], controller.signal);
     const rejected = expect(attempt).rejects.toThrow(/Local export verification/);
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
-    controller.abort(); await rejected; finish(new ArrayBuffer(0));
+    controller.abort(); finish(new ArrayBuffer(0)); await rejected;
     await Promise.resolve(); expect(post).not.toHaveBeenCalled();
   });
 
