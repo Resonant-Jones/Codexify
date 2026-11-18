@@ -1,6 +1,19 @@
 import { waitFor } from "@testing-library/react";
+import { Buffer } from "node:buffer";
 import { createHash, webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Node and jsdom use different BufferSource realms. Hash the same bytes with
+// Node's SHA-256 so the browser fixture behaves identically on CI Node 24/25.
+const fixtureCrypto = {
+  getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+  subtle: {
+    digest: async (algorithm: string, data: Uint8Array) => {
+      if (algorithm !== "SHA-256") throw new Error("Unexpected digest algorithm");
+      return Uint8Array.from(createHash("sha256").update(Buffer.from(data)).digest()).buffer;
+    },
+  },
+};
 
 const apiMocks = vi.hoisted(() => ({
   preflight: vi.fn(),
@@ -58,7 +71,7 @@ describe("account import coordinator continuity", () => {
   beforeEach(() => {
     vi.resetModules();
     apiMocks.drain.mockReset().mockResolvedValue(undefined);
-    Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: fixtureCrypto });
     Object.defineProperty(navigator, "locks", { configurable: true, value: {
       request: vi.fn(async (_name, _options, callback) => callback({ name: "test" })),
     } });
@@ -374,8 +387,7 @@ describe("account import same-job recovery", () => {
     return { file: value, relativePath: `export/${name}` };
   };
   async function restored(selectionFingerprint = defaultFingerprint()) {
-    const { webcrypto } = await import("node:crypto");
-    Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: fixtureCrypto });
     window.localStorage.setItem("cfy.accountImport:v1", JSON.stringify({ v: 1, jobId: "job-restore", status: "receiving", sourceSystem: "openai", selectionFingerprint }));
     apiMocks.fetch.mockResolvedValue(job());
     const coordinator = await import("@/features/imports/accountImportCoordinator");
@@ -386,7 +398,7 @@ describe("account import same-job recovery", () => {
   beforeEach(() => {
     vi.resetModules();
     apiMocks.drain.mockReset().mockResolvedValue(undefined);
-    Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: fixtureCrypto });
     vi.clearAllMocks();
     window.localStorage.clear();
     Object.defineProperty(navigator, "locks", { configurable: true, value: {
