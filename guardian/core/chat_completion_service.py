@@ -7,6 +7,7 @@ fork context assembly, prompt construction, provider routing, or persistence.
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import inspect
 import json
@@ -19,7 +20,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from fastapi import HTTPException
 
@@ -2100,7 +2101,7 @@ async def _build_messages_for_llm_compat(
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
 ) -> tuple[
-    list[dict[str, str]],
+    list[dict[str, Any]],
     str,
     str,
     dict[str, Any],
@@ -3487,6 +3488,30 @@ def _image_attachments_from_meta(
     return images
 
 
+def _structured_image_attachment_meta(content: Any) -> dict[str, Any] | None:
+    """Project canonical user content parts into the existing routing metadata."""
+    if not isinstance(content, list):
+        return None
+    images = []
+    text = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            text.append(render_content_for_inference(part.get("text")))
+        elif part.get("type") == "image_url":
+            source = part.get("image_url")
+            images.append(
+                {
+                    "kind": "image",
+                    "src": source.get("url") if isinstance(source, dict) else None,
+                }
+            )
+    if not images:
+        return None
+    return {"text": "\n\n".join(item for item in text if item), "attachments": images}
+
+
 _IMAGE_REFUSAL_PATTERNS = (
     re.compile(
         r"\b(?:i\s+)?(?:can(?:not|'t)|unable\s+to)\s+"
@@ -3798,13 +3823,6 @@ def _download_image_bytes(src: str) -> bytes | None:
         return None
 
 
-def _truncate_url_for_log(url: str, maxlen: int = 120) -> str:
-    """Truncate a URL for safe logging."""
-    if len(url) <= maxlen:
-        return url
-    return url[: maxlen - 3] + "..."
-
-
 def _convert_image_url_to_data_url(raw_url: str) -> str | None:
     """Convert an image URL to a base64 data URL suitable for external providers.
 
@@ -3827,12 +3845,25 @@ def _convert_image_url_to_data_url(raw_url: str) -> str | None:
     if not encoded:
         return None
 
-    lower = raw_url.lower()
-    if ".png" in lower:
+    # Prefer the actual media header over a filename or signed URL query.
+    try:
+        header = base64.b64decode(encoded[:16])
+    except (ValueError, TypeError):
+        header = b""
+    lower = urlparse(raw_url).path.lower()
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
         mime = "image/png"
-    elif ".webp" in lower:
+    elif header.startswith((b"GIF87a", b"GIF89a")):
+        mime = "image/gif"
+    elif header.startswith(b"RIFF") and header[8:12] == b"WEBP":
         mime = "image/webp"
-    elif ".gif" in lower:
+    elif header.startswith(b"\xff\xd8\xff"):
+        mime = "image/jpeg"
+    elif lower.endswith(".png"):
+        mime = "image/png"
+    elif lower.endswith(".webp"):
+        mime = "image/webp"
+    elif lower.endswith(".gif"):
         mime = "image/gif"
     else:
         mime = "image/jpeg"
@@ -3963,6 +3994,49 @@ def _interpret_image_attachments(
     return interpretations
 
 
+def _resolve_multimodal_image_sources(
+    messages: list[dict[str, Any]],
+    *,
+    provider: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    """Resolve image bytes without changing authored content or per-image options."""
+    updated = copy.deepcopy(messages)
+    for message in updated:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                part["text"] = render_content_for_inference(part.get("text"))
+                continue
+            if part.get("type") != "image_url":
+                continue
+            image = part.get("image_url")
+            raw_url = (
+                str(image.get("url") or "").strip() if isinstance(image, dict) else ""
+            )
+            data_url = _convert_image_url_to_data_url(raw_url)
+            if data_url:
+                image["url"] = data_url
+            elif not raw_url or urlparse(raw_url).path.startswith("/media/"):
+                # A private/signed Codexify URL is not a provider-readable image.
+                # Never silently drop it, expose its signature, or send text only.
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "provider_request_failed",
+                        "error_code": ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value,
+                        "provider": provider,
+                        "model": model,
+                        "message": "Unable to load an attached image for the selected model.",
+                    },
+                )
+    return updated
+
+
 def _apply_image_attachment_routing(
     messages: list[dict[str, Any]],
     *,
@@ -3977,6 +4051,15 @@ def _apply_image_attachment_routing(
         if isinstance(attachment_meta, dict):
             latest_user_meta = attachment_meta.get("latest_user")
 
+    structured_meta = None
+    last_user_index = _find_last_message_index(messages, "user")
+    if last_user_index >= 0:
+        structured_meta = _structured_image_attachment_meta(
+            messages[last_user_index].get("content")
+        )
+        if structured_meta is not None:
+            latest_user_meta = structured_meta
+
     image_attachments = _image_attachments_from_meta(latest_user_meta)
     image_attachment_count = len(image_attachments)
     routing_meta = {
@@ -3985,6 +4068,17 @@ def _apply_image_attachment_routing(
         "derived_image_context_injected": False,
     }
     if not image_attachments:
+        # A follow-up can still refer to images in the bounded user history.
+        if (
+            messages_contain_image_payload(messages)
+            and resolve_model_vision_capability_state(provider, model, settings) is True
+        ):
+            return (
+                _resolve_multimodal_image_sources(
+                    messages, provider=provider, model=model
+                ),
+                routing_meta,
+            )
         return messages, routing_meta
 
     vision_support_state = resolve_model_vision_capability_state(
@@ -3992,7 +4086,6 @@ def _apply_image_attachment_routing(
         model,
         settings,
     )
-    last_user_index = _find_last_message_index(messages, "user")
     if last_user_index < 0:
         return messages, routing_meta
 
@@ -4014,7 +4107,7 @@ def _apply_image_attachment_routing(
     if vision_support_state is True:
         image_urls = [str(item.get("src") or "").strip() for item in image_attachments]
         image_urls = [url for url in image_urls if url]
-        if not image_urls:
+        if len(image_urls) != image_attachment_count:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -4029,31 +4122,15 @@ def _apply_image_attachment_routing(
                     "image_attachment_count": image_attachment_count,
                 },
             )
-        # Convert remote/localhost URLs to base64 data URLs so external
-        # providers (OpenAI, Anthropic, Groq, etc.) can actually fetch the
-        # image bytes.  The Ollama path does this in
-        # _transform_messages_for_ollama_vision; this brings the same
-        # behaviour to all other vision-capable providers.
-        resolved_image_urls: list[str] = []
-        for raw_url in image_urls:
-            data_url = _convert_image_url_to_data_url(raw_url)
-            if data_url:
-                resolved_image_urls.append(data_url)
-            else:
-                logger.warning(
-                    "[image-routing] failed to encode image as data URL, "
-                    "falling back to raw URL for provider=%s: %s",
-                    provider,
-                    _truncate_url_for_log(raw_url),
-                )
-                resolved_image_urls.append(raw_url)
-        text = ""
-        if isinstance(latest_user_meta, dict):
-            text = str(latest_user_meta.get("text") or "")
-        updated[last_user_index] = {
-            "role": "user",
-            "content": build_openai_vision_content(text, resolved_image_urls),
-        }
+        if structured_meta is None:
+            text = render_content_for_inference(latest_user_meta.get("text"))
+            updated[last_user_index] = dict(updated[last_user_index])
+            updated[last_user_index]["content"] = build_openai_vision_content(
+                text, image_urls
+            )
+        updated = _resolve_multimodal_image_sources(
+            updated, provider=provider, model=model
+        )
         routing_meta["image_routing_path"] = (
             ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
         )
@@ -5404,7 +5481,7 @@ async def build_messages_for_llm(
     memory_preselection_identity_depth: str | None = None,
     memory_preselection_include_diary_excluded: bool | None = None,
 ) -> tuple[
-    list[dict[str, str]],
+    list[dict[str, Any]],
     str,
     str,
     dict[str, Any],
@@ -5571,19 +5648,25 @@ async def build_messages_for_llm(
         retrieval_query=retrieval_query,
     )
 
-    context: list[dict[str, str]] = []
+    context: list[dict[str, Any]] = []
+    image_history: list[tuple[dict[str, Any], dict[str, Any]]] = []
     latest_user_meta: dict[str, Any] | None = None
-    latest_structured_content: list[dict[str, Any]] | None = None
     for msg in conversation_messages:
         role = str(msg.get("role") or "").strip()
         raw_content = msg.get("content")
 
-        # Check for structured content preserved in extra_meta
+        # Structured user content belongs to this message, including on retries
+        # without the original task payload. Never borrow a prior turn's media.
+        structured_content = (
+            raw_content if isinstance(raw_content, list) and role == "user" else None
+        )
         extra_meta = msg.get("extra_meta")
-        if isinstance(extra_meta, dict) and isinstance(
-            extra_meta.get("original_content"), list
+        if (
+            role == "user"
+            and isinstance(extra_meta, dict)
+            and isinstance(extra_meta.get("original_content"), list)
         ):
-            latest_structured_content = extra_meta["original_content"]
+            structured_content = extra_meta["original_content"]
 
         if isinstance(raw_content, str):
             attachments, clean_text = extract_attachments_and_text(raw_content)
@@ -5593,6 +5676,9 @@ async def build_messages_for_llm(
                     "text": clean_text,
                     "attachments": attachments,
                 }
+        structured_meta = _structured_image_attachment_meta(structured_content)
+        if structured_meta is not None:
+            latest_user_meta = {"id": msg.get("id"), **structured_meta}
         if _should_skip_history_message_for_image_turn(msg, latest_user_meta):
             continue
         if provider == "deepseek" and role == "assistant":
@@ -5612,9 +5698,21 @@ async def build_messages_for_llm(
                 context.extend(
                     [dict(item) for item in replay_messages if isinstance(item, dict)]
                 )
-        content = render_content_for_inference(msg.get("content"))
-        if content and content.strip() and content.strip().lower() != "null":
-            context.append({"role": role, "content": content})
+        content = (
+            copy.deepcopy(structured_content)
+            if structured_meta is not None
+            else render_content_for_inference(raw_content)
+        )
+        if content and (isinstance(content, list) or content.strip().lower() != "null"):
+            context_message = {"role": role, "content": content}
+            context.append(context_message)
+            if (
+                role == "user"
+                and structured_meta is None
+                and msg is not latest_turn
+                and _image_attachments_from_meta(latest_user_meta)
+            ):
+                image_history.append((context_message, latest_user_meta))
 
     if not context:
         raise ValueError("thread_has_no_usable_context")
@@ -5757,7 +5855,7 @@ async def build_messages_for_llm(
         if user_system_override:
             bundle.setdefault("user_system_override", user_system_override)
 
-    messages_for_llm: list[dict[str, str]] = []
+    messages_for_llm: list[dict[str, Any]] = []
     prompt_meta: dict[str, Any] = {}
     retrieved_context_messages: list[dict[str, str]] = []
     completion_assembly = {
@@ -6084,6 +6182,25 @@ async def build_messages_for_llm(
         )
     if not model:
         model = dependencies.DEFAULT_MODEL or ""
+
+    if (
+        image_history
+        and resolve_model_vision_capability_state(provider, model, settings) is True
+    ):
+        for history_message, attachment_meta in image_history:
+            history_message["content"] = [
+                {
+                    "type": "text",
+                    "text": render_content_for_inference(attachment_meta.get("text")),
+                },
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": str(image.get("src") or "").strip()},
+                    }
+                    for image in _image_attachments_from_meta(attachment_meta)
+                ],
+            ]
 
     temperature = getattr(task, "temperature", None)
     if temperature is None and profile_temperature is not None:
@@ -7645,7 +7762,7 @@ def run_chat_completion_task(
         )
 
     build_result: tuple[
-        list[dict[str, str]],
+        list[dict[str, Any]],
         str,
         str,
         dict[str, Any],

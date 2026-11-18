@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import base64
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 
 from guardian.core import chat_completion_service
+from guardian.core import ai_router
+from guardian.core.config import Settings
+from guardian.core.media_signing import sign_media_url
 from guardian.core.completion_terminal import successful_non_stream_terminal
 from guardian.protocol_tokens import (
+    ErrorCode,
     ImageRoutingPath,
     TraceSnapshotAbsenceReason,
 )
@@ -124,6 +132,271 @@ def _successful_local_stream(text: str, *, provider: str, model: str):
         model=model,
         finish_reason="stop",
     ).with_visible_output(bool(text))
+
+
+@pytest.mark.parametrize("representation", ["markers", "persisted", "queued"])
+def test_gpt4o_outbound_request_contains_uploaded_image_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    representation: str,
+):
+    db, _ = _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    image_bytes = Path("tests/fixtures/vision/color_shapes.png").read_bytes()
+    (tmp_path / "images").mkdir()
+    (tmp_path / "images" / "shapes.png").write_bytes(image_bytes)
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path))
+    monkeypatch.delenv("GUARDIAN_MEDIA_ROOT", raising=False)
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "test-media-secret")
+    source = sign_media_url("https://preview.example.test/media/images/shapes.png")
+    parts = [
+        {"type": "text", "text": "Describe the shapes."},
+        {"type": "image_url", "image_url": {"url": source, "detail": "high"}},
+    ]
+    message = {
+        "id": 1,
+        "role": "user",
+        "content": "Describe the shapes. [Image attached]",
+    }
+    task = ChatCompletionTask(
+        user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+    )
+    if representation == "markers":
+        message["content"] = (
+            "<!-- cfy-media:image:img-1 -->\n"
+            f"<!-- cfy-media-src:{source} -->\n"
+            "<!-- cfy-media-name:shapes.png -->\nDescribe the shapes."
+        )
+    elif representation == "persisted":
+        message["extra_meta"] = {"original_content": parts}
+    else:
+        task.latest_turn_messages = parts
+    db.list_messages.return_value = [message]
+    captured = []
+
+    def _post(url, **kwargs):
+        assert url == "https://api.openai.com/v1/chat/completions"
+        # Exercise Requests serialization of the actual adapter body.
+        kwargs.pop("timeout", None)
+        prepared = ai_router.requests.Request("POST", url, **kwargs).prepare()
+        captured.append(json.loads(prepared.body))
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "choices": [
+                    {"message": {"content": "Colored shapes."}, "finish_reason": "stop"}
+                ]
+            },
+        )
+
+    def _no_download(*args, **kwargs):
+        pytest.fail("Uploaded media must load from storage without an HTTP request")
+
+    settings = Settings(OPENAI_API_KEY="test-key", ALLOW_CLOUD_PROVIDERS=True)
+    monkeypatch.setattr(ai_router.requests, "post", _post)
+    monkeypatch.setattr(ai_router.requests, "get", _no_download)
+    monkeypatch.setattr(
+        ai_router, "assert_egress_allowed", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda messages, **kwargs: ai_router.call_openai(
+            messages, kwargs["model"], settings=settings
+        ),
+    )
+
+    result = chat_completion_service.run_chat_completion_task(
+        task, persist_assistant_message=False
+    )
+
+    assert len(captured) == 1
+    assert captured[0]["model"] == "gpt-4o"
+    content = captured[0]["messages"][-1]["content"]
+    assert isinstance(content, list)
+    assert content[0] == {"type": "text", "text": "Describe the shapes."}
+    image = content[1]["image_url"]
+    assert (
+        image["url"]
+        == "data:image/png;base64," + base64.b64encode(image_bytes).decode()
+    )
+    if representation != "markers":
+        assert image["detail"] == "high"
+    assert result["payload_summary"]["image_attachment_count"] == 1
+    assert (
+        result["payload_summary"]["image_routing_path"]
+        == ImageRoutingPath.NATIVE_MULTIMODAL_VISION.value
+    )
+    # Provider preparation must not mutate the authored content.
+    assert parts[1]["image_url"]["url"] == source
+
+
+@pytest.mark.parametrize(
+    "image_bytes, mime",
+    [
+        (b"\x89PNG\r\n\x1a\nmore-data", "image/png"),
+        (b"GIF89amore-data", "image/gif"),
+        (b"RIFF1234WEBPmore-data", "image/webp"),
+        (b"\xff\xd8\xffmore-data", "image/jpeg"),
+    ],
+)
+def test_image_data_url_mime_comes_from_bytes(monkeypatch, image_bytes, mime):
+    encoded = base64.b64encode(image_bytes).decode()
+    monkeypatch.setattr(
+        chat_completion_service, "_encode_image_url_to_base64", lambda url: encoded
+    )
+    assert (
+        chat_completion_service._convert_image_url_to_data_url(
+            "https://example.test/media/upload.blob?filename=wrong.png"
+        )
+        == f"data:{mime};base64,{encoded}"
+    )
+
+
+@pytest.mark.parametrize("representation", ["markers", "persisted"])
+def test_followup_preserves_images_on_their_original_user_turn(
+    monkeypatch, representation
+):
+    db, _ = _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    source = "data:image/png;base64,aW1hZ2U="
+    image_message = {
+        "id": 1,
+        "role": "user",
+        "content": "Describe this. [Image attached]",
+    }
+    if representation == "markers":
+        image_message["content"] = (
+            f"<!-- cfy-media:image:one -->\n<!-- cfy-media-src:{source} -->\nDescribe this."
+        )
+    else:
+        image_message["extra_meta"] = {
+            "original_content": [
+                {"type": "text", "text": "Describe this."},
+                {"type": "image_url", "image_url": {"url": source}},
+            ]
+        }
+    db.list_messages.return_value = [
+        image_message,
+        {"id": 2, "role": "assistant", "content": "Colored shapes."},
+        {"id": 3, "role": "user", "content": "Which shape is red?"},
+    ]
+    captured = []
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda messages, **kwargs: captured.extend(messages) or "The circle.",
+    )
+    result = chat_completion_service.run_chat_completion_task(
+        ChatCompletionTask(
+            user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+        ),
+        persist_assistant_message=False,
+    )
+    users = [message for message in captured if message["role"] == "user"]
+    assert users[0]["content"] == [
+        {"type": "text", "text": "Describe this."},
+        {"type": "image_url", "image_url": {"url": source}},
+    ]
+    assert users[-1]["content"] == "Which shape is red?"
+    assert result["payload_summary"]["image_attachment_count"] == 1
+
+
+def test_image_routing_keeps_document_context_and_all_images():
+    tile = (
+        base64.urlsafe_b64encode(json.dumps({"id": "doc-1"}).encode())
+        .decode()
+        .rstrip("=")
+    )
+    text = (
+        f"<!-- cfy-doc-content:start:{tile} -->\nDocument evidence\n"
+        f"<!-- cfy-doc-content:end:{tile} -->\nCompare these."
+    )
+    messages, _ = chat_completion_service._apply_image_attachment_routing(
+        [
+            {
+                "role": "user",
+                "content": "Attached image: photo.png\n\nDocument evidence\n\nCompare these.",
+            }
+        ],
+        bundle={
+            "_attachment_meta": {
+                "latest_user": {
+                    "text": text,
+                    "attachments": [
+                        {"kind": "image", "src": "data:image/png;base64,YQ=="},
+                        {"kind": "document", "src": "/media/documents/doc.pdf"},
+                        {"kind": "image", "src": "data:image/png;base64,Yg=="},
+                    ],
+                }
+            }
+        },
+        provider="openai",
+        model="gpt-4o",
+        settings=SimpleNamespace(),
+    )
+    content = messages[-1]["content"]
+    assert "Document evidence" in content[0]["text"]
+    assert "cfy-doc-content" not in content[0]["text"]
+    assert [part["image_url"]["url"] for part in content[1:]] == [
+        "data:image/png;base64,YQ==",
+        "data:image/png;base64,Yg==",
+    ]
+
+
+def test_unreadable_private_image_fails_before_provider_request(monkeypatch, caplog):
+    db, _ = _seed_common(monkeypatch, provider="openai", model="gpt-4o")
+    secret_url = "https://preview.example.test/media/images/missing.png?sig=private-test-signature"
+    db.list_messages.return_value[0][
+        "content"
+    ] = f"<!-- cfy-media:image:missing -->\n<!-- cfy-media-src:{secret_url} -->\nDescribe this."
+    monkeypatch.setattr(
+        chat_completion_service, "_convert_image_url_to_data_url", lambda url: None
+    )
+    monkeypatch.setattr(
+        chat_completion_service,
+        "chat_with_ai",
+        lambda *args, **kwargs: pytest.fail(
+            "No provider request is permitted with unreadable private media"
+        ),
+    )
+    with pytest.raises(HTTPException) as error:
+        chat_completion_service.run_chat_completion_task(
+            ChatCompletionTask(
+                user_id="local", thread_id=1, provider="openai", model="gpt-4o"
+            ),
+            persist_assistant_message=False,
+        )
+    assert (
+        error.value.detail["error_code"]
+        == ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+    )
+    assert "private-test-signature" not in str(error.value.detail)
+    assert "private-test-signature" not in caplog.text
+
+
+def test_image_routing_rejects_partially_missing_image_sources():
+    with pytest.raises(HTTPException) as error:
+        chat_completion_service._apply_image_attachment_routing(
+            [{"role": "user", "content": "Compare both images."}],
+            bundle={
+                "_attachment_meta": {
+                    "latest_user": {
+                        "text": "Compare both images.",
+                        "attachments": [
+                            {"kind": "image", "src": "data:image/png;base64,YQ=="},
+                            {"kind": "image", "src": None},
+                        ],
+                    }
+                }
+            },
+            provider="openai",
+            model="gpt-4o",
+            settings=SimpleNamespace(),
+        )
+    assert error.value.status_code == 400
+    assert (
+        error.value.detail["error_code"]
+        == ErrorCode.CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING.value
+    )
 
 
 def test_image_routing_native_vision_builds_multimodal_payload(
