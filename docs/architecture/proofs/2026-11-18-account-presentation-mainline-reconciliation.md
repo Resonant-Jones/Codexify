@@ -91,3 +91,35 @@ backup, rehearse the actual installed lineage, preserve account/preferences/
 wallpaper/import/custody data, and retain data-safe rollback. It must not blindly
 apply another branch's image, rewrite an installed parent or stamp away history.
 No live operation, credential refresh or provider activation is authorized here.
+
+## Publication continuation
+
+Main was rechecked at the same145e8cbf1 base. Root explicitly selected this
+profile candidate for publication before the independent draft voice PR1091;
+that PR and its1b6c8d9e2f40 migration are unchanged and excluded. Any subsequent
+main advance still requires a fresh overlap and migration-graph check.
+
+The repository-wide head assertion audit confirms the GitHub credential test
+expects a3f while retaining its original parent, upgrade/downgrade and schema
+assertions. Historical merge tests retain their lineage and single-head proofs.
+A broader PostgreSQL run exposed a pinned message-request fixture using today's
+UserProfile ORM before the nullable greeting column exists. The fixture now
+applies the original d2 migration's DDL, matching its existing local-node-marker
+compatibility pattern, without changing its pinned revision, schema assertions
+or the Alembic ledger. No production migration or service was changed by this
+test correction.
+
+The publication migration-contract rerun passed341 tests, with27 optional skips
+and63 deselections (57 integration cases plus the six Docker-only cases). It
+includes the full fresh/main/Preview convergence matrix and the corrected
+historical consent/concurrency proof. It used a newly initialized owned Unix-only
+PostgreSQL16 cluster, recorded zero unexpected network attempts and stopped the
+server cleanly. No live or already-populated root database was used.
+
+Six existing account-observability fixtures clear supplied database URLs and
+start TCP/Docker, so they are not run in the Unix-only proof. The separate import
+qualification integration case expects an already-migrated root database; the
+broad attempt failed during schema verification before creating an import job.
+It is outside this reconciliation proof and is not rerun. Superseded failed
+environment runs remain in the local evidence directory; full CI and a clean
+full-app TypeScript check are not claimed.
