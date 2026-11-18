@@ -155,7 +155,7 @@ async function refreshJob(
     }
     const job = await fetchOpenAIAccountImport(jobId);
     if (run !== refreshRun) return;
-    if (restoringReceiving && job.status === "receiving") {
+    if (job.status === "receiving") {
       setSnapshot({
         ...snapshot,
         phase: "failed",

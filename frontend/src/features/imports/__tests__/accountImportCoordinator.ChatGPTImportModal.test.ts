@@ -483,6 +483,25 @@ describe("account import same-job recovery", () => {
     expect(JSON.parse(window.localStorage.getItem("cfy.accountImport:v1") || "{}").server).toBe("https://original.example/api");
     coordinator.resetAccountImportCoordinatorForTests();
   });
+  it("retains the active receiving pointer if archival storage is unavailable", async () => {
+    const coordinator = await restored();
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    apiMocks.fetch.mockRejectedValueOnce({ response: { status: 404 } });
+    await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toBeDefined();
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    expect(JSON.parse(window.localStorage.getItem("cfy.accountImport:v1") || "{}").jobId).toBe("job-restore");
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    set.mockRestore();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("keeps an idle receiving status event in resumable failed state", async () => {
+    const coordinator = await restored();
+    window.dispatchEvent(new CustomEvent("cfy:account-import:status", { detail: { job_id: "job-restore" } }));
+    await waitFor(() => expect(apiMocks.fetch).toHaveBeenCalledTimes(2));
+    expect(coordinator.getAccountImportCoordinatorSnapshot().phase).toBe("failed");
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
   it("shows aggregate progress and times out an unreadable selected file without uploading", async () => {
     const coordinator = await restored();
     const stuck = file("conversations.json", "[]");
