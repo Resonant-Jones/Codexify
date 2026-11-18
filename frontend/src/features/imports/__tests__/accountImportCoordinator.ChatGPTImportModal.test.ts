@@ -485,7 +485,7 @@ describe("account import same-job recovery", () => {
   });
   it("retains the active receiving pointer if archival storage is unavailable", async () => {
     const coordinator = await restored();
-    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    const set = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
     apiMocks.fetch.mockRejectedValueOnce({ response: { status: 404 } });
     await expect(coordinator.startOpenAIAccountImport([file("conversations.json", "[]"), file("image.png", "png")])).rejects.toBeDefined();
     expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
