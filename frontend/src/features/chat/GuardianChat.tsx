@@ -125,6 +125,7 @@ import {
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
 import { useCodingLoopRuns } from "@/features/chat/codingLoop/CodingLoop";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useSlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
 import {
   markRuntimeRouteUnavailableIfNotFound,
   useRuntimeRouteCapability,
@@ -1040,6 +1041,7 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const slashCommandLibrary = useSlashCommandLibrary(auth, runtimeHealth?.backendReachable);
   const [landingGreetingIndex, setLandingGreetingIndex] = useState(
     randomLandingGreetingIndex
   );
@@ -4719,6 +4721,7 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
               />
               <Composer
+                slashCommandLibrary={slashCommandLibrary}
                 presentationMode={
                   isLandingPresentation ? "landing" : "conversation"
                 }

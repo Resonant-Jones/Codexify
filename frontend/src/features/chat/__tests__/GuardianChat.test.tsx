@@ -9,7 +9,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
-import api from "@/lib/api";
+import type { SlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
+import api, { fetchSlashCommandManifest } from "@/lib/api";
 
 const apiSpies = vi.hoisted(() => ({
   get: vi.fn(),
@@ -76,6 +77,9 @@ vi.mock("@/lib/api", async () => {
     getAuthToken: vi.fn(() => null),
     getBackendOutageRemainingMs: vi.fn(() => 0),
     getDevApiKey: vi.fn(() => null),
+    fetchSlashCommandManifest: vi.fn(async () => ({
+      schemaVersion: 1, manifestRevision: "manifest-fixture", commands: [],
+    })),
     getInFlightCompletionTurnId: vi.fn(() => null),
     hasRequestAuthCredential: vi.fn(() => true),
     readRuntimeApiKey: vi.fn(() => null),
@@ -304,11 +308,13 @@ vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     onSend,
     onProviderChange,
+    slashCommandLibrary,
   }: {
     onSend: (text: string, options?: { slashIntent?: Record<string, unknown> }) => Promise<void>;
     onProviderChange?: (providerId: string) => void;
+    slashCommandLibrary?: SlashCommandLibrary;
   }) => (
-    <div data-testid="composer-stub">
+    <div data-testid="composer-stub" data-manifest-revision={slashCommandLibrary?.manifest?.manifestRevision}>
       <button
         type="button"
         data-testid="composer-send"
@@ -686,6 +692,31 @@ describe("GuardianChat inference rail", () => {
         })
       );
     });
+  });
+
+  it("passes the authenticated catalog revision to the Composer", async () => {
+    renderChat();
+    await waitFor(() => expect(screen.getByTestId("composer-stub"))
+      .toHaveAttribute("data-manifest-revision", "manifest-fixture"));
+    expect(fetchSlashCommandManifest).toHaveBeenCalledWith(expect.any(AbortSignal));
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it("creates a Codex Entry draft through the existing send path", async () => {
+    composerState.slashIntent = {
+      commandId: "codex_entry",
+      rawToken: "/codex",
+      queryText: "",
+      intentKind: "codex",
+      retrievalHint: "none",
+      rawInput: "/codex",
+    };
+    renderChat("1");
+    await startTrackedRequest();
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith(
+      "/codex/entries/draft", expect.objectContaining({ thread_id: 1 })
+    ));
+    expect(apiMock.post).not.toHaveBeenCalledWith("/codex/entries", expect.anything());
   });
 
   it("routes /obsidian turns through Obsidian-only retrieval", async () => {

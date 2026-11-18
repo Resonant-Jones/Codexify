@@ -65,6 +65,9 @@ vi.mock("@/lib/api", () => ({
   buildChatThreadsPath: () => "/api/chat/threads",
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
+  fetchSlashCommandManifest: vi.fn(async () => ({
+    schemaVersion: 1, manifestRevision: "lifecycle-fixture", commands: [],
+  })),
   getAuthToken: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
   getDevApiKey: vi.fn(() => null),
@@ -98,6 +101,9 @@ vi.mock("@/lib/authState", () => ({
 vi.mock("@/lib/runtimeConfig", () => ({
   getRuntimeConfigHydrationState: () => "ready",
   getRuntimeConfigSync: () => ({ authMode: "remote" }),
+  getRuntimeConfigVersion: () => 0,
+  resolveApiUrl: (path: string) => path,
+  subscribeRuntimeConfigState: () => () => {},
 }));
 
 vi.mock("@/lib/guardianEventSource", () => {

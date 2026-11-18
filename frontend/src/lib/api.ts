@@ -1,5 +1,14 @@
 import axios from "axios";
 import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
+} from "@/contracts/runtimeTokens";
+import {
+  decodeSlashCommandManifest,
+  type SlashCommandIntentPayload,
+  type SlashCommandManifest,
+} from "@/contracts/slashCommands";
+import {
   markAuthUnauthenticatedFrom401,
   syncAuthStateFromCredentials,
 } from "@/lib/authState";
@@ -9,12 +18,7 @@ import {
   resolveBackendUrl,
   type RuntimeConfig,
 } from "@/lib/runtimeConfig";
-import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
-import {
-  ACCOUNT_AUTH_FAILURE_CODES,
-  ACCOUNT_AUTH_FAILURE_HEADER,
-} from "@/contracts/runtimeTokens";
 import type {
   PersonaVoicePreviewRequest,
   PersonaVoicePreviewResponse,
@@ -269,6 +273,21 @@ export function buildAuthenticatedFetchInit(
     ...(Object.keys(headers).length ? { headers } : {}),
     credentials: init.credentials ?? "include",
   };
+}
+
+export async function fetchSlashCommandManifest(
+  signal: AbortSignal
+): Promise<SlashCommandManifest> {
+  // This optional read uses the shared URL and credential resolution without
+  // feeding discovery failures into the completion transport's outage guard.
+  const response = await fetch(
+    resolveApiUrl("/api/chat/slash-commands/manifest"),
+    buildAuthenticatedFetchInit({ signal, cache: "no-store" })
+  );
+  if (!response.ok) {
+    throw new Error(`Slash command discovery returned HTTP ${response.status}`);
+  }
+  return decodeSlashCommandManifest(await response.json());
 }
 
 function resolveTimeoutMs(): number {

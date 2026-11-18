@@ -256,6 +256,9 @@ vi.mock("@/lib/api", () => ({
   clearInFlightCompletionTurnId: vi.fn(),
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
+  fetchSlashCommandManifest: vi.fn(async () => ({
+    schemaVersion: 1, manifestRevision: "lifecycle-fixture", commands: [],
+  })),
   hasRequestAuthCredential: vi.fn(() => true),
   updateThreadConfig: async (threadId: string | number, patch: Record<string, unknown>) => {
     const response = await apiSpies.patch(
@@ -276,6 +279,9 @@ vi.mock("@/lib/authState", () => ({
 
 vi.mock("@/lib/runtimeConfig", () => ({
   getRuntimeConfigHydrationState: () => "ready",
+  getRuntimeConfigVersion: () => 0,
+  resolveApiUrl: (path: string) => path,
+  subscribeRuntimeConfigState: () => () => {},
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
