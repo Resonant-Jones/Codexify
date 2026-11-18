@@ -150,6 +150,36 @@ def test_lost_final_response_reuses_admitted_bytes(account_import_service, monke
         send(service, record, offset=8, data=b"zz", chunk_sha256=digest(b"zz"))
 
 
+def test_admitted_file_replay_reads_only_the_claimed_chunk(account_import_service, monkeypatch):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    record = job(service)
+    send(service, record)
+    send(service, record, offset=4)
+    send(service, record, offset=8)
+    original = Path.open
+    bytes_read = []
+
+    def tracked_open(path, mode="r", *args, **kwargs):
+        handle = original(path, mode, *args, **kwargs)
+        if path.name != "movie.dat" or mode != "rb":
+            return handle
+
+        class Tracked:
+            def __enter__(self): return self
+            def __exit__(self, *exc): handle.close()
+            def seek(self, *args): return handle.seek(*args)
+            def read(self, size=-1):
+                data = handle.read(size)
+                bytes_read.append(len(data))
+                return data
+
+        return Tracked()
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    assert send(service, record, offset=4)["complete"]
+    assert sum(bytes_read) == 4
+
+
 def test_raw_upload_exhaustion_is_rechecked_and_parts_remain(account_import_service):
     service, _sessions, _trace, staging, _media = account_import_service
     record = job(service)

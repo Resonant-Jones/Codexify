@@ -112,6 +112,19 @@ def _enforce_manifest_read_limit(user_id: str) -> None:
         )
 
 
+def _enforce_import_chunk_rate_limit(user_id: str) -> None:
+    scope = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    try:
+        count = int(get_redis_client().eval(
+            _MANIFEST_RATE_SCRIPT, 1, f"codexify:account-import:chunk-rate:{scope}"
+        ))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Import upload rate limiter unavailable") from exc
+    if count > 600:
+        raise HTTPException(status_code=429, detail="Import upload rate limit exceeded",
+                            headers={"Retry-After": "60"})
+
+
 # The existing router/feature boundary owns this operation. Its route class
 # sanitizes validation/auth failures as well as service failures, before any
 # rejected client input or persisted SQL diagnostics can reach the response.
@@ -621,6 +634,7 @@ async def upload_openai_account_import_chunk(
 ):
     _ = api_key
     try:
+        await run_in_threadpool(_enforce_import_chunk_rate_limit, user_id)
         service = await run_in_threadpool(_get_account_import_service)
         data = await chunk.read(CHUNK_BYTES + 1)
         result = await run_in_threadpool(

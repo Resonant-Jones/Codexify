@@ -135,12 +135,9 @@ def stage_account_import_chunk(
                     handle.seek(offset)
                     if handle.read(len(data)) != data:
                         _fail(conflict, "The upload part conflicts with staged content.")
-                    handle.seek(0)
-                    digest = hashlib.sha256()
-                    while block := handle.read(1024 * 1024):
-                        digest.update(block)
-                    if digest.hexdigest() != file_sha256:
-                        _fail(AccountImportErrorCode.CHUNK_INTEGRITY, "Staged file integrity failed.")
+                    # stage_files already verified the whole-file digest before
+                    # durable admission. A retry proves only its claimed range;
+                    # rehashing 2 GiB on every 8 MiB replay enables I/O amplification.
                 return {"job": service.serialize_job(job), "received_bytes": file_size, "complete": True}
             # This is admission checking, not a reservation against raw uploads.
             # The existing final stage_files transaction checks these again.

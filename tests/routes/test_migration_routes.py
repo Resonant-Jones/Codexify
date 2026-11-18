@@ -28,6 +28,7 @@ def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def test_client(mock_auth, monkeypatch):
     monkeypatch.setattr(migration_routes, "_enforce_manifest_read_limit", lambda user_id: None)
+    monkeypatch.setattr(migration_routes, "_enforce_import_chunk_rate_limit", lambda user_id: None)
     app = FastAPI()
     app.dependency_overrides[
         migration_routes.require_api_key
@@ -1188,4 +1189,22 @@ def test_manifest_rate_limiter_is_shared_and_fail_closed(monkeypatch):
     client.eval.side_effect = RuntimeError("redis unavailable")
     with pytest.raises(HTTPException) as unavailable:
         migration_routes._enforce_manifest_read_limit("account-a")
+    assert unavailable.value.status_code == 503
+
+
+def test_chunk_rate_limiter_bounds_authenticated_replays(monkeypatch):
+    from fastapi import HTTPException
+
+    client = MagicMock()
+    monkeypatch.setattr(migration_routes, "get_redis_client", lambda: client)
+    client.eval.return_value = 600
+    migration_routes._enforce_import_chunk_rate_limit("account-a")
+    assert "account-a" not in client.eval.call_args.args[2]
+    client.eval.return_value = 601
+    with pytest.raises(HTTPException) as limited:
+        migration_routes._enforce_import_chunk_rate_limit("account-a")
+    assert limited.value.status_code == 429
+    client.eval.side_effect = RuntimeError("redis unavailable")
+    with pytest.raises(HTTPException) as unavailable:
+        migration_routes._enforce_import_chunk_rate_limit("account-a")
     assert unavailable.value.status_code == 503
