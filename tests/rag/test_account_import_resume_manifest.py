@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 import pytest
 
 from guardian.services.openai_account_import import AccountImportError, StagedImportFile
@@ -20,3 +22,26 @@ def test_resume_manifest_is_owner_scoped_and_excludes_storage(account_import_ser
     with pytest.raises(AccountImportError) as denied:
         service.get_upload_manifest(job_id=job["job_id"], user_id="account-b")
     assert denied.value.status_code == 404
+
+
+def test_manifest_pages_have_strict_response_byte_budget(account_import_service, monkeypatch):
+    service, _sessions, _trace, _staging, _media = account_import_service
+    long_path = "/".join(["directory" * 10] * 9)
+    entries = [{"path": f"{long_path}/{i:04d}", "size": 0, "sha256": "a" * 64}
+               for i in range(700)]
+    record = SimpleNamespace(
+        id="synthetic", source_system="openai", status="receiving",
+        total_file_count=700, total_byte_count=0, staged_manifest=entries,
+    )
+    monkeypatch.setattr(service, "_require_job", lambda session, job_id, user_id: record)
+    cursor = 0
+    seen = []
+    for _ in range(10):
+        page = service.get_upload_manifest(job_id="synthetic", user_id="account-a", cursor=cursor)
+        assert len(json.dumps(page, ensure_ascii=False).encode("utf-8")) <= 192 * 1024
+        seen.extend(page["files"])
+        if "next_cursor" not in page:
+            break
+        assert page["next_cursor"] == len(seen)
+        cursor = page["next_cursor"]
+    assert seen == entries

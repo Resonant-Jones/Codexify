@@ -1066,14 +1066,38 @@ export interface AccountImportManifest {
   total_file_count: number;
   total_byte_count: number;
   files: Array<{ path: string; size: number; sha256: string }>;
+  next_cursor?: number;
 }
 
 export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<AccountImportManifest> {
-  const response = await api.get<AccountImportManifest>(
-    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/manifest`,
-    ACCOUNT_IMPORT_REQUEST_CONFIG
-  );
-  return response.data;
+  const path = `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/manifest`;
+  const all: AccountImportManifest["files"] = [];
+  let cursor = 0;
+  let first: AccountImportManifest | null = null;
+  for (let page = 0; page < 200; page += 1) {
+    const response = await api.get<AccountImportManifest>(
+      cursor === 0 ? path : `${path}?cursor=${cursor}`,
+      ACCOUNT_IMPORT_REQUEST_CONFIG
+    );
+    const value = response.data;
+    if (!first) first = value;
+    if (!value || value.job_id !== first.job_id ||
+        value.source_system !== first.source_system || value.status !== first.status ||
+        value.total_file_count !== first.total_file_count ||
+        value.total_byte_count !== first.total_byte_count ||
+        !Array.isArray(value.files) || all.length + value.files.length > 20_000) {
+      throw new Error("Account import manifest pages changed or exceeded the supported limit.");
+    }
+    all.push(...value.files);
+    const next = value.next_cursor;
+    if (next === undefined) return { ...first, files: all };
+    if (!Number.isSafeInteger(next) || next <= cursor ||
+        next !== cursor + value.files.length || next > 20_000) {
+      throw new Error("Account import manifest pagination is invalid.");
+    }
+    cursor = next;
+  }
+  throw new Error("Account import manifest exceeded the bounded page limit.");
 }
 
 export async function uploadOpenAIAccountImportBatch(

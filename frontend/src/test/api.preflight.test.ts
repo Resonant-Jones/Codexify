@@ -140,7 +140,7 @@ describe("backend outage recovery", () => {
     vi.stubEnv("VITE_ENABLE_REQUEST_GUARD", "false");
     const adapter = vi.fn(async (config: any) => {
       if (config.url.includes("failure")) throw Object.assign(new Error("Network Error"), { config });
-      return { data: {}, status: 200, statusText: "OK", headers: {}, config };
+      return { data: config.url.includes("/manifest") ? { files: [] } : {}, status: 200, statusText: "OK", headers: {}, config };
     });
     api.defaults.adapter = adapter;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));

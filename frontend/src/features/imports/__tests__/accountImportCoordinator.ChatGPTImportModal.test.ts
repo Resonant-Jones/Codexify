@@ -475,6 +475,41 @@ describe("account import same-job recovery", () => {
     expect(JSON.parse(retained[0]).jobId).toBe("job-restore");
     coordinator.resetAccountImportCoordinatorForTests();
   });
+  it("recovers an archived checkpoint only after its current account can read it", async () => {
+    const coordinator = await restored();
+    apiMocks.fetch.mockRejectedValueOnce({ response: { status: 404 } });
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "png"),
+    ])).rejects.toBeDefined();
+    expect(coordinator.hasArchivedAccountImport()).toBe(true);
+    apiMocks.fetch.mockRejectedValueOnce({ response: { status: 404 } });
+    expect(await coordinator.restoreArchivedAccountImport()).toBe(false);
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job).toBeNull();
+    apiMocks.fetch.mockResolvedValueOnce(job());
+    expect(await coordinator.restoreArchivedAccountImport()).toBe(true);
+    expect(coordinator.getAccountImportCoordinatorSnapshot().job?.job_id).toBe("job-restore");
+    expect(coordinator.getAccountImportCoordinatorSnapshot().error).toMatch(/original export/);
+    expect(coordinator.hasArchivedAccountImport()).toBe(false);
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+  it("never overwrites another tab's durable checkpoint when its Web Lock is held", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    coordinator.getAccountImportCoordinatorSnapshot(); // stale idle tab
+    const durable = JSON.stringify({
+      v: 1, jobId: "owner-tab-job", status: "receiving", sourceSystem: "openai",
+      selectionFingerprint: defaultFingerprint(),
+    });
+    window.localStorage.setItem("cfy.accountImport:v1", durable);
+    Object.defineProperty(navigator, "locks", { configurable: true, value: {
+      request: vi.fn(async (_name, _options, callback) => callback(null)),
+    } });
+    await expect(coordinator.startOpenAIAccountImport([
+      file("conversations.json", "[]"), file("image.png", "png"),
+    ])).rejects.toThrow(/another tab/);
+    expect(window.localStorage.getItem("cfy.accountImport:v1")).toBe(durable);
+    expect(apiMocks.create).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
   it("does not look up or resume a checkpoint belonging to a different server", async () => {
     window.localStorage.setItem("cfy.accountImport:v1", JSON.stringify({ v: 1, jobId: "job-restore", status: "receiving", sourceSystem: "openai", selectionFingerprint: defaultFingerprint(), server: "https://original.example/api" }));
     const coordinator = await import("@/features/imports/accountImportCoordinator");

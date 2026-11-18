@@ -374,21 +374,40 @@ class OpenAIAccountImportService:
             }
             return self.serialize_job(SimpleNamespace(**values))
 
-    def get_upload_manifest(self, *, job_id: str, user_id: str) -> dict[str, Any]:
+    def get_upload_manifest(self, *, job_id: str, user_id: str, cursor: int = 0) -> dict[str, Any]:
         """Owner-only receiving checkpoint. Never expose internal storage locators."""
+        if not isinstance(cursor, int) or cursor < 0 or cursor > self.limits.max_files:
+            raise AccountImportError("Invalid manifest page.", code="invalid_manifest_cursor", status_code=422)
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
-            return {
+            items = job.staged_manifest or []
+            result = {
                 "job_id": job.id,
                 "source_system": job.source_system,
                 "status": job.status,
                 "total_file_count": job.total_file_count,
                 "total_byte_count": job.total_byte_count,
-                "files": [
-                    {"path": item["path"], "size": item["size"], "sha256": item["sha256"]}
-                    for item in (job.staged_manifest or [])
-                ],
+                "files": [],
             }
+            # Bound each response by both item count and serialized bytes.
+            # Keep the declared totals unchanged across pages.
+            used = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            next_cursor = cursor
+            for item in items[cursor:cursor + 512]:
+                entry = {"path": item["path"], "size": item["size"], "sha256": item["sha256"]}
+                entry_bytes = len(json.dumps(entry, ensure_ascii=False).encode("utf-8")) + 1
+                if result["files"] and used + entry_bytes > 190 * 1024:
+                    break
+                if used + entry_bytes > 190 * 1024:
+                    raise AccountImportError("Manifest entry exceeds response budget.", code="manifest_entry_too_large", status_code=409)
+                result["files"].append(entry)
+                used += entry_bytes
+                next_cursor += 1
+            if next_cursor < len(items):
+                result["next_cursor"] = next_cursor
+            if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 192 * 1024:
+                raise AccountImportError("Manifest page exceeded response budget.", code="manifest_page_too_large", status_code=409)
+            return result
 
     def get_worker_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:

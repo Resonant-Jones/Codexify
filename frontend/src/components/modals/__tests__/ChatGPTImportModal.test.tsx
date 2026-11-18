@@ -30,6 +30,8 @@ vi.mock("@/features/imports/accountImportCoordinator", () => ({
   getAccountImportCoordinatorSnapshot: () => coordinator.state.current,
   startOpenAIAccountImport: coordinator.start,
   subscribeAccountImportCoordinator: coordinator.subscribe,
+  hasArchivedAccountImport: () => false,
+  restoreArchivedAccountImport: vi.fn().mockResolvedValue(false),
 }));
 
 // Use `importOriginal` so the real module exports are preserved. The modal
