@@ -1,22 +1,31 @@
 import json
+import hashlib
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, Any, Optional
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
+
+from guardian.protocol_tokens import AccountImportErrorCode
+from guardian.services.account_import_chunks import (
+    CHUNK_BYTES, CHUNK_REQUEST_BYTES, stage_account_import_chunk,
+)
 
 from guardian.core.dependencies import (
     chatlog_db,
     get_account_user_id as get_request_user_id,
     require_account_session as require_api_key,
 )
+from guardian.queue.redis_queue import get_redis_client
 from guardian.services.account_restore import (
     AccountRestoreError,
     AccountRestoreService,
@@ -77,6 +86,43 @@ from guardian.services.chronicle_preview import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Migration"])
+
+_MANIFEST_RATE_SCRIPT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], 60) end
+return count
+"""
+
+
+def _enforce_manifest_read_limit(user_id: str) -> None:
+    # Shared Redis window, not a per-process counter. Hash the account scope
+    # so Redis keys do not expose an account identifier.
+    scope = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    try:
+        count = int(get_redis_client().eval(
+            _MANIFEST_RATE_SCRIPT, 1, f"codexify:account-import:manifest-rate:{scope}"
+        ))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Manifest rate limiter unavailable") from exc
+    if count > 120:
+        raise HTTPException(
+            status_code=429,
+            detail="Manifest read rate limit exceeded",
+            headers={"Retry-After": "60"},
+        )
+
+
+def _enforce_import_chunk_rate_limit(user_id: str) -> None:
+    scope = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    try:
+        count = int(get_redis_client().eval(
+            _MANIFEST_RATE_SCRIPT, 1, f"codexify:account-import:chunk-rate:{scope}"
+        ))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Import upload rate limiter unavailable") from exc
+    if count > 600:
+        raise HTTPException(status_code=429, detail="Import upload rate limit exceeded",
+                            headers={"Retry-After": "60"})
 
 
 # The existing router/feature boundary owns this operation. Its route class
@@ -530,6 +576,88 @@ async def create_openai_account_import(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+class _BoundedAccountImportChunkRoute(APIRoute):
+    """Limit multipart spooling, including clients without Content-Length."""
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def bounded(request: Request):
+            def too_large():
+                return JSONResponse(status_code=413, content={"detail": {
+                    "code": AccountImportErrorCode.CHUNK_INVALID.value,
+                    "message": "Upload part request exceeds the bounded transport limit.",
+                }})
+            declared = request.headers.get("content-length")
+            if declared is not None:
+                try:
+                    length = int(declared)
+                    if length < 0:
+                        raise ValueError("negative length")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid request length") from None
+                if length > CHUNK_REQUEST_BYTES:
+                    return too_large()
+            received = 0
+            exceeded = False
+
+            async def receive():
+                nonlocal received, exceeded
+                message = await request.receive()
+                if message["type"] == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > CHUNK_REQUEST_BYTES:
+                        exceeded = True
+                        # Starlette closes multipart temporary files on this
+                        # specific exception; remap only our own limit failure.
+                        raise MultiPartException("Bounded upload part request exceeded")
+                return message
+            try:
+                return await handler(Request(request.scope, receive=receive))
+            except StarletteHTTPException:
+                if exceeded:
+                    return too_large()
+                raise
+        return bounded
+
+
+async def upload_openai_account_import_chunk(
+    job_id: str,
+    chunk: UploadFile = File(...),
+    relative_path: str = Form(...),
+    file_size: int = Form(...),
+    file_sha256: str = Form(...),
+    chunk_sha256: str = Form(...),
+    offset: int = Form(...),
+    content_type: Optional[str] = Form(default=None, max_length=256),
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    _ = api_key
+    try:
+        await run_in_threadpool(_enforce_import_chunk_rate_limit, user_id)
+        service = await run_in_threadpool(_get_account_import_service)
+        data = await chunk.read(CHUNK_BYTES + 1)
+        result = await run_in_threadpool(
+            stage_account_import_chunk, service, job_id=job_id, user_id=user_id,
+            relative_path=relative_path, file_size=file_size, file_sha256=file_sha256,
+            chunk_sha256=chunk_sha256, offset=offset, data=data,
+            content_type=content_type,
+        )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    finally:
+        await chunk.close()
+
+
+router.add_api_route(
+    "/api/imports/openai-account/{job_id}/file-chunks",
+    upload_openai_account_import_chunk,
+    methods=["POST"],
+    route_class_override=_BoundedAccountImportChunkRoute,
+)
+
+
 @router.post("/api/imports/openai-account/{job_id}/files")
 async def upload_openai_account_import_batch(
     job_id: str,
@@ -634,6 +762,28 @@ async def get_openai_account_import(
     try:
         service = await run_in_threadpool(_get_account_import_service)
         return await run_in_threadpool(service.get_job, job_id=job_id, user_id=user_id)
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/imports/openai-account/{job_id}/manifest")
+async def get_openai_account_import_manifest(
+    job_id: str,
+    cursor: int = Query(default=0, ge=0),
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Read the authenticated owner's upload checkpoint, without storage URLs."""
+    _ = api_key
+    await run_in_threadpool(_enforce_manifest_read_limit, user_id)
+    try:
+        service = await run_in_threadpool(_get_account_import_service)
+        result = await run_in_threadpool(
+            service.get_upload_manifest, job_id=job_id, user_id=user_id, cursor=cursor
+        )
+        return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
     except AccountImportError as exc:
         _raise_account_import_error(exc)
     except RuntimeError as exc:

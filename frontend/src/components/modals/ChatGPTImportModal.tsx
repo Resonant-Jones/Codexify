@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import {
   clearAccountImportCoordinatorResult,
   getAccountImportCoordinatorSnapshot,
+  hasArchivedAccountImport,
+  restoreArchivedAccountImport,
   startOpenAIAccountImport,
   subscribeAccountImportCoordinator,
 } from "@/features/imports/accountImportCoordinator";
@@ -201,6 +203,11 @@ export function ChatGPTImportModal({
     getAccountImportCoordinatorSnapshot,
     getAccountImportCoordinatorSnapshot
   );
+  React.useEffect(() => {
+    const original = accountImport.job?.status === "receiving"
+      ? accountImport.job.source_system : null;
+    if (original && isAccountImportSourceSystem(original)) setSourceSystem(original);
+  }, [accountImport.job?.status, accountImport.job?.source_system]);
   const accountImportActive = accountImport.phase !== "idle";
   const accountImportTransferring = ["preflighting", "transferring"].includes(
     accountImport.phase
@@ -214,9 +221,8 @@ export function ChatGPTImportModal({
 
   const setSelectedFile = (nextFile: File | null) => {
     if (
-      ["completed", "completed_with_warnings", "failed"].includes(
-        accountImport.phase
-      )
+      (["completed", "completed_with_warnings"].includes(accountImport.phase) ||
+        (accountImport.phase === "failed" && accountImport.job?.status !== "receiving"))
     ) {
       clearAccountImportCoordinatorResult();
     }
@@ -384,7 +390,7 @@ export function ChatGPTImportModal({
                     value={option.value}
                     checked={checked}
                     disabled={
-                      status === "uploading" || accountImportInProgress
+                      status === "uploading" || accountImportInProgress || accountImport.job?.status === "receiving"
                     }
                     onChange={() => {
                       setSourceSystem(option.value);
@@ -508,11 +514,21 @@ export function ChatGPTImportModal({
               }}
             >
               <div className="font-semibold">
-                {accountImport.phase === "preflighting"
+                {accountImport.verification
+                  ? "Verifying staged files on this device..."
+                  : accountImport.phase === "preflighting"
                   ? "Checking import runtime..."
                   : "Transferring export..."}
               </div>
               <div className="mt-1 text-xs opacity-80">
+                {accountImport.verification && (
+                  <div role="status" aria-live="polite">
+                    {accountImport.verification.completed} of {accountImport.verification.total} files verified
+                    {" "}({formatFileSize(accountImport.verification.bytes)} of {formatFileSize(accountImport.verification.totalBytes)}).
+                    {" "}{accountImport.verification.stage === "reading" ? "Reading" : "Hashing"} the next selected file.
+                    {" "}No remaining files are uploaded until verification completes.
+                  </div>
+                )}
                 {accountImport.job
                   ? `${accountImport.job.uploaded_file_count} of ${accountImport.job.total_file_count} files staged. `
                   : "Preparing staged intake. "}
@@ -713,6 +729,16 @@ export function ChatGPTImportModal({
                 </details>
               ) : null}
             </div>
+          )}
+          {!accountImport.job && hasArchivedAccountImport() && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => { void restoreArchivedAccountImport(); }}
+            >
+              Recover saved import for this account
+            </Button>
           )}
         </div>
 

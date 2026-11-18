@@ -374,6 +374,41 @@ class OpenAIAccountImportService:
             }
             return self.serialize_job(SimpleNamespace(**values))
 
+    def get_upload_manifest(self, *, job_id: str, user_id: str, cursor: int = 0) -> dict[str, Any]:
+        """Owner-only receiving checkpoint. Never expose internal storage locators."""
+        if not isinstance(cursor, int) or cursor < 0 or cursor > self.limits.max_files:
+            raise AccountImportError("Invalid manifest page.", code="invalid_manifest_cursor", status_code=422)
+        with self.db.get_session() as session:
+            job = self._require_job(session, job_id, user_id)
+            items = job.staged_manifest or []
+            result = {
+                "job_id": job.id,
+                "source_system": job.source_system,
+                "status": job.status,
+                "total_file_count": job.total_file_count,
+                "total_byte_count": job.total_byte_count,
+                "files": [],
+            }
+            # Bound each response by both item count and serialized bytes.
+            # Keep the declared totals unchanged across pages.
+            used = len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+            next_cursor = cursor
+            for item in items[cursor:cursor + 512]:
+                entry = {"path": item["path"], "size": item["size"], "sha256": item["sha256"]}
+                entry_bytes = len(json.dumps(entry, ensure_ascii=False).encode("utf-8")) + 1
+                if result["files"] and used + entry_bytes > 190 * 1024:
+                    break
+                if used + entry_bytes > 190 * 1024:
+                    raise AccountImportError("Manifest entry exceeds response budget.", code="manifest_entry_too_large", status_code=409)
+                result["files"].append(entry)
+                used += entry_bytes
+                next_cursor += 1
+            if next_cursor < len(items):
+                result["next_cursor"] = next_cursor
+            if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 192 * 1024:
+                raise AccountImportError("Manifest page exceeded response budget.", code="manifest_page_too_large", status_code=409)
+            return result
+
     def get_worker_job(self, *, job_id: str, user_id: str) -> dict[str, Any]:
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
@@ -488,7 +523,6 @@ class OpenAIAccountImportService:
             manifest = [dict(item) for item in (job.staged_manifest or [])]
             by_path = {str(item.get("path")): item for item in manifest}
             additions: list[dict[str, Any]] = []
-            duplicate_count = 0
             for item in normalized_batch:
                 existing = by_path.get(item["path"])
                 if existing is not None:
@@ -500,7 +534,8 @@ class OpenAIAccountImportService:
                             f"Conflicting duplicate import path: {item['path']}",
                             code="conflicting_duplicate_path",
                         )
-                    duplicate_count += 1
+                    # A matching staged path may be a transport replay after
+                    # the response was lost. It is not a source duplicate.
                     continue
                 additions.append(item)
                 by_path[item["path"]] = item
@@ -554,7 +589,6 @@ class OpenAIAccountImportService:
             job.staged_manifest = manifest
             job.uploaded_file_count = len(manifest)
             job.uploaded_byte_count = projected_bytes
-            job.duplicate_count = int(job.duplicate_count or 0) + duplicate_count
             job.updated_at = _utcnow()
 
             # A commit exception can leave the manifest durable. Once commit
