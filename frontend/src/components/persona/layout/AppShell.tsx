@@ -14,9 +14,7 @@ import { toRgba, useBackdropLuminance } from "@/theme/backdropLuminance";
 import {
   onReducedTransparencyChange,
   prefersReducedTransparency,
-  readGlassTreatment,
   resolveGlassMaterial,
-  writeGlassTreatment,
   type GlassTreatment,
 } from "@/theme/glassTreatment";
 
@@ -32,6 +30,7 @@ import RefractiveGlassCard from "@/components/ui/RefractiveGlassCard";
 import GuardianChat from "@/features/chat/GuardianChat";
 import DashboardView from "@/components/dashboard/DashboardView";
 import SettingsView from "@/features/settings/SettingsView";
+import { accountPresentation, useAccountPresentationSession } from "@/features/settings/accountPresentation";
 import ConfigurationInspectorView from "@/features/configurationInspector/ConfigurationInspectorView";
 import type { ConfigurationSnapshot } from "@/features/configurationInspector/contracts";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
@@ -64,8 +63,6 @@ import { useShellViewportProfile } from "./shellBreakpointContract";
 import { getMobileShellProfile } from "./mobileShellProfile";
 import {
   setWallpaperPreference,
-  WALLPAPER_CHANGE_EVENT,
-  WALLPAPER_STORAGE_KEY,
 } from "@/lib/wallpaperPreference";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import useRuntimeHealth, {
@@ -147,7 +144,6 @@ import "./AppShell.css";
 import {
   applySurfaceWarmth,
   injectCssVars,
-  normalizeSurfaceWarmth,
 } from "@/theme";
 injectCssVars();
 /* ──────────────────────────────────────────────────────────────────────────
@@ -849,9 +845,6 @@ type GeneralProjectIdSource = "storage" | "validated" | "user";
    This function takes in any value and ensures it matches one of our accepted
    theme modes: "light", "dark", or "system". If not, we default to "system".
    ───────────────────────────────────────────────────────────────────────────── */
-function coerceMode(v: unknown): ThemeMode {
-  return v === "light" || v === "dark" || v === "system" ? v : "system";
-}
 
 function hexToRgbChannels(input: string): { r: number; g: number; b: number } | null {
   if (!input) return null;
@@ -893,47 +886,6 @@ function getReadableTextColor(base: string): string {
    lasting until midnight. This is useful for one-day theme changes that
    shouldn't persist forever.
    ───────────────────────────────────────────────────────────────────────────── */
-const SESSION_KEY = "cfy.sessionTheme"
-const SESSION_UNTIL = "cfy.sessionThemeUntil"
-
-// Returns the timestamp for the next local midnight.
-function nextLocalMidnight() {
-  const d = new Date()
-  d.setHours(24, 0, 0, 0)
-  return d.getTime()
-}
-
-// Checks if there's a valid theme override for this session in storage.
-function readSessionOverride(): Resolved | null {
-  if (typeof window === "undefined") return null
-  try {
-    const untilRaw = window.localStorage.getItem(SESSION_UNTIL)
-    if (!untilRaw) return null
-    const until = Number(untilRaw)
-    // If expired, remove and ignore.
-    if (!Number.isFinite(until) || Date.now() > until) {
-      window.localStorage.removeItem(SESSION_KEY)
-      window.localStorage.removeItem(SESSION_UNTIL)
-      return null
-    }
-    const v = window.localStorage.getItem(SESSION_KEY)
-    return v === "dark" || v === "light" ? v : null
-  } catch {
-    return null
-  }
-}
-
-// Writes a session theme override, or clears it if null.
-function writeSessionOverride(v: Resolved | null) {
-  if (typeof window === "undefined") return
-  if (v == null) {
-    window.localStorage.removeItem(SESSION_KEY)
-    window.localStorage.removeItem(SESSION_UNTIL)
-  } else {
-    window.localStorage.setItem(SESSION_KEY, v)
-    window.localStorage.setItem(SESSION_UNTIL, String(nextLocalMidnight()))
-  }
-}
 
 function resolveProviderRuntimeState(
   runtimeHealth: {
@@ -977,6 +929,7 @@ export default function AppShell({
   startupOverlay = null,
 }: AppShellProps) {
   const auth = useAuthState();
+  const accountAppearance = useAccountPresentationSession();
   const shellContentRef = React.useRef<HTMLDivElement | null>(null);
   const { lastEvent } = useLiveEvents();
   const runtimeHealth = useRuntimeHealth();
@@ -1135,23 +1088,21 @@ export default function AppShell({
     window.addEventListener("cfy:continuationToast", handler as any);
     return () => window.removeEventListener("cfy:continuationToast", handler as any);
   }, []);
-  /* ─────────────────────────────────────────────────────────────────────────────
-     🧠 Theme Mode Logic
-     - `mode`: The user's chosen theme mode (light, dark, or system)
-     - `systemPrefersDark`: Tracks the OS-level dark mode preference
-     - `sessionOverride`: A one-day override for the theme
-     We keep all three in sync and resolve to either "light" or "dark" for rendering.
-     ───────────────────────────────────────────────────────────────────────────── */
-  const [mode, setMode] = useState<ThemeMode>(() => {
-    if (typeof window === "undefined") return "system";
-    const raw = window.localStorage.getItem("cfy.themeMode");
-    return coerceMode(raw);
-  });
+  // Resolve the account theme against OS appearance when System is selected.
+  React.useEffect(() => {
+    if (!accountAppearance.error) return;
+    const epoch = accountAppearance.epoch;
+    window.dispatchEvent(new CustomEvent("cfy:toast", { detail: {
+      message: accountAppearance.error, actionLabel: "Retry",
+      onAction: () => { if (accountPresentation.getSnapshot().epoch === epoch) accountPresentation.retry(); },
+    } }));
+  }, [accountAppearance.error, accountAppearance.epoch]);
+  const mode = accountAppearance.settings.theme_mode;
+  const setMode = useCallback((value: ThemeMode) => accountPresentation.update({ theme_mode: value }, accountAppearance.epoch), [accountAppearance.epoch]);
   const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
-  const [sessionOverride, setSessionOverride] = useState<Resolved | null>(() => readSessionOverride());
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🧠 Layout Mode State (Focus vs Zen)
@@ -1305,29 +1256,13 @@ export default function AppShell({
       else mm.removeListener(handler)
     }
   }, [])
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    // Handle theme/session changes from other tabs/windows
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === SESSION_KEY || e.key === SESSION_UNTIL) setSessionOverride(readSessionOverride())
-      if (e.key === "cfy.themeMode") setMode(coerceMode(window.localStorage.getItem("cfy.themeMode")))
-    }
-    window.addEventListener("storage", onStorage)
-    // Periodically check if the session override expired
-    const t = window.setInterval(() => setSessionOverride(readSessionOverride()), 60_000)
-    return () => {
-      window.removeEventListener("storage", onStorage)
-      window.clearInterval(t)
-    }
-  }, [])
 
   // Decide the final theme mode for this session
   const resolved: Resolved = useMemo(() => {
-    if (sessionOverride) return sessionOverride;
     if (mode === "dark") return "dark";
     if (mode === "light") return "light";
     return systemPrefersDark ? "dark" : "light";
-  }, [mode, systemPrefersDark, sessionOverride]);
+  }, [mode, systemPrefersDark]);
 
   // Actually apply the theme class to the <html> element
   useEffect(() => {
@@ -1335,11 +1270,6 @@ export default function AppShell({
     document.documentElement.classList.toggle("dark", resolved === "dark")
   }, [resolved])
 
-  // Save user theme mode to localStorage when changed
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    window.localStorage.setItem("cfy.themeMode", mode)
-  }, [mode])
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🗂️ Persistent User and App State
@@ -1347,14 +1277,14 @@ export default function AppShell({
      We sync them with localStorage so they persist across reloads.
      ───────────────────────────────────────────────────────────────────────────── */
   const [guardianName, setGuardianName] = useState<string>(() => (typeof window === "undefined" ? "Guardian" : localStorage.getItem("cfy.assistantName") || "Guardian"));
-  const [userName, setUserName] = useState<string>(() => (typeof window === "undefined" ? "You" : localStorage.getItem("cfy.userName") || "You"));
+  const userName = accountAppearance.greetingName ?? "";
+  const setUserName = useCallback((value: string) => { void accountPresentation.saveGreeting(value); }, []);
   const [role, setRole] = useState<string>(() => (typeof window === "undefined" ? "" : localStorage.getItem("cfy.role") || ""));
   const [notes, setNotes] = useState<string>(() => (typeof window === "undefined" ? "" : localStorage.getItem("cfy.notes") || ""));
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cfy.assistantName", guardianName); }, [guardianName]);
   const [systemPrompt, setSystemPrompt] = useState<string>(() => (typeof window === "undefined" ? "You are a Guardian, a partner in thought. Your primary goal is to foster the user's autonomy and creativity." : localStorage.getItem("cfy.systemPrompt") || "You are a Guardian, a partner in thought. Your primary goal is to foster the user's autonomy and creativity."));
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("cfy.userName", userName);
       localStorage.setItem("cfy.role", role);
       localStorage.setItem("cfy.notes", notes);
       localStorage.setItem("cfy.systemPrompt", systemPrompt);
@@ -1545,24 +1475,8 @@ export default function AppShell({
       window.removeEventListener("cfy:threads:refresh", syncRouteState as EventListener);
     };
   }, []);
-  const [wallpaper, setWallpaper] = useState<string | null>(() => (typeof window === "undefined" ? "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=600&auto=format&fit=crop" : localStorage.getItem(WALLPAPER_STORAGE_KEY)));
+  const wallpaper = accountAppearance.wallpaperSrc;
   const selectedWallpaperMedia = useRenderableMediaSrc(wallpaper);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === WALLPAPER_STORAGE_KEY) setWallpaper(event.newValue);
-    };
-    const onWallpaperChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ url: string | null }>).detail;
-      setWallpaper(detail?.url ?? null);
-    };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
-    };
-  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      📄 SECTION: Document and Gallery State
@@ -2012,20 +1926,12 @@ export default function AppShell({
     () => getDocumentUploadScope(documentsScope),
     [documentsScope]
   );
-  const [baseColor, setBaseColor] = useState<string>(() => (typeof window === "undefined" ? "#6B7280" : localStorage.getItem("cfy.baseColor") || "#6B7280"));
-  // Utility: parse a number from unknown input, fall back & clamp to [0,1]
-  function safeNumber(val: unknown, fallback: number): number {
-    const n = Number(val);
-    return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
-  }
-  const [depth, setDepth] = useState<number>(() => {
-    if (typeof window === "undefined") return 0.6;
-    return safeNumber(localStorage.getItem("cfy.depth"), 0.6);
-  });
-  const [fade, setFade] = useState<number>(() => {
-    if (typeof window === "undefined") return 0.4;
-    return safeNumber(localStorage.getItem("cfy.fade"), 0.4);
-  });
+  const baseColor = accountAppearance.settings.base_color;
+  const setBaseColor = useCallback((value: string) => accountPresentation.update({ base_color: value }, accountAppearance.epoch), [accountAppearance.epoch]);
+  const depth = accountAppearance.settings.background_depth;
+  const setDepth = useCallback((value: number) => accountPresentation.update({ background_depth: value }, accountAppearance.epoch), [accountAppearance.epoch]);
+  const fade = accountAppearance.settings.background_fade;
+  const setFade = useCallback((value: number) => accountPresentation.update({ background_fade: value }, accountAppearance.epoch), [accountAppearance.epoch]);
   const [dashboardThreadRows, setDashboardThreadRows] = useState<number>(() => {
     if (typeof window === "undefined") return 2;
     const raw = Number(window.localStorage.getItem("cfy.dashboard.threadRows"));
@@ -2034,29 +1940,19 @@ export default function AppShell({
   });
   // Surface Tuning — manual "True Tone" for shared AppShell surfaces.
   // Defaults (50 / 0) preserve the existing neutral look exactly.
-  const [surfaceDepth, setSurfaceDepth] = useState<number>(() => {
-    if (typeof window === "undefined") return 50;
-    const raw = Number(window.localStorage.getItem("cfy.surfaceDepth"));
-    if (!Number.isFinite(raw)) return 50;
-    return Math.max(0, Math.min(100, Math.round(raw)));
-  });
+  const surfaceDepth = accountAppearance.settings.surface_depth;
+  const setSurfaceDepth = useCallback((value: number) => accountPresentation.update({ surface_depth: value }, accountAppearance.epoch), [accountAppearance.epoch]);
   // Surface Warmth — restored bidirectional material control (-100–100).
   // Positive Light-mode values use the expanded cream/yellow paper curve.
-  const [surfaceWarmth, setSurfaceWarmth] = useState<number>(() => {
-    if (typeof window === "undefined") return 0;
-    const raw = Number(window.localStorage.getItem("cfy.surfaceWarmth"));
-    if (!Number.isFinite(raw)) return 0;
-    return normalizeSurfaceWarmth(raw);
-  });
+  const surfaceWarmth = accountAppearance.settings.surface_warmth;
+  const setSurfaceWarmth = useCallback((value: number) => accountPresentation.update({ surface_warmth: value }, accountAppearance.epoch), [accountAppearance.epoch]);
 
   // Glass Treatment — a material axis orthogonal to every other appearance
   // axis per ADR-064. Stored under its own key and never derived from the
   // theme mode, Surface Depth, Surface Warmth, Paper Tone, or Accent.
   // The saved preference is held separately from the effective treatment so
   // an accessibility override never rewrites the user's choice.
-  const [glassTreatment, setGlassTreatmentState] = useState<GlassTreatment>(
-    () => readGlassTreatment()
-  );
+  const glassTreatment = accountAppearance.settings.glass_treatment;
   const [reducedTransparency, setReducedTransparency] = useState<boolean>(
     () => prefersReducedTransparency()
   );
@@ -2066,31 +1962,13 @@ export default function AppShell({
     [glassTreatment, reducedTransparency]
   );
   const setGlassTreatment = useCallback((next: GlassTreatment) => {
-    writeGlassTreatment(next);
-    setGlassTreatmentState(next);
-  }, []);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("cfy.baseColor", baseColor);
-      localStorage.setItem("cfy.depth", String(depth));
-      localStorage.setItem("cfy.fade", String(fade));
-    }
-  }, [baseColor, depth, fade]);
+    accountPresentation.update({ glass_treatment: next }, accountAppearance.epoch);
+  }, [accountAppearance.epoch]);
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem("cfy.dashboard.threadRows", String(dashboardThreadRows));
     }
   }, [dashboardThreadRows]);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("cfy.surfaceDepth", String(surfaceDepth));
-    }
-  }, [surfaceDepth]);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("cfy.surfaceWarmth", String(surfaceWarmth));
-    }
-  }, [surfaceWarmth]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🌈 SECTION: Color Helpers and Gradient Generators
@@ -3674,17 +3552,6 @@ export default function AppShell({
      When no wallpaper is set, we dramatically adjust background depth/fade
      based on the current theme for a more expressive look.
      ───────────────────────────────────────────────────────────────────────────── */
-  useEffect(() => {
-    if (wallpaper) return; // wallpaper drives the look instead
-    if (resolved === "dark") {
-      setDepth(0.92);
-      setFade(0.1);
-    } else {
-      setDepth(0.1);
-      setFade(0.9);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved, wallpaper]);
 
   /* ─────────────────────────────────────────────────────────────────────────────
      🚪 SECTION: Main AppShell Render
@@ -4697,7 +4564,7 @@ export default function AppShell({
           y={galleryMenu.y}
           onClose={() => setGalleryMenu(null)}
           items={[
-            ...(galleryMenu.src ? [{ label: "Set as wallpaper", onClick: () => { setWallpaperPreference(galleryMenu.src!); } }] : []),
+            ...(galleryMenu.src ? [{ label: "Set as wallpaper", onClick: () => { setWallpaperPreference(galleryMenu.src!, accountAppearance.epoch); } }] : []),
             ...(galleryMenu.src ? [{ label: "Generate Prompt", onClick: () => generatePromptForImage(galleryMenu.src!) }] : []),
             ...(galleryMenu.src ? [{ label: "Delete", onClick: () => {
               const src = galleryMenu.src!;

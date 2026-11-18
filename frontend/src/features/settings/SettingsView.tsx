@@ -1,4 +1,6 @@
 import HelpAndLearning from "@/features/onboarding/HelpAndLearning";
+import AccountAppearancePanel from "./components/AccountAppearancePanel";
+import { accountPresentation, useAccountPresentation } from "./accountPresentation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -67,7 +69,6 @@ import { useRuntimeRouteCapabilities } from "@/lib/runtimeRouteCapabilities";
 import type { RuntimeConfig } from "@/lib/runtimeConfig";
 import {
   GLASS_TREATMENTS,
-  DEFAULT_GLASS_TREATMENT,
   type GlassTreatment,
 } from "@/theme/glassTreatment";
 
@@ -319,7 +320,6 @@ export function SettingsView({
   guardianName,
   setGuardianName,
   userName,
-  setUserName,
   role,
   setRole,
   notes,
@@ -332,7 +332,6 @@ export function SettingsView({
   setFade,
   resolved,
   wallpaper,
-  setWallpaper,
   extColors,
   setExtColors,
   dashboardThreadRows,
@@ -413,7 +412,7 @@ export function SettingsView({
     null
   );
   const [name, setName] = useState(guardianName);
-  const [uName, setUName] = useState(userName);
+  const accountAppearance = useAccountPresentation();
   const [uRole, setURole] = useState(role);
   const [memo, setMemo] = useState(notes);
   const [desktopBackendBaseUrl, setDesktopBackendBaseUrl] = useState("");
@@ -476,12 +475,11 @@ export function SettingsView({
     setImportPanelHidden(true);
   }
   useEffect(() => setName(guardianName), [guardianName]);
-  useEffect(() => setUName(userName), [userName]);
   useEffect(() => setURole(role), [role]);
   useEffect(() => setMemo(notes), [notes]);
   useEffect(() => {
     setLocalSaveMessage(null);
-  }, [memo, name, uName, uRole]);
+  }, [memo, name, uRole]);
   useEffect(() => {
     persistSettingsTab(tab);
   }, [tab]);
@@ -784,7 +782,6 @@ export function SettingsView({
 
   function handleSave() {
     setGuardianName(name);
-    setUserName(uName);
     setRole(uRole);
     setNotes(memo);
     setLocalSaveMessage("Saved locally.");
@@ -801,21 +798,10 @@ export function SettingsView({
     if (!f) return;
     setUploading(true);
     setFileLabel(f.name);
-    const rd = new FileReader();
-    rd.onload = () => {
-      const url = String(rd.result || "");
-      setWallpaper(url);
-      if (typeof window !== "undefined") {
-        // Mark that the user has uploaded a file at least once
-        localStorage.setItem("cfy.hasUserUpload", "true");
-      }
-      setUploading(false);
-    };
-    rd.onerror = () => setUploading(false);
-    rd.readAsDataURL(f);
+    void accountPresentation.uploadWallpaper(f, accountAppearance.epoch).finally(() => setUploading(false));
   }
   function clearWallpaper() {
-    setWallpaper(null);
+    void accountPresentation.uploadWallpaper(null, accountAppearance.epoch);
     setFileLabel("");
     if (fileRef.current) fileRef.current.value = "";
   }
@@ -1088,10 +1074,6 @@ export function SettingsView({
                   <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Guardian Nickname</div>
                   <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
                 </div>
-                <div className="space-y-[calc(var(--radius-micro)/2)]">
-                  <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>User Nickname</div>
-                  <Input value={uName} onChange={(e) => setUName(e.target.value)} className="w-48 h-8 text-xs" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
-                </div>
                 <div className="space-y-[calc(var(--radius-micro)/2)] sm:col-span-2">
                   <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Occupation / Role</div>
                   <Input value={uRole} onChange={(e) => setURole(e.target.value)} className="h-9" style={{ color: "var(--text)", background: "transparent", borderColor: "var(--panel-border)" }} />
@@ -1145,6 +1127,8 @@ export function SettingsView({
             className="flex min-w-0 flex-1 flex-col justify-start"
           >
             <style>{SETTINGS_APPEARANCE_GRID_LAYOUT_RULES}</style>
+            <AccountAppearancePanel />
+            <fieldset disabled={!accountAppearance.ready || accountAppearance.saving} className="min-w-0">
             <div
               data-testid="settings-appearance-grid"
               data-layout-columns="responsive-two-column"
@@ -1166,7 +1150,7 @@ export function SettingsView({
               <div style={SETTINGS_DENSITY.sectionTitle}>Wallpaper</div>
               <div className="flex items-center gap-2">
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
-                <Button type="button" variant="ghost" size="sm" className="rounded-[var(--tile-radius,19px)] flex items-center gap-2" onClick={triggerFile}>
+                <Button type="button" variant="ghost" size="sm" disabled={!accountAppearance.ready || accountAppearance.saving} className="rounded-[var(--tile-radius,19px)] flex items-center gap-2" onClick={triggerFile}>
                   <ImagePlus className="h-4 w-4" />
                   Choose Image
                 </Button>
@@ -1382,7 +1366,7 @@ export function SettingsView({
             </div>
 
             <div className="space-y-[calc(var(--radius-micro)/2)]">
-              <div style={SETTINGS_DENSITY.sectionTitle}>Feed Layout</div>
+              <div style={SETTINGS_DENSITY.sectionTitle}>Feed Layout (this interface)</div>
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
                 <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
                   <div className="space-y-[calc(var(--radius-micro)/4)]">
@@ -1547,6 +1531,7 @@ export function SettingsView({
                 )}
               </div>
             </div>
+            </fieldset>
           </SettingsSectionCard>
         )}
 

@@ -23,7 +23,7 @@ def test_lineage_and_schema_upgrade_downgrade(monkeypatch):
     spec.loader.exec_module(module)
     assert module.down_revision == "c7e4a1b9d602"
     script = ScriptDirectory.from_config(Config("backend/alembic.ini"))
-    assert script.get_heads() == ["e723ba9046cd"]
+    assert script.get_heads() == ["a3f8c2d6e901"]
     assert script.get_revision("e723ba9046cd").down_revision == "d8a90bf32107"
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as connection:

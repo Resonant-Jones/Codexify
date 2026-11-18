@@ -1,83 +1,37 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const runtimeState = vi.hoisted(() => ({
-  tauri: false,
-  invokeTauriCommand: vi.fn(),
-}));
-
+const state = vi.hoisted(() => ({ wallpaperSrc: null as string | null }));
+vi.mock("@/features/settings/accountPresentation", () => ({ useAccountPresentation: () => state }));
 vi.mock("@/lib/runtimeConfig", () => ({
   getRuntimeConfigSync: () => ({ backendBaseUrl: "http://backend.test" }),
   resolveBackendUrl: (path: string) => `http://backend.test${path}`,
-  isTauriRuntime: () => runtimeState.tauri,
-  invokeTauriCommand: runtimeState.invokeTauriCommand,
 }));
-
 import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
-
-describe("useWallpaperUrl persistence", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    runtimeState.tauri = false;
-    runtimeState.invokeTauriCommand.mockReset();
-  });
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-  });
-
-  it("updates the active wallpaper immediately and restores it after remount", () => {
-    const firstMount = renderHook(() => useWallpaperUrl());
-
-    act(() => {
-      firstMount.result.current.setWallpaper("/media/images/wallpaper.png?sig=stable");
-    });
-
-    const expected = "http://backend.test/media/images/wallpaper.png?sig=stable";
-    expect(firstMount.result.current.wallpaperUrl).toBe(expected);
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(expected);
-
-    firstMount.unmount();
-    const reloaded = renderHook(() => useWallpaperUrl());
-    expect(reloaded.result.current.wallpaperUrl).toBe(expected);
-
-    act(() => reloaded.result.current.setWallpaper(null));
-    expect(reloaded.result.current.wallpaperUrl).toBeNull();
-    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
-  });
-
-  it("ignores transient object URLs", () => {
+import { registerWallpaperWriter } from "./wallpaperPreference";
+describe("account wallpaper authority", () => {
+  const write = vi.fn();
+  beforeEach(() => { localStorage.clear(); write.mockReset(); registerWallpaperWriter(write); state.wallpaperSrc = null; });
+  afterEach(cleanup);
+  it("delegates actions and preserves recoverable legacy browser values", () => {
+    localStorage.setItem("cfy.wallpaper", "data:legacy-value");
     const { result } = renderHook(() => useWallpaperUrl());
-
-    act(() => result.current.setWallpaper("blob:temporary-rendering-url"));
-
     expect(result.current.wallpaperUrl).toBeNull();
-    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
+    expect(result.current.setWallpaper("/media/images/example.png")).toBe(true);
+    expect(write).toHaveBeenCalledWith("http://backend.test/media/images/example.png", undefined);
+    result.current.setWallpaper(null);
+    expect(write).toHaveBeenLastCalledWith(null, undefined);
+    expect(localStorage.getItem("cfy.wallpaper")).toBe("data:legacy-value");
   });
-
-  it("renders a persisted desktop asset through a temporary URL without storing that URL", async () => {
-    runtimeState.tauri = true;
-    runtimeState.invokeTauriCommand.mockResolvedValue({
-      contentType: "image/png",
-      bytesBase64: "aGVsbG8=",
-      sizeBytes: 5,
-    });
-    Object.defineProperty(window.URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn(() => "blob:desktop-wallpaper"),
-    });
-
+  it("renders only authenticated account wallpaper and clears on account reset", () => {
+    state.wallpaperSrc = "blob:owner-a";
+    const { result, rerender } = renderHook(() => useWallpaperUrl());
+    expect(result.current.renderableWallpaperUrl).toBe("blob:owner-a");
+    state.wallpaperSrc = null; rerender();
+    expect(result.current.renderableWallpaperUrl).toBeNull();
+  });
+  it("rejects transient object URLs as source actions", () => {
     const { result } = renderHook(() => useWallpaperUrl());
-    act(() => result.current.setWallpaper("/media/images/desktop-wallpaper.png?sig=stable"));
-
-    await waitFor(() => {
-      expect(result.current.renderableWallpaperUrl).toBe("blob:desktop-wallpaper");
-    });
-    expect(runtimeState.invokeTauriCommand).toHaveBeenCalledWith("desktop_fetch_media", {
-      path: "/media/images/desktop-wallpaper.png",
-    });
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(
-      "http://backend.test/media/images/desktop-wallpaper.png?sig=stable"
-    );
+    expect(result.current.setWallpaper("blob:transient")).toBe(false);
+    expect(write).not.toHaveBeenCalled();
   });
 });
