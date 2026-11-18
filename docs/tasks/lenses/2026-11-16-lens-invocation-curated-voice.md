@@ -71,6 +71,15 @@ with their owners; moving source mounts is not a rollout. Future root-reviewed
 maintenance must retain exact rollback refs, backups, effective overrides, auth/
 allowlist and existing profile behavior, and serialized worker/proxy health proof.
 
+Recovery found the existing protected owner artifact
+`runtime-preserved-profile-greeting-20261117.yml`, mode0600, named by current
+migrator metadata. Its explicit backend/chat/voice environment sets match the
+running services completely, and its backend image reference matches. It uses
+Compose !reset/!override semantics and retains other service settings. Values were
+compared only in memory, never emitted or copied; the file was not executed or
+recreated. The old backend/chat label paths remain absent. This existing artifact
+is useful for owner review, not blanket authority to apply it to a new main/schema.
+
 Fresh read-only live schema isf3a9c7d2b8e1, from the separate profile chain
 ab71d5ce9604 -> d2e7a9b4c1f6 -> f3a9c7d2b8e1. None of those profile additions is
 included by this main-based slice. Main's source graph remains142/e723ba9046cd;
@@ -113,7 +122,8 @@ git diff --check
 ```
 
 Stage only the inactive core/models/tokens, additive migration, focused metering
-tests and these task/contract docs. Commit locally, then push only this bounded
+tests, required migration-head/count source metadata and these task/contract docs.
+Commit locally, then push only this bounded
 branch and create a draft PR if validation and scope review permit. No merge,
 deployment, runtime change or paid canary without root readiness review. Report
 exact head/base/files/commands/results/CI, remaining gates and whether this inactive
@@ -126,6 +136,10 @@ and synthetic pg_dump/restore all passed; restored liabilities kept both holds
 and refused replay/release. Temporary PostgreSQL stopped. Scoped Ruff/Black,
 documentation and diff checks pass. No frontend/native test applies because no
 client changed. CI results must be read from the eventual exact draft head.
+The first draft CI exposed a required current-state migration-head/count contract
+omitted from that push. Only those source graph fields were corrected; release
+HOLD and operational readiness remain unchanged. Local architecture rerun uses
+cached LFS JSON fixtures, without downloads or weakening any assertion.
 
 ## Root-reviewed runtime/rollback plan
 
