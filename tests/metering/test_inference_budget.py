@@ -230,8 +230,15 @@ def test_missing_price_and_free_claims_rejected(budget_db):
     assert totals(sessions)["month"] == (0, 0)
 
 
-def test_migration_roundtrip(budget_db):
-    _, sessions = budget_db
+def test_migration_roundtrip():
+    url = os.getenv("CODEXIFY_BUDGET_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("explicit disposable PostgreSQL URL required")
+    schema = "budget_migration_test_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as conn:
+        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     path = (
         Path(__file__).resolve().parents[2]
         / "guardian/db/migrations/versions/e723ba9046cd_inference_budget_foundation.py"
@@ -239,13 +246,22 @@ def test_migration_roundtrip(budget_db):
     spec = importlib.util.spec_from_file_location("budget_migration", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    engine = sessions.kw["bind"]
-    with engine.begin() as conn:
-        with Operations.context(MigrationContext.configure(conn)):
-            migration.downgrade()
-            migration.upgrade()
-    with sessions() as session:
-        assert list(session.scalars(select(InferenceBudgetWindow))) == []
+    try:
+        # Exercise this revision in isolation. Latest ORM metadata may include
+        # later foreign keys that cannot exist before this migration's upgrade.
+        with engine.begin() as conn:
+            with Operations.context(MigrationContext.configure(conn)):
+                migration.upgrade()
+                migration.downgrade()
+                migration.upgrade()
+            assert (
+                conn.scalar(text("SELECT count(*) FROM inference_budget_windows")) == 0
+            )
+    finally:
+        engine.dispose()
+        with admin.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
 
 
 def test_soft_thresholds_never_deny():
