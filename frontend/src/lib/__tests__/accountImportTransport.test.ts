@@ -32,4 +32,17 @@ describe("bounded account import transport", () => {
     expect(await fetchOpenAIAccountImportManifest("job")).toEqual({files: []});
     expect(get).toHaveBeenCalledWith("/api/imports/openai-account/job/manifest", expect.objectContaining({ timeout: ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS }));
   });
+  it("assembles bounded owner manifest pages and refuses inconsistent metadata", async () => {
+    const first = { job_id: "job", status: "receiving", source_system: "openai",
+      total_file_count: 3, total_byte_count: 3,
+      files: [{ path: "a", size: 1, sha256: "a".repeat(64) }], next_cursor: 1 };
+    const next = { ...first, files: [{ path: "b", size: 1, sha256: "b".repeat(64) }], next_cursor: undefined };
+    const get = vi.spyOn(api, "get").mockResolvedValueOnce({ data: first }).mockResolvedValueOnce({ data: next });
+    const result = await fetchOpenAIAccountImportManifest("job");
+    expect(result.files.map(entry => entry.path)).toEqual(["a", "b"]);
+    expect(get).toHaveBeenNthCalledWith(2, "/api/imports/openai-account/job/manifest?cursor=1", expect.any(Object));
+    get.mockReset().mockResolvedValueOnce({ data: first })
+      .mockResolvedValueOnce({ data: { ...next, job_id: "other" } });
+    await expect(fetchOpenAIAccountImportManifest("job")).rejects.toThrow(/pages changed/);
+  });
 });

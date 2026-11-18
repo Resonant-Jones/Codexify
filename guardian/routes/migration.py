@@ -1,11 +1,12 @@
 import json
+import hashlib
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated, Any, Optional
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -24,6 +25,7 @@ from guardian.core.dependencies import (
     get_account_user_id as get_request_user_id,
     require_account_session as require_api_key,
 )
+from guardian.queue.redis_queue import get_redis_client
 from guardian.services.account_restore import (
     AccountRestoreError,
     AccountRestoreService,
@@ -84,6 +86,30 @@ from guardian.services.chronicle_preview import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Migration"])
+
+_MANIFEST_RATE_SCRIPT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], 60) end
+return count
+"""
+
+
+def _enforce_manifest_read_limit(user_id: str) -> None:
+    # Shared Redis window, not a per-process counter. Hash the account scope
+    # so Redis keys do not expose an account identifier.
+    scope = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    try:
+        count = int(get_redis_client().eval(
+            _MANIFEST_RATE_SCRIPT, 1, f"codexify:account-import:manifest-rate:{scope}"
+        ))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Manifest rate limiter unavailable") from exc
+    if count > 120:
+        raise HTTPException(
+            status_code=429,
+            detail="Manifest read rate limit exceeded",
+            headers={"Retry-After": "60"},
+        )
 
 
 # The existing router/feature boundary owns this operation. Its route class
@@ -731,15 +757,17 @@ async def get_openai_account_import(
 @router.get("/api/imports/openai-account/{job_id}/manifest")
 async def get_openai_account_import_manifest(
     job_id: str,
+    cursor: int = Query(default=0, ge=0, le=20_000),
     user_id: str = Depends(get_request_user_id),
     api_key: str = Depends(require_api_key),
 ):
     """Read the authenticated owner's upload checkpoint, without storage URLs."""
     _ = api_key
+    await run_in_threadpool(_enforce_manifest_read_limit, user_id)
     try:
         service = await run_in_threadpool(_get_account_import_service)
         result = await run_in_threadpool(
-            service.get_upload_manifest, job_id=job_id, user_id=user_id
+            service.get_upload_manifest, job_id=job_id, user_id=user_id, cursor=cursor
         )
         return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
     except AccountImportError as exc:

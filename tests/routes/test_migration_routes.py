@@ -26,7 +26,8 @@ def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def test_client(mock_auth):
+def test_client(mock_auth, monkeypatch):
+    monkeypatch.setattr(migration_routes, "_enforce_manifest_read_limit", lambda user_id: None)
     app = FastAPI()
     app.dependency_overrides[
         migration_routes.require_api_key
@@ -1154,7 +1155,7 @@ def test_account_import_manifest_route_uses_authenticated_owner(test_client, mon
     response = test_client.get("/api/imports/openai-account/job-account-1/manifest", headers={"X-User-Id": "account-b"})
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID)
+    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID, cursor=0)
 
 
 def test_account_import_manifest_route_preserves_owner_not_found(test_client, monkeypatch):
@@ -1165,3 +1166,26 @@ def test_account_import_manifest_route_preserves_owner_not_found(test_client, mo
     response = test_client.get("/api/imports/openai-account/other-account-job/manifest")
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "account_import_not_found"
+
+
+def test_manifest_rate_limiter_is_shared_and_fail_closed(monkeypatch):
+    from fastapi import HTTPException
+
+    client = MagicMock()
+    monkeypatch.setattr(migration_routes, "get_redis_client", lambda: client)
+    client.eval.return_value = 120
+    migration_routes._enforce_manifest_read_limit("account-a")
+    args = client.eval.call_args.args
+    assert args[1] == 1
+    assert "account-a" not in args[2]
+
+    client.eval.return_value = 121
+    with pytest.raises(HTTPException) as limited:
+        migration_routes._enforce_manifest_read_limit("account-a")
+    assert limited.value.status_code == 429
+    assert limited.value.headers["Retry-After"] == "60"
+
+    client.eval.side_effect = RuntimeError("redis unavailable")
+    with pytest.raises(HTTPException) as unavailable:
+        migration_routes._enforce_manifest_read_limit("account-a")
+    assert unavailable.value.status_code == 503

@@ -34,6 +34,7 @@ export type AccountImportCoordinatorSnapshot = {
 };
 
 const STORAGE_KEY = "cfy.accountImport:v1";
+const ARCHIVED_STORAGE_KEY = "cfy.accountImport:unavailable:v1";
 const POLL_INTERVAL_MS = 1500;
 const UPLOAD_BATCH_FILES = 25;
 const UPLOAD_BATCH_TARGET_BYTES = 32 * 1024 * 1024;
@@ -75,11 +76,10 @@ function archiveUnavailableJob(): boolean {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
-    const key = "cfy.accountImport:unavailable:v1";
-    const prior = JSON.parse(window.localStorage.getItem(key) || "[]");
+    const prior = JSON.parse(window.localStorage.getItem(ARCHIVED_STORAGE_KEY) || "[]");
     if (!Array.isArray(prior)) return false;
     if (!prior.includes(raw)) prior.push(raw);
-    window.localStorage.setItem(key, JSON.stringify(prior));
+    window.localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify(prior));
     return true;
   } catch { return false; }
 }
@@ -117,6 +117,60 @@ function setSnapshot(next: AccountImportCoordinatorSnapshot): void {
   snapshot = next;
   persist(next);
   notify();
+}
+
+function showLocalErrorWithoutPersisting(message: string): void {
+  // Another tab may own a checkpoint that this tab has not observed. Never
+  // overwrite shared storage merely because its Web Lock was unavailable.
+  snapshot = { ...snapshot, phase: "failed", error: message, technicalDetail: null };
+  notify();
+}
+
+export function hasArchivedAccountImport(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const entries = JSON.parse(window.localStorage.getItem(ARCHIVED_STORAGE_KEY) || "[]");
+    return Array.isArray(entries) && entries.some((raw) => {
+      const entry = JSON.parse(raw);
+      return entry.v === 1 && typeof entry.jobId === "string" &&
+        (entry.server === currentImportServer() || entry.server == null);
+    });
+  } catch { return false; }
+}
+
+export async function restoreArchivedAccountImport(): Promise<boolean> {
+  ensureInitialized();
+  if (transferController || snapshot.job) return false;
+  const raw = window.localStorage.getItem(ARCHIVED_STORAGE_KEY);
+  let entries: string[];
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return false;
+    entries = parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch { return false; }
+  // Read in reverse archival order, but only a server-authenticated owner
+  // read can reactivate a browser checkpoint for the active account.
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    let entry: { v?: number; jobId?: string; server?: string; sourceSystem?: string; selectionFingerprint?: string };
+    try { entry = JSON.parse(entries[i]); } catch { continue; }
+    if (entry.v !== 1 || !entry.jobId ||
+        (entry.server && entry.server !== currentImportServer()) ||
+        !/^[a-f0-9]{64}$/.test(entry.selectionFingerprint || "")) continue;
+    let job: AccountImportJob;
+    try { job = await fetchOpenAIAccountImport(entry.jobId); } catch { continue; }
+    if (transferController || snapshot.job) return false;
+    if (job.status !== "receiving" || job.job_id !== entry.jobId ||
+        job.source_system !== entry.sourceSystem) continue;
+    selectionFingerprint = entry.selectionFingerprint!;
+    selectionServer = entry.server || currentImportServer();
+    setSnapshot({ ...EMPTY_SNAPSHOT, phase: "failed", job,
+      error: "Saved receiving job recovered. Select the original export to verify and resume.",
+      technicalDetail: null });
+    entries.splice(i, 1);
+    window.localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify(entries));
+    return true;
+  }
+  return false;
 }
 
 function extractHttpStatus(error: unknown): number | null {
@@ -605,13 +659,13 @@ export async function startOpenAIAccountImport(
   // No unsafe localStorage lease or silent takeover when the owner is unknown.
   if (!navigator.locks) {
     const message = "Safe account import requires a browser with Web Locks support.";
-    setSnapshot({ ...snapshot, phase: "failed", error: message, technicalDetail: null });
+    showLocalErrorWithoutPersisting(message);
     throw new Error(message);
   }
   return navigator.locks.request("cfy.account-import-transfer", { ifAvailable: true }, async (lock) => {
     if (!lock || transferController) {
       const message = "An account export transfer is already active in another tab.";
-      if (!transferController) setSnapshot({ ...snapshot, phase: "failed", error: message, technicalDetail: null });
+      if (!transferController) showLocalErrorWithoutPersisting(message);
       throw new Error(message);
     }
     const controller = new AbortController();

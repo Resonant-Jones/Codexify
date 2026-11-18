@@ -21,6 +21,8 @@ vi.mock("@/features/imports/accountImportCoordinator", () => ({
   getAccountImportCoordinatorSnapshot: () => coordinator.snapshot,
   startOpenAIAccountImport: coordinator.start,
   subscribeAccountImportCoordinator: () => () => {},
+  hasArchivedAccountImport: () => false,
+  restoreArchivedAccountImport: vi.fn().mockResolvedValue(false),
 }));
 
 describe("conversation history modal", () => {

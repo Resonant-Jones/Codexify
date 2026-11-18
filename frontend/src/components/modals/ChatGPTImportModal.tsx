@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import {
   clearAccountImportCoordinatorResult,
   getAccountImportCoordinatorSnapshot,
+  hasArchivedAccountImport,
+  restoreArchivedAccountImport,
   startOpenAIAccountImport,
   subscribeAccountImportCoordinator,
 } from "@/features/imports/accountImportCoordinator";
@@ -727,6 +729,16 @@ export function ChatGPTImportModal({
                 </details>
               ) : null}
             </div>
+          )}
+          {!accountImport.job && hasArchivedAccountImport() && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => { void restoreArchivedAccountImport(); }}
+            >
+              Recover saved import for this account
+            </Button>
           )}
         </div>
 
