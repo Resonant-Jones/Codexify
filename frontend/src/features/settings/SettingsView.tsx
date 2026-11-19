@@ -1128,14 +1128,14 @@ export function SettingsView({
           >
             <style>{SETTINGS_APPEARANCE_GRID_LAYOUT_RULES}</style>
             <AccountAppearancePanel />
-            <fieldset disabled={!accountAppearance.ready || accountAppearance.saving} className="min-w-0">
             <div
               data-testid="settings-appearance-grid"
               data-layout-columns="responsive-two-column"
               className="grid min-w-0 grid-cols-1 lg:grid-cols-2"
               style={{ gap: SETTINGS_DENSITY.contentGridGap }}
             >
-            <div
+            <fieldset
+              disabled={!accountAppearance.ready || accountAppearance.saving}
               data-testid="settings-appearance-content-column"
               data-layout-span="column"
               className="min-w-0 space-y-[var(--shell-gap)]"
@@ -1177,13 +1177,14 @@ export function SettingsView({
               />
             </div>
 
-            </div>
+            </fieldset>
             <div
               data-testid="settings-appearance-controls-column"
               data-layout-span="column"
               className="min-w-0 space-y-[var(--shell-gap)]"
             >
-            <div
+            <fieldset
+              disabled={!accountAppearance.ready || accountAppearance.saving}
               className="space-y-[calc(var(--radius-micro)/2)]"
               data-testid="material-controls-section"
             >
@@ -1363,15 +1364,15 @@ export function SettingsView({
                   in Light mode.
                 </p>
               </div>
-            </div>
+            </fieldset>
 
             <div className="space-y-[calc(var(--radius-micro)/2)]">
-              <div style={SETTINGS_DENSITY.sectionTitle}>Feed Layout (this interface)</div>
+              <div style={SETTINGS_DENSITY.sectionTitle}>Feed Layout</div>
               <div className="space-y-[var(--radius-micro)] rounded-[var(--tile-radius,19px)] border border-[var(--panel-border)] p-[var(--card-pad)]">
                 <div className="flex flex-wrap items-center justify-between gap-[var(--radius-micro)]">
                   <div className="space-y-[calc(var(--radius-micro)/4)]">
                     <div className="text-sm font-medium" style={SETTINGS_DENSITY.sectionTitle}>Recent thread rows</div>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>Controls the 2 × N grid for Recent Threads.</p>
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>Controls the 2 × N grid for Recent Threads. Saved for this interface.</p>
                   </div>
                   <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>
                     {dashboardThreadRows} {dashboardThreadRows === 1 ? "row" : "rows"}
@@ -1462,7 +1463,8 @@ export function SettingsView({
                       </div>
                     </div>
 
-                    <div
+                    <fieldset
+                      disabled={!accountAppearance.ready || accountAppearance.saving}
                       className="space-y-[calc(var(--radius-micro)/2)]"
                       data-testid="background-treatment-section"
                     >
@@ -1526,12 +1528,11 @@ export function SettingsView({
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </fieldset>
                   </>
                 )}
               </div>
             </div>
-            </fieldset>
           </SettingsSectionCard>
         )}
 

@@ -123,3 +123,47 @@ broad attempt failed during schema verification before creating an import job.
 It is outside this reconciliation proof and is not rerun. Superseded failed
 environment runs remain in the local evidence directory; full CI and a clean
 full-app TypeScript check are not claimed.
+
+## Broad frontend CI repair,2026-11-19
+
+Hosted Frontend Quality job135219137855 exposed25 failed tests and an asset-menu
+suite import failure. Exact main19e6a3b9 was merged non-destructively into this
+branch with no conflicts or migration changes. An exact-main frontend snapshot
+using the same lockfile, dependency versions, Vitest configuration and broad
+`pnpm run test` command passed2493 app tests (one existing skip) and84 Chrome
+extension tests. Its first attempt lacked the unchanged shared corpus fixture;
+that snapshot omission was supplied from main before the successful comparison.
+There were no unrelated baseline frontend failures in the completed comparison.
+
+Two narrow product repairs preserve existing presentation behavior. Account
+readiness/saving now disables only account appearance controls, leaving the
+interface-only Feed Layout, file colors and Advanced Appearance disclosure
+usable. Bundled demo wallpaper uses a same-origin static fetch without account
+credentials or redirects, followed by the existing validated account upload;
+foreign origins and old-account responses remain rejected. No binary format,
+preference allowlist, workspace-unique semantics or authentication scope expands.
+
+Renderer/control fixtures now supply explicit account state rather than legacy
+browser preferences. They retain material keyboard/accessibility, independent
+axes, contrast, hierarchy and wallpaper-scene assertions; account wallpaper
+actions assert the shared writer and absence of localStorage writes. The missing
+asset-menu mock dependency is isolated at its wallpaper hook. Blank/missing names
+remain neutral; the older expectation that explicitly chosen "You" is a
+placeholder is superseded by the existing authored-name contract and coverage.
+The real controller additionally proves credential-free static retrieval,
+foreign-origin refusal and stale-account response suppression. No test exclusion,
+CI script or Vitest configuration was changed.
+
+The repaired broad frontend command passed2511 app tests (one existing skip)
+and84 extension tests; lint and the unchanged production build command passed.
+Local baseline and candidate used Node22 with two bounded workers and OS network
+denial; hosted CI uses Node20. Profile/authentication plus real PostgreSQL proofs
+passed756 tests with one unrelated integration case deselected by the existing
+CI `not integration` selection. The unfiltered attempt exposed that legacy
+bootstrap fixture's NULL persona-owner seed against today's non-null schema;
+it is not changed here. All three convergence paths and the historical consent
+proof ran, with zero unexpected network attempts and clean owned-server shutdown.
+TypeScript remains at120 inherited candidate diagnostics versus128 on main;
+full-app typecheck, current-head hosted CI and live qualification are not claimed
+by these local results. No live Preview, migration history, voice, Bio or tour
+operation was performed.

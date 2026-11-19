@@ -42,9 +42,40 @@ beforeEach(() => {
   });
   mock.api.put.mockImplementation(async () => { wallpaper = "/api/auth/scout/profile/presentation/wallpaper?v=new"; return { data: response() }; });
 });
-afterEach(() => { cleanup(); accountPresentation.connect(null); });
+afterEach(() => { cleanup(); accountPresentation.connect(null); vi.unstubAllGlobals(); });
 
 describe("account appearance transport and lifecycle", () => {
+  it("uploads bundled demo wallpaper without sending account credentials to static assets", async () => {
+    const source = new Blob(["bundled PNG"], { type: "image/png" });
+    const fetchImage = vi.fn().mockResolvedValue({ ok: true, blob: async () => source });
+    vi.stubGlobal("fetch", fetchImage);
+    const state = controller(); state.connect("owner-a");
+    await waitFor(() => expect(state.getSnapshot().ready).toBe(true));
+    await state.wallpaperFromSource("/peekaboo-demo/abstract-signal-study.png");
+    expect(fetchImage).toHaveBeenCalledWith(new URL("/peekaboo-demo/abstract-signal-study.png", window.location.href).href, {
+      signal: expect.any(AbortSignal), credentials: "omit", cache: "no-store", redirect: "error",
+    });
+    expect(mock.api.put).toHaveBeenCalledWith(expect.stringContaining("/wallpaper"), source, expect.objectContaining({ headers: { Authorization: "Bearer owner-a", "Content-Type": "image/png" } }));
+    expect(state.getSnapshot().wallpaperSrc).toBe("blob:account-wallpaper");
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
+    await state.wallpaperFromSource("https://untrusted.test/peekaboo-demo/image.png");
+    expect(fetchImage).toHaveBeenCalledTimes(1);
+    expect(mock.api.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a bundled wallpaper response after switching accounts", async () => {
+    const pending = defer<{ ok: boolean; blob: () => Promise<Blob> }>();
+    vi.stubGlobal("fetch", vi.fn(() => pending.promise));
+    const state = controller(); state.connect("owner-a");
+    await waitFor(() => expect(state.getSnapshot().ready).toBe(true));
+    const write = state.wallpaperFromSource("/peekaboo-demo/abstract-signal-study.png");
+    state.connect("owner-b");
+    await waitFor(() => expect(state.getSnapshot().ready).toBe(true));
+    pending.resolve({ ok: true, blob: async () => new Blob(["old image"], { type: "image/png" }) });
+    await write;
+    expect(mock.api.put).not.toHaveBeenCalled();
+  });
+
   it("rejects delayed draft/image events captured before an account switch", async () => {
     const state = controller(); state.connect("owner-a");
     await waitFor(() => expect(state.getSnapshot().ready).toBe(true));

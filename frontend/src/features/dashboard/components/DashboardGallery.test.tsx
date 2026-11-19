@@ -5,6 +5,8 @@ const runtimeState = vi.hoisted(() => ({
   invokeTauriCommandMock: vi.fn(),
   tauriRuntime: false,
 }));
+const setWallpaper = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/useWallpaperUrl", () => ({ useWallpaperUrl: () => ({ setWallpaper }) }));
 
 vi.mock("@/lib/runtimeConfig", () => ({
   resolveBackendUrl: (path: string) =>
@@ -207,8 +209,9 @@ describe("DashboardGallery mobile interaction feedback", () => {
     expect(screen.getByRole("menuitem", { name: "Download" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(
+    expect(setWallpaper).toHaveBeenCalledWith(
       "http://backend.test/media/images/dashboard-wallpaper.png?sig=stable"
     );
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
   });
 });

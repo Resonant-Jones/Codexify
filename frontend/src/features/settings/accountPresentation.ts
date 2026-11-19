@@ -194,6 +194,15 @@ export class AccountPresentationController {
     const epoch = this.epoch;
     try {
       const url = new URL(src, window.location.href);
+      if (url.origin === window.location.origin && url.pathname.startsWith("/peekaboo-demo/")) {
+        // Bundled demo images remain selectable; send no account credential to
+        // the static asset server, then use the same validated account upload.
+        const response = await fetch(url.href, { signal: this.abort.signal, credentials: "omit", cache: "no-store", redirect: "error" });
+        if (!response.ok) throw new Error("Image unavailable");
+        const blob = await response.blob();
+        if (epoch === this.epoch) await this.uploadWallpaper(blob, epoch);
+        return;
+      }
       // Never attach credentials to arbitrary image hosts or persist signed URLs.
       const apiOrigin = new URL(this.client.defaults.baseURL || "/", window.location.href).origin;
       if (![window.location.origin, apiOrigin].includes(url.origin) || !/^\/(?:api\/)?media\//.test(url.pathname)) throw new Error("Unsupported image source");
