@@ -5,6 +5,9 @@ import { useState } from "react";
 
 import SettingsView from "../SettingsView";
 import { DEFAULT_GLASS_TREATMENT, type GlassTreatment } from "@/theme/glassTreatment";
+import { resetAccountAppearanceFixture } from "@/test/accountPresentationHarness";
+
+vi.mock("@/features/settings/accountPresentation", async () => import("@/test/accountPresentationHarness"));
 
 /**
  * Glass Treatment picker coverage.
@@ -69,6 +72,7 @@ function renderPicker(
 
 describe("Glass Treatment picker", () => {
   beforeEach(() => {
+    resetAccountAppearanceFixture();
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.history.pushState({}, "", "/chat/42");

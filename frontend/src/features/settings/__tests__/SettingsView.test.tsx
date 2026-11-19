@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { SETTINGS_DENSITY } from "@/features/settings/settingsDensityContract";
 import type { ExtColors, ThemeMode } from "@/types/ui";
+import { resetAccountAppearanceFixture, setAccountAppearanceFixture } from "@/test/accountPresentationHarness";
+
+vi.mock("@/features/settings/accountPresentation", async () => import("@/test/accountPresentationHarness"));
+beforeEach(() => resetAccountAppearanceFixture());
 
 const useConnectorsMock = vi.fn();
 
@@ -584,6 +588,29 @@ describe("SettingsView", () => {
       expect(slider.style.accentColor).not.toContain("blue");
       expect(slider.style.accentColor).not.toContain("#");
     }
+  });
+
+  test.each([
+    { ready: false, saving: false, phase: "loading" },
+    { ready: true, saving: true, phase: "saving" },
+  ])("keeps interface controls available while account appearance is $phase", async ({ ready, saving }) => {
+    setAccountAppearanceFixture({ ready, saving });
+    const user = userEvent.setup();
+    const props = createSettingsViewProps();
+    render(<SettingsView {...props} />);
+
+    const rows = screen.getByTestId("dashboard-thread-rows-slider");
+    expect(rows).not.toBeDisabled();
+    fireEvent.change(rows, { target: { value: "3" } });
+    expect(props.setDashboardThreadRows).toHaveBeenCalledWith(3);
+    expect(screen.getByLabelText("System Accent")).toBeDisabled();
+    expect(screen.getByTestId("surface-warmth-slider")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Advanced Appearance" }));
+    expect(screen.getByTestId("background-treatment-section")).toBeInTheDocument();
+    expect(screen.getByTestId("depth-slider")).toBeDisabled();
+    expect(screen.getByTestId("fade-slider")).toBeDisabled();
+    expect(document.querySelector("#color-pdf")).not.toBeDisabled();
   });
 
   test("groups Depth and Fade under Background Treatment", async () => {

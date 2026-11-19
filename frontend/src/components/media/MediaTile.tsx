@@ -12,7 +12,7 @@ import {
 } from "@/lib/assetActions";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
-import { setWallpaperPreference } from "@/lib/wallpaperPreference";
+import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import TileShell, { type TileShellSizeVariant } from "@/components/surface/TileShell";
 import "./media.css";
 
@@ -35,6 +35,7 @@ export function MediaTile({
   onDeleted,
   sizeVariant = "gallery-image",
 }: MediaTileProps) {
+  const { setWallpaper } = useWallpaperUrl();
   const resolvedSrc = React.useMemo(() => normalizeMediaUrl(src), [src]);
   const renderableSrc = useRenderableMediaSrc(src);
   const [hasLoadError, setHasLoadError] = React.useState(false);
@@ -76,7 +77,7 @@ export function MediaTile({
       {
         label: "Set as wallpaper",
         onSelect: () => {
-          setWallpaperPreference(resolvedSrc);
+          setWallpaper(resolvedSrc);
         },
       },
       ...(canDownload
@@ -86,7 +87,7 @@ export function MediaTile({
         ? [{ label: "Delete", onSelect: handleDelete, destructive: true }]
         : []),
     ],
-    [canDelete, canDownload, handleDelete, handleDownload, resolvedSrc]
+    [canDelete, canDownload, handleDelete, handleDownload, resolvedSrc, setWallpaper]
   );
 
   if (isDeleted) return null;

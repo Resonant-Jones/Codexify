@@ -1,4 +1,5 @@
 """Real PostgreSQL migrations and independent-connection race proof."""
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,8 +52,7 @@ _LOCAL_NODE_MARKER_FILE = (
 def _apply_local_node_marker(engine) -> None:
     """Give the pinned schema the local-node marker the current service needs."""
     columns = {
-        column["name"]
-        for column in sa.inspect(engine).get_columns("threadspace_nodes")
+        column["name"] for column in sa.inspect(engine).get_columns("threadspace_nodes")
     }
     assert "is_local" not in columns, (
         "the pinned revision must predate the local-node marker for this "
@@ -74,10 +74,29 @@ def _apply_local_node_marker(engine) -> None:
     finally:
         connection.close()
     columns = {
-        column["name"]
-        for column in sa.inspect(engine).get_columns("threadspace_nodes")
+        column["name"] for column in sa.inspect(engine).get_columns("threadspace_nodes")
     }
     assert "is_local" in columns, "the local-node marker was not applied"
+
+
+def _apply_current_service_greeting_column(engine) -> None:
+    """Keep the pinned schema usable by today's profile ORM without stamping it.
+
+    Like the local-node marker above, the nullable greeting column is unrelated
+    to message-request DDL. Apply its published migration rather than changing
+    the pinned revision or duplicating its schema definition in this fixture.
+    """
+    from guardian.db.migrations.versions import (
+        d2e7a9b4c1f6_add_explicit_account_greeting_name as greeting,
+    )
+
+    columns = {c["name"] for c in sa.inspect(engine).get_columns("user_profiles")}
+    assert "greeting_name" not in columns
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            greeting.upgrade()
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("user_profiles")}
+    assert columns["greeting_name"]["nullable"]
 
 
 def _pair(engine, suffix):
@@ -142,6 +161,7 @@ def test_postgres_migration_and_concurrent_consent(temporary_postgres):
         # The current service identifies the canonical local node with the
         # local-node marker, which this pinned revision predates.
         _apply_local_node_marker(engine)
+        _apply_current_service_greeting_column(engine)
         # Honest pre-migration Conversation, not a synthetic request.
         pa, pb = _pair(engine, "historical")
         with Session(engine) as session:
