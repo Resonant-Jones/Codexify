@@ -1389,18 +1389,10 @@ def test_worker_completion_normalizes_stale_nested_image_routing_reason(
                 },
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "What is in this image?",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "https://example.test/image.png"
-                            },
-                        },
-                    ],
+                    # This is a final-truth projection test, not permission to
+                    # send image parts to an explicitly non-vision model.
+                    # The trace below retains the original image-turn evidence.
+                    "content": "What is in this image? [Image unavailable]",
                 },
             ],
             "local",
