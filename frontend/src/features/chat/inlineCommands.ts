@@ -1,12 +1,10 @@
-export const INLINE_COMMAND_NAMES = [
-  "project",
-  "provider",
-  "model",
-  "mode",
-  "retrieval",
-] as const;
+import {
+  resolveSlashCommand,
+  type SlashCommandDefinition,
+} from "@/contracts/slashCommands";
 
-export type InlineCommandName = (typeof INLINE_COMMAND_NAMES)[number];
+// These IDs identify installed callbacks and option sources.
+export type InlineCommandName = "project" | "provider" | "model" | "mode" | "retrieval";
 
 export type InlineCommandOption = {
   value: string;
@@ -20,39 +18,13 @@ export type InlineCommandDefinition = {
   name: InlineCommandName;
   label: string;
   description: string;
+  token: string;
+  aliases: readonly string[];
 };
 
 export type InlineCommandOptionSets = Partial<
   Record<InlineCommandName, readonly InlineCommandOption[]>
 >;
-
-export const INLINE_COMMAND_DEFINITIONS: readonly InlineCommandDefinition[] = [
-  {
-    name: "project",
-    label: "Project",
-    description: "Choose the current project context.",
-  },
-  {
-    name: "provider",
-    label: "Provider",
-    description: "Choose an available inference provider.",
-  },
-  {
-    name: "model",
-    label: "Model",
-    description: "Choose a compatible chat model.",
-  },
-  {
-    name: "mode",
-    label: "Mode",
-    description: "Choose the current inference mode.",
-  },
-  {
-    name: "retrieval",
-    label: "Retrieval",
-    description: "Choose the existing retrieval source.",
-  },
-] as const;
 
 type ParsedCommandBase = {
   draft: string;
@@ -99,11 +71,25 @@ export type InlineCommandParseResult =
 const normalizeQuery = (value: string) => value.trim().toLowerCase();
 
 export function getSupportedInlineCommands(
-  optionSets: InlineCommandOptionSets
+  optionSets: InlineCommandOptionSets,
+  commands: readonly SlashCommandDefinition[]
 ): readonly InlineCommandDefinition[] {
-  return INLINE_COMMAND_DEFINITIONS.filter(
-    (definition) => (optionSets[definition.name]?.length ?? 0) > 0
-  );
+  return commands.flatMap((command) => {
+    const name = command.id as InlineCommandName;
+    if (
+      !command.interactionModes.includes("composer_control") ||
+      command.availability === "unavailable" ||
+      !Object.prototype.hasOwnProperty.call(optionSets, name) ||
+      !optionSets[name]?.length
+    ) return [];
+    return [{
+      name,
+      label: command.label,
+      description: command.description,
+      token: command.token,
+      aliases: command.aliases,
+    }];
+  });
 }
 
 export function matchInlineCommandPrefix(
@@ -112,7 +98,8 @@ export function matchInlineCommandPrefix(
 ): readonly InlineCommandDefinition[] {
   const normalized = normalizeQuery(query);
   return definitions.filter((definition) =>
-    definition.name.startsWith(normalized)
+    definition.token.slice(1).toLowerCase().startsWith(normalized) ||
+    definition.aliases.some((alias) => alias.toLowerCase().startsWith(normalized))
   );
 }
 
@@ -147,23 +134,25 @@ function unknownResult(
 
 export function parseInlineCommandDraft(
   draft: string,
-  optionSets: InlineCommandOptionSets
+  optionSets: InlineCommandOptionSets,
+  commands: readonly SlashCommandDefinition[]
 ): InlineCommandParseResult {
   if (!draft.startsWith("/") || draft.startsWith("//") || draft.includes("\n")) {
     return unknownResult(draft);
   }
 
-  const definitions = getSupportedInlineCommands(optionSets);
+  const definitions = getSupportedInlineCommands(optionSets, commands);
   const body = draft.slice(1);
   const whitespaceIndex = body.search(/\s/);
   const commandQuery =
     whitespaceIndex < 0 ? body : body.slice(0, whitespaceIndex);
   const rawValue = whitespaceIndex < 0 ? "" : body.slice(whitespaceIndex + 1);
   const valueQuery = rawValue.trim();
+  if (commandQuery.includes("/")) return unknownResult(draft);
   const commandMatches = matchInlineCommandPrefix(commandQuery, definitions);
+  const resolved = resolveSlashCommand(commands, commandQuery);
   const exactCommand =
-    definitions.find((definition) => definition.name === normalizeQuery(commandQuery)) ??
-    null;
+    definitions.find((definition) => definition.name === resolved?.id) ?? null;
 
   if (!exactCommand) {
     if (commandMatches.length > 0) {
