@@ -167,3 +167,39 @@ TypeScript remains at120 inherited candidate diagnostics versus128 on main;
 full-app typecheck, current-head hosted CI and live qualification are not claimed
 by these local results. No live Preview, migration history, voice, Bio or tour
 operation was performed.
+
+## Combined main worker fix, 2026-11-19
+
+Main `078c685329b0283196072582453e57a05703a357` contains merged worker-image
+PR1094 at `0e003a0315b3b3c676b9d017f45524e4e9ecd192`. It adds no migration.
+Merge `d31491f6534a44b9a77e1bd9bb2d81f3833de5a5` retains both parents: the
+published profile candidate71920 and current main078c. No remote history or
+other worktree was rewritten. The only conflict was the generated qualification
+registry. It was regenerated using the complete merged tree and both parents'
+ancestry, then checked against the actual merge commit, rather than selecting
+either published projection. The resulting reason counts are68/204, compared
+with67/203 on the profile branch and64/182 on main. Qualification status,
+freshness and backing receipts are unchanged; no surface is promoted.
+
+The migration graph remains145 revisions at a3f, with both published branches'
+IDs, parents and bodies preserved. All142 main migration bodies remain
+hash-identical. The unchanged fresh/main/Preview PostgreSQL convergence and
+profile/authentication run passed756 tests (one unrelated integration case
+deselected by CI's existing selection), with zero network attempts and clean
+owned-server shutdown. Separate worker/router tests passed55 with zero network
+attempts. Architecture and qualification passed632; the broad frontend command
+passed2511 app tests (one existing skip) plus84 Chrome extension tests. The
+frontend tree is byte-identical to71920; its inherited TypeScript limitation
+is unchanged and is not relabeled green.
+
+An optional expanded run passed839 pytest cases but failed its strict network
+guard. Isolation identified38 blocked DNS attempts in existing image-service
+fixtures; their separate83-case run also failed that guard. No request escaped
+the Python/OS network denial, no provider transport executed, and these runs
+are not counted as network-free proof. The required profile/migration run and
+the separate55-case worker/router run use independent zero-attempt receipts.
+No unrelated image-service fixture or product behavior was changed to hide this
+limitation. The task-owned main-078c evidence directory retains all results;
+exact final-head hosted CI is assessed separately. No live operation, provider
+call, spending/billing activation, ready transition, PR merge or deployment occurs
+in this reconciliation task.
