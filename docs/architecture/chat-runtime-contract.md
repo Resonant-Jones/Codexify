@@ -558,6 +558,13 @@ The Anthropic adapter translates image data URLs into `image` blocks with a
 `base64` source, `media_type`, and `data`; Ollama retains its existing native
 `images` adaptation.
 
+The queued worker compatibility entry point applies the same image routing
+helper after provider/model resolution and before each dispatch, including
+rescue dispatches. Service-only invocation tests are insufficient proof of this
+boundary: the worker entry point must also serialize synthetic historical and
+fresh images through a mocked final transport. Missing private media refuses
+before dispatch; this preparation does not select a different provider/model.
+
 The completion service reads both composer attachment markers and structured
 user content preserved in `extra_meta.original_content` or the queued latest
 turn. Media stays bound to its authored user message. In the bounded history

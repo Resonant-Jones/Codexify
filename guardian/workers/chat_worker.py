@@ -1963,6 +1963,8 @@ def _run_chat_completion_task_compat(
     visible_output_emitted = False
     last_dispatch_provider = provider
     last_dispatch_model = model
+    last_dispatch_messages = messages_for_llm
+    image_routing_meta: dict[str, Any] | None = None
 
     def _add_deadline_failure_context(exc: Exception) -> None:
         detail = getattr(exc, "detail", None)
@@ -1997,6 +1999,26 @@ def _run_chat_completion_task_compat(
         execution_provider: str,
         execution_model: str,
     ) -> str:
+        nonlocal last_dispatch_messages, image_routing_meta
+        # The queued compatibility entry point does not call the service's
+        # run_chat_completion_task. Apply its shared image preparation here,
+        # after lane resolution and before every actual dispatch (including
+        # rescue), without mutating the authored/assembled input.
+        dispatch_messages, image_routing_meta = (
+            _chat_completion_service._apply_image_attachment_routing(
+                messages_for_llm,
+                bundle=bundle,
+                provider=execution_provider,
+                model=execution_model,
+                settings=settings,
+            )
+        )
+        last_dispatch_messages = dispatch_messages
+        if _chat_completion_service.messages_contain_image_payload(dispatch_messages):
+            image_routing_meta["image_attachment_count"] = max(
+                int(image_routing_meta.get("image_attachment_count") or 0), 1
+            )
+        payload_summary.update(image_routing_meta)
         streaming_emitted = False
 
         def _publish_streaming(first_output_kind: str) -> None:
@@ -2044,7 +2066,7 @@ def _run_chat_completion_task_compat(
         completion_result = (
             _chat_completion_service._execute_bounded_tool_turn_completion(
                 task,
-                messages_for_llm=messages_for_llm,
+                messages_for_llm=dispatch_messages,
                 provider=execution_provider,
                 model=execution_model,
                 bundle=bundle,
@@ -2396,8 +2418,8 @@ def _run_chat_completion_task_compat(
         provider=final_provider,
         model=final_model,
         settings=settings,
-        messages_for_llm=messages_for_llm,
-        routing_meta=None,
+        messages_for_llm=last_dispatch_messages,
+        routing_meta=image_routing_meta,
         trace=final_trace,
         payload_summary=payload_summary,
         result=result,
