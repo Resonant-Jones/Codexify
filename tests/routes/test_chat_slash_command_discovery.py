@@ -21,6 +21,7 @@ from guardian.routes import chat
 MANIFEST = "/api/chat/slash-commands/manifest"
 SEARCH = "/api/chat/slash-commands/search"
 CHAT_INTENTS = {
+    "image", "sunburst", "flare",
     "thread",
     "doc",
     "project",
@@ -134,6 +135,9 @@ def test_index_rejects_duplicate_ids_tokens_and_ambiguous_aliases():
         (" /ObS  ", ["obsidian"]),
         ("/ob", ["obsidian"]),
         ("/workspace", ["workspace"]),
+        ("/imagine", ["image"]),
+        ("/sunburst", ["sunburst"]),
+        ("/flare", ["flare"]),
         ("/project", ["project"]),
         ("rep", ["project", "thread"]),
         ("Pro", ["profile", "project", "provider", "flow"]),
@@ -189,7 +193,7 @@ def test_discovery_requires_local_authentication_without_account_hints(
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize("path", [MANIFEST, f"{SEARCH}?q=obs"])
+@pytest.mark.parametrize("path", [MANIFEST, f"{SEARCH}?q=obs", f"{SEARCH}?q=imagine", f"{SEARCH}?q=sunburst", f"{SEARCH}?q=flare"])
 def test_remote_discovery_uses_existing_session_gate(
     discovery_client, monkeypatch, path
 ):
@@ -224,7 +228,7 @@ def test_remote_discovery_uses_existing_session_gate(
         params={
             "accountId": "account-b",
             "user_id": "account-b",
-            **({"q": "obs"} if path.startswith(SEARCH) else {}),
+            **({"q": path.split("q=", 1)[1]} if path.startswith(SEARCH) else {}),
         },
         headers={**headers_a, "X-User-Id": "account-b"},
     )

@@ -66,6 +66,11 @@ const apiSpies = vi.hoisted(() => ({
   patch: vi.fn(),
   delete: vi.fn(),
 }));
+const imageMocks = vi.hoisted(() => ({ generateImage: vi.fn() }));
+vi.mock("@/features/chat/imageGeneration", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/features/chat/imageGeneration")>(),
+  generateImage: imageMocks.generateImage,
+}));
 
 const chatMocks = vi.hoisted(() => {
   const completionInFlight = new Set<number>();
@@ -257,9 +262,16 @@ vi.mock("@/lib/api", () => ({
   getInFlightCompletionTurnId: vi.fn(() => null),
   getBackendOutageRemainingMs: vi.fn(() => 0),
   fetchSlashCommandManifest: vi.fn(async () => ({
-    schemaVersion: 1, manifestRevision: "lifecycle-fixture", commands: [],
+    schemaVersion: 1, manifestRevision: "lifecycle-fixture", commands: ["image", "sunburst", "flare"].map(id => ({
+      id, token: `/${id}`, scaffold: `/${id}`, label: id, description: "image",
+      aliases: [], keywords: ["image"], interactionModes: ["chat_intent"],
+      effects: { intentKind: "conversation", retrievalHint: "none" },
+      availability: "unknown", availabilityReason: "eligibility_not_evaluated",
+    })),
   })),
   hasRequestAuthCredential: vi.fn(() => true),
+  buildChatThreadsPath: () => "/chat/threads",
+  resolveBackendThreadIdFromResponse: (response: { data?: { thread?: { id: number } } }) => ({ threadId: response?.data?.thread?.id ?? null, diagnostics: {} }),
   updateThreadConfig: async (threadId: string | number, patch: Record<string, unknown>) => {
     const response = await apiSpies.patch(
       `/chat/threads/${threadId}/config`,
@@ -282,6 +294,7 @@ vi.mock("@/lib/runtimeConfig", () => ({
   getRuntimeConfigVersion: () => 0,
   resolveApiUrl: (path: string) => path,
   subscribeRuntimeConfigState: () => () => {},
+  getRuntimeConfigSync: () => ({ authMode: "remote" }),
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -319,6 +332,8 @@ vi.mock("@/features/guardian/components/Composer", () => ({
       <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
         Send
       </button>
+      <button type="button" data-testid="composer-image" onClick={() => void onSend("/sunburst A fox").catch(() => {})}>Image</button>
+      <button type="button" data-testid="composer-passive-image" onClick={() => void onSend("I'd love an image of a fox").catch(() => {})}>Passive image</button>
       <button
         type="button"
         data-testid="composer-provider-switch"
@@ -517,6 +532,7 @@ async function emitLiveEvent(type: string, data: Record<string, unknown>) {
 
 function renderChat(overrides: {
   onSessionProviderChange?: (providerId: string | null) => void;
+  newThread?: boolean;
 } = {}) {
   const onSessionProviderChange =
     overrides.onSessionProviderChange ?? vi.fn();
@@ -526,7 +542,7 @@ function renderChat(overrides: {
     <GuardianChat
       guardianName="Guardian"
       userName="tester"
-      activeThread={{ id: "1", title: "Thread 1" } as any}
+      activeThread={{ id: overrides.newThread ? "new" : "1", title: "Thread 1", projectId: 42 } as any}
       onSendMessage={onSendMessage}
       onNewChat={vi.fn()}
       sessionTabs={[
@@ -566,6 +582,8 @@ describe("GuardianChat turn lock lifecycle", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    imageMocks.generateImage.mockReset();
+    imageMocks.generateImage.mockResolvedValue({ id: "saved-image", src_url: "/media/fox.png", model: "sunburst-model" });
     liveEventsMock.handlers.clear();
     taskSources.instances.length = 0;
     inferenceMocks.realHook = false;
@@ -600,6 +618,50 @@ describe("GuardianChat turn lock lifecycle", () => {
     cleanup();
     expect(liveEventsMock.handlers.size).toBe(0);
     liveEventsMock.handlers.clear();
+  });
+
+  it.each(["composer-image"])("persists a generated artifact without a chat completion (%s)", async (button) => {
+    renderChat();
+    fireEvent.click(await screen.findByTestId(button));
+    await waitFor(() => expect(imageMocks.generateImage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/chat/1/messages", expect.objectContaining({
+      role: "assistant", content: expect.stringContaining("cfy-media:image:generated:saved-image"),
+    })));
+    expect(apiMock.post).toHaveBeenCalledWith("/chat/1/messages", expect.objectContaining({ role: "user" }));
+    expect(apiMock.post.mock.calls.some(([url]) => String(url).endsWith("/complete"))).toBe(false);
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+  });
+
+  it("keeps passive image preferences on ordinary chat inference", async () => {
+    renderChat();
+    fireEvent.click(await screen.findByTestId("composer-passive-image"));
+    await waitFor(() => expect(apiMock.post.mock.calls.some(([url]) => String(url).endsWith("/complete"))).toBe(true));
+    expect(imageMocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it("creates a real thread before the first image request", async () => {
+    apiMock.post.mockImplementation(async (url: string) => url === "/chat/threads"
+      ? { data: { thread: { id: 77 } } } : { data: {} });
+    renderChat({ newThread: true });
+    fireEvent.click(await screen.findByTestId("composer-image"));
+    await waitFor(() => expect(imageMocks.generateImage).toHaveBeenCalledWith(
+      { prompt: "A fox", modelAlias: "sunburst" }, { threadId: 77 },
+    ));
+    expect(apiMock.post).toHaveBeenCalledWith("/chat/77/messages", expect.objectContaining({ role: "user" }));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/chat/77/messages", expect.objectContaining({ role: "assistant" })));
+  });
+
+  it("blocks duplicate image submissions and releases the lock on provider failure", async () => {
+    let fail!: (reason: Error) => void;
+    imageMocks.generateImage.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    renderChat();
+    fireEvent.click(await screen.findByTestId("composer-image"));
+    await waitFor(() => expect(imageMocks.generateImage).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByTestId("composer-image"));
+    expect(imageMocks.generateImage).toHaveBeenCalledOnce();
+    await act(async () => { fail(new Error("Image provider unavailable")); });
+    await waitFor(() => expect(screen.getByTestId("lock-state")).toHaveTextContent("unlocked"));
+    expect(apiMock.post.mock.calls.some(([, body]) => body?.role === "assistant")).toBe(false);
   });
 
   it("clears the lock when completion start fails with backend error", async () => {

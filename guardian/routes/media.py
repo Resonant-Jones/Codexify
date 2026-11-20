@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from starlette.concurrency import run_in_threadpool
 
 from guardian.config.db_defaults import DEFAULT_PG_DSN
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
@@ -232,10 +233,19 @@ class DocumentArtifactDetailResponse(DocumentArtifactResponse):
 
 
 class ImageGenerationRequest(BaseModel):
-    prompt: str = Field(..., description="Text prompt for image generation")
-    model: str = Field(default="dall-e-3", description="Model to use")
-    project_id: Optional[int] = None
-    thread_id: Optional[int] = None
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=32000,
+        description="Text prompt for image generation",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Model to use; defaults to the selected adapter's model",
+    )
+    provider: Optional[str] = None
+    project_id: Optional[int] = Field(default=None, gt=0)
+    thread_id: Optional[int] = Field(default=None, gt=0)
     user_id: str = Field(default="default")
 
 
@@ -1944,6 +1954,39 @@ async def upload_document(
 # =========================
 
 
+@router.get("/generate/image/models", tags=["generation"])
+async def image_generation_models(
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    _require_media_feature(
+        "CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES", "image generation"
+    )
+    return ImageGenRouter.catalog()
+
+
+@router.get(
+    "/generated-images/{image_id}",
+    response_model=ImageGenerationResponse,
+    tags=["generation"],
+)
+async def get_generated_image(
+    image_id: str,
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    image = _require_generated_image_account_scope(
+        _get_db(), image_id, request_user_scope
+    )
+    if image.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return ImageGenerationResponse(
+        id=image.id,
+        src_url=_signed_src_url(image.src_url),
+        prompt=image.prompt,
+        model=image.model,
+        created_at=image.created_at.isoformat(),
+    )
+
+
 @router.post(
     "/generate/image",
     response_model=ImageGenerationResponse,
@@ -1956,7 +1999,7 @@ async def generate_image(
     """
     Generate an image using the configured AI provider.
 
-    Calls the image generation provider (OpenAI DALL-E, Stability AI, or local),
+    Calls the selected image generation adapter,
     saves the generated image bytes to storage, and tracks in the database.
     """
     _require_media_feature(
@@ -1965,34 +2008,48 @@ async def generate_image(
     )
     db = _get_db()
     image_id = str(uuid.uuid4())
-    project_id = request.project_id or 1
-    thread_id = request.thread_id or 1
+    thread_id = request.thread_id
+    project_id = request.project_id
     effective_user_id = _resolve_effective_user_id(
         request.user_id,
         request_user_scope,
         default_when_blank="default",
     )
-    if _coerce_optional_positive_int(request.project_id) is not None:
-        _require_project_account_scope(
-            db,
-            _coerce_optional_positive_int(request.project_id) or 0,
-            request_user_scope,
+    if thread_id is not None:
+        thread = _require_thread_account_scope(
+            db, thread_id, request_user_scope
         )
-    if _coerce_optional_positive_int(request.thread_id) is not None:
-        _require_thread_account_scope(
-            db,
-            _coerce_optional_positive_int(request.thread_id) or 0,
-            request_user_scope,
+        thread_project_id = _coerce_optional_positive_int(
+            _row_value(thread, "project_id")
         )
+        if project_id is not None and project_id != thread_project_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Thread does not belong to the selected project",
+            )
+        project_id = thread_project_id
+    if project_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="An explicit project or thread is required for image generation",
+        )
+    _require_project_account_scope(db, project_id, request_user_scope)
     prompt_alias = (request.prompt or "").strip()
     if not prompt_alias:
-        prompt_alias = "Generated image"
+        raise HTTPException(
+            status_code=400, detail="An image prompt is required"
+        )
 
     try:
         # Generate image using configured provider
-        image_bytes = ImageGenRouter.generate(
-            prompt=request.prompt,
-            model=request.model,
+        request.model = ImageGenRouter.resolve_model(
+            request.model, request.provider
+        )
+        generation_options = {"prompt": prompt_alias, "model": request.model}
+        if request.provider is not None:
+            generation_options["provider"] = request.provider
+        image_bytes = await run_in_threadpool(
+            ImageGenRouter.generate, **generation_options
         )
 
         with db.get_session() as session:

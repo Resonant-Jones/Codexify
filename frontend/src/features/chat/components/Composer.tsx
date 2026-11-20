@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { BookOpen, Send, X, FileText, Maximize2, Minimize2 } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import { requireImageCommandDiscovery, resolveImageGenerationIntent, type ImageGenerationIntent } from "@/features/chat/imageGeneration";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
@@ -158,6 +159,7 @@ export type ComposerSendOptions = {
   threadIdOverride?: number;
   slashIntent?: SlashCommandIntentPayload;
   executionMode?: CodingLoopExecutionMode;
+  imageGeneration?: ImageGenerationIntent;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -756,6 +758,15 @@ export function Composer({
       return;
     }
 
+    const imageGeneration = draftAttachments.length === 0 ? resolveImageGenerationIntent(value) : null;
+    if (imageGeneration) {
+      try { requireImageCommandDiscovery(slashCommandLibrary, imageGeneration); }
+      catch (error) { showToast((error as Error).message); return; }
+    }
+    if (imageGeneration && !imageGeneration.prompt) {
+      setShowImgGen(true);
+      return;
+    }
     const { messageText, slashIntent } = buildSlashCommandSendPayload(value, commands);
     const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
@@ -801,6 +812,7 @@ export function Composer({
             ? uploadThreadId
             : undefined,
         ...(slashIntent ? { slashIntent } : {}),
+        ...(imageGeneration ? { imageGeneration } : {}),
       });
 
       // Clear the draft after a successful send.
@@ -1213,6 +1225,10 @@ export function Composer({
         fileInputRef.current?.click();
       }}
       onGenerateImage={() => {
+        if (turnLocked) {
+          notifyTurnLocked();
+          return;
+        }
         if (draftControlsDisabled) {
           notifyTransportBusy();
           return;
@@ -1729,6 +1745,15 @@ export function Composer({
         onOpenChange={setShowImgGen}
         projectId={resolveProjectId()}
         threadId={threadId ?? null}
+        initialPrompt={resolveImageGenerationIntent(value)?.prompt ?? value}
+        initialModelAlias={resolveImageGenerationIntent(value)?.modelAlias}
+        onGenerate={async (intent) => {
+          requireImageCommandDiscovery(slashCommandLibrary, intent);
+          if (turnLocked || transportBusy) throw new Error("Wait for the current turn to finish before generating an image.");
+          await onSend(intent.prompt, { imageGeneration: intent });
+          updateDraftValue("");
+          commitDraftNow("");
+        }}
       />
     </>
   );

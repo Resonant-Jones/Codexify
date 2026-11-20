@@ -102,6 +102,20 @@ _COMMANDS = tuple(
     sorted(
         (
             _command(
+                "image", "Generate image",
+                "Generate an image using the selected image provider and model.",
+                aliases=("imagine",), keywords=("picture", "draw", "visual"),
+                intent_kind="conversation",
+            ),
+            _command(
+                "sunburst", "Sunburst", "Generate an image with Sunburst.",
+                keywords=("image", "picture"), intent_kind="conversation",
+            ),
+            _command(
+                "flare", "Flare", "Generate an image with Flare.",
+                keywords=("image", "picture"), intent_kind="conversation",
+            ),
+            _command(
                 "thread",
                 "Thread",
                 "Start or switch a conversation thread.",
