@@ -629,7 +629,8 @@ async function transferBatch(
 
 export async function startOpenAIAccountImport(
   selectedFiles: AccountImportBrowserFile[],
-  sourceSystem: AccountImportSourceSystem = "openai"
+  sourceSystem: AccountImportSourceSystem = "openai",
+  openAIImportSourceId?: string,
 ): Promise<AccountImportJob> {
   ensureInitialized();
   // A status event or unmount must not allow a second upload loop in this tab.
@@ -655,6 +656,12 @@ export async function startOpenAIAccountImport(
     throw new Error("An account export import is already active.");
   }
   const resume = snapshot.job?.status === "receiving" ? snapshot.job : null;
+  if (openAIImportSourceId !== undefined && sourceSystem !== "openai") {
+    throw new Error("A saved OpenAI source can only be used with an OpenAI export.");
+  }
+  if (resume && openAIImportSourceId !== undefined && resume.openai_import_source_id !== openAIImportSourceId) {
+    throw new Error("Resume requires the OpenAI source selected for the original job.");
+  }
   if (resume && resume.source_system !== sourceSystem) {
     throw new Error("Resume requires the original account source.");
   }
@@ -698,6 +705,7 @@ export async function startOpenAIAccountImport(
           total_file_count: normalizedFiles.length,
           total_byte_count: selectedByteCount,
           source_system: sourceSystem,
+          ...(openAIImportSourceId === undefined ? {} : { openai_import_source_id: openAIImportSourceId }),
         });
         // Bind the selection to this new job before the first upload.
         selectionFingerprint = fingerprint;
@@ -705,6 +713,10 @@ export async function startOpenAIAccountImport(
       }
       assertCurrentTransfer(run, controller.signal);
       if (job.source_system !== sourceSystem) throw new Error("The account import source changed.");
+      const expectedOpenAISource = resume ? resume.openai_import_source_id : openAIImportSourceId;
+      if ((job.openai_import_source_id ?? null) !== (expectedOpenAISource ?? null)) {
+        throw new Error("The saved OpenAI source does not match this upload. No files were sent.");
+      }
       if (job.status === "receiving") {
         if (resume) {
           if (!selectionFingerprint) {

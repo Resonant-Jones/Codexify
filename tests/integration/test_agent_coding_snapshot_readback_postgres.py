@@ -30,6 +30,7 @@ from guardian.core.auth import (
 from guardian.core.hosted_room_session import issue_guest_session_token
 from guardian.db.models import (
     AgentDeployment,
+    OpenAIImportSource,
     AgentRun,
     AgentRunArtifact,
     Base,
@@ -90,6 +91,7 @@ def readback(monkeypatch):
     # Existing ORM tables and their FK closure; no runtime schema/migration edit.
     tables = {
         User.__table__,
+        OpenAIImportSource.__table__,
         ChatThread.__table__,
         AgentDeployment.__table__,
         AgentRun.__table__,
