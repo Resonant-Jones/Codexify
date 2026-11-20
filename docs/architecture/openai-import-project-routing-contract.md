@@ -16,7 +16,8 @@ retain it. Legacy jobs with no selected source and Anthropic jobs retain
 the existing routing contract.
 
 The archive supplies exact group membership, not permission to reuse another
-user's Project. A full lowercase `g-p-` plus 32 hexadecimal characters in
+user's Project. Placement requires an original source conversation ID, not an adapter-generated
+placeholder. A full lowercase `g-p-` plus 32 hexadecimal characters in
 `conversation_template_id`, with no contradictory gizmo evidence, identifies
 a group within the selected source. An explicit null template with no gizmo
 evidence is confirmed ungrouped. Missing, unsupported, or contradictory

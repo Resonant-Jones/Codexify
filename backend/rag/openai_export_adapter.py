@@ -835,6 +835,14 @@ def _iter_normalized_conversations(
                             payload, source_path=record.path, export_format=export_format
                         )
                         for conversation in extracted:
+                            if preserve_duplicates and not _coerce_nonempty(
+                                conversation.get("id") or conversation.get("conversation_id")
+                            ):
+                                # Legacy normalization synthesizes an ID from the
+                                # payload. A selected-source import may use it
+                                # only to report the unresolved item, never for
+                                # durable conversation or Project placement.
+                                conversation.pop("conversation_template_id", None)
                             source_id = _conversation_identity(conversation)
                             if preserve_duplicates or source_id not in seen:
                                 seen.add(source_id)

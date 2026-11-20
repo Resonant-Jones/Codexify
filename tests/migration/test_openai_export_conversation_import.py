@@ -1957,22 +1957,29 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
     png = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     )
+    missing_id = conversation("stripped-identity")
+    missing_id.pop("id")
+    missing_id.pop("conversation_id")
     rows = [
         first,
         conversation("business-other", None),
         conversation("business-unknown", missing=True),
         conversation("business-ambiguous", journey),
         conversation("business-ambiguous", second_group),
+        missing_id,
     ]
     initial = run_job(business, rows, media_bytes=png)
     assert initial["status"] == "completed_with_warnings"
     assert initial["imported_thread_count"] == 2
     assert initial["imported_media_count"] == 2
     assert initial["imported_document_count"] == 1
-    assert {
+    unresolved_ids = {
         x["source_thread_id"] for x in initial["warning_details"]
         if x["code"] == "openai_project_membership_unresolved"
-    } == {"business-unknown", "business-ambiguous"}
+    }
+    assert {"business-unknown", "business-ambiguous"}.issubset(unresolved_ids)
+    assert len(unresolved_ids) == 3
+    assert any(value.startswith("openai-thread-") for value in unresolved_ids)
     with db._connect() as conn:
         query = """SELECT t.id, t.project_id, p.system_role
                    FROM chat_threads t JOIN projects p ON p.id=t.project_id
@@ -2002,8 +2009,10 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
             (general["project_id"], initial_thread["id"]),
         )
 
+    missing_id["title"] = "Changed payload without original source identity"
     replay = run_job(business, rows, media_bytes=png)
     assert replay["canonical_duplicate_count"] >= 2
+    assert replay["imported_thread_count"] == 2
     assert sum(
         item["code"] == "openai_attachment_placement_conflict"
         for item in replay["warning_details"]
@@ -2039,6 +2048,10 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
         assert conn.execute(query, ("pro-grouped",)).fetchone()["project_id"] != business_project
         assert conn.execute(
             "SELECT count(*) AS n FROM openai_import_project_groups WHERE user_id='owner-b'"
+        ).fetchone()["n"] == 0
+        assert conn.execute(
+            "SELECT count(*) AS n FROM chat_threads WHERE user_id='owner-a' "
+            "AND metadata->>'source_thread_id' LIKE 'openai-thread-%'"
         ).fetchone()["n"] == 0
         assert conn.execute(
             "SELECT count(*) AS n FROM projects WHERE name='Imports' AND user_id IN ('owner-a','owner-b')"
