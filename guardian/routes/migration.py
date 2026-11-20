@@ -539,6 +539,11 @@ class AccountImportCreateRequest(BaseModel):
     total_file_count: int = Field(gt=0)
     total_byte_count: int = Field(ge=0)
     source_system: str = "openai"
+    openai_import_source_id: str | None = Field(default=None, min_length=36, max_length=36)
+
+
+class OpenAIImportSourceCreateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
 
 
 def _get_account_import_service() -> OpenAIAccountImportService:
@@ -550,6 +555,35 @@ def _raise_account_import_error(exc: AccountImportError) -> None:
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
     ) from exc
+
+
+@router.get("/api/imports/openai-account/sources")
+async def list_openai_import_sources(
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """List only the authenticated destination account's logical sources."""
+    _ = api_key
+    service = await run_in_threadpool(_get_account_import_service)
+    sources = await run_in_threadpool(service.list_openai_sources, user_id=user_id)
+    return JSONResponse({"sources": sources}, headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/api/imports/openai-account/sources")
+async def create_openai_import_source(
+    request: OpenAIImportSourceCreateRequest,
+    user_id: str = Depends(get_request_user_id),
+    api_key: str = Depends(require_api_key),
+):
+    """Create one logical label; does not assert provider account identity."""
+    _ = api_key
+    service = await run_in_threadpool(_get_account_import_service)
+    try:
+        return await run_in_threadpool(
+            service.create_openai_source, user_id=user_id, label=request.label
+        )
+    except AccountImportError as exc:
+        _raise_account_import_error(exc)
 
 
 @router.post("/api/imports/openai-account")
@@ -569,6 +603,8 @@ async def create_openai_account_import(
             total_file_count=request.total_file_count,
             total_byte_count=request.total_byte_count,
             source_system=request.source_system,
+            **({"openai_import_source_id": request.openai_import_source_id}
+               if request.openai_import_source_id is not None else {}),
         )
     except AccountImportError as exc:
         _raise_account_import_error(exc)

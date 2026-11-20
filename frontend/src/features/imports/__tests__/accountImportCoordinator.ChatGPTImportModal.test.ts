@@ -124,6 +124,36 @@ describe("account import coordinator continuity", () => {
     coordinator.resetAccountImportCoordinatorForTests();
   });
 
+  it("binds a new job to the selected OpenAI source ID", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    const files = [
+      { file: new File(["[]"], "conversations.json"), relativePath: "conversations.json" },
+    ];
+    apiMocks.create.mockResolvedValue({ ...job(), openai_import_source_id: "selected-id" });
+    await coordinator.startOpenAIAccountImport(files, "openai", "selected-id");
+    expect(apiMocks.create).toHaveBeenCalledWith({
+      total_file_count: 1,
+      total_byte_count: 2,
+      source_system: "openai",
+      openai_import_source_id: "selected-id",
+    });
+    expect(apiMocks.upload).toHaveBeenCalledOnce();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
+  it("refuses to send any files if the server returns another logical source", async () => {
+    const coordinator = await import("@/features/imports/accountImportCoordinator");
+    const files = [
+      { file: new File(["[]"], "conversations.json"), relativePath: "conversations.json" },
+    ];
+    apiMocks.create.mockResolvedValue({ ...job(), openai_import_source_id: "other-id" });
+    await expect(coordinator.startOpenAIAccountImport(files, "openai", "selected-id"))
+      .rejects.toThrow(/OpenAI source does not match/);
+    expect(apiMocks.upload).not.toHaveBeenCalled();
+    expect(apiMocks.commit).not.toHaveBeenCalled();
+    coordinator.resetAccountImportCoordinatorForTests();
+  });
+
   it("explicitly serializes source_system=anthropic when requested", async () => {
     const coordinator = await import(
       "@/features/imports/accountImportCoordinator"

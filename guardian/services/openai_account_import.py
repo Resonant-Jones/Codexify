@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any, BinaryIO, Callable, Sequence
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -25,6 +26,10 @@ from backend.rag.openai_export_adapter import (
     guess_mime_type,
 )
 from guardian.core import event_bus
+from guardian.core.account_projects import (
+    AccountProjectProvisioningError,
+    ensure_account_general_project,
+)
 from guardian.core.db import GuardianDB, load_guardian_db_from_env
 from guardian.core.storage import (
     StorageManager,
@@ -37,6 +42,7 @@ from guardian.db.models import (
     GeneratedImage,
     MediaAsset,
     OpenAIAccountImportJob,
+    OpenAIImportSource,
     Project,
     ProjectDocumentLink,
     ThreadDocument,
@@ -274,6 +280,30 @@ class OpenAIAccountImportService:
     # source-system-agnostic beyond the allow-list.
     _SUPPORTED_SOURCE_SYSTEMS = frozenset({"openai", "anthropic"})
 
+    def list_openai_sources(self, *, user_id: str) -> list[dict[str, str]]:
+        with self.db.get_session() as session:
+            rows = (
+                session.query(OpenAIImportSource)
+                .filter(OpenAIImportSource.user_id == user_id)
+                .order_by(OpenAIImportSource.label, OpenAIImportSource.id)
+                .all()
+            )
+            return [{"id": row.id, "label": row.label} for row in rows]
+
+    def create_openai_source(self, *, user_id: str, label: str) -> dict[str, str]:
+        label = label.strip()
+        if not label or len(label) > 120 or any(ord(char) < 32 for char in label):
+            raise AccountImportError(
+                "Enter a logical OpenAI source label of 1 to 120 characters.",
+                code="invalid_openai_import_source_label",
+                status_code=422,
+            )
+        source_id = str(uuid.uuid4())
+        with self.db.get_session() as session:
+            session.add(OpenAIImportSource(id=source_id, user_id=user_id, label=label))
+            session.commit()
+        return {"id": source_id, "label": label}
+
     def create_job(
         self,
         *,
@@ -281,6 +311,7 @@ class OpenAIAccountImportService:
         total_file_count: int,
         total_byte_count: int,
         source_system: str = "openai",
+        openai_import_source_id: str | None = None,
     ) -> dict[str, Any]:
         count = int(total_file_count)
         byte_count = int(total_byte_count)
@@ -300,6 +331,12 @@ class OpenAIAccountImportService:
                 "Only OpenAI and Anthropic account exports are supported by this intake.",
                 code="unsupported_source_system",
             )
+        if openai_import_source_id is not None and normalized_source_system != "openai":
+            raise AccountImportError(
+                "A logical OpenAI source is only valid for OpenAI imports.",
+                code="invalid_openai_import_source",
+                status_code=422,
+            )
         job_id = str(uuid.uuid4())
         account_scope = hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:16]
         locator = f"account-imports/{account_scope}/{job_id}"
@@ -307,6 +344,7 @@ class OpenAIAccountImportService:
             id=job_id,
             user_id=str(user_id),
             source_system=normalized_source_system,
+            openai_import_source_id=openai_import_source_id,
             status=AccountImportStatus.RECEIVING.value,
             staging_locator=locator,
             total_file_count=count,
@@ -317,6 +355,29 @@ class OpenAIAccountImportService:
             checkpoint={"conversation_ids": [], "media_paths": []},
         )
         with self.db.get_session() as session:
+            if openai_import_source_id is not None:
+                source = session.query(OpenAIImportSource.id).filter(
+                    OpenAIImportSource.id == openai_import_source_id,
+                    OpenAIImportSource.user_id == str(user_id),
+                ).first()
+                if source is None:
+                    raise AccountImportError(
+                        "Selected OpenAI import source was not found.",
+                        code="openai_import_source_not_found",
+                        status_code=404,
+                    )
+                try:
+                    general = ensure_account_general_project(session, str(user_id))
+                    if general.archived_at is not None:
+                        raise AccountProjectProvisioningError(
+                            "general_archived", "Structural General is archived"
+                        )
+                except (AccountProjectProvisioningError, IntegrityError):
+                    raise AccountImportError(
+                        "This account's structural General Project needs review before import.",
+                        code="openai_import_general_unavailable",
+                        status_code=409,
+                    ) from None
             session.add(job)
             session.commit()
             session.refresh(job)
@@ -329,6 +390,7 @@ class OpenAIAccountImportService:
                 session.query(
                     job.id,
                     job.source_system,
+                    job.openai_import_source_id,
                     job.source_export_fingerprint,
                     job.status,
                     job.total_file_count,
@@ -799,6 +861,7 @@ class OpenAIAccountImportService:
             for value in batch.get("skipped_conversation_ids", [])
             if str(value).strip()
         ]
+        unresolved_ids = set(batch.get("unresolved_grouping_ids") or [])
         attempted_ids = list(dict.fromkeys([*conversation_ids, *skipped_ids]))
         with self.db.get_session() as session:
             job = self._require_job(
@@ -857,9 +920,11 @@ class OpenAIAccountImportService:
                 details.extend(
                     _bounded_detail(
                         {
-                            "code": "conversation_not_committed",
+                            "code": "openai_project_membership_unresolved"
+                            if value in unresolved_ids else "conversation_not_committed",
                             "source_thread_id": value,
-                            "message": "Conversation could not be confirmed after ingestion.",
+                            "message": "OpenAI Project membership is unresolved; conversation was not imported."
+                            if value in unresolved_ids else "Conversation could not be confirmed after ingestion.",
                         }
                     )
                     for value in newly_skipped
@@ -907,6 +972,7 @@ class OpenAIAccountImportService:
             job = self._require_job(session, job_id, user_id)
             if job.source_system != "openai":
                 return 0
+            openai_import_source_id = getattr(job, "openai_import_source_id", None)
             committed = {
                 str(value)
                 for value in (job.checkpoint or {}).get("conversation_ids", [])
@@ -940,6 +1006,9 @@ class OpenAIAccountImportService:
                         ChatThread.user_id == user_id,
                         Project.user_id == user_id,
                         ChatThread.origin_system == "openai",
+                        ChatThread.openai_import_source_id.is_not_distinct_from(
+                            openai_import_source_id
+                        ),
                         ChatMessage.extra_meta["source_thread_id"]
                         .as_string()
                         .in_(requested),
@@ -1204,17 +1273,73 @@ class OpenAIAccountImportService:
     def _resolve_source_thread(
         session: Session, *, user_id: str, source_thread_id: str | None,
         origin_system: str = "openai",
+        openai_import_source_id: str | None = None,
     ) -> ChatThread | None:
         if not source_thread_id:
             return None
-        return session.query(ChatThread).join(
-            ChatMessage, ChatMessage.thread_id == ChatThread.id
-        ).filter(
+        query = session.query(ChatThread).filter(
             ChatThread.user_id == user_id,
             ChatThread.origin_system == origin_system,
-            ChatMessage.extra_meta["source_thread_id"].as_string()
-            == source_thread_id,
+            session.query(ChatMessage.id).filter(
+                ChatMessage.thread_id == ChatThread.id,
+                ChatMessage.extra_meta["source_thread_id"].as_string() == source_thread_id,
+            ).exists(),
+        )
+        rows = query.order_by(ChatThread.id).with_for_update(of=ChatThread).all()
+        if any(row.openai_import_source_id != openai_import_source_id for row in rows) or (
+            openai_import_source_id is not None and len(rows) > 1
+        ):
+            raise AccountImportError(
+                "Attachment conversation belongs to a different or legacy import source.",
+                code="openai_attachment_source_conflict",
+                status_code=409,
+            )
+        return rows[0] if rows else None
+
+    def _resolve_attachment_project(
+        self, session: Session, *, user_id: str, source_thread: ChatThread | None,
+        openai_import_source_id: str | None,
+    ) -> Project:
+        query = session.query(Project).filter(
+            Project.id == source_thread.project_id,
+            Project.user_id == user_id,
+        ) if source_thread is not None and source_thread.project_id is not None else None
+        if openai_import_source_id is not None:
+            project = (
+                query.filter(Project.archived_at.is_(None)).with_for_update().first()
+                if query is not None else None
+            )
+            if project is None:
+                raise AccountImportError(
+                    "Attachment has no confirmed conversation in an active owned Project.",
+                    code="unresolved_openai_attachment_project",
+                    status_code=409,
+                )
+            return project
+        project = query.first() if query is not None else None
+        return project or self._resolve_import_project(session, user_id=user_id)
+
+    @staticmethod
+    def _refuse_cross_project_asset_replay(
+        session: Session, *, source_thread: ChatThread, project: Project,
+        media_kind: str, content_hash: str,
+    ) -> None:
+        # A real user move can outlive the original asset's Project. Never
+        # clone that asset into a new Project as a side effect of re-import.
+        earlier = session.query(MediaAsset.id).filter(
+            MediaAsset.user_id == source_thread.user_id,
+            MediaAsset.thread_id == source_thread.id,
+            MediaAsset.project_id != project.id,
+            MediaAsset.media_kind == media_kind,
+            MediaAsset.provenance == "imported",
+            MediaAsset.content_hash == content_hash,
         ).first()
+        if earlier is not None:
+            raise AccountImportError(
+                "Existing attachment remains in another Project after the conversation moved.",
+                code="openai_attachment_placement_conflict",
+                status_code=409,
+            )
 
     def import_image_record(
         self,
@@ -1247,18 +1372,20 @@ class OpenAIAccountImportService:
                 session,
                 user_id=user_id,
                 source_thread_id=evidence.source_thread_id,
+                openai_import_source_id=job.openai_import_source_id,
             )
-            project = (
-                session.query(Project)
-                .filter(
-                    Project.id == source_thread.project_id,
-                    Project.user_id == user_id,
+            project = self._resolve_attachment_project(
+                session,
+                user_id=user_id,
+                source_thread=source_thread,
+                openai_import_source_id=job.openai_import_source_id,
+            )
+            if job.openai_import_source_id is not None:
+                assert source_thread is not None
+                self._refuse_cross_project_asset_replay(
+                    session, source_thread=source_thread, project=project,
+                    media_kind="image", content_hash=content_hash,
                 )
-                .first()
-                if source_thread is not None and source_thread.project_id is not None
-                else None
-            )
-            project = project or self._resolve_import_project(session, user_id=user_id)
             existing = find_existing_asset(
                 session,
                 project_id=int(project.id),
@@ -1271,6 +1398,16 @@ class OpenAIAccountImportService:
                     "Canonical media ownership did not match the import account.",
                     code="media_account_scope_mismatch",
                     status_code=500,
+                )
+            if (
+                job.openai_import_source_id is not None
+                and existing is not None
+                and existing.thread_id != source_thread.id
+            ):
+                raise AccountImportError(
+                    "This image is already attached to a different conversation in this Project.",
+                    code="openai_attachment_placement_conflict",
+                    status_code=409,
                 )
             relationships = evidence.relationships or (
                 OpenAIExportImageRelationship(
@@ -1568,16 +1705,21 @@ class OpenAIAccountImportService:
                 session,
                 user_id=user_id,
                 source_thread_id=evidence.source_thread_id,
+                openai_import_source_id=job.openai_import_source_id,
                 origin_system=origin_system,
             )
-            project = (
-                session.query(Project).filter(
-                    Project.id == source_thread.project_id,
-                    Project.user_id == user_id,
-                ).first()
-                if source_thread is not None and source_thread.project_id is not None
-                else None
-            ) or self._resolve_import_project(session, user_id=user_id)
+            project = self._resolve_attachment_project(
+                session,
+                user_id=user_id,
+                source_thread=source_thread,
+                openai_import_source_id=job.openai_import_source_id,
+            )
+            if job.openai_import_source_id is not None:
+                assert source_thread is not None
+                self._refuse_cross_project_asset_replay(
+                    session, source_thread=source_thread, project=project,
+                    media_kind="document", content_hash=content_hash,
+                )
             asset = find_existing_asset(
                 session,
                 project_id=int(project.id),
@@ -2114,6 +2256,7 @@ class OpenAIAccountImportService:
         payload = {
             "job_id": job.id,
             "source_system": job.source_system,
+            "openai_import_source_id": getattr(job, "openai_import_source_id", None),
             "source_export_fingerprint": job.source_export_fingerprint,
             "status": job.status,
             "total_file_count": int(job.total_file_count or 0),

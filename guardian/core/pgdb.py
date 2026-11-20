@@ -549,6 +549,7 @@ class PgDB(ChatDB):
         metadata: dict | None = None,
         active_profile_id: str | None = None,
         origin_system: str = "codexify",
+        openai_import_source_id: str | None = None,
     ) -> dict[str, Any]:
         """Manifest a new conversation thread in the distributed consciousness.
 
@@ -572,20 +573,26 @@ class PgDB(ChatDB):
         from guardian.conversation_origin import resolve_canonical_origin
 
         canonical_origin = resolve_canonical_origin(origin_system)
+        if openai_import_source_id is not None and (
+            canonical_origin != "openai" or project_id is None
+        ):
+            raise ValueError("Scoped OpenAI import requires OpenAI origin and an explicit Project")
         project_id = resolve_project_id_or_default(
             self, project_id, logger=logging.getLogger(__name__)
         )
         with self._connect() as conn:
             try:
                 with conn.cursor() as cur:
+                    source_columns = ", openai_import_source_id" if openai_import_source_id else ""
+                    source_values = ", %s" if openai_import_source_id else ""
                     cur.execute(
-                        """
+                        f"""
                         INSERT INTO chat_threads (
                             user_id, title, summary, project_id, parent_id,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
-                            metadata, active_profile_id, origin_system
+                            metadata, active_profile_id, origin_system{source_columns}
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s{source_values})
                         RETURNING
                             id, user_id, title, summary, project_id, parent_id, archived_at,
                             is_diary, diary_mode, exclude_from_identity, modeling_excluded,
@@ -605,10 +612,13 @@ class PgDB(ChatDB):
                             _to_json(metadata),
                             active_profile_id,
                             canonical_origin,
+                            *((openai_import_source_id,) if openai_import_source_id else ()),
                         ),
                     )
                     row = cur.fetchone()
             except pg_errors.UndefinedColumn:
+                if openai_import_source_id is not None:
+                    raise
                 # Backward-compatible insert for older schemas that do not yet
                 # include parent/archival/metadata/origin_system columns.
                 conn.rollback()
@@ -3592,6 +3602,7 @@ class PgDB(ChatDB):
         *,
         conn: psycopg.Connection | None = None,
         target_user_id: str | None = None,
+        include_lifecycle: bool = False,
     ) -> dict[str, int]:
         normalized_rows: list[dict[str, Any]] = []
         expected_owner = (
@@ -3632,18 +3643,69 @@ class PgDB(ChatDB):
                 "identity_depth",
                 "created_at",
                 "updated_at",
+                *(("system_role", "archived_at") if include_lifecycle else ()),
             ),
             rows=normalized_rows,
             conn=conn,
-            unique_key_columns=(("name",),),
+            unique_key_columns=(
+                (("user_id", "name"),) if include_lifecycle else (("name",),)
+            ),
             sequence_column="id",
         )
+
+    def restore_account_export_openai_import_sources(
+        self, rows: list[dict[str, Any]], *, conn: psycopg.Connection,
+    ) -> dict[str, int]:
+        return self._restore_account_export_rows(
+            table_name="openai_import_sources",
+            pk_column="id",
+            columns=("id", "user_id", "label"),
+            rows=rows,
+            conn=conn,
+        )
+
+    def restore_account_export_openai_import_project_groups(
+        self, rows: list[dict[str, Any]], *, conn: psycopg.Connection,
+    ) -> dict[str, int]:
+        imported = 0
+        with conn.cursor() as cur:
+            for row in rows:
+                key = (row["user_id"], row["source_id"], row["group_id"])
+                cur.execute(
+                    """
+                    INSERT INTO openai_import_project_groups
+                        (user_id, source_id, group_id, project_id)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, source_id, group_id) DO NOTHING
+                    RETURNING group_id
+                    """,
+                    (*key, row["project_id"]),
+                )
+                if cur.fetchone() is not None:
+                    imported += 1
+                    continue
+                cur.execute(
+                    """
+                    SELECT project_id FROM openai_import_project_groups
+                    WHERE user_id = %s AND source_id = %s AND group_id = %s
+                    FOR UPDATE
+                    """,
+                    key,
+                )
+                existing = cur.fetchone()
+                if existing is None or existing["project_id"] != row["project_id"]:
+                    raise ValueError("OpenAI import group conflicts with existing Project binding")
+        return {
+            "imported": imported, "skipped": len(rows) - imported,
+            "failed": 0, "unresolved": 0,
+        }
 
     def restore_account_export_chat_threads(
         self,
         rows: list[dict[str, Any]],
         *,
         conn: psycopg.Connection | None = None,
+        include_openai_import_source: bool = False,
     ) -> dict[str, int]:
         # Deterministic legacy backfill: archives exported before
         # ``origin_system`` existed do not carry the field. We derive the
@@ -3706,6 +3768,7 @@ class PgDB(ChatDB):
                 "origin_system",
                 "created_at",
                 "updated_at",
+                *(("openai_import_source_id",) if include_openai_import_source else ()),
             ),
             rows=normalized_rows,
             conn=conn,
@@ -5442,6 +5505,10 @@ def fetch_account_export_bundle_for_user(
     user_id: str,
     *,
     include_unified_memory: bool = False,
+    auto_import_source_schema: bool = False,
+    read_import_state: bool = False,
+    _dsn: str | None = None,
+    include_import_project_lifecycle: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Return the complete canonical account export payload bundle for a user.
@@ -5454,22 +5521,52 @@ def fetch_account_export_bundle_for_user(
     if not user_id:
         return {family: [] for family in payload_order}
 
-    dsn = _resolve_dsn()
+    dsn = _dsn or _resolve_dsn()
     conn = psycopg.connect(dsn, row_factory=dict_row)
     try:
         with conn.cursor() as cur:
+            # The upgrade decision and all rows must come from one snapshot.
+            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            sources, groups = [], []
+            if read_import_state:
+                sources = _export_rows(
+                    cur,
+                    """
+                    SELECT id, user_id, label FROM openai_import_sources
+                    WHERE user_id = %s ORDER BY id
+                    """,
+                    (user_id,),
+                )
+                groups = _export_rows(
+                    cur,
+                    """
+                    SELECT user_id, source_id, group_id, project_id
+                    FROM openai_import_project_groups
+                    WHERE user_id = %s ORDER BY source_id, group_id
+                    """,
+                    (user_id,),
+                )
+            include_unified_memory = include_unified_memory or (
+                auto_import_source_schema and bool(sources or groups)
+            )
             bundles: dict[str, list[dict[str, Any]]] = {
                 family: [] for family in payload_order
             }
 
+            source_column = ""
+            if read_import_state:
+                bundles["openai_import_sources"] = sources
+                bundles["openai_import_project_groups"] = groups
+                source_column = ", openai_import_source_id"
             bundles["chat_threads"] = _export_rows(
                 cur,
-                """
+                f"""
                 SELECT
                     id, user_id, title, summary, project_id,
                     active_profile_id, active_profile_revision, parent_id, archived_at,
                     is_diary, diary_mode, exclude_from_identity,
                     modeling_excluded, metadata, origin_system, created_at, updated_at
+                    {source_column}
                 FROM chat_threads
                 WHERE user_id = %s
                 ORDER BY updated_at DESC, id DESC
@@ -5504,6 +5601,10 @@ def fetch_account_export_bundle_for_user(
                 else []
             )
 
+            project_ids = _append_unique(
+                project_ids,
+                [row["project_id"] for row in groups if row["project_id"] is not None],
+            )
             document_scope_clause, document_scope_params = _export_scope_clause(
                 ("user_id = %s", user_id),
                 (
@@ -5962,7 +6063,19 @@ def fetch_account_export_bundle_for_user(
             project_scope = [
                 project_id for project_id in project_ids if project_id is not None
             ]
-            if include_unified_memory:
+            if sources or groups or include_import_project_lifecycle:
+                bundles["projects"] = _export_rows(
+                    cur,
+                    """
+                    SELECT id, user_id, name, description, icon, identity_depth,
+                           created_at, updated_at, system_role, archived_at
+                    FROM projects WHERE user_id = %s OR id = ANY(%s)
+                    ORDER BY id
+                    """,
+                    (user_id, project_scope),
+                )
+                _require_canonical_project_ownership(bundles["projects"], owner=user_id)
+            elif include_unified_memory:
                 bundles["projects"] = (
                     _export_rows(
                         cur,
@@ -6383,6 +6496,8 @@ def _make_pgdb_account_export_instance_method(name):
     module_fn = globals()[name]
 
     def wrapper(self, *args, **kwargs):
+        if name == "fetch_account_export_bundle_for_user":
+            return module_fn(*args, _dsn=self.dsn, **kwargs)
         return _pgdb_account_export_dsn_override(self, module_fn, *args, **kwargs)
 
     wrapper.__name__ = name

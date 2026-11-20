@@ -982,6 +982,7 @@ export type AccountImportStatus =
   | "failed";
 
 export interface AccountImportJob {
+  openai_import_source_id?: string | null;
   job_id: string;
   source_system: AccountImportSourceSystem;
   source_export_fingerprint?: string | null;
@@ -1044,11 +1045,34 @@ const ACCOUNT_IMPORT_REQUEST_CONFIG = {
   __cfyDurableAccountImport: true,
 };
 
+export interface OpenAIImportSource {
+  id: string;
+  label: string;
+}
+
+export async function listOpenAIImportSources(signal?: AbortSignal): Promise<OpenAIImportSource[]> {
+  const response = await api.get<{ sources: OpenAIImportSource[] }>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/sources`,
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+  );
+  return response.data.sources;
+}
+
+export async function createOpenAIImportSource(label: string, signal?: AbortSignal): Promise<OpenAIImportSource> {
+  const response = await api.post<OpenAIImportSource>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/sources`,
+    { label },
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+  );
+  return response.data;
+}
+
 export async function createOpenAIAccountImport(
   declaration: {
     total_file_count: number;
     total_byte_count: number;
     source_system: AccountImportSourceSystem;
+    openai_import_source_id?: string;
   },
 ): Promise<AccountImportJob> {
   if (!isAccountImportSourceSystem(declaration.source_system)) {
@@ -1064,6 +1088,8 @@ export async function createOpenAIAccountImport(
       total_file_count: declaration.total_file_count,
       total_byte_count: declaration.total_byte_count,
       source_system: declaration.source_system,
+      ...(declaration.openai_import_source_id !== undefined
+        ? { openai_import_source_id: declaration.openai_import_source_id } : {}),
     },
     ACCOUNT_IMPORT_REQUEST_CONFIG
   );

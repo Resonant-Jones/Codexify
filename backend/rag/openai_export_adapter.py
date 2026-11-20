@@ -767,7 +767,8 @@ class OpenAILegacyExportAdapter:
         return list(self.iter_conversations(inventory))
 
     def iter_conversations(
-        self, inventory: OpenAIExportInventory, *, scratch_dir: Path | None = None
+        self, inventory: OpenAIExportInventory, *, scratch_dir: Path | None = None,
+        preserve_duplicates: bool = False
     ) -> Iterator[dict[str, Any]]:
         candidates = [
             record
@@ -782,7 +783,8 @@ class OpenAILegacyExportAdapter:
 
         record = sorted(candidates, key=lambda item: item.path)[0]
         yield from _iter_normalized_conversations(
-            [record], export_format="legacy", scratch_dir=scratch_dir
+            [record], export_format="legacy", scratch_dir=scratch_dir,
+            preserve_duplicates=preserve_duplicates
         )
 
 
@@ -799,10 +801,12 @@ class OpenAIShardedExportAdapter:
         inventory: OpenAIExportInventory,
         *,
         scratch_dir: Path | None = None,
+        preserve_duplicates: bool = False,
     ) -> Iterator[dict[str, Any]]:
         """Yield in legacy adapter order without retaining the export corpus."""
         yield from _iter_normalized_conversations(
-            inventory.files, export_format="sharded", scratch_dir=scratch_dir
+            inventory.files, export_format="sharded", scratch_dir=scratch_dir,
+            preserve_duplicates=preserve_duplicates
         )
 
 
@@ -811,6 +815,7 @@ def _iter_normalized_conversations(
     *,
     export_format: str,
     scratch_dir: Path | None,
+    preserve_duplicates: bool = False,
 ) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     with TemporaryDirectory(prefix="openai-messages-", dir=scratch_dir) as tmp:
@@ -831,7 +836,7 @@ def _iter_normalized_conversations(
                         )
                         for conversation in extracted:
                             source_id = _conversation_identity(conversation)
-                            if source_id not in seen:
+                            if preserve_duplicates or source_id not in seen:
                                 seen.add(source_id)
                                 yield conversation
                         for message, source_path in message_records:
@@ -873,7 +878,7 @@ def _iter_normalized_conversations(
                     rows, export_format=export_format
                 ):
                     source_id = _conversation_identity(conversation)
-                    if source_id not in seen:
+                    if preserve_duplicates or source_id not in seen:
                         seen.add(source_id)
                         yield conversation
 

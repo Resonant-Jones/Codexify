@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import tempfile
 import zipfile
 from collections import OrderedDict
@@ -16,10 +17,12 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from guardian.cognition.system_profiles.manifest import PersonaProfileManifest
 from guardian.core.auth import AuthenticatedUser
 from guardian.core.media_signing import extract_media_path
+from guardian.core.pgdb import PgDB
 from guardian.core.storage import FileNotFoundError as StorageFileNotFoundError
 from guardian.core.storage import StorageError, create_storage_from_env
 
@@ -57,6 +60,11 @@ LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION = "account-export.v7"
 #: row -- the purge that writes one deletes that row -- so this family is
 #: independent of the erased canonical graph rather than a child of it.
 PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION = "account-export.v8"
+OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION = "account-export.v9"
+OPENAI_IMPORT_PAYLOAD_ORDER = (
+    ("openai_import_sources", "entities/openai_import_sources.json", ""),
+    ("openai_import_project_groups", "entities/openai_import_project_groups.json", ""),
+)
 EXPORT_KIND = "full_account"
 ZIP_FILENAME = "Codexify-Export.zip"
 PAYLOAD_ORDER = (
@@ -261,6 +269,9 @@ PAYLOAD_ORDER_BY_SCHEMA = {
     PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
     ),
+    OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER + OPENAI_IMPORT_PAYLOAD_ORDER
+    ),
 }
 EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     MANIFEST_SCHEMA_VERSION: PAYLOAD_ORDER,
@@ -274,6 +285,9 @@ EXPORT_PAYLOAD_ORDER_BY_SCHEMA = {
     ),
     PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
         PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER
+    ),
+    OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION: (
+        PAYLOAD_ORDER + PURGE_TOMBSTONE_MEMORY_PAYLOAD_ORDER + OPENAI_IMPORT_PAYLOAD_ORDER
     ),
 }
 BINARY_FAMILIES = {
@@ -420,6 +434,93 @@ def _load_rows_by_family(
     for family, _path, reader_name in payload_order:
         rows_by_family[family] = _reader_rows(db, reader_name, user.id)
     return rows_by_family
+
+
+def _openai_import_state_present(rows: Mapping[str, Any]) -> bool:
+    return bool(
+        rows.get("openai_import_sources")
+        or rows.get("openai_import_project_groups")
+        or any(
+            row.get("openai_import_source_id") is not None
+            for row in (rows.get("chat_threads") or [])
+        )
+    )
+
+
+def _validate_openai_import_archive(
+    rows: Mapping[str, list[dict[str, Any]]], *, user_id: str
+) -> None:
+    """Validate source and mapping identity without trusting archive labels."""
+    source_ids: set[str] = set()
+    projects = {row["id"]: row for row in rows["projects"]}
+    for row in rows["openai_import_sources"]:
+        source_id = row.get("id")
+        label = row.get("label")
+        try:
+            canonical_uuid = isinstance(source_id, str) and str(UUID(source_id)) == source_id
+        except ValueError:
+            canonical_uuid = False
+        if (
+            set(row) != {"id", "user_id", "label"}
+            or row.get("user_id") != user_id
+            or not canonical_uuid
+            or source_id in source_ids
+            or not isinstance(label, str)
+            or not label.strip()
+            or len(label) > 120
+        ):
+            raise ValueError("invalid account-owned OpenAI import source")
+        source_ids.add(source_id)
+
+    seen_groups: set[tuple[str, str]] = set()
+    seen_targets: set[int] = set()
+    for row in rows["openai_import_project_groups"]:
+        source_id, group_id = row.get("source_id"), row.get("group_id")
+        project_id = row.get("project_id")
+        if (
+            set(row) != {"user_id", "source_id", "group_id", "project_id"}
+            or row.get("user_id") != user_id
+            or not isinstance(source_id, str)
+            or source_id not in source_ids
+            or not isinstance(group_id, str)
+            or not re.fullmatch(r"g-p-[0-9a-f]{32}", group_id)
+            or (source_id, group_id) in seen_groups
+        ):
+            raise ValueError("invalid OpenAI import group mapping")
+        if project_id is not None:
+            if type(project_id) is not int or project_id in seen_targets:
+                raise ValueError("invalid OpenAI import Project identity")
+            project = projects.get(project_id)
+            if (
+                project is None
+                or project.get("user_id") != user_id
+                or project.get("system_role") is not None
+            ):
+                raise ValueError("OpenAI import group lacks an owned ordinary Project")
+            seen_targets.add(project_id)
+        seen_groups.add((source_id, group_id))
+
+    for row in rows["chat_threads"]:
+        if row.get("user_id") != user_id:
+            raise ValueError("archive contains a thread not owned by the account")
+        if "openai_import_source_id" not in row:
+            raise ValueError("thread is missing canonical OpenAI import source field")
+        source_id = row["openai_import_source_id"]
+        if source_id is not None and (
+            not isinstance(source_id, str)
+            or source_id not in source_ids
+            or row.get("origin_system") != "openai"
+        ):
+            raise ValueError("thread references an invalid OpenAI import source")
+
+    if any(
+        row.get("user_id") != user_id
+        or "system_role" not in row
+        or row.get("system_role") not in (None, "general", "imports")
+        or "archived_at" not in row
+        for row in rows["projects"]
+    ):
+        raise ValueError("Project ownership or canonical lifecycle is invalid")
 
 
 def _resolve_export_schema_version(schema_version: str | None) -> str:
@@ -1398,7 +1499,20 @@ def _build_manifest(
         )
     )
 
-    if schema_version == PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION:
+    if schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+        compatibility = {
+            "reader": "account_export.v9",
+            "restore_mode": "supported",
+            "restore_supported": True,
+            "binary_payloads_included": bool(blob_files),
+            "blob_layout": "canonical-content-hash-v1",
+        }
+        notes = [
+            "manifest.json is the source of truth for this archive.",
+            "v9 preserves account-owned logical OpenAI import sources, group-to-Project bindings, and Project lifecycle.",
+            "Logical sources are user-selected and are not verified provider identities.",
+        ]
+    elif schema_version == PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION:
         # v8 is the v7 canonical graph plus purge suppression tombstones.
         compatibility = {
             "reader": "account_export.v8",
@@ -1548,12 +1662,50 @@ def build_account_export_zip(
         LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
         PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
     )
-    rows_by_family = _load_rows_by_family(
-        db,
-        user,
-        payload_order=payload_order,
-        include_unified_memory=include_unified_memory,
-    )
+    # Only the PgDB canonical reader can atomically select the archive format
+    # under the same snapshot used for export. Compatibility readers carry no
+    # imported-source state and cannot create a v9 archive.
+    canonical_reader = getattr(db, "fetch_account_export_bundle_for_user", None)
+    if isinstance(db, PgDB):
+        bundle = canonical_reader(
+            user.id,
+            include_unified_memory=(
+                include_unified_memory
+                or resolved_schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION
+            ),
+            auto_import_source_schema=schema_version is None,
+            read_import_state=True,
+            include_import_project_lifecycle=(
+                resolved_schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION
+            ),
+        )
+        if _openai_import_state_present(bundle):
+            if schema_version is not None and (
+                resolved_schema_version != OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION
+            ):
+                raise RuntimeError("openai_import_sources_require_account_export_v9")
+            resolved_schema_version = OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION
+        payload_order = EXPORT_PAYLOAD_ORDER_BY_SCHEMA[resolved_schema_version]
+        payload_families = tuple(entry[0] for entry in payload_order)
+        rows_by_family = {
+            family: [dict(row) for row in bundle.get(family, []) or []]
+            for family in payload_families
+        }
+        if resolved_schema_version != OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+            for row in rows_by_family["chat_threads"]:
+                row.pop("openai_import_source_id", None)
+    else:
+        if resolved_schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+            raise RuntimeError("openai_import_sources_require_canonical_account_export_reader")
+        rows_by_family = _load_rows_by_family(
+            db, user, payload_order=payload_order,
+            include_unified_memory=include_unified_memory,
+        )
+        if _openai_import_state_present(rows_by_family):
+            raise RuntimeError("openai_import_sources_require_account_export_v9")
+    if resolved_schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+        _validate_openai_import_archive(rows_by_family, user_id=user.id)
+        include_unified_memory = True
     _validate_persona_profile_export(rows_by_family, user_id=user.id)
     if include_unified_memory:
         _validate_unified_memory_export(rows_by_family, user_id=user.id)
