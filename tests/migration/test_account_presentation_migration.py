@@ -2,6 +2,7 @@
 
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -23,9 +24,13 @@ def store(request):
         if not url:
             pytest.skip("Disposable PRESENTATION_TEST_DATABASE_URL required")
         parsed = sa.engine.make_url(url)
-        assert (parsed.host or parsed.query.get("host")) in (
-            "127.0.0.1",
-            "/tmp/presentation-pg-20261118/socket",
+        socket = Path(parsed.query.get("host", "")).resolve()
+        assert (parsed.host or parsed.query.get("host")) == "127.0.0.1" or (
+            parsed.username == "codexify_profile_merge_test"
+            and str(socket).startswith(
+                ("/tmp/cxf-profile-merge.", "/private/tmp/cxf-profile-merge.")
+            )
+            and socket.name == "socket"
         )
         assert parsed.database == "codexify_presentation_proof"
     engine = sa.create_engine(url)
@@ -86,9 +91,9 @@ def test_single_head_and_no_private_bio_revision():
     config = Config("backend/alembic.ini")
     config.set_main_option("script_location", "guardian/db/migrations")
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["a3f8c2d6e901"]
+    assert scripts.get_heads() == ["b7e6c4a29013"]
     assert migration.down_revision == "d2e7a9b4c1f6"
-    assert len(list(scripts.walk_revisions())) == 145
+    assert len(list(scripts.walk_revisions())) == 147
 
 
 def test_postgres_concurrent_partial_changes_preserve_both_fields(store):

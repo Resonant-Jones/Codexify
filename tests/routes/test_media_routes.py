@@ -369,10 +369,11 @@ class TestImageGeneration:
             status_code=400,
             detail="IMAGE_GEN_PROVIDER is not configured",
         )
+        mock_get_db.return_value, _ = _mock_db_with_session()
 
         response = client.post(
             "/api/media/generate/image",
-            json={"prompt": "test image", "model": "dall-e-3"},
+            json={"prompt": "test image", "model": "dall-e-3", "project_id": 1},
         )
 
         assert response.status_code == 400
@@ -386,10 +387,11 @@ class TestImageGeneration:
     ):
         """Provider failures surface as 500 responses."""
         mock_gen.side_effect = RuntimeError("API connection failed")
+        mock_get_db.return_value, _ = _mock_db_with_session()
 
         response = client.post(
             "/api/media/generate/image",
-            json={"prompt": "test image", "model": "dall-e-3"},
+            json={"prompt": "test image", "model": "dall-e-3", "project_id": 1},
         )
 
         assert response.status_code == 500
@@ -429,6 +431,9 @@ class TestImageGeneration:
 
         mock_db, mock_session = _mock_db_with_session()
         mock_get_db.return_value = mock_db
+        mock_session.query.return_value.filter.return_value.first.return_value = SimpleNamespace(
+            id=99, project_id=42, user_id="user123"
+        )
 
         response = client.post(
             "/api/media/generate/image",
@@ -436,7 +441,6 @@ class TestImageGeneration:
                 "prompt": "test image",
                 "model": "dall-e-3",
                 "user_id": "user123",
-                "project_id": 42,
                 "thread_id": 99,
             },
         )
@@ -450,7 +454,65 @@ class TestImageGeneration:
         mock_ensure_alias.assert_called_once()
 
 
+class TestImageGenerationScope:
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media.ImageGenRouter.generate")
+    def test_missing_scope_never_calls_provider(self, generate, get_db, client):
+        response = client.post("/api/media/generate/image", json={"prompt": "A fox", "provider": "openai"})
+        assert response.status_code == 400
+        generate.assert_not_called()
+
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media.ImageGenRouter.generate")
+    def test_mismatched_thread_project_never_calls_provider(self, generate, get_db, client):
+        get_db.return_value, _ = _mock_db_with_context(thread=SimpleNamespace(id=9, project_id=42, user_id="test_user"))
+        response = client.post("/api/media/generate/image", json={"prompt": "A fox", "project_id": 7, "thread_id": 9})
+        assert response.status_code == 400
+        generate.assert_not_called()
+
+    @patch("guardian.routes.media._get_db")
+    @patch("guardian.routes.media.ImageGenRouter.generate")
+    def test_other_account_thread_never_calls_provider(self, generate, get_db, app):
+        from guardian.routes import media
+        app.dependency_overrides[media.get_request_user_scope] = lambda: RequestUserScope(
+            user_id="account-a", subject_id="account-a", account_id="account-a", multi_user_enabled=True,
+        )
+        get_db.return_value, _ = _mock_db_with_context(thread=SimpleNamespace(id=9, project_id=42, user_id="account-b"))
+        response = TestClient(app, headers=get_test_auth_headers()).post("/api/media/generate/image", json={"prompt": "A fox", "thread_id": 9})
+        assert response.status_code == 403
+        generate.assert_not_called()
+
+    @patch("guardian.routes.media._get_db")
+    def test_generated_image_read_requires_ownership(self, get_db, app):
+        from guardian.routes import media
+        app.dependency_overrides[media.get_request_user_scope] = lambda: RequestUserScope(
+            user_id="account-a", subject_id="account-a", account_id="account-a", multi_user_enabled=True,
+        )
+        db, session = _mock_db_with_session()
+        get_db.return_value = db
+        session.query.return_value.filter_by.return_value.first.return_value = SimpleNamespace(user_id="account-b")
+        response = TestClient(app, headers=get_test_auth_headers()).get("/api/media/generated-images/private")
+        assert response.status_code == 403
+
+    @patch("guardian.routes.media._get_db")
+    def test_generated_image_read_refreshes_signed_url(self, get_db, client):
+        db, session = _mock_db_with_session()
+        get_db.return_value = db
+        session.query.return_value.filter_by.return_value.first.return_value = SimpleNamespace(
+            id="saved-image", user_id="test_user", deleted_at=None, src_url="/media/generated/fox.png",
+            prompt="A fox", model="gpt-image-2.5-sunburst", created_at=datetime.now(timezone.utc),
+        )
+        response = client.get("/api/media/generated-images/saved-image")
+        assert response.status_code == 200
+        assert response.json()["src_url"].startswith("/media/generated/fox.png?")
+        assert "sig=" in response.json()["src_url"]
+
+
 class TestMediaQuarantine:
+    def test_image_catalog_quarantined_when_generation_disabled(self, monkeypatch, client):
+        monkeypatch.setenv("CODEXIFY_ENABLE_MEDIA_GENERATION_ROUTES", "0")
+        assert client.get("/api/media/generate/image/models").status_code == 404
+
     def test_generate_image_quarantined_when_disabled(
         self, monkeypatch: pytest.MonkeyPatch, client: TestClient
     ) -> None:

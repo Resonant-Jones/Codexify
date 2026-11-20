@@ -19,8 +19,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -33,7 +31,6 @@ from guardian.db.models import (
     HostedRoomInvite,
     HostedRoomParticipant,
     PersonaProfile,
-    PersonaProfileRevision,
     Project,
     ThreadSpaceNode,
     User,
@@ -41,10 +38,7 @@ from guardian.db.models import (
 )
 from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 
-
-@compiles(JSONB, "sqlite")
-def _compile_jsonb_for_sqlite(_type, _compiler, **_kwargs):
-    return "JSON"
+from guardian.tests.routes.test_hosted_room_guest import build_sqlite_test_metadata
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -66,22 +60,9 @@ def test_engine():
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    # Create tables (order matters for FK references)
-    for table in (
-        User.__table__,
-        ThreadSpaceNode.__table__,
-        UserProfile.__table__,
-        Project.__table__,
-        PersonaProfile.__table__,
-        PersonaProfileRevision.__table__,
-        ChatThread.__table__,
-        ChatCompletionAttempt.__table__,
-        HostedRoom.__table__,
-        HostedRoomInvite.__table__,
-        HostedRoomParticipant.__table__,
-        ChatMessage.__table__,
-    ):
-        table.create(engine)
+    # Use the guest suite's canonical projection so both fixtures retain
+    # the same FK dependencies and PostgreSQL-only CHECK accommodation.
+    build_sqlite_test_metadata().create_all(engine)
 
     # Seed users and default project
     now = datetime.now(timezone.utc)

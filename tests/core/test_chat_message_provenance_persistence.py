@@ -17,6 +17,7 @@ from guardian.core.db import GuardianDB, _PostgresGuardianDB
 from guardian.core.pgdb import PgDB
 from guardian.db.models import (
     ChatMessage,
+    OpenAIImportSource,
     ChatThread,
     HostedRoom,
     HostedRoomInvite,
@@ -41,6 +42,7 @@ def orm_db():
     for table in (
         User.__table__,
         Project.__table__,
+        OpenAIImportSource.__table__,
         ChatThread.__table__,
         HostedRoom.__table__,
         HostedRoomInvite.__table__,

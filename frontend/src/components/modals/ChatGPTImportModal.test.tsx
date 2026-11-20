@@ -25,6 +25,11 @@ vi.mock("@/features/imports/accountImportCoordinator", () => ({
   restoreArchivedAccountImport: vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock(import("@/lib/api"), async (importOriginal) => ({
+  ...await importOriginal(),
+  listOpenAIImportSources: vi.fn().mockResolvedValue([{ id: "saved-pro-id", label: "Pro" }]),
+}));
+
 describe("conversation history modal", () => {
   beforeEach(() => coordinator.start.mockReset().mockResolvedValue({ status: "queued" }));
 
@@ -37,11 +42,13 @@ describe("conversation history modal", () => {
 
     expect(screen.getByRole("heading", { name: "Import Conversation History" })).toBeInTheDocument();
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await screen.findByRole("option", { name: "Pro" });
+    await user.selectOptions(screen.getByLabelText("Saved OpenAI import source"), "saved-pro-id");
     await user.upload(input, exportFile);
     await user.click(screen.getByRole("button", { name: "Upload & Migrate" }));
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledWith(
-      [{ file: exportFile, relativePath: "conversation.json" }], "openai"
+      [{ file: exportFile, relativePath: "conversation.json" }], "openai", "saved-pro-id"
     ));
   });
 

@@ -81,3 +81,36 @@ def test_actual_stream_limit_closes_spooled_files_and_maps_only_own_limit(test_c
 def test_malformed_multipart_is_not_mislabeled_as_size_failure(test_client):
     response = test_client.post("/api/imports/openai-account/job/file-chunks", content=b"bad", headers={"Content-Type": "multipart/form-data"})
     assert response.status_code == 400
+
+
+def test_logical_source_routes_and_job_use_authenticated_owner(test_client, monkeypatch):
+    source_id = "2f524a4b-990b-4f3a-b68d-98c78264b53d"
+    seen = []
+
+    class Service:
+        def create_openai_source(self, **kwargs):
+            seen.append(kwargs)
+            return {"id": source_id, "label": kwargs["label"]}
+
+        def list_openai_sources(self, **kwargs):
+            seen.append(kwargs)
+            return [{"id": source_id, "label": "Business"}]
+
+        def create_job(self, **kwargs):
+            seen.append(kwargs)
+            return {"job_id": "test", "openai_import_source_id": source_id}
+
+    monkeypatch.setattr(routes, "_get_account_import_service", Service)
+    base = "/api/imports/openai-account"
+    assert test_client.post(f"{base}/sources", json={"label": "Business", "user_id": "forged"}).json() == {
+        "id": source_id, "label": "Business"
+    }
+    assert test_client.get(f"{base}/sources").json() == {
+        "sources": [{"id": source_id, "label": "Business"}]
+    }
+    assert test_client.post(base, json={
+        "total_file_count": 1, "total_byte_count": 20,
+        "openai_import_source_id": source_id, "user_id": "forged",
+    }).json()["openai_import_source_id"] == source_id
+    assert [entry["user_id"] for entry in seen] == [SERVER_USER_ID] * 3
+    assert seen[2]["openai_import_source_id"] == source_id

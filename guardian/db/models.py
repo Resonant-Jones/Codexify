@@ -1463,6 +1463,8 @@ class ChatThread(Base):
 
     __tablename__ = "chat_threads"
 
+    openai_import_source_id: Mapped[str | None] = mapped_column(String(36))
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
@@ -1530,6 +1532,15 @@ class ChatThread(Base):
     __mapper_args__ = {"eager_defaults": True}
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["openai_import_source_id", "user_id"],
+            ["openai_import_sources.id", "openai_import_sources.user_id"],
+            name="fk_chat_threads_openai_import_source_owner",
+        ),
+        CheckConstraint(
+            "openai_import_source_id IS NULL OR origin_system = 'openai'",
+            name="ck_chat_threads_openai_import_source_origin",
+        ),
         CheckConstraint(
             "active_profile_revision IS NULL OR active_profile_revision > 0",
             name="ck_chat_threads_active_profile_revision_positive",
@@ -4063,6 +4074,47 @@ class Message(Base):
 # =========================
 
 
+class OpenAIImportSource(Base):
+    """An owner-selected logical source, not an authenticated OpenAI identity."""
+
+    __tablename__ = "openai_import_sources"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("id", "user_id", name="uq_openai_import_sources_id_user"),
+    )
+
+
+class OpenAIImportProjectGroup(Base):
+    """Stable mapping; NULL project_id is a retained deletion tombstone."""
+
+    __tablename__ = "openai_import_project_groups"
+    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_id", "user_id"],
+            ["openai_import_sources.id", "openai_import_sources.user_id"],
+            name="fk_openai_import_groups_source_owner",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "user_id"], ["projects.id", "projects.user_id"],
+            name="fk_openai_import_groups_project_owner",
+            ondelete="SET NULL (project_id)",
+        ),
+        CheckConstraint(
+            "group_id ~ '^g-p-[0-9a-f]{32}$'",
+            name="ck_openai_import_groups_full_id",
+        ),
+    )
+
+
 class OpenAIAccountImportJob(Base):
     """Account-owned durable intake and worker checkpoint for an OpenAI export."""
 
@@ -4076,6 +4128,7 @@ class OpenAIAccountImportJob(Base):
         String(32), nullable=False, server_default="openai"
     )
     source_export_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    openai_import_source_id: Mapped[str | None] = mapped_column(String(36))
     status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -4149,6 +4202,15 @@ class OpenAIAccountImportJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["openai_import_source_id", "user_id"],
+            ["openai_import_sources.id", "openai_import_sources.user_id"],
+            name="fk_openai_import_jobs_openai_source_owner",
+        ),
+        CheckConstraint(
+            "openai_import_source_id IS NULL OR source_system = 'openai'",
+            name="ck_openai_import_jobs_openai_source_system",
+        ),
         CheckConstraint(
             f"status IN ({','.join(repr(value) for value in sorted(ACCOUNT_IMPORT_STATUSES))})",
             name="openai_account_import_jobs_status_check",

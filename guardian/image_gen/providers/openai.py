@@ -1,6 +1,7 @@
 from guardian.metering.runtime import deny_unqualified_spend
 
 import base64
+import os
 from typing import Any, Dict
 
 from fastapi import HTTPException
@@ -16,8 +17,39 @@ except Exception:
 
 class OpenAIImageGen(ImageGenProvider):
     name = "openai"
+    label = "OpenAI"
+    default_model = "gpt-image-2.5-sunburst"
+    model_aliases = {"sunburst": default_model, "flare": "gpt-image-2.5-flare"}
+    supported_models = {
+        "gpt-image-2.6-sunburst",
+        "gpt-image-2.6-flare",
+        "gpt-image-2.5-sunburst",
+        "gpt-image-2.5-flare",
+        "gpt-image-2",
+        "gpt-image-1.5",
+        "gpt-image-1",
+        "gpt-image-1-mini",
+        "dall-e-3",
+        "dall-e-2",
+    }
+    # Keep legacy request compatibility without offering retired models in the UI.
+    catalog_models = supported_models - {"dall-e-3", "dall-e-2"}
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    @classmethod
+    def unavailable_reason(cls) -> str | None:
+        try:
+            assert_egress_allowed(cls.name)
+        except EgressDeniedError as exc:
+            return str(exc)
+        if OpenAI is None:
+            return "The OpenAI image adapter is not installed."
+        if not os.getenv("OPENAI_API_KEY", "").strip():
+            return "OpenAI image generation is not configured."
+        return None
+
+    def __init__(
+        self, api_key: str | None = None, base_url: str | None = None
+    ):
         try:
             assert_egress_allowed("openai")
         except EgressDeniedError as exc:
@@ -26,11 +58,24 @@ class OpenAIImageGen(ImageGenProvider):
             raise HTTPException(
                 status_code=500, detail="openai package not installed"
             )
+        resolved_base = (
+            (base_url or os.getenv("OPENAI_BASE_URL") or "")
+            .strip()
+            .rstrip("/")
+        )
+        # Guardian's shared OpenAI setting is an origin; the SDK expects /v1.
+        if resolved_base == "https://api.openai.com":
+            resolved_base += "/v1"
         try:
-            if api_key or base_url:
-                self.client = OpenAI(api_key=api_key, base_url=base_url)
+            if api_key or resolved_base:
+                self.client = OpenAI(
+                    api_key=api_key,
+                    base_url=resolved_base or None,
+                    timeout=180,
+                    max_retries=0,
+                )
             else:
-                self.client = OpenAI()
+                self.client = OpenAI(timeout=180, max_retries=0)
         except Exception as exc:
             raise HTTPException(
                 status_code=400,
@@ -51,22 +96,37 @@ class OpenAIImageGen(ImageGenProvider):
             )
         size = kwargs.get("size", "1024x1024")
         try:
-            result = self.client.images.generate(
-                model=model,
-                prompt=prompt,
-                size=size,
-                response_format="b64_json",
-            )
+            params = dict(model=model, prompt=prompt, size=size, n=1)
+            if model.startswith("gpt-image-"):
+                # GPT Image always returns base64; legacy response_format is invalid.
+                params.update(
+                    output_format="png",
+                    quality=kwargs.get("quality", "medium"),
+                )
+            else:
+                params["response_format"] = "b64_json"
+            result = self.client.images.generate(**params)
         except Exception as exc:
             status = getattr(exc, "status_code", None)
             if status == 400:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenAI rejected the image request. Check the prompt, model access, and generation settings.",
+                ) from exc
             if status in (401, 403):
                 raise HTTPException(
                     status_code=400,
-                    detail="OpenAI API key is missing or invalid",
+                    detail="OpenAI image access was denied. Check credentials and model access.",
                 ) from exc
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            if status == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="OpenAI image rate or credit limit reached. Try again later.",
+                ) from exc
+            raise HTTPException(
+                status_code=502,
+                detail="OpenAI image generation failed. No automatic retry was made.",
+            ) from exc
 
         data = getattr(result, "data", None) or []
         if not data or not getattr(data[0], "b64_json", None):
@@ -76,7 +136,10 @@ class OpenAIImageGen(ImageGenProvider):
             )
 
         try:
-            return base64.b64decode(data[0].b64_json)
+            decoded = base64.b64decode(data[0].b64_json, validate=True)
+            if not decoded:
+                raise ValueError("Empty image")
+            return decoded
         except Exception as exc:
             raise HTTPException(
                 status_code=502,

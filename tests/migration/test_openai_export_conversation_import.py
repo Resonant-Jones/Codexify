@@ -1867,3 +1867,243 @@ def test_postgres_synthetic_modern_account_import_recovery_and_lineage(
             cur.execute("DELETE FROM chat_threads WHERE user_id=ANY(%s)", (accounts,))
             cur.execute("DELETE FROM projects WHERE user_id=ANY(%s)", (accounts,))
             cur.execute("DELETE FROM users WHERE id=ANY(%s)", (accounts,))
+
+
+@pytest.mark.integration
+def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
+    transaction_postgres_url, tmp_path, monkeypatch
+):
+    """Rehearse the real staged worker with only scratch Postgres and local blobs."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    import psycopg
+    from backend.rag.chatgpt_migration import ingest_chatgpt_conversation_records
+    from guardian.core import dependencies
+    from guardian.core.db import GuardianDB
+    from guardian.core.openai_import_routing import OpenAIImportPlacementConflict
+    from guardian.core.pgdb import PgDB
+    from guardian.core.storage import StorageManager
+    from guardian.queue.account_import_queue import TASK_TYPE
+    from guardian.services.openai_account_import import (
+        AccountImportError, OpenAIAccountImportService, StagedImportFile,
+    )
+    from guardian.workers.account_import_worker import process_account_import_task
+
+    db = PgDB(transaction_postgres_url)
+    monkeypatch.setattr(dependencies, "chatlog_db", db)
+    with db._connect() as conn:
+        conn.execute(
+            """INSERT INTO users (id, username, password_hash, role)
+               VALUES ('owner-a','owner-a','test','guest'), ('owner-b','owner-b','test','guest')"""
+        )
+    service = OpenAIAccountImportService(
+        db=GuardianDB(db._sa_url),
+        staging_storage=StorageManager("local", base_path=tmp_path / "stage", url_prefix="/internal"),
+        media_storage=StorageManager("local", base_path=tmp_path / "media", url_prefix="/media"),
+        emit_event=lambda *args, **kwargs: None,
+        enqueue_task=lambda *args, **kwargs: None,
+        enqueue_import_embedding_task=lambda *args, **kwargs: "synthetic-queue",
+    )
+    journey = "g-p-" + "a1" * 16
+    second_group = "g-p-" + "b2" * 16
+    business = service.create_openai_source(user_id="owner-a", label="Business")["id"]
+    assert service.list_openai_sources(user_id="owner-a") == [{"id": business, "label": "Business"}]
+    assert service.list_openai_sources(user_id="owner-b") == []
+    with pytest.raises(AccountImportError, match="not found"):
+        service.create_job(user_id="owner-b", total_file_count=1,
+                           total_byte_count=1, openai_import_source_id=business)
+    personal = service.create_openai_source(user_id="owner-a", label="Pro")["id"]
+    other = service.create_openai_source(user_id="owner-b", label="Other")["id"]
+
+    def conversation(source_id, group=journey, *, missing=False):
+        result = _build_mapping_conversation(
+            [("user", "Synthetic conversation", 1000)],
+            conversation_id=source_id, title="Potentially identical title",
+        )
+        if not missing:
+            result["conversation_template_id"] = group
+        return result
+
+    first = conversation("business-grouped")
+    first["mapping"]["m1"]["message"]["metadata"] = {
+        "attachments": [{"file_path": "assets/pixel.png"}, {"file_path": "assets/proof.pdf"}]
+    }
+
+    def run_job(source, records, *, media_bytes=None, extra_files=()):
+        files = [StagedImportFile(
+            "workspaces/conversations__a.part-0001/messages.dat",
+            ("\n".join(json.dumps(record) for record in records) + "\n").encode(),
+        )]
+        if media_bytes:
+            files.extend([
+                StagedImportFile("assets/pixel.png", media_bytes),
+                StagedImportFile("assets/proof.pdf", b"%PDF-1.4\nsynthetic test PDF"),
+            ])
+        files.extend(extra_files)
+        data = service.create_job(
+            user_id="owner-a", total_file_count=len(files),
+            total_byte_count=sum(len(row.data) for row in files),
+            openai_import_source_id=source,
+        )
+        assert data["openai_import_source_id"] == source
+        job_id = data["job_id"]
+        service.stage_files(job_id=job_id, user_id="owner-a", files=files)
+        service.finalize_job(job_id=job_id, user_id="owner-a")
+        assert process_account_import_task(
+            {"type": TASK_TYPE, "job_id": job_id, "user_id": "owner-a"}, service=service
+        )
+        return service.get_job(job_id=job_id, user_id="owner-a")
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    missing_id = conversation("stripped-identity")
+    missing_id.pop("id")
+    missing_id.pop("conversation_id")
+    rows = [
+        first,
+        conversation("business-other", None),
+        conversation("business-unknown", missing=True),
+        conversation("business-ambiguous", journey),
+        conversation("business-ambiguous", second_group),
+        missing_id,
+    ]
+    initial = run_job(business, rows, media_bytes=png)
+    assert initial["status"] == "completed_with_warnings"
+    assert initial["imported_thread_count"] == 2
+    assert initial["imported_media_count"] == 2
+    assert initial["imported_document_count"] == 1
+    unresolved_ids = {
+        x["source_thread_id"] for x in initial["warning_details"]
+        if x["code"] == "openai_project_membership_unresolved"
+    }
+    assert {"business-unknown", "business-ambiguous"}.issubset(unresolved_ids)
+    assert len(unresolved_ids) == 3
+    assert any(value.startswith("codexify-openai-unresolved-") for value in unresolved_ids)
+    with db._connect() as conn:
+        query = """SELECT t.id, t.project_id, p.system_role
+                   FROM chat_threads t JOIN projects p ON p.id=t.project_id
+                   WHERE t.metadata->>'source_thread_id'=%s"""
+        initial_thread = conn.execute(query, ("business-grouped",)).fetchone()
+        business_project = initial_thread["project_id"]
+        general = conn.execute(query, ("business-other",)).fetchone()
+        assert general["system_role"] == "general"
+        assert {
+            (item["media_kind"], item["project_id"], item["thread_id"])
+            for item in conn.execute(
+                "SELECT media_kind, project_id, thread_id FROM media_assets WHERE user_id='owner-a'"
+            )
+        } == {
+            ("image", business_project, initial_thread["id"]),
+            ("document", business_project, initial_thread["id"]),
+        }
+        assert conn.execute(
+            "SELECT count(*) AS n FROM thread_documents WHERE thread_id=%s", (initial_thread["id"],)
+        ).fetchone()["n"] == 1
+        assert conn.execute(query, ("business-unknown",)).fetchone() is None
+        assert conn.execute(query, ("business-ambiguous",)).fetchone() is None
+        conn.execute("UPDATE projects SET name='Human rename' WHERE id=%s", (business_project,))
+        conn.execute("UPDATE openai_import_sources SET label='Business renamed' WHERE id=%s", (business,))
+        conn.execute(
+            "UPDATE chat_threads SET project_id=%s WHERE id=%s",
+            (general["project_id"], initial_thread["id"]),
+        )
+
+    missing_id["title"] = "Changed payload without original source identity"
+    replay = run_job(business, rows, media_bytes=png)
+    assert replay["canonical_duplicate_count"] >= 2
+    assert replay["imported_thread_count"] == 2
+    assert sum(
+        item["code"] == "openai_attachment_placement_conflict"
+        for item in replay["warning_details"]
+    ) == 2
+    run_job(personal, [conversation("pro-grouped")])
+    run_job(business, [conversation("business-new")])
+
+    # The rejected record's 'id' is a valid new A in the same batch, while
+    # its contradictory 'conversation_id' names a previously committed B.
+    # Neither genuine identity may become this rejection's accounting ID.
+    conflict = conversation("valid-a")
+    conflict["conversation_id"] = "business-grouped"
+    conflict["mapping"]["m1"]["message"]["metadata"] = {"file_path": "assets/conflicted.pdf"}
+    conflict_result = run_job(business, [conflict, conversation("valid-a")])
+    assert conflict_result["imported_thread_count"] == 1
+    assert conflict_result["canonical_duplicate_count"] == 0
+    assert {
+        row["code"] for row in conflict_result["warning_details"]
+    } == {"openai_project_membership_unresolved"}
+    with db._connect() as conn:
+        assert conn.execute(query, ("valid-a",)).fetchone()["project_id"] == business_project
+    same_batch = run_job(
+        business, [conflict, conversation("valid-b"), first],
+        extra_files=[StagedImportFile("assets/conflicted.pdf", b"%PDF-1.4\nunsafe evidence")],
+    )
+    assert same_batch["imported_thread_count"] == 2
+    assert same_batch["canonical_duplicate_count"] >= 1
+    assert {"openai_project_membership_unresolved", "unresolved_openai_attachment_source"} <= {
+        row["code"] for row in same_batch["warning_details"]
+    }
+
+    def ingest(record, source, account="owner-a"):
+        return ingest_chatgpt_conversation_records(
+            [record], user_id=account, openai_import_source_id=source,
+            disable_personal_facts=True, embedding_mode="off",
+        )
+
+    with pytest.raises(OpenAIImportPlacementConflict, match="legacy"):
+        ingest(first, personal)
+    # The existing global message identity constraint cannot admit equal IDs
+    # across owners. It must roll back the new Project as well as thread.
+    with pytest.raises(OpenAIImportPlacementConflict, match="identity conflicts"):
+        ingest(first, other, account="owner-b")
+
+    gate = Barrier(2)
+    def concurrent_ingest(i):
+        gate.wait(timeout=5)
+        return ingest(conversation(f"concurrent-{i}", second_group), business)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(concurrent_ingest, (1, 2)))
+    assert sum(row["projects_created"] for row in outcomes) == 1
+
+    with db._connect() as conn:
+        assert conn.execute(query, ("business-grouped",)).fetchone()["project_id"] == general["project_id"]
+        assert conn.execute("SELECT count(*) AS n FROM media_assets WHERE user_id='owner-a'").fetchone()["n"] == 2
+        assert conn.execute(query, ("business-new",)).fetchone()["project_id"] == business_project
+        assert conn.execute(query, ("pro-grouped",)).fetchone()["project_id"] != business_project
+        assert conn.execute(
+            "SELECT count(*) AS n FROM openai_import_project_groups WHERE user_id='owner-b'"
+        ).fetchone()["n"] == 0
+        assert conn.execute(
+            "SELECT count(*) AS n FROM chat_threads WHERE user_id='owner-a' "
+            "AND metadata->>'source_thread_id' LIKE 'codexify-openai-unresolved-%'"
+        ).fetchone()["n"] == 0
+        assert conn.execute(
+            "SELECT count(*) AS n FROM projects WHERE name='Imports' AND user_id IN ('owner-a','owner-b')"
+        ).fetchone()["n"] == 0
+        assert conn.execute("SELECT name FROM projects WHERE id=%s", (business_project,)).fetchone()["name"] == "Human rename"
+        assert service.list_openai_sources(user_id="owner-a")[0]["label"] == "Business renamed"
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with conn.transaction():
+                conn.execute("UPDATE chat_threads SET openai_import_source_id=%s WHERE id=%s",
+                             (personal, initial_thread["id"]))
+        conn.execute("UPDATE projects SET archived_at=now() WHERE id=%s", (business_project,))
+    with pytest.raises(OpenAIImportPlacementConflict, match="archived or deleted"):
+        ingest(conversation("business-after-archive"), business)
+    with db._connect() as conn:
+        # Verify the physical delete leaves an immutable, non-reusable tombstone
+        # in the second group after removing its test conversations.
+        p = conn.execute(
+            """SELECT project_id FROM openai_import_project_groups
+               WHERE source_id=%s AND group_id=%s""",
+            (business, second_group),
+        ).fetchone()["project_id"]
+        conn.execute("DELETE FROM chat_threads WHERE project_id=%s", (p,))
+        conn.execute("DELETE FROM projects WHERE id=%s", (p,))
+        assert conn.execute(
+            """SELECT project_id FROM openai_import_project_groups
+               WHERE source_id=%s AND group_id=%s""",
+            (business, second_group),
+        ).fetchone() == {"project_id": None}
+    with pytest.raises(OpenAIImportPlacementConflict, match="archived or deleted"):
+        ingest(conversation("business-after-delete", second_group), business)

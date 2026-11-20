@@ -29,6 +29,7 @@ from guardian.db.models import (
     MediaAlias,
     MediaAsset,
     OpenAIAccountImportJob,
+    OpenAIImportSource,
     Project,
     ProjectDocumentLink,
     ThreadDocument,
@@ -282,6 +283,7 @@ def account_import_service(tmp_path: Path):
     tables = [
         User.__table__,
         Project.__table__,
+        OpenAIImportSource.__table__,
         OpenAIAccountImportJob.__table__,
         MediaAsset.__table__,
         MediaAlias.__table__,
@@ -323,7 +325,7 @@ def staging_integrity_service(request, tmp_path: Path):
         )
         try:
             Base.metadata.create_all(
-                engine, tables=[User.__table__, OpenAIAccountImportJob.__table__]
+                engine, tables=[User.__table__, OpenAIImportSource.__table__, OpenAIAccountImportJob.__table__]
             )
             yield _build_account_import_service(
                 tmp_path, sessionmaker(bind=engine, autoflush=False)

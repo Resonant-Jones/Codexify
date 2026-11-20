@@ -14,7 +14,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-from guardian.db.models import Base, OpenAIAccountImportJob, User
+from guardian.db.models import Base, OpenAIAccountImportJob, OpenAIImportSource, User
 from guardian.services import account_import_chunks as chunks
 from tests.rag.test_openai_export_account_import import _build_account_import_service
 
@@ -31,7 +31,7 @@ def pg_chunk_service(tmp_path):
     with admin.begin() as conn: conn.execute(CreateSchema(schema))
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}", "application_name": app})
     try:
-        Base.metadata.create_all(engine, tables=[User.__table__, OpenAIAccountImportJob.__table__])
+        Base.metadata.create_all(engine, tables=[User.__table__, OpenAIImportSource.__table__, OpenAIAccountImportJob.__table__])
         values = _build_account_import_service(tmp_path, sessionmaker(bind=engine, expire_on_commit=False))
         yield values, engine, app
     finally:

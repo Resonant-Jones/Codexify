@@ -1,8 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import api, { uploadOpenAIAccountImportBatch, commitOpenAIAccountImport, fetchOpenAIAccountImportManifest, accountImportUploadTimeoutMs, ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS, ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS } from "@/lib/api";
+import api, { createOpenAIAccountImport, createOpenAIImportSource, listOpenAIImportSources, uploadOpenAIAccountImportBatch, commitOpenAIAccountImport, fetchOpenAIAccountImportManifest, accountImportUploadTimeoutMs, ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS, ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS } from "@/lib/api";
 
 afterEach(() => vi.restoreAllMocks());
 describe("bounded account import transport", () => {
+  it("lists and creates account-owned sources without injecting account authority", async () => {
+    const source = { id: "saved-id", label: "Pro" };
+    const get = vi.spyOn(api, "get").mockResolvedValue({ data: { sources: [source] } });
+    const post = vi.spyOn(api, "post").mockResolvedValue({ data: source });
+    const { signal } = new AbortController();
+    await expect(listOpenAIImportSources(signal)).resolves.toEqual([source]);
+    await expect(createOpenAIImportSource("Pro", signal)).resolves.toEqual(source);
+    expect(get).toHaveBeenCalledWith("/api/imports/openai-account/sources", expect.objectContaining({ signal }));
+    expect(post).toHaveBeenCalledWith("/api/imports/openai-account/sources", { label: "Pro" }, expect.objectContaining({ signal }));
+  });
+
+  it("adds a selected source ID to the create job request, not a label or user ID", async () => {
+    const post = vi.spyOn(api, "post").mockResolvedValue({ data: {} });
+    const declaration = { source_system: "openai", total_file_count: 1, total_byte_count: 2, openai_import_source_id: "saved-id" } as const;
+    await createOpenAIAccountImport(declaration);
+    expect(post).toHaveBeenCalledWith("/api/imports/openai-account", declaration, expect.any(Object));
+  });
+
   it("sets a finite upload timeout and forwards caller cancellation", async () => {
     const post = vi.spyOn(api, "post").mockResolvedValue({ data: { status: "receiving" } });
     const controller = new AbortController();

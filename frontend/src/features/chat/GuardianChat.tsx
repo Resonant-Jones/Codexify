@@ -55,6 +55,7 @@ import api, {
   OptionalSurfaceError,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
+import { generateImage, imageGenerationError, requireImageCommandDiscovery, resolveImageGenerationIntent } from "@/features/chat/imageGeneration";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { cn } from "@/lib/utils";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
@@ -125,6 +126,7 @@ import {
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
 import { useCodingLoopRuns } from "@/features/chat/codingLoop/CodingLoop";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useSlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
 import {
   markRuntimeRouteUnavailableIfNotFound,
   useRuntimeRouteCapability,
@@ -1036,6 +1038,7 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const slashCommandLibrary = useSlashCommandLibrary(auth, runtimeHealth?.backendReachable);
   const [landingGreetingIndex, setLandingGreetingIndex] = useState(
     randomLandingGreetingIndex
   );
@@ -3661,11 +3664,15 @@ export function GuardianChat({
     setCodexDraft(null);
   }, []);
 
+  const imageTurnBusyRef = useRef(false);
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
     text: string,
     options?: ComposerSendOptions
   ) => {
+    const codingLoopMode = options?.executionMode === "coding";
+    const imageIntent = codingLoopMode || text.includes("<!-- cfy-media:")
+      ? null : options?.imageGeneration ?? resolveImageGenerationIntent(text);
     /**
      * Inject human consciousness into the thread's awareness stream.
      *
@@ -3676,30 +3683,36 @@ export function GuardianChat({
     const hydrationState = getRuntimeConfigHydrationState();
     if (hydrationState === "pending") {
       showToast("Local runtime is still hydrating. Try again in a moment.");
+      if (imageIntent) throw new Error("Local runtime is still hydrating. Try again in a moment.");
       return;
     }
     if (hydrationState === "failed") {
       showToast(
         "Local runtime handoff failed. Open desktop diagnostics and retry."
       );
+      if (imageIntent) throw new Error("Local runtime handoff failed. Open desktop diagnostics and retry.");
       return;
     }
     if (!auth.ready) {
       showToast("Authentication is not ready yet.");
+      if (imageIntent) throw new Error("Authentication is not ready yet.");
       return;
     }
     if (!authCanSend) {
       showToast(
         "Authentication required. Sign in or provide a dev key in local development."
       );
+      if (imageIntent) throw new Error("Sign in before generating an image.");
       return;
     }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
-    const codingLoopMode = options?.executionMode === "coding";
+    if (imageTurnBusyRef.current) {
+      throw new Error("An image is already being generated. Wait for it to finish.");
+    }
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
       !codingLoopMode && targetThreadId != null && Boolean(requestedProfileId);
-    if (llmBackendUnavailable && !isProfileCommand && !codingLoopMode) {
+    if (llmBackendUnavailable && !isProfileCommand && !codingLoopMode && !imageIntent) {
       const title =
         llmHealth.modelsAvailable === false
           ? "No AI models available."
@@ -3712,6 +3725,7 @@ export function GuardianChat({
     }
     if (targetThreadId != null && isTurnLocked(targetThreadId)) {
       notifyTurnLocked();
+      if (imageIntent) throw new Error("Wait for the current turn to finish before generating an image.");
       return;
     }
     if (
@@ -3719,6 +3733,7 @@ export function GuardianChat({
       isCompletionInFlight(targetThreadId)
     ) {
       notifyTurnLocked();
+      if (imageIntent) throw new Error("Wait for the current turn to finish before generating an image.");
       return;
     }
     if (targetThreadId != null && requestedProfileId) {
@@ -3752,6 +3767,48 @@ export function GuardianChat({
         console.error("[guardian] profile switch command failed", error);
         showToast("Profile switch failed.");
         throw error;
+      }
+      return;
+    }
+    if (imageIntent) {
+      requireImageCommandDiscovery(slashCommandLibrary, imageIntent);
+      if (!imageIntent.prompt.trim()) throw new Error("Describe the image you want to generate.");
+      let imageThreadId = targetThreadId;
+      let imageSaved = false;
+      let imageAttached = false;
+      imageTurnBusyRef.current = true;
+      setPendingTurnLock(true);
+      try {
+        imageThreadId ??= await createThreadFromComposer(text);
+        if (imageThreadId == null) throw new Error("Could not create a thread for this image.");
+        setTurnLockForThread(imageThreadId, true);
+        await api.post(`/chat/${imageThreadId}/messages`, {
+          role: "user", content: text,
+          project_id: workspaceProjectId ?? undefined,
+        });
+        await refreshSnapshot(imageThreadId, "image-request");
+        const image = await generateImage(imageIntent, { threadId: imageThreadId });
+        imageSaved = true;
+        // Store the durable id. The bubble fetches a fresh signed URL on reload.
+        await api.post(`/chat/${imageThreadId}/messages`, {
+          role: "assistant",
+          content: `<!-- cfy-media:image:generated:${image.id} -->\n\nGenerated with ${image.model}.`,
+          metadata: { image_generation: { id: image.id, provider: image.provider, model: image.model } },
+        });
+        imageAttached = true;
+        await refreshSnapshot(imageThreadId, "image-generated");
+        emitThreadsRefresh("refresh", { reason: "message", id: String(imageThreadId) });
+      } catch (error) {
+        const message = imageAttached ? "Image saved. Refresh this chat to view it."
+          : imageSaved ? "Image saved to Gallery, but it could not be attached to this chat. Check Gallery before generating again."
+          : imageGenerationError(error);
+        showToast(message);
+        // The media record may already exist; retrying a paid call isn't automatic.
+        throw new Error(message);
+      } finally {
+        imageTurnBusyRef.current = false;
+        setPendingTurnLock(false);
+        if (imageThreadId != null) setTurnLockForThread(imageThreadId, false);
       }
       return;
     }
@@ -4715,6 +4772,7 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
               />
               <Composer
+                slashCommandLibrary={slashCommandLibrary}
                 presentationMode={
                   isLandingPresentation ? "landing" : "conversation"
                 }

@@ -87,7 +87,10 @@ Forward migration behavior must be designed and tested as a first-class path, no
 
 ### Current archive compatibility
 
-New full-account exports use `account-export.v3`. The v3 family contract adds
+The default full-account export is `account-export.v3` unless the account
+has [logical OpenAI import source state](openai-import-project-routing-contract.md),
+which requires `account-export.v9`. Explicit older-format exports refuse that
+state rather than dropping it. The v3 family contract adds
 `persona_profiles`, `persona_profile_revisions`, and
 `persona_profile_bindings` as three required, integrity-covered payloads.
 Restore retains explicit readers for historical `account-export.v1` and

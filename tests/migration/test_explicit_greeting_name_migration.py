@@ -2,6 +2,7 @@
 
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -24,9 +25,15 @@ def connection(request):
         if not url:
             pytest.skip("Disposable GREETING_PROFILE_TEST_DATABASE_URL required")
         parsed = sa.engine.make_url(url)
-        assert (
-            parsed.host == "127.0.0.1" and parsed.database == "codexify_greeting_proof"
+        socket = Path(parsed.query.get("host", "")).resolve()
+        assert parsed.host == "127.0.0.1" or (
+            parsed.username == "codexify_profile_merge_test"
+            and str(socket).startswith(
+                ("/tmp/cxf-profile-merge.", "/private/tmp/cxf-profile-merge.")
+            )
+            and socket.name == "socket"
         )
+        assert parsed.database == "codexify_greeting_proof"
     engine = sa.create_engine(url)
     metadata = sa.MetaData()
     profile = sa.Table(
@@ -97,5 +104,5 @@ def test_new_revision_descends_from_serving_schema_without_extra_head():
     config = Config("backend/alembic.ini")
     config.set_main_option("script_location", "guardian/db/migrations")
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["a3f8c2d6e901"]
+    assert scripts.get_heads() == ["b7e6c4a29013"]
     assert scripts.get_revision(REVISION).down_revision == "ab71d5ce9604"

@@ -1,8 +1,52 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { SlashCommandDefinition } from "@/contracts/slashCommands";
 import { CHAT_COMPOSER_SEND_EDGE_INSET_CLASS } from "@/features/chat/chatLane";
 import { Composer } from "@/features/chat/components/Composer";
+
+function command(
+  id: string,
+  interactionModes: string[],
+  fields: Partial<SlashCommandDefinition> = {}
+): SlashCommandDefinition {
+  return {
+    id,
+    token: `/${id}`,
+    scaffold: `/${id}`,
+    label: id[0].toUpperCase() + id.slice(1),
+    description: "Test command",
+    aliases: [],
+    keywords: [],
+    interactionModes,
+    effects: null,
+    availability: "unknown",
+    availabilityReason: "eligibility_not_evaluated",
+    ...fields,
+  };
+}
+
+const projectEffects = { intentKind: "workspace", retrievalHint: "project" } as const;
+const commands = [
+  command("project", ["chat_intent", "composer_control"], {
+    effects: projectEffects, aliases: ["repo"],
+  }),
+  ...["provider", "model", "mode", "retrieval"].map((id) =>
+    command(id, ["composer_control"])
+  ),
+  command("obsidian", ["chat_intent"], {
+    aliases: ["obs"], effects: { intentKind: "integration", retrievalHint: "none" },
+  }),
+  command("workspace", ["chat_intent"], { effects: projectEffects }),
+  command("codex_entry", ["chat_intent"], {
+    aliases: ["codex"], effects: { intentKind: "codex", retrievalHint: "none" },
+  }),
+  command("new_draft", ["chat_intent"], {
+    scaffold: "/new_draft ",
+    effects: { intentKind: "help", retrievalHint: "none" },
+  }),
+  command("future", ["native_action"]),
+];
 
 const projectOptions = [
   { value: "1", label: "General" },
@@ -37,6 +81,10 @@ function renderComposer(
     onSend: vi.fn(),
     draftValue: "",
     compactMobile: true,
+    slashCommandLibrary: {
+      status: "ready",
+      manifest: { schemaVersion: 1, manifestRevision: "fixture", commands },
+    },
     activeProviderId: "local",
     providerOptions,
     onProviderChange: vi.fn(),
@@ -170,7 +218,8 @@ describe("Guardian mobile composer inline commands", () => {
         screen.getByText(command, { selector: "span" }).closest('[role="option"]'),
       ).toBeInTheDocument();
     }
-    expect(screen.queryByRole("option", { name: /profile/i })).toBeNull();
+    expect(screen.getByRole("option", { name: /\/future/ })).toBeDisabled();
+    expect(screen.getAllByText("/project", { selector: "span" })).toHaveLength(1);
 
     fireEvent.change(screen.getByTestId("composer-textarea"), {
       target: { value: "/project " },
@@ -181,6 +230,52 @@ describe("Guardian mobile composer inline commands", () => {
     expect(
       screen.getByRole("option", { name: /Project Knowledge Base/ })
     ).toBeInTheDocument();
+  });
+
+  it.each([false, true])("previews backend intent scaffolds in compact layout %s", (compactMobile) => {
+    const { props } = renderComposer({ compactMobile });
+    const textarea = focusAndType("/obs");
+    const listbox = screen.getByRole("listbox", { name: "Composer commands" });
+    expect(textarea).toHaveAttribute("aria-controls", listbox.id);
+    const obsidian = screen.getByRole("option", { name: /\/obsidian/ });
+    expect(textarea).toHaveAttribute("aria-activedescendant", obsidian.id);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea).toHaveValue("/obsidian");
+    expect(props.onSend).not.toHaveBeenCalled();
+
+    focusAndType("/new_");
+    fireEvent.mouseDown(screen.getByRole("option", { name: /\/new_draft/ }));
+    fireEvent.click(screen.getByRole("option", { name: /\/new_draft/ }));
+    expect(textarea).toHaveValue("/new_draft ");
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
+
+  it("uses project controls for recognized options and keeps free-form project intents", async () => {
+    const { props } = renderComposer({ compactMobile: false });
+    let textarea = focusAndType("/repo General");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(props.onProjectChange).toHaveBeenCalledWith("1");
+    expect(props.onSend).not.toHaveBeenCalled();
+
+    textarea = focusAndType("/repo plan this project");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith(
+      "/repo plan this project",
+      expect.objectContaining({ slashIntent: expect.objectContaining({ commandId: "project" }) })
+    ));
+  });
+
+  it("keeps chat usable when the manifest is unavailable", async () => {
+    const { props } = renderComposer({ slashCommandLibrary: { status: "unavailable" } });
+    const textarea = focusAndType("/");
+    expect(screen.getByText(/Slash commands are unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    focusAndType("ordinary message");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith(
+      "ordinary message", expect.not.objectContaining({ slashIntent: expect.anything() })
+    ));
   });
 
   it("executes a command through the existing callback without submitting a message", async () => {
