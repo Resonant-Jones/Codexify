@@ -875,6 +875,11 @@ class OpenAIAccountImportService:
             ]
             completed.extend(newly_completed)
             checkpoint["conversation_ids"] = completed
+            if job.openai_import_source_id is not None:
+                accepted = list(checkpoint.get("accepted_scoped_conversation_ids") or [])
+                checkpoint["accepted_scoped_conversation_ids"] = list(dict.fromkeys(
+                    [*accepted, *conversation_ids]
+                ))
             job.checkpoint = checkpoint
             newly_imported = [
                 value for value in conversation_ids if value in newly_completed
@@ -973,9 +978,13 @@ class OpenAIAccountImportService:
             if job.source_system != "openai":
                 return 0
             openai_import_source_id = getattr(job, "openai_import_source_id", None)
+            checkpoint_key = (
+                "accepted_scoped_conversation_ids"
+                if openai_import_source_id is not None else "conversation_ids"
+            )
             committed = {
                 str(value)
-                for value in (job.checkpoint or {}).get("conversation_ids", [])
+                for value in (job.checkpoint or {}).get(checkpoint_key, [])
                 if str(value).strip()
             }
         requested = (
@@ -1320,6 +1329,22 @@ class OpenAIAccountImportService:
         return project or self._resolve_import_project(session, user_id=user_id)
 
     @staticmethod
+    def _require_scoped_attachment_evidence(
+        job: OpenAIAccountImportJob, evidence: OpenAIExportImageEvidence,
+    ) -> None:
+        if job.openai_import_source_id is not None and (
+            not evidence.source_thread_id
+            or evidence.source_thread_id not in (
+                (job.checkpoint or {}).get("accepted_scoped_conversation_ids") or []
+            )
+        ):
+            raise AccountImportError(
+                "Attachment has no accepted conversation in this selected-source import.",
+                code="unresolved_openai_attachment_source",
+                status_code=409,
+            )
+
+    @staticmethod
     def _refuse_cross_project_asset_replay(
         session: Session, *, source_thread: ChatThread, project: Project,
         media_kind: str, content_hash: str,
@@ -1368,6 +1393,7 @@ class OpenAIAccountImportService:
 
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
+            self._require_scoped_attachment_evidence(job, evidence)
             source_thread = self._resolve_source_thread(
                 session,
                 user_id=user_id,
@@ -1701,6 +1727,7 @@ class OpenAIAccountImportService:
 
         with self.db.get_session() as session:
             job = self._require_job(session, job_id, user_id)
+            self._require_scoped_attachment_evidence(job, evidence)
             source_thread = self._resolve_source_thread(
                 session,
                 user_id=user_id,

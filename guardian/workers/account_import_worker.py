@@ -401,7 +401,9 @@ def process_account_import_task(
                 summary=source_summary,
             )
 
-            evidence_index = build_openai_export_image_evidence_index(inventory)
+            evidence_index = build_openai_export_image_evidence_index(
+                inventory, **({"selected_source": True} if openai_import_source_id is not None else {})
+            )
             completed_media_paths = {
                 str(value) for value in checkpoint.get("media_paths", [])
             }

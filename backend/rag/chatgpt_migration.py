@@ -2010,6 +2010,7 @@ def ingest_chatgpt_conversation_records(
     from guardian.core.openai_import_routing import (
         UnresolvedOpenAIGroup,
         classify_openai_group,
+        original_openai_conversation_id,
     )
 
     placement_stats = {"projects_created": 0, "projects_reused": 0}
@@ -2071,8 +2072,7 @@ def ingest_chatgpt_conversation_records(
             if openai_import_source_id is not None:
                 try:
                     group_id = classify_openai_group(conv)
-                    if not source_thread_id:
-                        raise UnresolvedOpenAIGroup("Missing source conversation ID")
+                    source_thread_id = original_openai_conversation_id(conv)
                 except UnresolvedOpenAIGroup:
                     unresolved_grouping_ids.append(source_thread_id)
                     continue

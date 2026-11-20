@@ -1930,7 +1930,7 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
         "attachments": [{"file_path": "assets/pixel.png"}, {"file_path": "assets/proof.pdf"}]
     }
 
-    def run_job(source, records, *, media_bytes=None):
+    def run_job(source, records, *, media_bytes=None, extra_files=()):
         files = [StagedImportFile(
             "workspaces/conversations__a.part-0001/messages.dat",
             ("\n".join(json.dumps(record) for record in records) + "\n").encode(),
@@ -1940,6 +1940,7 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
                 StagedImportFile("assets/pixel.png", media_bytes),
                 StagedImportFile("assets/proof.pdf", b"%PDF-1.4\nsynthetic test PDF"),
             ])
+        files.extend(extra_files)
         data = service.create_job(
             user_id="owner-a", total_file_count=len(files),
             total_byte_count=sum(len(row.data) for row in files),
@@ -1979,7 +1980,7 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
     }
     assert {"business-unknown", "business-ambiguous"}.issubset(unresolved_ids)
     assert len(unresolved_ids) == 3
-    assert any(value.startswith("openai-thread-") for value in unresolved_ids)
+    assert any(value.startswith("codexify-openai-unresolved-") for value in unresolved_ids)
     with db._connect() as conn:
         query = """SELECT t.id, t.project_id, p.system_role
                    FROM chat_threads t JOIN projects p ON p.id=t.project_id
@@ -2020,6 +2021,30 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
     run_job(personal, [conversation("pro-grouped")])
     run_job(business, [conversation("business-new")])
 
+    # The rejected record's 'id' is a valid new A in the same batch, while
+    # its contradictory 'conversation_id' names a previously committed B.
+    # Neither genuine identity may become this rejection's accounting ID.
+    conflict = conversation("valid-a")
+    conflict["conversation_id"] = "business-grouped"
+    conflict["mapping"]["m1"]["message"]["metadata"] = {"file_path": "assets/conflicted.pdf"}
+    conflict_result = run_job(business, [conflict, conversation("valid-a")])
+    assert conflict_result["imported_thread_count"] == 1
+    assert conflict_result["canonical_duplicate_count"] == 0
+    assert {
+        row["code"] for row in conflict_result["warning_details"]
+    } == {"openai_project_membership_unresolved"}
+    with db._connect() as conn:
+        assert conn.execute(query, ("valid-a",)).fetchone()["project_id"] == business_project
+    same_batch = run_job(
+        business, [conflict, conversation("valid-b"), first],
+        extra_files=[StagedImportFile("assets/conflicted.pdf", b"%PDF-1.4\nunsafe evidence")],
+    )
+    assert same_batch["imported_thread_count"] == 2
+    assert same_batch["canonical_duplicate_count"] >= 1
+    assert {"openai_project_membership_unresolved", "unresolved_openai_attachment_source"} <= {
+        row["code"] for row in same_batch["warning_details"]
+    }
+
     def ingest(record, source, account="owner-a"):
         return ingest_chatgpt_conversation_records(
             [record], user_id=account, openai_import_source_id=source,
@@ -2051,7 +2076,7 @@ def test_selected_openai_sources_route_fresh_groups_and_refuse_collisions(
         ).fetchone()["n"] == 0
         assert conn.execute(
             "SELECT count(*) AS n FROM chat_threads WHERE user_id='owner-a' "
-            "AND metadata->>'source_thread_id' LIKE 'openai-thread-%'"
+            "AND metadata->>'source_thread_id' LIKE 'codexify-openai-unresolved-%'"
         ).fetchone()["n"] == 0
         assert conn.execute(
             "SELECT count(*) AS n FROM projects WHERE name='Imports' AND user_id IN ('owner-a','owner-b')"

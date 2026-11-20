@@ -3,6 +3,7 @@
 import re
 
 _GROUP_ID = re.compile(r"g-p-[0-9a-f]{32}")
+UNRESOLVED_RECORD_PREFIX = "codexify-openai-unresolved-"
 
 
 class UnresolvedOpenAIGroup(ValueError):
@@ -13,11 +14,30 @@ class OpenAIImportPlacementConflict(RuntimeError):
     """A scoped import would attach to a different or unavailable destination."""
 
 
+def original_openai_conversation_id(conversation: dict) -> str:
+    """Resolve an exact source key; reject fabricated diagnostic or conflicting IDs."""
+    identities: set[str] = set()
+    for field in ("id", "conversation_id"):
+        value = conversation.get(field)
+        if value is None or value == "":
+            continue
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+            or len(value) > 255
+            or value.startswith(UNRESOLVED_RECORD_PREFIX)
+        ):
+            raise UnresolvedOpenAIGroup("OpenAI source conversation identifier is invalid")
+        identities.add(value)
+    if len(identities) != 1:
+        raise UnresolvedOpenAIGroup("OpenAI source conversation identity is missing or inconsistent")
+    return next(iter(identities))
+
+
 def classify_openai_group(conversation: dict) -> str | None:
     """Return an exact group ID, or None for explicitly ungrouped evidence."""
-    raw_id, raw_conversation_id = conversation.get("id"), conversation.get("conversation_id")
-    if raw_id and raw_conversation_id and str(raw_id) != str(raw_conversation_id):
-        raise UnresolvedOpenAIGroup("OpenAI source conversation identifiers disagree")
+    original_openai_conversation_id(conversation)
     group = conversation.get("conversation_template_id")
     gizmo_id = conversation.get("gizmo_id")
     gizmo_type = conversation.get("gizmo_type")
