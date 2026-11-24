@@ -318,10 +318,12 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     isTurnInFlight,
+    onThinkingEffortChange,
     onSend,
     onProviderChange,
   }: {
     isTurnInFlight?: boolean;
+    onThinkingEffortChange: (level: string) => void;
     onSend: (text: string) => Promise<void>;
     onProviderChange?: (providerId: string) => void;
   }) => (
@@ -329,6 +331,7 @@ vi.mock("@/features/guardian/components/Composer", () => ({
       <div data-testid="lock-state">
         {isTurnInFlight ? "locked" : "unlocked"}
       </div>
+      <button onClick={() => onThinkingEffortChange("low")}>Low effort</button>
       <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
         Send
       </button>
@@ -470,7 +473,7 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
         enabled: true,
         authorized: true,
         available: true,
-        models: [{ id: "remote-model", canonicalId: "remote-model" }],
+        models: [{ id: "remote-model", canonicalId: "remote-model", thinkingEffortLevels: ["low","high","max"] }],
       },
     ];
     const hookValue = {
@@ -533,11 +536,12 @@ async function emitLiveEvent(type: string, data: Record<string, unknown>) {
 function renderChat(overrides: {
   onSessionProviderChange?: (providerId: string | null) => void;
   newThread?: boolean;
+  thinking?: boolean;
 } = {}) {
   const onSessionProviderChange =
     overrides.onSessionProviderChange ?? vi.fn();
 
-  const onSendMessage = vi.fn().mockResolvedValue(undefined);
+  const onSendMessage = vi.fn().mockResolvedValue(42);
   const element = (
     <GuardianChat
       guardianName="Guardian"
@@ -558,8 +562,9 @@ function renderChat(overrides: {
         } as any,
       ]}
       activeSessionTabId={"tab-1" as any}
-      activeProviderId="local"
-      activeModelId="local-model"
+      activeProviderId={overrides.thinking ? "remote" : "local"}
+      activeModelId={overrides.thinking ? "remote-model" : "local-model"}
+      activeInferenceMode={overrides.thinking ? "think" : "default"}
       onSessionProviderChange={onSessionProviderChange}
       onSessionModelChange={vi.fn()}
     />
@@ -871,6 +876,19 @@ describe("GuardianChat turn lock lifecycle", () => {
     inferenceMocks.state.mode = "think";
     return view;
   }
+
+  it("intentionally clears a native effort on fast retry", async () => {
+    renderChat({ thinking: true });
+    fireEvent.click(await screen.findByText("Low effort"));
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(inferenceMocks.attachTask).toHaveBeenCalledWith("task-1"));
+    expect(completeCalls()[0][1]).toMatchObject({ reasoning_mode: "think", thinking_effort: "low" });
+    fireEvent.click(screen.getByTestId("chat-fast"));
+    await emitLiveEvent("task.cancelled", { thread_id: 1, task_id: "task-1" });
+    await waitFor(() => expect(completeCalls()).toHaveLength(2));
+    expect(completeCalls()[1][1]).toMatchObject({ provider: "remote", model: "remote-model", reasoning_mode: "no_think" });
+    expect(completeCalls()[1][1]).not.toHaveProperty("thinking_effort");
+  });
 
   async function allowRetryTimer() {
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 220)); });

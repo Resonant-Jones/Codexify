@@ -51,6 +51,7 @@ from guardian.core.chat_redis_deadline import (
     accepted_redis_scope,
     use_redis_terminal_budget,
 )
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.completion_terminal import (
     CompletionTerminalError,
     require_successful_terminal,
@@ -2003,6 +2004,13 @@ def _run_chat_completion_task_compat(
         execution_model: str,
     ) -> str:
         nonlocal last_dispatch_messages, image_routing_meta
+        validate_effort(
+            getattr(task, "thinking_effort", None),
+            execution_provider,
+            execution_model,
+            getattr(task, "reasoning_mode", None),
+            settings,
+        )
         # The queued compatibility entry point does not call the service's
         # run_chat_completion_task. Apply its shared image preparation here,
         # after lane resolution and before every actual dispatch (including

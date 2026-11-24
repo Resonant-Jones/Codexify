@@ -251,6 +251,9 @@ export function Composer({
   activeModelId = "default",
   modelOptions = [],
   onModelChange,
+  thinkingEffortLevels,
+  thinkingEffort = "default",
+  onThinkingEffortChange,
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
@@ -298,6 +301,9 @@ export function Composer({
   mobileModelLabel?: string;
   mobileModelOptions?: ComposerSelectOption[];
   onMobileModelChange?: (modelId: string) => void;
+  thinkingEffortLevels?: string[];
+  thinkingEffort?: string;
+  onThinkingEffortChange?: (level: string) => void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -1281,6 +1287,19 @@ export function Composer({
     </Button>
   );
 
+  const effortControl = activeInferenceMode === "think" && thinkingEffortLevels?.length ? (
+    <label className="inline-flex min-w-0 items-center gap-1 text-xs">
+      Thinking effort
+      <select className="min-w-0 bg-transparent" value={thinkingEffort}
+        disabled={draftControlsDisabled} onChange={(event) => onThinkingEffortChange?.(event.target.value)}>
+        <option value="default">Provider default</option>
+        {thinkingEffortLevels.map((level) => (
+          <option key={level} value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+
   const renderLandingInferenceControls = () => (
     <div
       ref={landingControlsRef}
@@ -1331,6 +1350,7 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
         <ComposerSelectMenu
           ariaLabel="Select inference mode"
           menuLabel="Mode"
@@ -1434,6 +1454,14 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
+        {thinkingEffortLevels?.length ? (
+          <ComposerSelectMenu ariaLabel="Select inference mode" menuLabel="Mode"
+            valueLabel={inferenceModeLabel} selectedValue={activeInferenceMode}
+            options={inferenceModeOptions} isPhoneShell triggerVariant="bare"
+            disabled={draftControlsDisabled}
+            onSelect={(mode) => onInferenceModeChange?.(mode as ComposerInferenceMode)} />
+        ) : null}
       </div>
     );
   };
@@ -1702,6 +1730,7 @@ export function Composer({
                   disabled={draftControlsDisabled || modelOptions.length === 0}
                   onSelect={onModelChange ?? (() => {})}
                 />
+                {effortControl}
                 <ComposerSelectMenu
                   ariaLabel="Select inference mode"
                   menuLabel="Mode"

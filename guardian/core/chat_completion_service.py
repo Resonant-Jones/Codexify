@@ -115,6 +115,7 @@ from guardian.core.chat_postgres_deadline import (
     postgres_operation_scope,
     require_accepted_work_budget,
 )
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.completion_terminal import (
     CompletionAttemptResult,
     CompletionTerminalError,
@@ -1096,7 +1097,7 @@ def enqueue_chat_completion(
 
     participant_prepared = False
     if participant is not None:
-        authoritative_fields = (
+        authoritative_fields: tuple[str, ...] = (
             "task_id",
             "user_id",
             "thread_id",
@@ -1110,9 +1111,12 @@ def enqueue_chat_completion(
             "selection_source",
             "provider_pinned",
             "requested_source_mode",
+            "thinking_effort",
             "retrieval_override",
             "persona_selection_snapshot",
         )
+        if task.thinking_effort is not None:
+            authoritative_fields += ("latest_turn_message_id", "reasoning_mode")
         authoritative_snapshot = {
             field: copy.deepcopy(getattr(task, field)) for field in authoritative_fields
         }
@@ -1918,6 +1922,8 @@ def _dispatch_completion_attempt(
     reasoning_mode = getattr(task, "reasoning_mode", None)
     temperature = getattr(task, "temperature", None)
     settings = get_settings()
+    effort = getattr(task, "thinking_effort", None)
+    validate_effort(effort, provider, model, reasoning_mode, settings)
     exact_text_model = bool(
         provider == "local"
         and getattr(task, "selection_source", None) == "explicit"
@@ -2083,6 +2089,7 @@ def _dispatch_completion_attempt(
     try:
         output = chat_with_ai(
             messages_for_llm,
+            **({"thinking_effort": effort} if effort is not None else {}),
             **_filter_callable_kwargs(
                 chat_with_ai,
                 {
@@ -5556,6 +5563,21 @@ async def build_messages_for_llm(
         requested_source_mode=_requested_source_mode_from_task(task),
         settings=settings,
     )
+    validate_effort(
+        getattr(task, "thinking_effort", None),
+        thread_execution.provider,
+        thread_execution.model,
+        thread_execution.reasoning_mode,
+        settings,
+    )
+    explicit_latest_turn_message_id = _coerce_message_id(
+        getattr(task, "latest_turn_message_id", None)
+    )
+    if (
+        getattr(task, "thinking_effort", None) is not None
+        and explicit_latest_turn_message_id is None
+    ):
+        raise ValueError("thread_target_turn_missing")
     provider = thread_execution.provider
     routing_debug_metadata = _task_routing_debug_metadata(task)
     requested_source_mode = _requested_source_mode_from_task(task)
@@ -5669,9 +5691,6 @@ async def build_messages_for_llm(
         except Exception:
             pass
 
-    explicit_latest_turn_message_id = _coerce_message_id(
-        getattr(task, "latest_turn_message_id", None)
-    )
     turn_split = split_history_and_latest_turn(
         items,
         latest_turn_message_id=explicit_latest_turn_message_id,
@@ -7881,6 +7900,13 @@ def run_chat_completion_task(
     requested_model = normalize_model_id(
         getattr(task, "requested_model", None)
     ) or normalize_model_id(getattr(task, "model", None))
+    validate_effort(
+        getattr(task, "thinking_effort", None),
+        provider,
+        model,
+        getattr(task, "reasoning_mode", None),
+        settings,
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,

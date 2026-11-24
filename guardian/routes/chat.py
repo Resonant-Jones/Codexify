@@ -98,6 +98,7 @@ from guardian.core.chat_completion_service import (
     store_provider_request_capture,
 )
 from guardian.core.chat_postgres_deadline import postgres_operation_scope
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
     find_conflicting_source_lineage,
@@ -630,6 +631,8 @@ class ChatCompletionRequest(BaseModel):
     max_context: Optional[int] = 50
     provider: Optional[str] = None
     reasoning_mode: Optional[str] = None
+    thinking_effort: Literal["default", "low", "high", "max"] | None = None
+    expected_message_id: int | None = Field(default=None, strict=True, gt=0)
     system_override: Optional[str] = None
     preferred_name: Optional[str] = None
     profession: Optional[str] = None
@@ -2984,6 +2987,31 @@ async def chat_complete(
     model = thread_execution.model
     reasoning_mode = thread_execution.reasoning_mode
     source_mode = thread_execution.source_mode
+    if body.thinking_effort is not None:
+        if (
+            body.expected_message_id is None
+            or body.expected_message_id != latest_turn_message_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The authored message changed. Review the current turn and retry.",
+            )
+        if (requested_provider, requested_model) != (
+            provider,
+            model,
+        ) or body.reasoning_mode != "think":
+            raise HTTPException(
+                status_code=409,
+                detail="Thinking effort selection changed. Review the route and retry.",
+            )
+        validate_effort(
+            body.thinking_effort,
+            provider,
+            model,
+            reasoning_mode,
+            llm_settings,
+            check_inventory=True,
+        )
 
     requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
     # Binary projection: deep iff raw request is exactly "deep".
@@ -3125,6 +3153,7 @@ async def chat_complete(
         ),
         provider_pinned=bool(provider),
         reasoning_mode=body.reasoning_mode,
+        thinking_effort=body.thinking_effort,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         requested_source_mode=requested_source_mode,

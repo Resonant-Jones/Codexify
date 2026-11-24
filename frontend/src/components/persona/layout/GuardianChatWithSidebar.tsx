@@ -1633,7 +1633,7 @@ export default function GuardianChatWithSidebar({
 
     try {
       // Persist the message and then refresh the authoritative thread snapshot.
-      await api.post(`/chat/${numericThreadId}/messages`, {
+      const receipt = await api.post(`/chat/${numericThreadId}/messages`, {
         role: "user",
         content: text,
         metadata: isLikelyPrompt(text) ? { type: "prompt" } : undefined,
@@ -1693,6 +1693,8 @@ export default function GuardianChatWithSidebar({
           );
         }
       }
+      const messageId = receipt?.data?.message?.id;
+      return typeof messageId === "number" ? messageId : undefined;
     } catch (err) {
       console.warn("[guardian] failed to persist user message", err);
       const status = (err as any)?.response?.status;

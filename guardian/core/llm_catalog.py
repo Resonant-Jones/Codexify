@@ -17,6 +17,7 @@ from guardian.core.ai_router import (
     discover_local_model_inventory,
     resolve_local_execution_model,
 )
+from guardian.core.chat_thinking_effort import effort_route_available
 from guardian.core.config import Settings, get_settings
 from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
@@ -40,6 +41,7 @@ from guardian.core.whooshd_model_profiles import (
     whooshd_profile_by_id_or_repo,
     whooshd_profile_model_repos,
 )
+from guardian.providers.deepseek_adapter import NATIVE_EFFORT_LEVELS
 
 _MODEL_FAMILY_ALIASES = {
     "deepseek": "DeepSeek",
@@ -622,6 +624,11 @@ def _cloud_models(
             supports_text_input=bool(supports_text_input),
             model_kind=model_kind,
         )
+        if effort_route_available(provider_id, model_id, settings, capability):
+            entry["thinking_effort"] = {
+                "requires_mode": "think",
+                "levels": list(NATIVE_EFFORT_LEVELS),
+            }
         capability_status = str(item.get("_capability") or "").strip().lower()
         if capability_status in {"confirmed", "inferred", "unsupported"}:
             entry["_capability"] = capability_status
