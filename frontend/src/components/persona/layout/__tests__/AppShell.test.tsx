@@ -2042,6 +2042,33 @@ describe("AppShell workspace drawer shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Focus Workspace", exact: true }));
     expect(screen.getByTestId("workspace-scratchpad-textarea")).toBe(notes);
     expect(notes).toHaveValue("Unfinished edit");
+    expect(screen.queryByRole("dialog", { name: "Guardian Chat" })).toBeNull();
+    const workspacePane = screen.getByTestId("workspace-drawer-pane");
+    const canvasStyle = workspacePane.style.cssText;
+    const open = screen.getByRole("button", { name: "Open Guardian" });
+    fireEvent.click(open);
+    const floating = screen.getByRole("dialog", { name: "Guardian Chat" });
+    expect(document.getElementById("cfy-portal-root")).toContainElement(floating);
+    expect(within(floating).getByRole("textbox", { name: "Test chat draft" })).toBe(draft);
+    expect(workspacePane.style.cssText).toBe(canvasStyle);
+    expect(lane).toHaveAttribute("data-primary-canvas", "workspace");
+    fireEvent.click(within(floating).getByRole("button", { name: "Minimize Guardian Chat" }));
+    expect(notes).toBeVisible();
+    fireEvent.click(within(floating).getByRole("button", { name: "Restore Guardian Chat" }));
+    fireEvent.click(within(floating).getByRole("button", { name: "Close Guardian Chat" }));
+    expect(open).toHaveFocus();
+    expect(draft).not.toBeVisible();
+    fireEvent.click(open);
+    fireEvent.click(screen.getByRole("button", { name: "Dock Guardian Chat" }));
+    expect(lane).toHaveAttribute("data-primary-canvas", "chat");
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByTestId("workspace-primary-pane")).toContainElement(document.activeElement as HTMLElement);
+    });
+    expect(draft).toBeVisible();
+    expect(draft).toHaveValue("Unsent draft");
+    expect(notes).toHaveValue("Unfinished edit");
+    expect(screen.queryByRole("button", { name: "Open Guardian" })).toBeNull();
   });
 
   it("preserves the selected Guardian view and open Workspace through browser focus, restore, and close", async () => {

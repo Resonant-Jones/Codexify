@@ -1,3 +1,4 @@
+import GuardianChatWindow, { type GuardianWindowMode } from "./GuardianChatWindow";
 import { usePrimaryCanvas } from "./usePrimaryCanvas";
 import { allocatePanels, DockedPanelDivider, SIDE_MIN, WORK_MIN, CHAT_MIN, DIVIDER } from "./DockedPanelDivider";
 import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
@@ -3127,6 +3128,12 @@ export default function AppShell({
     laneWidth, `${generalProjectSessionScope}/${activeRouteThreadId ?? "new"}`, explicitWorkspaceMode
   );
   const canvasPane = primaryCanvas.pane;
+  const [guardianWindowMode, setGuardianWindowMode] = useState<GuardianWindowMode>("docked");
+  const guardianOpener = useRef<HTMLButtonElement>(null);
+  const canFloatGuardian = canvasPane === "workspace" && !isFocusedBrowser && !startupLocked && activeRoomId == null;
+  useEffect(() => {
+    if (!canFloatGuardian) setGuardianWindowMode("docked");
+  }, [canFloatGuardian]);
   const sidebarOpener = useRef<(() => void) | null>(null);
   const recordPrimaryUse = (event: React.PointerEvent | React.KeyboardEvent) => {
     if ("button" in event && event.button !== 0) return;
@@ -3138,6 +3145,13 @@ export default function AppShell({
   };
   const canvasControls = canvasPane && (
     <div role="group" aria-label="Primary panel layout" className="flex flex-wrap items-center gap-2">
+      {canFloatGuardian && <button type="button" className="pill-tab" ref={guardianOpener}
+        aria-haspopup="dialog" aria-expanded={guardianWindowMode === "open"}
+        aria-controls={guardianWindowMode !== "docked" ? "guardian-chat-window" : undefined}
+        onClick={() => {
+          if (guardianWindowMode === "open") document.getElementById("guardian-chat-window")?.focus();
+          else setGuardianWindowMode("open");
+        }}>{guardianWindowMode === "open" ? "Focus Guardian" : guardianWindowMode === "minimized" ? "Restore Guardian" : "Open Guardian"}</button>}
       {canvasPane === "workspace" && <button type="button" className="pill-tab" onClick={() => sidebarOpener.current?.()}>Show sidebar</button>}
       <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "chat_focus"} onClick={() => setWorkspaceLayoutMode("chat_focus")}>Focus Chat</button>
       <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "workspace_focus"} onClick={() => setWorkspaceLayoutMode("workspace_focus")}>Focus Workspace</button>
@@ -4443,66 +4457,73 @@ export default function AppShell({
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
-                  <div
-                    className="flex h-full w-full min-h-0 isolate flex-col"
-                    aria-busy={sessionComposerBlocked}
-                    data-composer-blocked={
-                      sessionComposerBlocked ? "true" : "false"
-                    }
-                    style={{
-                      ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
-                    } as React.CSSProperties}
-                  >
-                    <ErrorBoundary>
-                      <GuardianChatWithSidebar
-                        key={`guardian-surface-${guardianSurfaceEpoch}`}
-                        sidebarOpener={sidebarOpener}
-                        allowDockedSidebar={docked ? panels.fitsSidebar && canvasPane !== "workspace" : undefined}
-                        onDockedSidebarChange={setSideVisible}
-                        sidebarWidth={panels.side || sidePreference}
-                        sidebarDivider={sideDivider}
-                        guardianName={guardianName}
-                        userName={userName}
-                        userProfession={role}
-                        prefill={prefill}
-                        onPrefillConsumed={() => setPrefill(undefined)}
-                        pendingDocumentTiles={pendingComposerDocumentTiles}
-                        onPendingDocumentTilesConsumed={() =>
-                          setPendingComposerDocumentTiles([])
-                        }
-                        onWorkspaceToggle={toggleWorkspaceDrawer}
-                        workspaceOpen={workspaceDrawerOpen}
-                        providerRuntimeState={providerRuntimeState}
-                        runtimeHealth={runtimeHealth}
-                        activeWorkspaceDoc={null}
-                        onWorkspaceClose={closeWorkspaceDrawer}
-                        onProjectChange={handleGuardianProjectChange}
-                        onSidebarSnapshot={handleGuardianSidebarSnapshot}
-                        activeApplicationView={view}
-                        applicationDestinations={
-                          PHONE_NAVIGATION_DESTINATIONS
-                        }
-                        onNavigateApplicationView={navigateToView}
-                        isApplicationNavigationExpanded={
-                          isApplicationNavigationExpanded
-                        }
-                        onApplicationNavigationExpandedChange={
-                          setIsApplicationNavigationExpanded
-                        }
-                        frameFirstMobile={isNarrowGuardianFrameShell}
-                        mobileFramePrelude={guardianMobileFramePrelude}
-                        browserFocused={isFocusedBrowser}
-                        focusedSidebarOpen={focusedSidebarOpen}
-                        focusedSidebarPinned={focusedSidebarPinned && focusSidebarFits}
-                        onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
-                        onFocusedSidebarPinnedChange={(pinned) => {
-                          setFocusedSidebarPinned(pinned);
-                          if (pinned) setFocusedSidebarOpen(true);
-                        }}
-                        focusedShelfStyle={styleVars as React.CSSProperties}
-                      />
-                    </ErrorBoundary>
-                  </div>
+                  <GuardianChatWindow mode={canFloatGuardian ? guardianWindowMode : "docked"}
+                    onModeChange={setGuardianWindowMode} opener={guardianOpener}
+                    onDock={() => {
+                      setGuardianWindowMode("docked");
+                      setWorkspaceLayoutMode(laneWidth >= CHAT_MIN + WORK_MIN + DIVIDER * 2 ? "balanced_split" : "chat_focus");
+                    }}>
+                    <div
+                      className="flex h-full w-full min-h-0 isolate flex-col"
+                      aria-busy={sessionComposerBlocked}
+                      data-composer-blocked={
+                        sessionComposerBlocked ? "true" : "false"
+                      }
+                      style={{
+                        ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
+                      } as React.CSSProperties}
+                    >
+                      <ErrorBoundary>
+                        <GuardianChatWithSidebar
+                          key={`guardian-surface-${guardianSurfaceEpoch}`}
+                          sidebarOpener={sidebarOpener}
+                          allowDockedSidebar={docked ? panels.fitsSidebar && canvasPane !== "workspace" : undefined}
+                          onDockedSidebarChange={setSideVisible}
+                          sidebarWidth={panels.side || sidePreference}
+                          sidebarDivider={sideDivider}
+                          guardianName={guardianName}
+                          userName={userName}
+                          userProfession={role}
+                          prefill={prefill}
+                          onPrefillConsumed={() => setPrefill(undefined)}
+                          pendingDocumentTiles={pendingComposerDocumentTiles}
+                          onPendingDocumentTilesConsumed={() =>
+                            setPendingComposerDocumentTiles([])
+                          }
+                          onWorkspaceToggle={toggleWorkspaceDrawer}
+                          workspaceOpen={workspaceDrawerOpen}
+                          providerRuntimeState={providerRuntimeState}
+                          runtimeHealth={runtimeHealth}
+                          activeWorkspaceDoc={null}
+                          onWorkspaceClose={closeWorkspaceDrawer}
+                          onProjectChange={handleGuardianProjectChange}
+                          onSidebarSnapshot={handleGuardianSidebarSnapshot}
+                          activeApplicationView={view}
+                          applicationDestinations={
+                            PHONE_NAVIGATION_DESTINATIONS
+                          }
+                          onNavigateApplicationView={navigateToView}
+                          isApplicationNavigationExpanded={
+                            isApplicationNavigationExpanded
+                          }
+                          onApplicationNavigationExpandedChange={
+                            setIsApplicationNavigationExpanded
+                          }
+                          frameFirstMobile={isNarrowGuardianFrameShell}
+                          mobileFramePrelude={guardianMobileFramePrelude}
+                          browserFocused={isFocusedBrowser}
+                          focusedSidebarOpen={focusedSidebarOpen}
+                          focusedSidebarPinned={focusedSidebarPinned && focusSidebarFits}
+                          onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
+                          onFocusedSidebarPinnedChange={(pinned) => {
+                            setFocusedSidebarPinned(pinned);
+                            if (pinned) setFocusedSidebarOpen(true);
+                          }}
+                          focusedShelfStyle={styleVars as React.CSSProperties}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  </GuardianChatWindow>
                 </div>
                 {workspaceDivider}
                 {sharedWorkspaceDrawer}
