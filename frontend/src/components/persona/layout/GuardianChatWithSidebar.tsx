@@ -353,6 +353,7 @@ type GuardianChatWithSidebarProps = {
   onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
   frameFirstMobile?: boolean;
   mobileFramePrelude?: React.ReactNode;
+  sidebarOpener?: React.RefObject<(() => void) | null>;
   allowDockedSidebar?: boolean;
   sidebarWidth?: number;
   sidebarDivider?: React.ReactNode;
@@ -389,7 +390,7 @@ export default function GuardianChatWithSidebar({
   onApplicationNavigationExpandedChange,
   frameFirstMobile = false,
   mobileFramePrelude,
-  allowDockedSidebar, sidebarWidth, sidebarDivider, onDockedSidebarChange,
+  sidebarOpener, allowDockedSidebar, sidebarWidth, sidebarDivider, onDockedSidebarChange,
   browserFocused = false,
   focusedSidebarOpen = false,
   focusedSidebarPinned = false,
@@ -963,6 +964,8 @@ export default function GuardianChatWithSidebar({
     },
     [browserFocused, guardianPresentationMode, isDesktopLayout, onFocusedSidebarOpenChange, updateSidebarIntro]
   );
+
+  React.useImperativeHandle(sidebarOpener, () => () => setSidebarOpen(true), [setSidebarOpen]);
 
   const closeMobileToolsMenu = React.useCallback(() => {
     setMobileToolsMenuOpen(false);
@@ -2172,6 +2175,7 @@ export default function GuardianChatWithSidebar({
         {/* Chat Panel */}
         {isDesktopLayout && isSidebarOpen && sidebarDivider}
         <div
+          data-primary-pane="chat"
           data-testid="guardian-primary-frame"
           data-frame-owner={frameFirstMobile ? "mobile-guardian" : "guardian"}
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"

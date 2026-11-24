@@ -410,6 +410,9 @@ vi.mock("@/components/persona/layout/GuardianChatWithSidebar", () => ({
           props.isApplicationNavigationExpanded ? "true" : "false"
         }
       >
+        <div data-primary-pane="chat">
+          <textarea aria-label="Test chat draft" />
+        </div>
         {props.mobileFramePrelude}
         <button
           type="button"
@@ -1981,6 +1984,64 @@ describe("AppShell workspace drawer shell", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps the Chat draft and open item mounted through automatic collapse, focus changes and split restoration", async () => {
+    setRoutePath("/chat");
+    render(<AppShell />);
+    act(() => requestWorkspaceOpen({
+      doc: { id: "canvas-item", name: "canvas.md", ext: "md", content: "Local item body" },
+      source: "generated-document", targetView: "guardian",
+    }));
+    const item = await screen.findByTestId("workspace-document-text");
+    const draft = screen.getByRole("textbox", { name: "Test chat draft" });
+    fireEvent.change(draft, { target: { value: "Unsent draft" } });
+    const lane = screen.getByTestId("workspace-layout-surface");
+    const resize = (width: number) => {
+      Object.defineProperty(lane, "clientWidth", { configurable: true, value: width });
+      act(() => window.dispatchEvent(new Event("resize")));
+    };
+    const splitWidth = screen.getByRole("separator", { name: "Resize Chat and Workspace" });
+    fireEvent.keyDown(splitWidth, { key: "ArrowLeft" });
+    const preferred = splitWidth.getAttribute("aria-valuenow");
+    // Sidebar has already yielded. Hover and focus alone must not select Workspace.
+    fireEvent.mouseOver(item);
+    fireEvent.focus(item);
+    resize(716);
+    expect(lane).toHaveAttribute("data-primary-canvas", "split");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.allowDockedSidebar).toBe(false);
+    resize(715);
+    expect(draft).toBeVisible();
+    expect(item).not.toBeVisible();
+    resize(720);
+    expect(lane).toHaveAttribute("data-primary-canvas", "chat");
+    resize(1280);
+    expect(screen.getByRole("separator", { name: "Resize Chat and Workspace" })).toHaveAttribute("aria-valuenow", preferred);
+    fireEvent.pointerDown(item, { button: 0 });
+    resize(710);
+    expect(lane).toHaveAttribute("data-primary-canvas", "workspace");
+    expect(draft).not.toBeVisible();
+    expect(item).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Focus Chat", exact: true }));
+    resize(1280);
+    expect(lane).toHaveAttribute("data-primary-canvas", "chat");
+    expect(draft).toHaveValue("Unsent draft");
+    fireEvent.click(screen.getByRole("button", { name: "Focus Workspace", exact: true }));
+    expect(screen.getByTestId("workspace-document-text")).toBe(item);
+    expect(item).toHaveTextContent("Local item body");
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic layout" }));
+    expect(lane).toHaveAttribute("data-primary-canvas", "split");
+    expect(screen.getByRole("textbox", { name: "Test chat draft" })).toBe(draft);
+    fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
+    const notes = screen.getByTestId("workspace-scratchpad-textarea");
+    fireEvent.change(notes, { target: { value: "Unfinished edit" } });
+    fireEvent.keyDown(draft, { key: "ArrowLeft" });
+    resize(700);
+    expect(lane).toHaveAttribute("data-primary-canvas", "chat");
+    expect(notes).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Focus Workspace", exact: true }));
+    expect(screen.getByTestId("workspace-scratchpad-textarea")).toBe(notes);
+    expect(notes).toHaveValue("Unfinished edit");
   });
 
   it("preserves the selected Guardian view and open Workspace through browser focus, restore, and close", async () => {

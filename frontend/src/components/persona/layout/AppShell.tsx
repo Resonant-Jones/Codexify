@@ -1,3 +1,4 @@
+import { usePrimaryCanvas } from "./usePrimaryCanvas";
 import { allocatePanels, DockedPanelDivider, SIDE_MIN, WORK_MIN, CHAT_MIN, DIVIDER } from "./DockedPanelDivider";
 import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
 import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
@@ -2793,6 +2794,7 @@ export default function AppShell({
     routeContext: workspaceRouteContext,
   });
   const {
+    explicitMode: explicitWorkspaceMode,
     paneRatio: workspacePaneRatio,
     minPaneRatio: minWorkspacePaneRatio,
     maxPaneRatio: maxWorkspacePaneRatio,
@@ -3120,19 +3122,43 @@ export default function AppShell({
   const panels = allocatePanels(laneWidth, shellViewportProfile.sidebarArrangement === "split",
     view === "guardian" ? sideVisible : (view === "documents" || view === "library") && documentsSidebarOpen, showWorkspaceDrawer && !isPhoneShell, sidePreference,
     workPreference?.mode === workspaceLayoutMode ? workPreference.width : laneWidth * workspacePaneRatio);
+  const primaryCanvas = usePrimaryCanvas(
+    docked && view === "guardian" && showWorkspaceDrawer,
+    laneWidth, `${generalProjectSessionScope}/${activeRouteThreadId ?? "new"}`, explicitWorkspaceMode
+  );
+  const canvasPane = primaryCanvas.pane;
+  const sidebarOpener = useRef<(() => void) | null>(null);
+  const recordPrimaryUse = (event: React.PointerEvent | React.KeyboardEvent) => {
+    if ("button" in event && event.button !== 0) return;
+    if ("key" in event && ["Tab", "Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const pane = target.closest("[data-primary-pane]")?.getAttribute("data-primary-pane");
+    if (pane === "workspace" || pane === "chat") primaryCanvas.recordUse(pane);
+  };
+  const canvasControls = canvasPane && (
+    <div role="group" aria-label="Primary panel layout" className="flex flex-wrap items-center gap-2">
+      {canvasPane === "workspace" && <button type="button" className="pill-tab" onClick={() => sidebarOpener.current?.()}>Show sidebar</button>}
+      <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "chat_focus"} onClick={() => setWorkspaceLayoutMode("chat_focus")}>Focus Chat</button>
+      <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "workspace_focus"} onClick={() => setWorkspaceLayoutMode("workspace_focus")}>Focus Workspace</button>
+      {explicitWorkspaceMode && explicitWorkspaceMode !== "balanced_split" && (
+        <button type="button" className="pill-tab" onClick={() => setWorkspaceLayoutMode("balanced_split")}>Use automatic layout</button>
+      )}
+    </div>
+  );
   const focusSidebarFits = lane ? panels.fitsSidebar : shellViewportProfile.sidebarArrangement === "split";
   const documentsOverlay = docked && !panels.fitsSidebar && (view === "documents" || view === "library");
   const documentsSidebarVisible = !isPhoneShell && !documentsOverlay && documentsSidebarOpen;
   const toggleDocumentsSidebar = () => documentsOverlay
     ? setIsPhoneSidebarOpen(open => !open)
     : setDocumentsSidebarOpen(open => !open);
-  const workspaceOverlay = isPhoneShell || (docked && laneWidth < CHAT_MIN + WORK_MIN + DIVIDER);
+  const workspaceOverlay = isPhoneShell || (view !== "guardian" && docked && laneWidth < CHAT_MIN + WORK_MIN + DIVIDER);
   const sideDivider = <DockedPanelDivider label={view === "guardian" ? "Resize Sidepanel and Chat" : "Resize Sidepanel and content"}
     value={panels.side} min={SIDE_MIN} max={panels.sideMax} onChange={width => {
       if (showWorkspaceDrawer && width !== panels.side) setWorkPreference({ mode: workspaceLayoutMode, width: panels.work });
       setSidePreference(width);
     }} />;
-  const workspaceDivider = docked && showWorkspaceDrawer && !workspaceOverlay && (
+  const workspaceDivider = docked && showWorkspaceDrawer && !workspaceOverlay && !canvasPane && (
     <DockedPanelDivider label={view === "guardian" ? "Resize Chat and Workspace" : "Resize content and Workspace"}
       reverse value={panels.work} min={WORK_MIN} max={panels.workMax}
       onChange={width => setWorkPreference({ mode: workspaceLayoutMode, width })} />
@@ -3158,8 +3184,9 @@ export default function AppShell({
           minHeight: 0,
         }
       : {
+          display: canvasPane === "workspace" ? "none" : undefined,
           flexBasis: docked ? 0 : primaryPaneBasis,
-          flexGrow: primaryPaneRatio,
+          flexGrow: canvasPane ? 1 : primaryPaneRatio,
           flexShrink: 1,
           minWidth: docked ? 0 : primaryPaneMinWidth,
           minHeight: 0,
@@ -3189,8 +3216,10 @@ export default function AppShell({
     : {
         padding: "var(--board-edge)",
         marginLeft: "auto",
-        flexBasis: docked ? panels.work : workspacePaneBasis,
-        flexGrow: docked ? 0 : workspacePaneRatio,
+        display: canvasPane === "chat" ? "none" : undefined,
+        width: canvasPane ? "100%" : undefined,
+        flexBasis: canvasPane ? 0 : docked ? panels.work : workspacePaneBasis,
+        flexGrow: canvasPane ? 1 : docked ? 0 : workspacePaneRatio,
         flexShrink: 1,
         minWidth: docked ? 0 : workspacePaneMinWidth,
         minHeight: "0",
@@ -3266,6 +3295,7 @@ export default function AppShell({
     ) : (
       <div
         data-testid="workspace-drawer-pane"
+        data-primary-pane="workspace"
         data-pane-basis={workspacePaneBasis}
         data-pane-min-width={workspacePaneMinWidth}
         data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
@@ -4390,10 +4420,14 @@ export default function AppShell({
             >
               <div
                 ref={setLane}
-                style={docked ? { gap: 0, position: "relative" } : undefined}
+                data-primary-canvas={canvasPane ?? "split"}
+                onPointerDownCapture={recordPrimaryUse}
+                onKeyDownCapture={recordPrimaryUse}
+                style={docked ? { gap: 0, position: "relative", flexDirection: canvasPane ? "column" : undefined } : undefined}
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
+                {canvasControls}
                 <div
                   data-testid="workspace-primary-pane"
                   data-pane-basis={
@@ -4422,7 +4456,8 @@ export default function AppShell({
                     <ErrorBoundary>
                       <GuardianChatWithSidebar
                         key={`guardian-surface-${guardianSurfaceEpoch}`}
-                        allowDockedSidebar={docked ? panels.fitsSidebar : undefined}
+                        sidebarOpener={sidebarOpener}
+                        allowDockedSidebar={docked ? panels.fitsSidebar && canvasPane !== "workspace" : undefined}
                         onDockedSidebarChange={setSideVisible}
                         sidebarWidth={panels.side || sidePreference}
                         sidebarDivider={sideDivider}
