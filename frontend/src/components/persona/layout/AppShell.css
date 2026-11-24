@@ -540,3 +540,20 @@
     overflow-x: auto;
   }
 }
+
+.docked-panel-divider {
+  flex: 0 0 12px;
+  align-self: stretch;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  background: linear-gradient(to right, transparent 5px, var(--panel-border) 5px 7px, transparent 7px);
+}
+.docked-panel-divider:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.unified-desktop[data-browser-state="focused"][data-focused-sidebar-pinned="true"] .unified-desktop__browser {
+  inset-inline-start: calc(360px + var(--edge-chrome));
+}

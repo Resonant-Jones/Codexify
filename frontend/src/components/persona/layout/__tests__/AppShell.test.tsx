@@ -2001,6 +2001,14 @@ describe("AppShell workspace drawer shell", () => {
     expect(screen.getByTestId("guardian-chat-with-sidebar-mock")).toBe(guardian);
     expect(screen.getByTestId("workspace-drawer")).toBe(workspace);
 
+    expect(root).toHaveAttribute("data-focused-sidebar-pinned", "true");
+    act(() => setViewportWidth(1027));
+    expect(root).toHaveAttribute("data-focused-sidebar-pinned", "false");
+    expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.allowDockedSidebar).toBe(false);
+    expect(screen.getByTestId("workspace-drawer")).toBe(workspace);
+    act(() => setViewportWidth(1280));
+    expect(root).toHaveAttribute("data-focused-sidebar-pinned", "true");
+
     fireEvent.click(screen.getByRole("button", { name: "Restore docked browser" }));
     expect(root).toHaveAttribute("data-browser-state", "docked");
     expect(guardianShellPropsSpy.mock.calls.at(-1)?.[0]?.browserFocused).toBe(false);
@@ -2705,6 +2713,48 @@ describe("AppShell documents sidebar posture", () => {
 
     await user.click(screen.getByTestId("workspace-drawer-toggle"));
     expect(await screen.findByTestId("workspace-drawer")).toBeInTheDocument();
+  });
+
+  it("transfers arbitrary pixel widths between neighbors and restores the split after drawer fallback", async () => {
+    setViewportWidth(1500);
+    localStorage.setItem("cfy.lastView", "documents");
+    setRoutePath("/documents");
+    render(<AppShell />);
+    fireEvent.click(screen.getByTestId("workspace-drawer-toggle"));
+    const side = screen.getByRole("separator", { name: "Resize Sidepanel and content" });
+    const workspace = screen.getByRole("separator", { name: "Resize content and Workspace" });
+    const initialWork = Number(workspace.getAttribute("aria-valuenow"));
+    fireEvent.keyDown(side, { key: "ArrowRight" });
+    expect(side).toHaveAttribute("aria-valuenow", "316");
+    expect(workspace).toHaveAttribute("aria-valuenow", String(initialWork));
+    workspace.setPointerCapture = vi.fn();
+    const pointer = (type: string, x: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX: x, button: 0 });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      fireEvent(workspace, event);
+    };
+    pointer("pointerdown", 900);
+    pointer("pointermove", 883);
+    expect(workspace).toHaveAttribute("aria-valuenow", String(initialWork + 17));
+    pointer("pointercancel", 883);
+    pointer("pointermove", 700);
+    expect(workspace).toHaveAttribute("aria-valuenow", String(initialWork + 17));
+    expect(side).toHaveAttribute("aria-valuenow", "316");
+    pointer("pointerdown", 883);
+    pointer("pointermove", 3000);
+    expect(workspace).toHaveAttribute("aria-valuenow", "320");
+    pointer("pointermove", 883);
+    pointer("pointerup", 883);
+    pointer("pointermove", 1000);
+    expect(workspace).toHaveAttribute("aria-valuenow", String(initialWork + 17));
+    act(() => setViewportWidth(1027));
+    expect(screen.queryByTestId("documents-shared-sidebar-pane")).toBeNull();
+    fireEvent.click(screen.getByTestId("documents-sidebar-edge-affordance"));
+    expect(screen.getByTestId("mobile-sidebar-drawer")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mobile-sidebar-scrim"));
+    act(() => setViewportWidth(1500));
+    expect(screen.getByRole("separator", { name: "Resize Sidepanel and content" })).toHaveAttribute("aria-valuenow", "316");
+    expect(workspace).toHaveAttribute("aria-valuenow", String(initialWork + 17));
   });
 
   it("shows no duplicate sidebar on constrained viewport with workspace focus", async () => {
