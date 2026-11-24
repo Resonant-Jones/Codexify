@@ -12,17 +12,16 @@ from guardian.agents.coding_agent_contracts import (
     CodingAgentAdapterKind,
     CodingAgentPermissionPolicy,
 )
-from guardian.protocol_tokens import (
-    DELEGATION_SUMMARY_OUTCOME_TYPE,
-    DelegationJobStatus,
-)
 from guardian.core.request_correlation import (
     is_safe_identifier,
     normalize_optional_identifier,
     normalize_request_id,
 )
 from guardian.hosted_rooms.actor_tokens import GUARDIAN_REF, RESIDENT_SOURCE
-
+from guardian.protocol_tokens import (
+    DELEGATION_SUMMARY_OUTCOME_TYPE,
+    DelegationJobStatus,
+)
 from guardian.tasks.chat_deadline import (
     DEADLINE_FIELDS,
     parse_accepted_chat_task_deadline,
@@ -38,9 +37,7 @@ def _utc_now_iso() -> str:
 def _base_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     base: dict[str, Any] = {
         "task_id": str(payload.get("task_id") or uuid.uuid4()),
-        "request_id": str(
-            payload.get("request_id") or payload.get("requestId") or ""
-        ),
+        "request_id": str(payload.get("request_id") or payload.get("requestId") or ""),
         "created_at": str(payload.get("created_at") or _utc_now_iso()),
         "origin": str(payload.get("origin") or "unknown"),
     }
@@ -167,9 +164,7 @@ def _status_text(raw: Any, default: str) -> str:
 def _normalize_executor_id(raw: Any) -> str:
     value = _coerce_optional_text(raw)
     return (
-        value.lower().replace("-", "_").replace(" ", "_")
-        if value is not None
-        else ""
+        value.lower().replace("-", "_").replace(" ", "_") if value is not None else ""
     )
 
 
@@ -256,14 +251,10 @@ class HostedRoomInvocationMetadata:
         object.__setattr__(self, "actor_source", actor_source)
         object.__setattr__(self, "actor_ref", actor_ref)
         object.__setattr__(self, "requester_authority", requester_authority)
-        object.__setattr__(
-            self, "requester_participant_id", requester_participant_id
-        )
+        object.__setattr__(self, "requester_participant_id", requester_participant_id)
 
     @classmethod
-    def from_dict(
-        cls, payload: dict[str, Any]
-    ) -> HostedRoomInvocationMetadata:
+    def from_dict(cls, payload: dict[str, Any]) -> HostedRoomInvocationMetadata:
         if not isinstance(payload, dict):
             raise ValueError("hosted_room_invocation must be an object")
         unknown = set(payload) - _HOSTED_ROOM_INVOCATION_FIELDS
@@ -352,9 +343,7 @@ class DelegationDraftRequest:
         payload = payload or {}
         return cls(
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
-            conversation_id=_coerce_optional_text(
-                payload.get("conversation_id")
-            ),
+            conversation_id=_coerce_optional_text(payload.get("conversation_id")),
             project_id=_coerce_optional_positive_int(payload.get("project_id")),
             repo_path=str(payload.get("repo_path") or "").strip(),
             executor=str(payload.get("executor") or "").strip(),
@@ -398,15 +387,11 @@ class DelegationPacket:
         return cls(
             packet_id=str(payload.get("packet_id") or uuid.uuid4()),
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
-            conversation_id=_coerce_optional_text(
-                payload.get("conversation_id")
-            ),
+            conversation_id=_coerce_optional_text(payload.get("conversation_id")),
             project_id=_coerce_optional_positive_int(payload.get("project_id")),
             repo_path=str(payload.get("repo_path") or "").strip(),
             executor=str(payload.get("executor") or "").strip(),
-            status=_status_text(
-                payload.get("status"), DelegationJobStatus.DRAFT.value
-            ),
+            status=_status_text(payload.get("status"), DelegationJobStatus.DRAFT.value),
             task_prompt=str(
                 payload.get("task_prompt") or payload.get("user_intent") or ""
             ).strip(),
@@ -458,15 +443,11 @@ class DelegationSummary:
         )
         self.task_id = _coerce_optional_text(self.task_id)
         self.thread_id = _coerce_optional_identifier(self.thread_id)
-        self.source_message_id = _coerce_optional_identifier(
-            self.source_message_id
-        )
+        self.source_message_id = _coerce_optional_identifier(self.source_message_id)
         self.project_id = _coerce_optional_identifier(self.project_id)
         self.executor_id = _normalize_executor_id(self.executor_id)
         self.title = _coerce_optional_text(self.title) or ""
-        self.status = _status_text(
-            self.status, DelegationJobStatus.COMPLETED.value
-        )
+        self.status = _status_text(self.status, DelegationJobStatus.COMPLETED.value)
         self.outcome_type = _status_text(
             self.outcome_type,
             DELEGATION_SUMMARY_OUTCOME_TYPE,
@@ -475,9 +456,7 @@ class DelegationSummary:
         self.files_changed = _coerce_deduped_text_list(self.files_changed)
         self.commands_run = _coerce_deduped_text_list(self.commands_run)
         self.key_changes = _coerce_deduped_text_list(self.key_changes)
-        self.unresolved_questions = _coerce_deduped_text_list(
-            self.unresolved_questions
-        )
+        self.unresolved_questions = _coerce_deduped_text_list(self.unresolved_questions)
         self.tags = _coerce_deduped_text_list(self.tags)
         self.result = _coerce_mapping(self.result)
         self.metadata = _coerce_mapping(self.metadata)
@@ -514,12 +493,8 @@ class DelegationSummary:
         payload["files_changed"] = _coerce_deduped_text_list(
             payload.get("files_changed")
         )
-        payload["commands_run"] = _coerce_deduped_text_list(
-            payload.get("commands_run")
-        )
-        payload["key_changes"] = _coerce_deduped_text_list(
-            payload.get("key_changes")
-        )
+        payload["commands_run"] = _coerce_deduped_text_list(payload.get("commands_run"))
+        payload["key_changes"] = _coerce_deduped_text_list(payload.get("key_changes"))
         payload["unresolved_questions"] = _coerce_deduped_text_list(
             payload.get("unresolved_questions")
         )
@@ -557,8 +532,7 @@ class DelegationSummary:
             payload.get("key_changes") or payload.get("keyChanges")
         )
         unresolved_questions = _coerce_deduped_text_list(
-            payload.get("unresolved_questions")
-            or payload.get("unresolvedQuestions")
+            payload.get("unresolved_questions") or payload.get("unresolvedQuestions")
         )
         tags = _coerce_deduped_text_list(payload.get("tags"))
         return cls(
@@ -566,19 +540,14 @@ class DelegationSummary:
                 payload.get("request_id") or payload.get("requestId") or ""
             ).strip(),
             delegation_id=str(
-                payload.get("delegation_id")
-                or payload.get("delegationId")
-                or ""
+                payload.get("delegation_id") or payload.get("delegationId") or ""
             ).strip(),
-            task_id=str(
-                payload.get("task_id") or payload.get("taskId") or ""
-            ).strip(),
+            task_id=str(payload.get("task_id") or payload.get("taskId") or "").strip(),
             thread_id=_coerce_optional_identifier(
                 payload.get("thread_id") or payload.get("threadId")
             ),
             source_message_id=_coerce_optional_identifier(
-                payload.get("source_message_id")
-                or payload.get("sourceMessageId")
+                payload.get("source_message_id") or payload.get("sourceMessageId")
             ),
             project_id=_coerce_optional_identifier(
                 payload.get("project_id") or payload.get("projectId")
@@ -615,9 +584,7 @@ class DelegationSummary:
             error_message=_coerce_optional_text(payload.get("error_message")),
             lineage=_coerce_mapping(payload.get("lineage")),
             created_at=str(
-                payload.get("created_at")
-                or payload.get("createdAt")
-                or _utc_now_iso()
+                payload.get("created_at") or payload.get("createdAt") or _utc_now_iso()
             ),
             completed_at=str(
                 payload.get("completed_at")
@@ -681,9 +648,7 @@ class CodingExecutionTask(BaseTask):
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
         return cls(
-            run_id=str(
-                payload.get("run_id") or payload.get("runId") or ""
-            ).strip(),
+            run_id=str(payload.get("run_id") or payload.get("runId") or "").strip(),
             coding_task_id=str(
                 payload.get("coding_task_id")
                 or payload.get("codingTaskId")
@@ -694,9 +659,7 @@ class CodingExecutionTask(BaseTask):
                 payload.get("thread_id") or payload.get("threadId") or ""
             ).strip(),
             source_message_id=str(
-                payload.get("source_message_id")
-                or payload.get("sourceMessageId")
-                or ""
+                payload.get("source_message_id") or payload.get("sourceMessageId") or ""
             ).strip(),
             attempt_id=str(
                 payload.get("attempt_id") or payload.get("attemptId") or ""
@@ -707,9 +670,7 @@ class CodingExecutionTask(BaseTask):
             work_order_id=_coerce_optional_text(
                 payload.get("work_order_id") or payload.get("workOrderId")
             ),
-            user_id=str(
-                payload.get("user_id") or payload.get("userId") or ""
-            ).strip(),
+            user_id=str(payload.get("user_id") or payload.get("userId") or "").strip(),
             project_id=_coerce_optional_positive_int(
                 payload.get("project_id") or payload.get("projectId")
             ),
@@ -727,20 +688,17 @@ class CodingExecutionTask(BaseTask):
                 payload.get("context_summary") or payload.get("contextSummary")
             ),
             permission_policy=_coerce_coding_permission_policy(
-                payload.get("permission_policy")
-                or payload.get("permissionPolicy")
+                payload.get("permission_policy") or payload.get("permissionPolicy")
             ),
             validation_command=_coerce_optional_text(
-                payload.get("validation_command")
-                or payload.get("validationCommand")
+                payload.get("validation_command") or payload.get("validationCommand")
             ),
             max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
                 or payload.get("maxValidationAttempts"),
             ),
             worktree_lease_id=_coerce_optional_text(
-                payload.get("worktree_lease_id")
-                or payload.get("worktreeLeaseId")
+                payload.get("worktree_lease_id") or payload.get("worktreeLeaseId")
             ),
             require_worktree_lease=bool(
                 payload.get("require_worktree_lease")
@@ -798,7 +756,8 @@ class PersonaSelectionSnapshot:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> PersonaSelectionSnapshot:
         if not isinstance(payload, dict) or set(payload) != {
-            "profile_id", "profile_revision"
+            "profile_id",
+            "profile_revision",
         }:
             raise ValueError("persona_selection_snapshot requires exactly both fields")
         return cls(**payload)
@@ -813,7 +772,9 @@ class ChatCompletionTask(BaseTask):
     # any preexisting value with the server-resolved turn before serialization.
     turn_id: str | None = None
     latest_turn_message_id: int | None = None
-    latest_turn_messages: list[dict[str, Any]] | None = None  # structured multimodal content for latest turn
+    latest_turn_messages: list[dict[str, Any]] | None = (
+        None  # structured multimodal content for latest turn
+    )
     model: str | None = None
     provider: str | None = None
     temperature: float | None = None
@@ -870,9 +831,7 @@ class ChatCompletionTask(BaseTask):
         parse_accepted_chat_task_deadline(payload)
         base = _base_kwargs(payload or {})
         base.setdefault("type", cls.type)
-        user_id = _coerce_optional_text(
-            payload.get("user_id") or payload.get("userId")
-        )
+        user_id = _coerce_optional_text(payload.get("user_id") or payload.get("userId"))
         if not user_id:
             raise ValueError("ChatCompletionTask missing user_id")
         raw_temperature = payload.get("temperature")
@@ -915,12 +874,9 @@ class ChatCompletionTask(BaseTask):
                 else str(payload.get("requested_source_mode"))
             ),
             system_override=payload.get("system_override"),
-            retrieval_override=_coerce_mapping(
-                payload.get("retrieval_override")
-            )
+            retrieval_override=_coerce_mapping(payload.get("retrieval_override"))
             or None,
-            browser_context=_coerce_mapping(payload.get("browser_context"))
-            or None,
+            browser_context=_coerce_mapping(payload.get("browser_context")) or None,
             preferred_name=_coerce_optional_text(payload.get("preferred_name")),
             profession=_coerce_optional_text(payload.get("profession")),
             guardian_name=_coerce_optional_text(payload.get("guardian_name")),
@@ -949,9 +905,7 @@ class EvalTask(BaseTask):
         return cls(
             thread_id=int(payload.get("thread_id") or 0),
             trace_snapshot_id=str(
-                payload.get("trace_snapshot_id")
-                or payload.get("traceSnapshotId")
-                or ""
+                payload.get("trace_snapshot_id") or payload.get("traceSnapshotId") or ""
             ).strip(),
             evaluator_kind=_normalize_executor_id(
                 payload.get("evaluator_kind") or payload.get("evaluatorKind")
@@ -1062,12 +1016,9 @@ class DelegationTask(BaseTask):
             delegation_id=str(payload.get("delegation_id") or "").strip(),
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
             source_message_id=_coerce_optional_positive_int(
-                payload.get("source_message_id")
-                or payload.get("sourceMessageId")
+                payload.get("source_message_id") or payload.get("sourceMessageId")
             ),
-            conversation_id=_coerce_optional_text(
-                payload.get("conversation_id")
-            ),
+            conversation_id=_coerce_optional_text(payload.get("conversation_id")),
             project_id=_coerce_optional_positive_int(payload.get("project_id")),
             repo_path=str(payload.get("repo_path") or "").strip(),
             executor=str(payload.get("executor") or "").strip(),
@@ -1137,8 +1088,7 @@ class CodingExecutionTask(BaseTask):
             attempt_id=str(payload.get("attempt_id") or "").strip(),
             execution_binding=(
                 _coerce_mapping(
-                    payload.get("execution_binding")
-                    or payload.get("executionBinding")
+                    payload.get("execution_binding") or payload.get("executionBinding")
                 )
                 or None
             ),
@@ -1150,12 +1100,10 @@ class CodingExecutionTask(BaseTask):
             ),
             thread_id=_coerce_optional_positive_int(payload.get("thread_id")),
             source_message_id=_coerce_optional_identifier(
-                payload.get("source_message_id")
-                or payload.get("sourceMessageId")
+                payload.get("source_message_id") or payload.get("sourceMessageId")
             ),
             validation_command=_coerce_optional_text(
-                payload.get("validation_command")
-                or payload.get("validationCommand")
+                payload.get("validation_command") or payload.get("validationCommand")
             ),
             max_validation_attempts=_coerce_bounded_positive_int(
                 payload.get("max_validation_attempts")
@@ -1163,14 +1111,12 @@ class CodingExecutionTask(BaseTask):
             ),
             permission_policy=(
                 _coerce_mapping(
-                    payload.get("permission_policy")
-                    or payload.get("permissionPolicy")
+                    payload.get("permission_policy") or payload.get("permissionPolicy")
                 )
                 or None
             ),
             worktree_lease_id=_coerce_optional_text(
-                payload.get("worktree_lease_id")
-                or payload.get("worktreeLeaseId")
+                payload.get("worktree_lease_id") or payload.get("worktreeLeaseId")
             ),
             require_worktree_lease=bool(
                 payload.get("require_worktree_lease")

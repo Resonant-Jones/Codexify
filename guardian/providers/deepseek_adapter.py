@@ -173,9 +173,7 @@ def build_continuation_messages(
     The function does not decide authority, does not execute anything, and does
     not parse the command_result. It is a pure translation.
     """
-    next_messages = [
-        dict(message) for message in messages if isinstance(message, dict)
-    ]
+    next_messages = [dict(message) for message in messages if isinstance(message, dict)]
     if raw_assistant_message is not None:
         next_messages.append(dict(raw_assistant_message))
     next_messages.append(
