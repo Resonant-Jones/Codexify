@@ -5563,21 +5563,20 @@ async def build_messages_for_llm(
         requested_source_mode=_requested_source_mode_from_task(task),
         settings=settings,
     )
-    validate_effort(
-        getattr(task, "thinking_effort", None),
-        thread_execution.provider,
-        thread_execution.model,
-        thread_execution.reasoning_mode,
-        settings,
-    )
     explicit_latest_turn_message_id = _coerce_message_id(
         getattr(task, "latest_turn_message_id", None)
     )
-    if (
-        getattr(task, "thinking_effort", None) is not None
-        and explicit_latest_turn_message_id is None
-    ):
-        raise ValueError("thread_target_turn_missing")
+    effort = getattr(task, "thinking_effort", None)
+    if effort is not None:
+        validate_effort(
+            effort,
+            thread_execution.provider,
+            thread_execution.model,
+            thread_execution.reasoning_mode,
+            settings,
+        )
+        if explicit_latest_turn_message_id is None:
+            raise ValueError("thread_target_turn_missing")
     provider = thread_execution.provider
     routing_debug_metadata = _task_routing_debug_metadata(task)
     requested_source_mode = _requested_source_mode_from_task(task)

@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import GuardianChat from "@/features/chat/GuardianChat";
+import type { SlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
 import api from "@/lib/api";
 
 const liveEventsMock = vi.hoisted(() => {
@@ -319,11 +320,13 @@ vi.mock("@/features/guardian/components/Composer", () => ({
   Composer: ({
     isTurnInFlight,
     onThinkingEffortChange,
+    slashCommandLibrary,
     onSend,
     onProviderChange,
   }: {
     isTurnInFlight?: boolean;
     onThinkingEffortChange: (level: string) => void;
+    slashCommandLibrary: SlashCommandLibrary;
     onSend: (text: string) => Promise<void>;
     onProviderChange?: (providerId: string) => void;
   }) => (
@@ -335,7 +338,9 @@ vi.mock("@/features/guardian/components/Composer", () => ({
       <button type="button" data-testid="composer-send" onClick={() => void onSend("hello")}>
         Send
       </button>
-      <button type="button" data-testid="composer-image" onClick={() => void onSend("/sunburst A fox").catch(() => {})}>Image</button>
+      {slashCommandLibrary.status === "ready" && (
+        <button type="button" data-testid="composer-image" onClick={() => void onSend("/sunburst A fox").catch(() => {})}>Image</button>
+      )}
       <button type="button" data-testid="composer-passive-image" onClick={() => void onSend("I'd love an image of a fox").catch(() => {})}>Passive image</button>
       <button
         type="button"
