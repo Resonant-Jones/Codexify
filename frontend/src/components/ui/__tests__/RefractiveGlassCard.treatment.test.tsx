@@ -103,6 +103,37 @@ function trackWebgl() {
 
 describe("RefractiveGlassCard treatment rendering", () => {
   it.each(["webgl2", "webgl"] as const)(
+    "submits a defined inverted edge mask for %s",
+    (context) => {
+      const wallpaper = controlWallpaperLoading();
+      const { gl, getContext } = mockWebglRenderer(context);
+      render(<FrameCard wallpaperUrl={WALLPAPER}>content</FrameCard>);
+      wallpaper.load();
+
+      expect(getContext.mock.calls.map(([id]) => id)).toEqual(
+        context === "webgl2" ? ["webgl2"] : ["webgl2", "webgl"]
+      );
+      // Inspect the submitted source; mocked compilation is not GPU proof.
+      const fragments = gl.shaderSource.mock.calls
+        .map(([, source]) => source as string)
+        .filter((source) => /\bfloat\s+edge\s*=/.test(source));
+      expect(fragments).toHaveLength(1);
+      const fragment = fragments[0]!;
+      const compact = fragment.replace(/\s+/g, "");
+      expect(compact).toContain(
+        "floatedge=1.0-smoothstep(0.0,2.0,abs(sdf));"
+      );
+      if (context === "webgl2") {
+        expect(fragment).toMatch(/^#version 300 es\n/);
+        expect(compact).toContain("outColor=vec4(col,edge*0.95);");
+      } else {
+        expect(fragment).not.toContain("#version 300 es");
+        expect(compact).toContain("gl_FragColor=vec4(col,edge*0.95);");
+      }
+    }
+  );
+
+  it.each(["webgl2", "webgl"] as const)(
     "restores %s drawing after repeated treatment changes without remounting",
     (context) => {
       const wallpaper = controlWallpaperLoading();
