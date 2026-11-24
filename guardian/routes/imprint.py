@@ -7,8 +7,8 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
 from types import SimpleNamespace
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -21,12 +21,13 @@ from guardian.cognition.identity_policy import (
 from guardian.cognition.imprints import store as imprint_store
 from guardian.cognition.personas import store as persona_store
 from guardian.cognition.system_docs import store as system_doc_store
+from guardian.cognition.system_profiles.resolver import resolve_thread_system_profile
 from guardian.cognition.system_prompt_builder import (
     build_guardian_system_prompt,
     build_guardian_system_prompt_inspection_metadata,
 )
-from guardian.cognition.system_profiles.resolver import resolve_thread_system_profile
-from guardian.core.dependencies import get_account_user as get_current_user, require_account_session as require_api_key
+from guardian.core.dependencies import get_account_user as get_current_user
+from guardian.core.dependencies import require_account_session as require_api_key
 from guardian.services import (
     iddb_settings_service,
     imprint_proposal_service,
@@ -104,9 +105,7 @@ def _normalize_segments(raw_segments: Any) -> list[dict[str, Any]]:
                 {
                     "name": name,
                     "chars": _coerce_int(segment.get("chars")) or 0,
-                    "estimated_tokens": _coerce_int(
-                        segment.get("estimated_tokens")
-                    )
+                    "estimated_tokens": _coerce_int(segment.get("estimated_tokens"))
                     or 0,
                     "truncated": bool(segment.get("truncated")),
                 }
@@ -253,9 +252,7 @@ def get_imprint_status(
                 continue
             segments_present[name] = int(segment.get("chars") or 0) > 0
     elif isinstance(segments_payload, dict):
-        segments_present = {
-            str(k): int(v) > 0 for k, v in segments_payload.items()
-        }
+        segments_present = {str(k): int(v) > 0 for k, v in segments_payload.items()}
 
     return {
         "imprint": imprint
@@ -299,9 +296,7 @@ def create_imprint_proposal(
         mutation=True,
     )
     requested_depth = str(
-        body.get("requested_depth")
-        or body.get("identity_modeling_depth")
-        or "light"
+        body.get("requested_depth") or body.get("identity_modeling_depth") or "light"
     )
     project_identity_depth = _resolve_project_identity_depth(resolved_project)
 
@@ -442,7 +437,9 @@ def inspect_system_prompt(
 ):
     """Observe canonical selection and a legacy-free composition projection."""
     user_id, resolved_project, thread = _resolve_user_project(
-        current_user, thread_id, project_id,
+        current_user,
+        thread_id,
+        project_id,
     )
     # Project-only requests also require ownership, before observational catches.
     if resolved_project is not None:
@@ -452,16 +449,23 @@ def inspect_system_prompt(
                 (row for row in projects if row.get("id") == resolved_project), None
             )
         except Exception:
-            raise HTTPException(status_code=403, detail="project scope cannot be established")
+            raise HTTPException(
+                status_code=403, detail="project scope cannot be established"
+            )
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         if str(project.get("user_id") or "").strip() != user_id:
-            raise HTTPException(status_code=403, detail="project does not belong to the current user")
+            raise HTTPException(
+                status_code=403, detail="project does not belong to the current user"
+            )
 
     profile = None
     persona = {
-        "profile_id": None, "revision": None, "source": None,
-        "state": "unavailable", "error_code": "thread_context_required",
+        "profile_id": None,
+        "revision": None,
+        "source": None,
+        "state": "unavailable",
+        "error_code": "thread_context_required",
     }
     if thread is not None:
         raw_id = thread.get("active_profile_id")
@@ -488,21 +492,41 @@ def inspect_system_prompt(
                     state="present",
                 )
             except Exception:
-                persona.update(state="unavailable", error_code="system_profile_resolution_unavailable")
+                persona.update(
+                    state="unavailable",
+                    error_code="system_profile_resolution_unavailable",
+                )
 
-    imprint = {"state": "unavailable", "error_code": None, "id": None,
-               "status": None, "preferred_name": None, "heat_score": None, "style": None}
+    imprint = {
+        "state": "unavailable",
+        "error_code": None,
+        "id": None,
+        "status": None,
+        "preferred_name": None,
+        "heat_score": None,
+        "style": None,
+    }
     try:
         active = imprint_store.get_active_imprint(user_id, resolved_project)
         imprint.update(state="present" if active else "absent")
         if active:
-            imprint.update({key: getattr(active, key, None) for key in (
-                "id", "status", "preferred_name", "heat_score", "style"
-            )})
+            imprint.update(
+                {
+                    key: getattr(active, key, None)
+                    for key in ("id", "status", "preferred_name", "heat_score", "style")
+                }
+            )
     except Exception:
-        imprint.update(state="unavailable", error_code="imprint_observation_unavailable")
+        imprint.update(
+            state="unavailable", error_code="imprint_observation_unavailable"
+        )
 
-    docs = {"state": "unavailable", "error_code": None, "count": None, "truncated": None}
+    docs: dict[str, object] = {
+        "state": "unavailable",
+        "error_code": None,
+        "count": None,
+        "truncated": None,
+    }
     try:
         count = len(system_doc_store.get_docs_for(user_id, resolved_project))
         docs.update(state="present" if count else "absent", count=count)
@@ -510,25 +534,34 @@ def inspect_system_prompt(
         docs["error_code"] = "system_docs_observation_unavailable"
 
     warn, hard = _resolve_prompt_thresholds()
-    prompt = {
-        "state": "unavailable", "error_code": None,
-        "projection_kind": "canonical_inspection", "legacy_persona_included": False,
+    threshold = {"warn_tokens": warn, "hard_tokens": hard, "status": "unknown"}
+    prompt: dict[str, object] = {
+        "state": "unavailable",
+        "error_code": None,
+        "projection_kind": "canonical_inspection",
+        "legacy_persona_included": False,
         "estimated_tokens_total": None,
-        "threshold": {"warn_tokens": warn, "hard_tokens": hard, "status": "unknown"},
-        "segments": [], "docs_count": None, "docs_truncated": None,
+        "threshold": threshold,
+        "segments": [],
+        "docs_count": None,
+        "docs_truncated": None,
     }
     try:
         meta = build_guardian_system_prompt_inspection_metadata(
-            user_id=user_id, project_id=resolved_project, depth="normal", profile=profile,
+            user_id=user_id,
+            project_id=resolved_project,
+            depth="normal",
+            profile=profile,
         )
         total = _coerce_int(meta.get("estimated_tokens_total"))
         prompt.update(
-            state="present", estimated_tokens_total=total,
+            state="present",
+            estimated_tokens_total=total,
             segments=_normalize_segments(meta.get("segments")),
             docs_count=_coerce_int(meta.get("docs_count")),
             docs_truncated=bool(meta.get("docs_truncated")),
         )
-        prompt["threshold"]["status"] = _threshold_status(total, warn, hard)
+        threshold["status"] = _threshold_status(total, warn, hard)
         # Independent reads may differ; only associate truncation if counts agree.
         if docs["count"] is not None and docs["count"] == prompt["docs_count"]:
             docs["truncated"] = prompt["docs_truncated"]
@@ -537,8 +570,15 @@ def inspect_system_prompt(
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "scope": {"user_id": user_id, "thread_id": thread_id, "project_id": resolved_project},
-        "persona_profile": persona, "imprint": imprint, "system_docs": docs, "prompt": prompt,
+        "scope": {
+            "user_id": user_id,
+            "thread_id": thread_id,
+            "project_id": resolved_project,
+        },
+        "persona_profile": persona,
+        "imprint": imprint,
+        "system_docs": docs,
+        "prompt": prompt,
     }
 
 
@@ -597,9 +637,7 @@ def system_prompt_summary(
 
     warnings: list[str] = []
     if status == "warn":
-        warnings.append(
-            "System prompt is approaching the configured token threshold."
-        )
+        warnings.append("System prompt is approaching the configured token threshold.")
     elif status == "hard":
         warnings.append("System prompt exceeds the configured hard threshold.")
     if bool(meta.get("docs_truncated")):
@@ -645,9 +683,7 @@ def list_system_docs(
                 "title": doc.title,
                 "scope": doc.scope,
                 "enabled": bool(enabled),
-                "token_estimate": system_doc_store.estimate_token_cost_for_docs(
-                    [doc]
-                ),
+                "token_estimate": system_doc_store.estimate_token_cost_for_docs([doc]),
             }
         )
     return {"docs": out}
@@ -664,9 +700,7 @@ def toggle_system_doc(
     thread_id = body.get("thread_id")
     project_id = body.get("project_id")
     if doc_id is None or enabled is None:
-        raise HTTPException(
-            status_code=400, detail="doc_id and enabled are required"
-        )
+        raise HTTPException(status_code=400, detail="doc_id and enabled are required")
     user_id, resolved_project, _ = _resolve_user_project(
         current_user,
         thread_id,
