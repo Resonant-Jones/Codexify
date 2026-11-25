@@ -48,7 +48,9 @@ and [accepted-work revalidation under ADR-112](112-trusted-worker-account-bound-
 The Context Broker owns evidence assembly. UMS owns durable memory governance.
 
 The [campaign sequence and proof gates](../README.md#guardian-recall-temporal-recollection-and-imprint_zero)
-connect the ADRs to their owning contracts.
+bind this decision to GOV-02 Revision 2 at
+`c2afb38f36963a052556a826e2e90f4dc2793fc2`. Stage 0 requires independent
+mainline verification before the first Stage 1 implementation Task Spec.
 
 ## Reading Order
 

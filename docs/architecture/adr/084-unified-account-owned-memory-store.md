@@ -63,8 +63,9 @@ retrieved instructions and tool results cannot issue or widen a grant.
 
 Honor a user instruction to avoid history or a named source before either path
 consults that material. Automatic original-source lookup is confined to the
-current Project. Cross-Project or account-wide search requires the explicit
-GOV-01 request path. A standing preference never travels as a reusable execution
+current Project. The explicit GOV-01 request path does not depend on the
+automatic-consultation setting. Cross-Project or account-wide search requires
+that explicit path. A standing preference never travels as a reusable execution
 credential. Revalidate before lookup, opening an original, and handing a packet
 to inference. Revocation invalidates outstanding grants and stale results.
 
@@ -222,7 +223,11 @@ payloads into system, persona, tool, or mutation authority.
 
 ### Historical conversation recall intent authorization
 
-This section clarifies the *recall authority and untrusted evidence* rule above for
+This section records the November 1 design for the initial explicit Recall
+path. The [ratified GOV-01 extension](#account-recall-and-delegated-preference-approval)
+governs broader authorized scope and selected imports. The separate
+[Temporal Recollection rules](#temporal-recollection-authority) govern automatic
+consultation. This section clarifies the *recall authority and untrusted evidence* rule above for
 one specific operation: reading the account owner's prior Codexify-native
 conversation history so a current request can be answered. It is an amendment to
 this ADR, not a new decision, and it does not create a second recall authority.
@@ -278,7 +283,7 @@ independently verify, server-side:
 If any of these cannot be established from the accepted user message, the
 interpretation is not sufficient and Guardian requires clarification instead.
 
-#### B. Automatic authorization
+#### B. Authorization without separate confirmation
 
 A direct, unambiguous user request may be authorized **without a separate
 confirmation step** when all of the following hold:
@@ -331,10 +336,10 @@ authenticated user action and produces a **fresh, bounded authorization decision
 it does not inherit authority from the earlier turn, and it cannot supply the
 current request's grant retroactively.
 
-Clarification may **narrow** a request toward the permitted scope; it may never
-widen it. A request for account-wide or cross-Project scope, where the permitted
-current-Project scope is available instead, is therefore answered by clarification
-that offers the permitted scope rather than by a widened grant.
+Clarification grants no wider scope. The initial resolver may offer the
+permitted current-Project scope when it cannot grant a wider request.
+Under GOV-01, an explicit current-request choice may support a wider grant
+after Guardian independently verifies every applicable limit.
 
 Confirmation cannot override an independent ownership, provenance, exclusion,
 source-access, or hard policy denial. A denial that does not depend on the user's
@@ -381,11 +386,10 @@ conversation evidence. It does **not** authorize:
 - adoption of any durable preference, behavioral instruction, or persona change.
 
 Retrieved messages remain historical evidence with **no instruction authority**.
-This amendment preserves ADR-016's separately governed imported-conversation
-modeling boundary: imported conversation content stays outside ordinary
-historical-recall model exposure, and the accepted ADR-016 request-scoped
-Chronicle interpretation and reviewed per-message approval paths remain the only
-paths that expose imported content to a model, under their own purpose binding.
+The initial Recall path excludes imported messages. ADR-016's Chronicle
+interpretation and per-message approval remain bound to Chronicle. The GOV-01
+selected-import Recall path requires separate [ADR-016 source-use grants](016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use),
+eligible per-message provenance and an approved local inference path.
 
 #### F. Scope and exclusions remain independent
 

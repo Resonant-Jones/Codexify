@@ -75,8 +75,9 @@ That contract defines the canonical semantic seam between provider transport
 and Codexify model/tool-turn semantics. The bounded runtime described in this
 file consumes provider-normalized semantic outcomes; it does not consume
 provider wire formats directly. The Stage 1 advertised-subset authorization
-gate remains the pre-execution authority seam, and the one-tool-turn runtime
-contract in this file is unchanged.
+gate remains the pre-execution authority seam. The [bounded Recall continuation](#bounded-recall-continuation)
+is the sole ratified exception to the implemented one-tool-turn limit.
+Stage 2B server-side assembly uses its separate read authority.
 
 ## Scope
 
@@ -286,7 +287,9 @@ Loop stop reasons are canonical tokens in `guardian/protocol_tokens.py`:
 
 - If the first provider response is malformed as a tool decision, the runtime stops with `tool_decision_invalid`.
 - If command-bus execution fails, the runtime stops with `tool_command_failed`.
-- If the model tries to request a second tool turn, the runtime stops with `tool_turn_limit_reached`.
+- Under the implemented one-command path, a second tool turn stops with
+  `tool_turn_limit_reached`. The [ratified Recall exception](#bounded-recall-continuation)
+  requires a completed search and a reauthorized open of a single returned source.
 - The runtime does not recurse on tool failure.
 - The runtime does not silently downgrade a structured tool decision into an undefined loop.
 

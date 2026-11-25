@@ -392,9 +392,12 @@ This task does **not** implement UI changes. Later UI implementation tasks must 
 
 ## 18. Invariants
 
-1. No durable trait inference without explicit approval.
+1. Durable trait or identity inference requires explicit individual approval
+   where the category permits promotion. Delegation covers only eligible
+   general preferences under §12.
 2. Imported source text is evidence, not identity truth.
-3. Candidate facts do not participate in retrieval, prompt assembly, or runtime behavior.
+3. Candidate facts are available for account-authorized review. They are
+   excluded from Personal Facts retrieval for inference and prompt assembly.
 4. Verified active facts are the only runtime-eligible personal facts.
 5. Confidence scores never override quarantine.
 6. Evidence and revision lineage must not be silently dropped.

@@ -207,12 +207,13 @@ identity mutations, background scheduling, global connector authorization or
 default Beta route promotion are introduced.
 
 This mechanism may be reusable, but permission never follows reuse automatically.
-The [history recall contract](../account-history-recall-contract.md) retains its
-request-scoped HistoryRecallGrant, canonical account and Project ownership,
-per-message provenance classification and imported-history model-exposure
-exclusions. This connector decision does **not** activate remote/multi-user
-history-recall workers or amend ADR-016/084 consent. For selected imports, the ratified Recall design requires independent ADR-016
-and ADR-084 grants, approved local inference and runtime proof.
+The [history recall contract](../account-history-recall-contract.md) retains
+request-bound grants, canonical ownership and per-message provenance checks.
+The initial runtime excludes imports from its Recall path. The independently
+ratified continuity reads at the top of this ADR require their own authority
+and shared-worker proof. Selected imported content requires ADR-016 and ADR-084
+authorization and approved local inference. Connector approval supplies no
+Recall, recollection or imported-content permission.
 
 ## Alignment and consequences
 
@@ -226,7 +227,7 @@ and ADR-084 grants, approved local inference and runtime proof.
 - ADR-094 supplies invocation-specific revalidation and shared-worker isolation
   principles. Its subject is coding execution credentials; it neither mandates
   connector bearer transport nor grants connector authority.
-- ADR-016 and ADR-084 remain unchanged, including import/recall consent.
+- ADR-016 and ADR-084 govern consent and source use independently of the connector pilot.
 
 None of these decisions is superseded. The smaller trusted topology avoids an
 unnecessary credential service but requires a carefully proven canonical-state
@@ -234,7 +235,8 @@ resolver and isolation boundary. Missing proof continues to deny execution.
 
 ## Subsequent implementation proof requirements
 
-These are required future proofs, **not tests executed by this docs task**:
+These future proofs apply to the GitHub/Notion connector pilot. Continuity
+proofs are governed by the [campaign gates](../README.md#guardian-recall-temporal-recollection-and-imprint_zero).
 
 1. Account A executes only its authorized read.
 2. Account B cannot reuse A's job or connector.
@@ -245,7 +247,7 @@ These are required future proofs, **not tests executed by this docs task**:
 7. Same-worker sequential A/B work preserves credential/context isolation.
 8. CommandRun/events retain truthful account and attempt lineage without secrets.
 9. Command Bus manifest, policy and permission checks cannot be bypassed.
-10. Imported-history content remains excluded.
+10. Connector execution excludes imported-history content.
 
 No runtime, migration, configuration, test, deployment or release qualification
 is established by this decision. HOLD and both release lanes remain unchanged.

@@ -34,6 +34,9 @@ HOLD.
 **CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
 The first usable Private Preview requires three independent owner decisions.
 Existing Chronicle permissions remain confined to their original purpose.
+The original native-history Recall and restored-origin rules below preserve
+the native evidence boundary. Selected imports use the independent Recall
+authorization in this amendment.
 
 | Decision | What Guardian must establish |
 | --- | --- |
@@ -536,7 +539,7 @@ native status during restore.
 | Restored input | Required disposition |
 | --- | --- |
 | Proven native record with preserved trusted origin custody | Preserve original creation meaning, assertion/witness and assertion time only through a separately governed proof-preserving restore path; never stamp restore as native creation. That cross-installation path remains unimplemented. |
-| Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage; keep it excluded from ordinary native recall |
+| Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage. Native Recall excludes imports. Recheck eligibility under the separate selected-import path before any model exposure. |
 | Legacy record lacking proof | Preserve unknown origin, raw metadata, role, and temporal uncertainty; no default native assertion |
 | Contradictory provenance | Fail closed for native exposure; report conflict without leaking content. A proof-preserving restore may reject contradictory proof-bearing input under its existing fail-closed validation boundary; it must never silently repair it |
 | Canonical IDs remapped | Remap canonical relationships under the restore contract, retain provider source IDs and origin semantics, and revalidate exact-message witness linkage rather than trusting a coincidentally equal old ID |

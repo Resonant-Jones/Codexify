@@ -69,7 +69,9 @@ search evidence only if the answer accurately identifies that evidence and its l
 **CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 The implemented search described below requires an explicit historical request.
 The [ratified owner policy](adr/084-unified-account-owned-memory-store.md#temporal-recollection-authority)
-adds a distinct current-Project read path for eligible cues. The Context Broker
+adds an optional, default-disabled current-Project read path for eligible cues.
+Explicit Recall keeps its separate current-request grant even when that policy
+is disabled. The Context Broker
 owns pre-answer evidence assembly. Looking up the original again requires live
 source permission even if an alias, memory or prior search identified it.
 
@@ -333,8 +335,9 @@ A grant is:
 
 ### 3.5 Scope enforcement
 
-A positive authorization is restricted to the authenticated account, the
-current canonical Project, eligible native conversation evidence, the
+The initial implementation restricts a positive authorization to the
+authenticated account, the current canonical Project, eligible native
+conversation evidence, the
 applicable thread and content permissions, and the current request's recall
 purpose.
 
@@ -367,9 +370,10 @@ purpose.
 
 ### 3.7 Imported-history exclusions
 
-Imported archives remain on ADR-016's human-only inspection path. An explicit
-request aimed at imported history is denied as an independent exclusion, and
-imported threads can never establish intent in the first place. The grant's
+The initial Recall implementation denies explicit requests for imported history.
+Human archive inspection has separate authority. Imported text cannot establish
+current intent. Selected-import exposure must separately meet the ratified
+[original-source Recall rules](#search-coverage-and-original-source-opening). The grant's
 exclusion list carries the imported-archive, diary, and unresolved
 record-read markers so that the bounded read reports them honestly.
 

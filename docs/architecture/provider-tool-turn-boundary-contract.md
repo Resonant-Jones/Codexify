@@ -82,7 +82,10 @@ It governs:
 - where Codexify executes the authorized action;
 - what the provider adapter must and must not do on the way back into the provider.
 
-It does not implement transport. It does not select any provider. It does not authorize any specific capability. It does not change the existing one-tool-turn runtime contract. It does not change Command Bus authority.
+The contract governs provider translation and leaves transport selection and
+command authorization to their respective owners. The implemented runtime
+limits a turn to one command. The ratified [Recall continuation](#provider-continuation-for-recall)
+defines the sole exception for future implementation.
 
 ## Governing Principle
 
@@ -153,7 +156,11 @@ This contract explicitly preserves the current one-tool-turn limitation:
 - Parallel or recursive tool calls are not implied by this contract.
 - If a provider returns multiple tool calls while the runtime only supports one, they must not all execute. The adapter/runtime must preserve the existing bounded failure/limit doctrine. The exact implementation of "preserve" is deferred; the doctrine is not.
 
-This contract does not change `agent-tool-loop-contract.md`'s one-tool-turn runtime contract. It does not introduce a recursive planner, a parallel tool step, or a multi-turn tool loop.
+The ratified [Recall continuation](#provider-continuation-for-recall) allows
+at most one normalized decision per provider response and one bounded serial
+search-to-open continuation per accepted turn. The [agent tool-loop contract](agent-tool-loop-contract.md#bounded-recall-continuation)
+defines when Guardian may offer the open. Its command and argument bound still
+govern the provider response.
 
 ## 4. Identity Rules
 

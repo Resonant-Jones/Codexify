@@ -58,8 +58,10 @@ building the full compiler. The following steps describe the target.
    If support is insufficient, express uncertainty or ask for clarification.
    Never claim another Persona's experience as the active Persona's own.
 
-This is trusted server-side assembly. The owner policy bounds the optional
-historical lookup to the current Project. The intake classifier cannot issue its
+This is trusted server-side assembly. The owner policy defaults to disabled
+and bounds automatic historical lookup to the current Project under a fresh
+accepted-turn grant. Explicit Recall uses its own [request-bound authority](adr/084-unified-account-owned-memory-store.md#account-recall-and-delegated-preference-approval)
+even when automatic consultation is disabled. The intake classifier cannot issue its
 own grant, launch an unrestricted graph traversal, scan the whole vault, or
 fall through to an external connector. Browser, Notion and GitHub lookup each
 have separate authorities. A cue does not activate browser-history retrieval.
