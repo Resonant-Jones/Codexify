@@ -11,6 +11,46 @@ Source anchors:
 - docs/architecture/runtime-protocol-token-contract.md
 - docs/architecture/provider-tool-turn-boundary-contract.md
 
+## Proposed amendment · Bounded Recall continuation
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+The implemented one-command semantics below remain the baseline. The proposed
+exception permits one authorized historical search, optionally one independently
+authorized open of one result from that search, and one final answer. All other
+tools keep the single-command boundary. A later model-selected read, including
+another page, requires a newly authorized user turn.
+
+1. **Search.** Use the accepted request, task, user message, live attempt and
+   original deadline. Validate the grant before advertisement and dispatch through
+   Command Bus. Freeze the canonical search command and arguments digest before
+   dispatch. Retain enough protected, attempt-bound result identity to establish
+   exactly which members the completed search returned.
+2. **Open.** Only after a completed search with an eligible result may the adapter
+   offer an open constrained to that result set. Guardian verifies the selected
+   member, its parent search run, current resource and model-exposure authority,
+   policy revisions and remaining budget before dispatch. Freeze the open decision
+   independently under the same attempt and deadline. Reject a substituted ID,
+   arbitrary second command, parallel selection or third operation.
+3. **Reentry.** Keep an ordered durable checkpoint for each chosen operation,
+   correlating step, canonical command, argument digest, logical parent and
+   Command Bus run. Duplicate delivery may reconcile the same frozen choice and
+   run only after reauthorization. Recheck before reusing or disclosing results.
+   A completed step cannot execute twice. A conflicting or unverifiable checkpoint,
+   pending run, cancellation, expiry or revoked grant cannot yield a successful
+   open. Report the actual reached stage. No retry refreshes the deadline or scope.
+4. **Finish.** Preserve one authored user turn and at most one durable final
+   assistant answer. Attribute search excerpts and original-source reads
+   distinctly. If open was denied, missing or failed, any permitted answer must
+   state the observed limits. Partial coverage cannot support an exhaustive
+   negative answer. Record command outcomes, coverage and terminal state without
+   copying restricted content into operational receipts.
+
+The [provider contract](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall)
+owns opaque adapter state and correlation. The
+[Recall contract](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
+owns resource authorization and coverage. No general tool-loop expansion or
+provider-private state persistence is proposed.
+
 ## Adjacent Governing Contract
 
 Provider wire translation is governed by

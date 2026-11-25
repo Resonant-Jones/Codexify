@@ -7,6 +7,40 @@
 - Evidence posture: documented-contract and inspected code paths, not runtime proof
 - Release posture: HOLD unchanged
 
+## Proposed amendment · Recall on the trusted Preview worker
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+The accepted pilot below covers GitHub and Notion reads. This proposal reuses its
+in-process, account-bound Command Bus topology for a separately authorized Recall
+operation. Connector permissions, the operator key, an authenticated HTTP route
+and queue-supplied account fields cannot establish worker authority for Recall.
+
+Before advertising a Recall operation, Guardian must establish the original
+accepting account, accepted request and user message, canonical task, live attempt,
+Recall grant and purpose, permitted operation and source scope, applicable policy
+revisions, exclusions and original deadline. Verify current account eligibility,
+Project and thread ownership, resource policy, cancellation and terminal state.
+For a potential open, establish the permitted result set before advertisement
+and resolve the exact selected object before dispatch. Bind the canonical command
+and arguments to the accepted attempt at execution. Command Bus enforces the grant
+for every model-selected operation.
+
+Repeat authorization at execution and on every retry. Reconstruct authority only
+from canonical accepted-work records and current policy within the original scope
+and deadline. Deny stale, revoked, incomplete or mismatched authority, including
+on replay of a completed result. Sequential requests from different accounts on a
+shared worker must never share grants, results or provider continuation state.
+
+Use a dedicated read-only PostgreSQL role, read-only transactions and bounded,
+typed reads. Guardian independently enforces account, Project, resource, purpose
+and content-use restrictions. No arbitrary SQL operation is proposed. Verify
+asset-store permissions at original-source open.
+
+[Recall](../account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
+owns the evidence grant. The [tool loop](../agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation)
+owns sequencing and replay. A two-account shared-worker proof is required before
+any Preview worker can exercise this extension.
+
 ## Context and decision
 
 Guardian-verified, account-bound **in-process Command Bus dispatch** is the

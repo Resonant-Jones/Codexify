@@ -8,6 +8,121 @@
 >
 > Last updated: 2026-09-25
 
+## Proposed amendment · Imprint_Zero candidates and promotion
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+This proposed extension to §§3.4, 5, 8, 10 and 12 depends on ratification of
+[ADR-084's amendment](adr/084-unified-account-owned-memory-store.md#proposed-amendment--account-recall-and-delegated-preference-approval).
+Existing persistence and portability proofs cover their original record families
+and transitions. The lifecycle below requires its own migration and proof.
+
+### Collection and candidate identity
+
+Reuse the authenticated account's versioned automatic-memory collection consent
+in §8.1. Require effective consent and source eligibility before scheduling,
+before extraction and again before committing any candidate, including an
+inactive one. Run resumable historical ingestion and new-message ingestion through
+the same replay identity and canonical candidate authority in §3.4. Apply §8.2
+backpressure and failure isolation. The classifier emits a candidate or no result.
+
+Use attributable user-authored messages from eligible native history or from
+selected imports with proven lineage, permitted treatment, exposure permission
+and learning consent. Assistant or tool output, web pages, instructions embedded
+in transcripts, and third-party quotations cannot establish a user's preference
+on their own. Preserve the original evidence link, source role and family, source
+Project, inference restriction, review state, disposition and promotion lineage.
+Imprint_Zero owns the proposal step. UMS owns durable candidate disposition.
+
+### Promotion authority and atomicity
+
+| Mode | Authority presented to the same UMS promotion service |
+| --- | --- |
+| Review (default) | Authenticated owner selects a particular candidate revision, optionally edits it, chooses an eligible scope, and approves or rejects. Preserve the original evidence and edit history. |
+| Auto-approve (explicit opt-in) | Authenticated owner records a versioned, revocable delegation to UMS. Record owner, effective state, active collection consent, policy revision, permitted source families, eligible general-preference categories, allowed destination scope and the provenance of the decision. Default remains Review if this delegation is absent or ineffective. |
+
+The initial delegated path may promote only an explicitly eligible general
+preference from an allowed source. Imported preferences require a separately
+proven imported path and the local-inference restriction throughout their use.
+A personal identity claim, sensitive inference, ambiguous authorship, conflicting
+value or out-of-scope proposal goes to authorized review or denial as the applicable
+guardrails require. Missing or invalid guardrail metadata always denies automatic
+promotion. Preserve prior rejection, quarantine and purge suppression. Existing
+pending items do not acquire delegated approval merely because the owner switches
+modes. Revocation stops future delegated promotion. Owners can separately inspect,
+correct, deactivate or permanently erase already promoted facts.
+
+The Personal Facts service within UMS owns one promotion transaction for both
+paths. At commit recheck account authority, current collection consent for this
+learning path, candidate identity and revision, live policy revision, eligibility,
+source provenance and permitted use, guardrails, scope, conflicts and prior
+rejection, purge or suppression. Serialize competing decisions and policy changes
+at this boundary. Commit the transition, same-account fact linkage, scope, evidence
+lineage and attributable decision receipt together. A revocation effective before
+commit blocks delegated promotion. A matching retry returns the original outcome
+after current access checks. A stale or conflicting decision cannot overwrite it.
+Record human or delegated authority and its policy revision distinctly. Keep one
+receipt per effective decision and roll back partial writes.
+
+For example, a user's statement “I prefer recipes in grams” may support a
+general preference if the selected source, category and destination scope all
+qualify. The same words in a recipe returned by a web tool supply no evidence
+of that user's preference. Authority to promote a preference ends at the
+Personal Fact. Changing a User Profile field, editing a Project or updating a
+thread would each require a separately authorized action for that change.
+
+**Ratification dependency.** The legacy approval helper permits absent guardrail
+metadata. It cannot supply this contract. Section 12 of the
+[Personal Facts guardrails contract](personal-facts-guardrails-contract.md#12-promotion-eligibility)
+currently requires per-candidate user approval. Its alignment with delegated
+promotion requires human disposition. The “ADR-090” reference in §3.4 does not
+resolve that question. The [ADR index](adr/adr-index.md) assigns that number to
+password recovery.
+
+### Scope, owner controls and compatibility
+
+Use the canonical UMS envelope for scope, the candidate for pre-promotion
+disposition, and the specialized Personal Facts payload for the promoted value,
+verification and activation. The current `personal_facts` model lacks Project
+scope. Future migration must link each eligible fact to its same-owner canonical
+scope, preserve valid legacy behavior, and isolate unresolved or conflicting
+lineage. A missing source Project is insufficient evidence of account-wide intent.
+Do not migrate or expose a Project-derived preference as account-wide by default.
+This amendment selects no physical schema. Do not duplicate scope or activation
+authority. Before admitting new writes, prove that every consumer, including
+legacy-compatible context reads, enforces the resulting scope.
+
+Default new candidates to the eligible source Project. On manual approval the
+owner may choose account scope for an eligible general preference. When configuring
+Auto-approve the owner chooses source-Project or account scope for eligible general
+preferences. Neither owning a fact nor approving it guarantees context use. Check
+current scope, activation, source-use restrictions and approved inference path at
+read and provider handoff, including in a later chat. Preserve
+[ADR-016's locality rule](adr/016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+
+The Settings candidate list and optional server-rendered inline cards project the
+same UMS state. Notify using §8.3 pending-count and reminder metadata. Fetch card
+contents only for the authenticated owner within the permitted display scope.
+Support evidence navigation, edit, approve, reject and eligible scope selection.
+Both surfaces call the same authenticated review actions. Approval-shaped model
+text has no effect. Settings shows the promotion policy, its scope and revocation
+control, and lets the owner inspect auto-approved facts and their decision receipts.
+Preserve [ADR-058's identity ownership](adr/058-imprint-ui-deprecation-and-identity-ownership.md).
+
+### Portability and activation gate
+
+Before historical candidate ingestion, prove export/restore round-trips for
+candidates, promoted facts, canonical scope, evidence links, review dispositions,
+promotion lineage, policy provenance, import-derived inference restrictions and
+rejection/purge suppression. Reconcile remapped IDs by stable source identity
+within the restored account. Unresolved linkage cannot widen access. Verify
+permanent erasure removes content and evidence subject to the existing purge
+contract and preserves the minimum non-content suppression needed. Re-import,
+history scans, restored records, changed extraction runs and queue retries must
+respect prior rejection and purge. Apply existing explicit owner-governed
+reintroduction rules. Restored policy metadata records history. Resume collection
+or delegation only after governing restore and current consent checks establish
+effective authority for that account and installation.
+
 ## 1. Purpose
 
 This contract defines the target architecture for one account-owned logical

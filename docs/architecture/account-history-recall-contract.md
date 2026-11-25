@@ -14,6 +14,56 @@ qualification; see [Validation results](#validation-results).
 
 ---
 
+## Proposed amendment · Search coverage and original-source opening
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+At the reviewed revision the search route returns bounded excerpts, scans at most
+500 threads, and admits native history in one authorized Project. The model worker
+is limited to local single-account transport and ordinary chat withholds the tool.
+The proposed traversal, source open and Preview dispatch require separate implementation.
+
+**Search.** Derive identity from the accepted owner request. Default to its Project.
+Only an explicit current-request choice permits searching eligible owned Projects.
+A strict Project boundary takes precedence. Within that grant search Projects,
+threads, messages, images and files using typed reads. Apply access, retention,
+deletion, per-message provenance and relevant use restrictions before returning
+any content or identifying metadata. Selected imports follow the
+[ADR-016 proposal](adr/016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+
+Bound each traversal by source family, stable ordering with a unique tie-breaker,
+a defined search window, page size, byte budget and deadline. Bind continuation
+to that search, window, scope and position. Reauthorize before reading another
+page. If concurrent changes invalidate coverage, report partial coverage or
+require a fresh traversal. A cursor conveys no access. A new model-selected
+page read needs a freshly authorized turn.
+
+| Outcome | What the receipt and answer may establish |
+| --- | --- |
+| Match found | Identify only permitted matches and their source references. Report coverage independently of whether any match was found. |
+| Complete authorized search with no match | All eligible source families and pages within the stated window were exhausted. Limit the claim to that scope. |
+| Partial authorized search with no match | Identify the permitted bounds searched and that more may exist. Indicate whether authorized continuation is possible. |
+| Source unavailable or missing | The original could not be read. A summary, filename or thumbnail cannot stand in for a successful open. |
+| Authorization denied | Record the denial internally. Use a non-enumerating response when disclosing the reason would reveal an inaccessible object. |
+| Provenance ineligible | Withhold content. Expose only policy-permitted coverage information that cannot identify an excluded source. |
+| Execution or deadline failure | Report the reached stage and any verified partial coverage. A failed traversal cannot support an exhaustive negative result. |
+
+**Open.** After search, at most one open may target a member of its authorized
+same-turn result set. Recheck ownership, current grant and policy, Project/thread
+and asset permissions, provenance, exclusions, deletion and permitted destination.
+Read the original resource or a bounded, identified portion of it. For messages,
+identify the message or authorized surrounding range. For files and images, use
+the owning asset service. Each adjacent message or attachment must qualify on its
+own. Bind answer provenance to the actual source and portion read. A navigable
+reference must reopen through authenticated resource checks, including when a
+person follows it later. Owner inspection and model exposure have distinct grants.
+Search snippets, Chronicle pointers and reconstructed memory have no open authority.
+
+Use the [accepted-work binding proposal](adr/112-trusted-worker-account-bound-dispatch.md#proposed-amendment--recall-on-the-trusted-preview-worker)
+and the matching [agent](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation)
+and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall)
+contracts. A partial or denied open may support an answer from already authorized
+search evidence only if the answer accurately identifies that evidence and its limits.
+
 ## 1. Purpose
 
 Guardian can answer an explicit historical recall question — "what were we

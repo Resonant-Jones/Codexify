@@ -26,6 +26,35 @@ Source anchors:
 
 # Codexify Architecture KB
 
+## Guardian Recall and Imprint_Zero governance proposal
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+Source baseline `784bbc3688c78042bd5501772b6a068f3000597d`. Recall opens original
+evidence. Imprint_Zero proposes learning under collection consent. UMS governs
+candidate disposition and Personal Facts. The first usable Private Preview
+release must include eligible, explicitly selected imported history. Scope of
+this packet is governance preparation. Release posture is HOLD.
+
+Read the [proposed ADR amendments](adr/adr-index.md#proposed-amendments-awaiting-human-review)
+together. The three source-use decisions belong to ADR-016, memory authority to
+ADR-084, and accepted-worker authorization to ADR-112. The
+[managed capabilities and consent study](https://app.notion.com/p/419beb70dda98129a3a0cd9d00c293a3)
+is supporting research. The repository contracts govern.
+
+Each future stage requires its own authorized Task Spec and evidence receipt.
+The following are proof obligations, all pending for this campaign.
+
+| Stage | Required evidence before claiming the capability |
+| --- | --- |
+| 1. Worker identity, durable provenance and coverage | Two accounts on one shared worker, including sequential use and interrupted/replayed work. Prove native custody and positive imported provenance per message, mixed and unknown origin handling, strict Project exclusions, deterministic bounded traversal beyond 500 threads and truthful partial coverage. |
+| 2. Governed Recall and original-source opening | Prove explicit account-wide search, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
+| 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
+| 4. Governed Auto-approve | Resolve the guardrails ratification dependency. Prove revocation before commit, denial on missing metadata, atomic/idempotent promotion under concurrency, and protection of rejected or purged records. Qualify selected imports separately, including mixed-context locality after promotion and restore. |
+| 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
+
+Documentation checks establish consistency of this proposal. Runtime implementation,
+ratification and Preview activation are separate decisions.
+
 ## Browser episodic context and recall routing
 
 For chat-backed browser continuity and future browser-history recall, read the

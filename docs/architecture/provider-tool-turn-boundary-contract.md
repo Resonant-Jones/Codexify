@@ -17,6 +17,38 @@ Source anchors:
 - Stage 0 commit f7a11746da86ae7bdd67c9aafbd60d885fb4e324
 - Stage 1 commit ea87dc0e8c6832de49aa663e53ff9c34ac8d5dca
 
+## Proposed amendment · Provider continuation for Recall
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+The one-tool-turn limit described in §§3 and 15 is the current contract. For
+governed Recall alone, the proposed adapter sequence is search → optional open
+of one returned result → final answer. Search may also lead directly to the
+final answer. The permitted open set comes from Guardian after the completed
+search. The final continuation offers no further tool invocation.
+
+Normalize decisions under canonical command identity and pair each result with
+its own tool-call correlation identity. Keep search and open distinguished from
+each other, from their Command Bus runs, and from the enclosing accepted task,
+attempt and authored turn. A provider-generated call ID conveys no authority.
+Multiple simultaneous calls, a different second command and a further call after
+open terminate under the bounded failure rules.
+
+Keep provider-private continuation state opaque to Guardian and Command Bus,
+owned by the adapter and scoped to the same accepted attempt and deadline.
+Guardian checks the applicable exposure policy before every content handoff.
+Imported and mixed restricted context, including reinjected results and replay,
+requires the approved local path. Withhold restricted content on fallback.
+A retry must reconcile canonical checkpoints and live permissions before result
+reuse. If necessary private state cannot be recovered within the permitted
+adapter boundary, report continuation failure. Neither re-dispatching a frozen
+operation nor persisting private state in the transcript or Memory Store is a
+recovery path. No new durable provider-state contract is proposed.
+
+Use the [agent-loop checkpoint and transcript rules](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation)
+and [Recall result semantics](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening).
+Local transport availability, per-model continuation support and restricted-data
+fallback denial require runtime qualification.
+
 ## Scope
 
 This note is the canonical architecture contract for the seam between provider transport and Codexify's semantic model/tool-turn boundary.

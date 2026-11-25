@@ -4,6 +4,49 @@
 
 **Date:** 2026-09-04
 
+## Proposed amendment · Account recall and delegated preference approval
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+The accepted current-Project, native-history decision and collection rules below
+remain the authority pending ratification. Two distinct capabilities are proposed.
+
+1. **Recall.** Default to the current Project. An authenticated owner may choose
+   account-wide scope on the current request. Guardian binds that choice to the
+   accepted user message, purpose, eligible sources and deadline. Strict Project
+   restrictions, ownership, thread exclusions, retention, deletion and resource
+   permissions can each narrow or deny access. A search hit, Chronicle reference,
+   citation or source ID locates a resource. Opening it and disclosing it to a
+   model each require their own applicable checks. Neither search nor opening
+   creates a candidate or grants standing consent. Selected imports follow the
+   [three independent import decisions](016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+2. **Learning.** Imprint_Zero may propose from eligible native or expressly
+   selected imported user-authored evidence under existing collection consent.
+   Historical and new messages feed the same UMS candidate authority. Imprint_Zero
+   has no approval, activation, Personal Fact write, or authored Persona Profile
+   authority. Preserve [ADR-058](058-imprint-ui-deprecation-and-identity-ownership.md).
+   Review is the default. An owner may delegate promotion of eligible general
+   preferences to UMS through an explicit, versioned, scoped, revocable policy.
+   A classifier result, source selection or collection consent alone cannot
+   authorize promotion. Manual and delegated decisions enter the same atomic
+   Personal Facts promotion service within UMS.
+
+The canonical envelope supplies account and Project scope. Default to the resolved
+source Project. Only an owner's explicit choice on review or an applicable live
+delegation permits account scope for an eligible general preference. Missing or
+ambiguous placement grants neither account scope nor an opportunity to infer one.
+A promoted fact's verification and activation remain under the specialized
+Personal Facts lifecycle. Context assembly must also satisfy canonical scope
+and inherited inference restrictions.
+
+**Decision required at ratification.** Section 12 of the existing
+[Personal Facts guardrails contract](../personal-facts-guardrails-contract.md#12-promotion-eligibility)
+requires an individual approval, including for imports. Resonant Jones must
+explicitly reconcile that rule with the proposed delegated path before the path
+can take effect. The [UMS amendment](../unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion)
+specifies the exception for review. All other guardrail and per-fact review
+requirements continue to apply. The [ADR-013 injection gate](013-verified-personal-facts-context-injection.md)
+still admits only verified, active facts and grants the broker no promotion authority.
+
 ## Context
 
 Codexify currently has several adjacent but non-equivalent memory surfaces:

@@ -29,6 +29,45 @@ HOLD.
 
 2026-04-28
 
+## Proposed amendment · Imported sources and permitted use
+
+**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+The accepted import controls and Chronicle permissions below govern until ratification.
+The proposal adds three independent owner decisions for the first usable Private Preview.
+
+| Decision | What Guardian must establish |
+| --- | --- |
+| Archive selection and treatment | The owner selected the imported source and its treatment permits the proposed use. Archive-only permits authorized human inspection and excludes inference. |
+| Model exposure | The owner permitted the particular purpose and source to reach inference. Permission to interpret a Chronicle excerpt is confined to that Chronicle request. |
+| Learning | The account's effective automatic-memory collection consent covers the source and purpose before extraction or storage of a candidate, including an inactive candidate. |
+
+Each operation requires every decision applicable to it. Human inspection requires
+record-read authority. Model-visible Recall additionally requires an authenticated
+current-request Recall grant, eligible treatment, current exposure permission and
+positive imported provenance on each message. Check canonical account, Project,
+thread and resource authority, diary, modeling, identity and sensitive-content
+exclusions. A Project label, a thread origin, a role string or an installed import
+alone cannot establish the origin or authorship of a message. Unknown or conflicting
+origin excludes the message. Learning from imports also requires eligible user
+authorship and treatment permitting durable learning.
+
+Complete the accepted native-message custody work below as a separate prerequisite.
+A native custody assertion cannot prove imported origin. Retain provider and source
+lineage through extraction, review, promotion, export, restore and subsequent use.
+
+**Inference locality.** Whenever imported transcript content or an import-derived
+Personal Fact enters an inference pipeline, use only an approved local path. This
+covers historical extraction, content-bearing embedding and reranking, tool-result
+interpretation, context assembly, provider continuation and later fact use. Carry
+the restriction through excerpts, derived context and retries. Mixed context inherits
+the most restrictive applicable posture. Check before each disclosure, including
+fallback. If the approved path is unavailable, withhold the restricted payload and
+report the limitation. Qualification of that model and transport remains a future proof.
+
+The [Recall contract](../account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
+owns source opening. The [UMS contract](../unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion)
+owns durable collection and disposition.
+
 ## Context
 
 ADR-015 defines the continuity doctrine: Codexify may have a future continuity layer above thread-first chat, but that layer must stay user-governed, inspectable, reversible, and provenance-aware.

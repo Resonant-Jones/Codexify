@@ -29,6 +29,19 @@ Use this note as the local map for all ADRs.
 
 ---
 
+## Proposed amendments awaiting human review
+
+**CX-RECALL-IMPRINT-GOV-01 · Resonant Jones, decision owner.** The linked
+sections are proposals within three accepted ADRs. Their existing dispositions
+and the release HOLD continue to govern.
+
+- [ADR-016 proposed amendment](016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use) governs import selection, model exposure, collection consent, per-message provenance and inference locality.
+- [ADR-084 proposed amendment](084-unified-account-owned-memory-store.md#proposed-amendment--account-recall-and-delegated-preference-approval) governs request-bound account recall, scoped candidates and optional delegated approval of general preferences. Its guardrails dependency awaits human disposition.
+- [ADR-112 proposed amendment](112-trusted-worker-account-bound-dispatch.md#proposed-amendment--recall-on-the-trusted-preview-worker) extends the accepted-work binding pattern to an independently authorized Recall operation on the trusted worker.
+
+The [campaign sequence and proof gates](../README.md#guardian-recall-and-imprint_zero-governance-proposal)
+connect the ADRs to their owning contracts.
+
 ## Reading Order
 
 1. [[001-Queue-Based-Completion-Acceptance-Model|ADR-001 Queue-Based Completion Acceptance Model]]
