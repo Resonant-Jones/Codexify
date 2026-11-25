@@ -51,6 +51,23 @@ owns opaque adapter state and correlation. The
 owns resource authorization and coverage. No general tool-loop expansion or
 provider-private state persistence is proposed.
 
+### Proposed Stage 2B server-side evidence assembly
+
+**CX-RECALL-IMPRINT-GOV-02 · Pending joint ratification.** Before answering,
+the Context Broker may assemble multiple eligible original spans in one bounded
+read operation under Guardian's source-access decisions. Recheck every resource.
+The model cannot select another command, specify an arbitrary internal query or
+expand a graph through this path. Original-source reads, including retries, share
+the accepted-task deadline and the [Stage 2B budgets and receipt rules](account-history-recall-contract.md#bounded-chronological-evidence-packet).
+Only canonical checkpoint metadata may guide replay. Recheck policy, source
+revision, suppression and remaining budget before reusing any result.
+
+Count and report server-side assembly separately from model-selected commands.
+If the model requests Recall, route it through Command Bus under GOV-01's one
+search and at most one authorized open of a returned result. Server-side assembly
+adds no model-selected tool turn. Preserve one authored turn, one final answer
+and the original deadline across both paths.
+
 ## Adjacent Governing Contract
 
 Provider wire translation is governed by

@@ -49,6 +49,24 @@ and [Recall result semantics](account-history-recall-contract.md#proposed-amendm
 Local transport availability, per-model continuation support and restricted-data
 fallback denial require runtime qualification.
 
+### Proposed Stage 2B provider boundary
+
+**CX-RECALL-IMPRINT-GOV-02 · Pending joint ratification.** Accept a bounded,
+labeled evidence packet only after the Context Broker has revalidated current
+source-use and destination authority. Preserve dates, uncertainty, source roles
+and Persona attribution during translation. Only authorized packet content
+may enter the adapter. Apply the most restrictive contributing inference posture
+to initial dispatch, retry, continuation and fallback. A cloud adapter cannot
+receive restricted imported spans or their derived packet. If no permitted
+local path exists, withhold that context and report the actual coverage.
+
+Server-side assembly has no provider tool-call correlation ID of its own.
+Preserve the GOV-01 search → optional open → final answer boundary for
+model-selected operations. Re-entry checks live authorization and remaining
+deadline before re-disclosure. Adapter-private continuation state grants no
+access to cached evidence. Neither parallel calls nor a new deadline follow
+from receiving a chronological packet.
+
 ## Scope
 
 This note is the canonical architecture contract for the seam between provider transport and Codexify's semantic model/tool-turn boundary.

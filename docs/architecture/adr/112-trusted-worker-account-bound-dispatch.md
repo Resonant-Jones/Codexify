@@ -41,6 +41,28 @@ owns the evidence grant. The [tool loop](../agent-tool-loop-contract.md#proposed
 owns sequencing and replay. A two-account shared-worker proof is required before
 any Preview worker can exercise this extension.
 
+## Proposed follow-through: accepted work for recollection
+
+**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+For an enabled ambient historical read on the trusted Preview worker, bind
+Guardian's decision to the original accepting account, canonical task, user
+message, turn and live attempt, current Project, source families, recollection
+purpose, current policy revisions and original deadline. The standing owner
+policy is an input to that decision. Neither background-worker identity nor a
+previous grant or provider continuation is sufficient. A missing canonical
+binding denies the historical read.
+
+The Context Broker can assemble a bounded set of internal source spans under
+that grant. Reauthorize at retrieval, at each original resource and immediately
+before provider handoff. On retry, reconcile the accepted task and checkpoint,
+remaining budgets, source revisions and current permissions. Discard stale
+evidence and deny on revocation, cancellation, expiry or mismatch. Reentry must
+preserve one final answer and must never restart the time or work budget.
+Prove alternating accounts on the same worker cannot reuse each other's grant,
+index candidates, cached packets or provider state. Model-selected operations
+still require the GOV-01 Command Bus path. Connector and browser access require
+their own authority.
+
 ## Context and decision
 
 Guardian-verified, account-bound **in-process Command Bus dispatch** is the

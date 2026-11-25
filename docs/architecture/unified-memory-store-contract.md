@@ -70,13 +70,12 @@ of that user's preference. Authority to promote a preference ends at the
 Personal Fact. Changing a User Profile field, editing a Project or updating a
 thread would each require a separately authorized action for that change.
 
-**Ratification dependency.** The legacy approval helper permits absent guardrail
-metadata. It cannot supply this contract. Section 12 of the
-[Personal Facts guardrails contract](personal-facts-guardrails-contract.md#12-promotion-eligibility)
-currently requires per-candidate user approval. Its alignment with delegated
-promotion requires human disposition. The “ADR-090” reference in §3.4 does not
-resolve that question. The [ADR index](adr/adr-index.md) assigns that number to
-password recovery.
+**Joint ratification with GOV-02.** The
+[Personal Facts guardrails contract §12](personal-facts-guardrails-contract.md#12-promotion-eligibility)
+now carries the proposed delegated exception alongside the individual review
+rule. Both paths use this transaction. The legacy helper's tolerance for absent
+guardrail metadata cannot establish eligibility. The verified-active read gate
+and all non-approval guardrails apply independently of the promotion mode.
 
 ### Scope, owner controls and compatibility
 
@@ -122,6 +121,34 @@ respect prior rejection and purge. Apply existing explicit owner-governed
 reintroduction rules. Restored policy metadata records history. Resume collection
 or delegation only after governing restore and current consent checks establish
 effective authority for that account and installation.
+
+## Proposed follow-through: read-side eligibility for Temporal Recollection
+
+**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+The existing `episodic_semantic_memory` species can supply evidence when all
+ambient eligibility checks pass. The other canonical species keep their defined
+meanings. A PostgreSQL episode projection is derived from sources. It adds no
+UMS species, durable biography or parallel identity authority.
+
+The narrow UMS prerequisite for Stage 2B is an executable, proven read decision
+for each contributing record: authenticated owner, canonical account or Project
+scope, persona attribution, review and lifecycle status, context posture,
+exclusions and permitted inference destination. Preserve eligible account-scope
+memory in ordinary turns. Do not infer account scope from missing metadata or
+use an account-wide compatibility listing to satisfy strict Project restrictions.
+The broker's current verified-fact reader filters by user, verified status and
+activation. That code path alone cannot prove scoped, restriction-aware context
+assembly. Stage 2B needs this read boundary and proven Recall. It does not
+depend on Stage 3 candidate ingestion or Stage 4 delegated promotion.
+
+Keep explicit-recall-only records and pending candidates outside ambient memory.
+Consulting original history requires the independent disabled-by-default
+[historical recollection policy](adr/084-unified-account-owned-memory-store.md#proposed-follow-through-temporal-recollection-authority)
+and a fresh current-Project grant. Index membership, a memory reference and an
+inferred relationship confer no eligibility. Recollection performs no collection,
+promotion or activation. Import-derived memory retains applicable local-inference
+restrictions at every subsequent use. Evidence associated with another Persona
+keeps its source attribution under [ADR-058](adr/058-imprint-ui-deprecation-and-identity-ownership.md).
 
 ## 1. Purpose
 
@@ -312,8 +339,9 @@ returns `quarantine`/`discard` dispositions while the guardrails contract
 names `quarantined`/`discarded` guardrail states. The later implementation
 must reconcile that legacy input at one boundary and register the accepted
 serialized values before persistence or API use; it must not store both
-spellings as aliases. ADR-090 remains responsible for the exact Personal
-Facts guardrail-to-candidate binding.
+spellings as aliases. The [Personal Facts guardrails contract](personal-facts-guardrails-contract.md)
+governs guardrail dispositions and promotion eligibility. This section owns their
+binding to the canonical UMS candidate.
 
 New candidates start `pending`. A `quarantined`, `discarded`, or
 `promotion_blocked` candidate cannot be approved or promoted. An account-user

@@ -68,6 +68,48 @@ The [Recall contract](../account-history-recall-contract.md#proposed-amendment--
 owns source opening. The [UMS contract](../unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion)
 owns durable collection and disposition.
 
+## Proposed follow-through: episode processing and source use
+
+**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+Maintaining a durable episode projection processes account data even when no
+one queries it. Resolve that permission through the existing owner-controlled
+continuity and source-use policies. Evaluate each use independently.
+
+| Use | Required authority |
+| --- | --- |
+| Maintain a derived index | The owner's effective source-processing permission covers the source, scope, derivation and retention. Check before reading for extraction and again before publishing derived data. |
+| Consult historical sources on a turn | Owner-enabled historical recollection permits the source family in the current Project. Guardian issues a fresh, purpose-bound grant for the accepted turn. |
+| Disclose to inference | Current permission permits this content, purpose and inference destination, including any model used during indexing. |
+| Collect a durable learning candidate | Effective automatic-memory collection consent and eligible user-authored evidence under GOV-01. |
+| Promote a candidate | The individual decision or eligible live delegation governed by UMS and the Personal Facts guardrails. |
+
+Index permission alone allows no turn-time lookup. If consultation is permitted
+but index maintenance is disabled, use only independently authorized bounded
+reads available within the turn. If none qualify, report insufficient evidence.
+Never create a persistent index as a side effect of answering.
+
+None of these permissions implies another. Apply archive selection and treatment
+before evaluating any imported use. Archive-only content cannot reach a model.
+The existing request-specific Chronicle interpretation and reviewed-message paths
+keep their own approval requirements and cannot supply a recollection grant.
+
+Derived episodes, aliases, relationship references, embeddings and cached spans
+inherit their sources' restrictions. Filter eligibility before any search,
+ranking or aggregation, again at assembly, and at disclosure. If a reference or
+ranking feature depends on multiple sources, establish authority for every
+contributor or omit it. Hidden aliases, scores, counts and identifiers must
+never reveal excluded sources. For the initial Preview enforce approved local
+inference for imported extraction, embedding, reranking, episode assembly,
+provider handoff, continuation and subsequent use of derived memory. Mixed
+context inherits the strictest posture. Deny any fallback that would disclose it.
+
+Changes to permission, placement, source revision, exclusion or deletion invalidate
+affected entries, derived features, packets and cached results before further use.
+Stop processing on revocation. Remove derivatives when their retention is no longer
+authorized. Source erasure must purge affected derived content and suppress its
+reconstruction on rebuild or restore. The [episode projection](../account-history-recall-contract.md#derived-episode-projection)
+owns the read-side representation. Its expiry or rebuild cannot change canonical history.
+
 ## Context
 
 ADR-015 defines the continuity doctrine: Codexify may have a future continuity layer above thread-first chat, but that layer must stay user-governed, inspectable, reversible, and provenance-aware.

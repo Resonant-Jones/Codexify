@@ -38,14 +38,42 @@ A promoted fact's verification and activation remain under the specialized
 Personal Facts lifecycle. Context assembly must also satisfy canonical scope
 and inherited inference restrictions.
 
-**Decision required at ratification.** Section 12 of the existing
-[Personal Facts guardrails contract](../personal-facts-guardrails-contract.md#12-promotion-eligibility)
-requires an individual approval, including for imports. Resonant Jones must
-explicitly reconcile that rule with the proposed delegated path before the path
-can take effect. The [UMS amendment](../unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion)
-specifies the exception for review. All other guardrail and per-fact review
-requirements continue to apply. The [ADR-013 injection gate](013-verified-personal-facts-context-injection.md)
-still admits only verified, active facts and grants the broker no promotion authority.
+**Joint ratification with GOV-02.** The proposed wording in the
+[Personal Facts guardrails contract §12](../personal-facts-guardrails-contract.md#12-promotion-eligibility)
+reconciles individual approval with this narrow delegation to the
+[UMS promotion service](../unified-memory-store-contract.md#promotion-authority-and-atomicity).
+Individual approval governs pending ratification by Resonant Jones. The
+[ADR-013 injection gate](013-verified-personal-facts-context-injection.md)
+admits only verified, active facts and grants the broker no promotion authority.
+
+## Proposed follow-through: Temporal Recollection authority
+
+**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+Temporal Recollection reconstructs context for an accepted turn using attributable
+evidence. A name, alias, title, historical callback, prior event, supported
+relationship or temporal expression in the current accepted user message may
+initiate cue resolution. Detecting a cue, authorizing a read and retrieving
+evidence are three separate decisions. Model confidence, assistant output,
+retrieved instructions and tool results cannot issue or widen a grant.
+
+| Read path | Source and authority |
+| --- | --- |
+| Already ambient-eligible UMS memory | Use records that independently pass existing account, Project, persona, review, lifecycle, context-posture, exclusion and inference rules. Existing eligible account-scope memory can contribute. A locator in memory gives no authority to open its original. |
+| Historical source recollection | Disabled by default. The authenticated owner can enable bounded consultation of selected internal source families. For each accepted turn Guardian resolves a new grant from the current message, live owner policy, canonical account and current authorized Project, source family, applicable exclusions, purpose and deadline. |
+
+Honor a user instruction to avoid history or a named source before either path
+consults that material. Automatic original-source lookup is confined to the
+current Project. Cross-Project or account-wide search requires the explicit
+GOV-01 request path. A standing preference never travels as a reusable execution
+credential. Revalidate before lookup, opening an original, and handing a packet
+to inference. Revocation invalidates outstanding grants and stale results.
+
+Use existing UMS and continuity control-plane owners for the
+[independent permissions](016-continuity-governance-surface-contract.md#proposed-follow-through-episode-processing-and-source-use).
+The read can assemble historical evidence. It cannot create or promote a fact,
+modify a source, establish a canonical relationship, or edit a Persona. The
+[Context Broker path](../turn-intake-compiler-contract.md#proposed-pre-answer-temporal-recollection)
+consumes a bounded, ephemeral packet.
 
 ## Context
 

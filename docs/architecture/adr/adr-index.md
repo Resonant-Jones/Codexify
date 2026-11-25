@@ -31,13 +31,19 @@ Use this note as the local map for all ADRs.
 
 ## Proposed amendments awaiting human review
 
-**CX-RECALL-IMPRINT-GOV-01 · Resonant Jones, decision owner.** The linked
-sections are proposals within three accepted ADRs. Their existing dispositions
-and the release HOLD continue to govern.
+**CX-RECALL-IMPRINT-GOV-01 and GOV-02 · Joint ratification proposed to Resonant Jones.**
+GOV-01 is the original review packet. GOV-02 adds Temporal Recollection and
+reconciles delegated preference promotion. Both are proposals within the existing
+governance framework. Release posture is HOLD.
 
 - [ADR-016 proposed amendment](016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use) governs import selection, model exposure, collection consent, per-message provenance and inference locality.
-- [ADR-084 proposed amendment](084-unified-account-owned-memory-store.md#proposed-amendment--account-recall-and-delegated-preference-approval) governs request-bound account recall, scoped candidates and optional delegated approval of general preferences. Its guardrails dependency awaits human disposition.
+- [ADR-084 proposed amendment](084-unified-account-owned-memory-store.md#proposed-amendment--account-recall-and-delegated-preference-approval) governs request-bound account recall, scoped candidates and optional delegated approval of general preferences. Its delegated exception is proposed jointly with [Personal Facts guardrails §12](../personal-facts-guardrails-contract.md#12-promotion-eligibility).
 - [ADR-112 proposed amendment](112-trusted-worker-account-bound-dispatch.md#proposed-amendment--recall-on-the-trusted-preview-worker) extends the accepted-work binding pattern to an independently authorized Recall operation on the trusted worker.
+
+GOV-02 adds [derived source-use rules under ADR-016](016-continuity-governance-surface-contract.md#proposed-follow-through-episode-processing-and-source-use),
+[two recollection paths under ADR-084](084-unified-account-owned-memory-store.md#proposed-follow-through-temporal-recollection-authority)
+and [accepted-work revalidation under ADR-112](112-trusted-worker-account-bound-dispatch.md#proposed-follow-through-accepted-work-for-recollection).
+The Context Broker owns evidence assembly. UMS owns durable memory governance.
 
 The [campaign sequence and proof gates](../README.md#guardian-recall-and-imprint_zero-governance-proposal)
 connect the ADRs to their owning contracts.

@@ -64,6 +64,89 @@ and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provi
 contracts. A partial or denied open may support an answer from already authorized
 search evidence only if the answer accurately identifies that evidence and its limits.
 
+## Proposed Temporal Recollection read path
+
+**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+The implemented search described below requires an explicit historical request.
+The [proposed owner policy](adr/084-unified-account-owned-memory-store.md#proposed-follow-through-temporal-recollection-authority)
+adds a distinct current-Project read path for eligible cues. The Context Broker
+owns pre-answer evidence assembly. Looking up the original again requires live
+source permission even if an alias, memory or prior search identified it.
+
+### Derived episode projection
+
+Use PostgreSQL for a rebuildable projection over authorized canonical messages,
+document revisions and other permitted internal sources. Canonical source records
+retain authority. An episode entry supplies a route back to specific evidence.
+Turn-time assembly uses the read-only source path. A separately authorized index
+maintainer may create, refresh, invalidate or remove only derived entries for
+eligible sources. Its write authority ends at the projection. Each projected
+episode must preserve the following through replay and restore.
+
+| Dimension | Required meaning |
+| --- | --- |
+| Identity and ownership | Stable episode identity in an account namespace, source Project and permitted scope. Derive replay identity from stable source lineage and an evidence anchor. Preserve an explicit mapping when database IDs change. |
+| Evidence | Typed source family, original source record and revision, role and provenance, original span boundaries or a resolvable revision-specific locator. |
+| Participants and relationships | Source-attributed names, aliases, titles, applicable existing stable subject references and relationships supported by cited spans. Preserve competing matches. Similarity and matching names cannot merge subjects or establish Persona identity. |
+| Time and revision | Event time or supported range, assertion time, acquisition time, uncertainty and correction/supersession links. Record extraction semantics, projection version and rebuild time separately. |
+| Permitted use | Source-derived read, retention, exposure and inference restrictions, including restrictions inherited from imported contributors. |
+
+Rebuilding the same source revision with the same extraction semantics must
+resolve the same logical entry. A revision, split or changed extraction retains
+explicit lineage and invalidates stale spans. If an old revision cannot be
+reopened, mark it unavailable. Never silently substitute today's source for the
+historical version. Rebuild and restore from surviving, authorized canonical
+sources only, rechecking tombstones, exclusions and current policy. Record remapped
+source identity and acquisition history through the [account export and restore
+contract](account-export-restore-contract.md). A safely reconstructable projection
+needs no separate canonical export family. Portable source identity, permissions,
+provenance and non-rebuildable governance state must round-trip. Restored policy
+history alone cannot authorize fresh indexing.
+
+### Temporal evidence and ordering
+
+**Event time** dates what happened. **Assertion time** dates the source's account
+of it. **Acquisition time** dates when Codexify obtained that evidence. Rebuild
+time describes only projection maintenance. An April 2025 event described in
+July 2026 and imported later keeps its supported April range, July assertion and
+actual acquisition date. Where only the assertion date is known, leave the event
+undated. Preserve original granularity, ranges, contemporaneous versus
+retrospective attribution, inconsistent accounts and explicit corrections.
+Link a correction to the assertion it qualifies while that source is retained.
+
+Rank by relevance to select evidence. Present dated events in supported temporal
+order. Mark overlapping ranges as unordered relative to each other and group
+unknown event times explicitly. Use assertion time when known and stable source
+identity/span as deterministic display tie-breakers. A tie-breaker makes no claim
+about event order. A later source can correct an earlier one without erasing the
+historical disagreement.
+
+### Bounded chronological evidence packet
+
+The packet is transient. Include the matched cue, evidence-backed entity
+references, selected episodes and attributable original excerpts or locators,
+roles and source revisions, the three historical times where known, uncertainty,
+contradictions, corrections, and applicable inference restrictions. Attach
+content-free authorization and coverage receipts. Distinguish matches,
+authorized originals actually read, injected evidence, partial traversal,
+unavailable sources and insufficient support. Locators alone cannot substantiate
+unread content. Suppress identifiers, counts and other signals that would expose
+inaccessible records. Never persist the packet as an independent narrative.
+Historical assertions remain attributed evidence, distinct from verified Personal
+Facts and from the active Persona's own experience.
+
+The Stage 2B Task Spec must set and justify finite numeric ceilings for candidates,
+distinct sources, spans, bytes or context tokens, relationship hops and fan-out,
+database execution time, overall latency and retry work under the accepted deadline
+**before implementation authorization**. Enforce aggregate limits across attempts,
+including cache reads and any original spans opened. Refuse unbounded scans or
+traversals. Stop on exhaustion with honest partial coverage. Authority revocation
+or deletion also bars reuse of an earlier packet. Integrate with the existing
+[retrieval navigation model](guardian-retrieval-navigation-model.md) and
+[ADR-089 document bounds](adr/089-open-ended-project-knowledge-and-bounded-document-recall.md).
+Initial storage needs no separate graph service. Physical design, migration and
+runtime APIs belong to a separately authorized task.
+
 ## 1. Purpose
 
 Guardian can answer an explicit historical recall question — "what were we
