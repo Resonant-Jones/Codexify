@@ -122,6 +122,30 @@ reintroduction rules. Restored policy metadata records history. Resume collectio
 or delegation only after governing restore and current consent checks establish
 effective authority for that account and installation.
 
+## Historical validity and durable preference authority
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Proposed for joint ratification.**
+A supported historical assertion is not necessarily a verified Personal Fact.
+A verified preference may be valid for its historical scope yet uncertain for
+today's turn. An attributable newer statement or changed behavior can signal
+uncertainty; observed behavior cannot authorize a durable preference change.
+Assess the source's assertion and event times, not arrival order: an older
+conversation imported later must not displace a newer user statement by arrival.
+
+A valid current explicit instruction governs the authorized task without widening
+access or overriding security or higher-priority constraints. For example,
+a TypeScript instruction for this task wins over a verified Python preference
+without editing that preference. A one-off exception is not a durable reversal.
+The read path cannot change eligibility state, deactivate, replace or promote
+a fact because it encounters a current instruction, contradiction or ambiguity.
+Conflicting candidates stay in the applicable review or denial path; delegated
+approval cannot resolve the conflict. An explicit durable correction is routed
+through the existing authorized UMS mutation path.
+
+See [current-turn applicability](turn-intake-compiler-contract.md#historical-evidence-and-current-turn-applicability)
+for the broker boundary and [interpretation governance](account-history-recall-contract.md#claim-support-and-interpretation-provenance)
+for transient evidence and independently authorized retention.
+
 ## Proposed follow-through: read-side eligibility for Temporal Recollection
 
 **CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**

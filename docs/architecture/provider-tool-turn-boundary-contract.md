@@ -53,8 +53,11 @@ fallback denial require runtime qualification.
 
 **CX-RECALL-IMPRINT-GOV-02 · Pending joint ratification.** Accept a bounded,
 labeled evidence packet only after the Context Broker has revalidated current
-source-use and destination authority. Preserve dates, uncertainty, source roles
-and Persona attribution during translation. Only authorized packet content
+source-use and destination authority. Preserve distinct temporal dimensions,
+uncertainty, source roles, exact revision provenance, evidence quality, opened-source
+versus locator-only status, claim limitations, current-turn applicability and
+Persona attribution during translation. Keep historical evidence distinct from
+current instructions. Only authorized packet content
 may enter the adapter. Apply the most restrictive contributing inference posture
 to initial dispatch, retry, continuation and fallback. A cloud adapter cannot
 receive restricted imported spans or their derived packet. If no permitted

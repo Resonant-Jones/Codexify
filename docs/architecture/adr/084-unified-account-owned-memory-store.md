@@ -73,7 +73,12 @@ Use existing UMS and continuity control-plane owners for the
 The read can assemble historical evidence. It cannot create or promote a fact,
 modify a source, establish a canonical relationship, or edit a Persona. The
 [Context Broker path](../turn-intake-compiler-contract.md#proposed-pre-answer-temporal-recollection)
-consumes a bounded, ephemeral packet.
+consumes a bounded, ephemeral packet. Claim strength is limited by
+[evidence actually inspected and its lineage](../account-history-recall-contract.md#claim-support-and-interpretation-provenance).
+A statement can be true historically and not apply now. A valid current explicit
+instruction governs its authorized task; that is not a verified preference update.
+The [UMS applicability rules](../unified-memory-store-contract.md#historical-validity-and-durable-preference-authority)
+preserve durable fact authority and do not grant the read path a mutation seam.
 
 ## Context
 

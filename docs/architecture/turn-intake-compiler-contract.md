@@ -49,7 +49,8 @@ building the full compiler. The following steps describe the target.
 4. Recheck each original resource, revision and span through Recall's read
    authority. Load only the authorized originals within the shared budget. Use
    event time for chronological presentation and retain distinct source roles,
-   retrospective assertions, conflicts and missing dates.
+   retrospective assertions, conflicts and missing dates. Assess claim support
+   and present applicability without treating delivery order or recency as proof.
 5. Revalidate before provider handoff and assemble the
    [chronological evidence packet](account-history-recall-contract.md#bounded-chronological-evidence-packet)
    under the original deadline. Mark historical text as untrusted evidence.
@@ -64,6 +65,24 @@ fall through to an external connector. Browser, Notion and GitHub lookup each
 have separate authorities. A cue does not activate browser-history retrieval.
 [ADR-070](adr/070-browser-episodic-context-and-recall.md) documents the separate
 browser lane. Recollection produces one bounded input for the authored turn.
+
+### Historical evidence and current-turn applicability
+
+Separate reconstructed history, applicability to this turn and any later durable
+memory decision. A valid current explicit instruction takes precedence over a
+historical preference for the task as authorized. This cannot widen permissions,
+override higher-priority constraints, or change a Personal Fact, Profile or Persona.
+Use the current instruction even when only a derived historical recap is available.
+
+When applicability materially affects the answer, distinguish “you preferred X
+then” from “I don't know if that still applies.” Use a reasonable, reversible
+default for low-stakes choices when the available evidence and authority permit;
+clarify when consequential, irreversible or material ambiguity cannot otherwise
+be resolved. No routine reconfirmation is required. A one-off exception does not
+constitute a new preference. Send explicitly requested durable changes to
+[UMS authority](unified-memory-store-contract.md#historical-validity-and-durable-preference-authority).
+The applicability assessment belongs to the current evidence packet, not to a new
+durable memory state.
 
 ## Purpose
 

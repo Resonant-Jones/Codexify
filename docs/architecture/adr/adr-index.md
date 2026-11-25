@@ -32,8 +32,9 @@ Use this note as the local map for all ADRs.
 ## Proposed amendments awaiting human review
 
 **CX-RECALL-IMPRINT-GOV-01 and GOV-02 · Joint ratification proposed to Resonant Jones.**
-GOV-01 is the original review packet. GOV-02 adds Temporal Recollection and
-reconciles delegated preference promotion. Both are proposals within the existing
+GOV-01 is the original review packet. GOV-02 Revision 2 adds Temporal Recollection,
+interpretation lineage, historical truth versus present applicability and claim limits
+by evidence quality, and reconciles delegated preference promotion. Both are proposals within the existing
 governance framework. Release posture is HOLD.
 
 - [ADR-016 proposed amendment](016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use) governs import selection, model exposure, collection consent, per-message provenance and inference locality.

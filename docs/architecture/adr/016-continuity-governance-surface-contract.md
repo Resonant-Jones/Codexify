@@ -80,6 +80,7 @@ continuity and source-use policies. Evaluate each use independently.
 | Maintain a derived index | The owner's effective source-processing permission covers the source, scope, derivation and retention. Check before reading for extraction and again before publishing derived data. |
 | Consult historical sources on a turn | Owner-enabled historical recollection permits the source family in the current Project. Guardian issues a fresh, purpose-bound grant for the accepted turn. |
 | Disclose to inference | Current permission permits this content, purpose and inference destination, including any model used during indexing. |
+| Deliberately retain an interpretation | A source-appropriate existing persistence path independently permits retention, scope and reuse. Preserve [interpretation lineage](../account-history-recall-contract.md#claim-support-and-interpretation-provenance). Turn-level analysis and index permission are insufficient. |
 | Collect a durable learning candidate | Effective automatic-memory collection consent and eligible user-authored evidence under GOV-01. |
 | Promote a candidate | The individual decision or eligible live delegation governed by UMS and the Personal Facts guardrails. |
 
@@ -93,14 +94,14 @@ before evaluating any imported use. Archive-only content cannot reach a model.
 The existing request-specific Chronicle interpretation and reviewed-message paths
 keep their own approval requirements and cannot supply a recollection grant.
 
-Derived episodes, aliases, relationship references, embeddings and cached spans
-inherit their sources' restrictions. Filter eligibility before any search,
+Derived episodes, aliases, relationship references, embeddings, cached spans and
+retained interpretations inherit their sources' restrictions. Filter eligibility before any search,
 ranking or aggregation, again at assembly, and at disclosure. If a reference or
 ranking feature depends on multiple sources, establish authority for every
 contributor or omit it. Hidden aliases, scores, counts and identifiers must
 never reveal excluded sources. For the initial Preview enforce approved local
 inference for imported extraction, embedding, reranking, episode assembly,
-provider handoff, continuation and subsequent use of derived memory. Mixed
+interpretation, provider handoff, continuation and subsequent use of derived memory. Mixed
 context inherits the strictest posture. Deny any fallback that would disclose it.
 
 Changes to permission, placement, source revision, exclusion or deletion invalidate

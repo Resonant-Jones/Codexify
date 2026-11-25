@@ -32,7 +32,9 @@ Source anchors:
 GOV-01 is the independently reviewable proposal at
 `68d10826be4fa1976dbbd45df9cf6d1c2a64436d`, based on
 `784bbc3688c78042bd5501772b6a068f3000597d`. CX-RECALL-IMPRINT-GOV-02 adds
-Temporal Recollection and proposes the matching guardrails exception. Recall
+Temporal Recollection and proposes the matching guardrails exception. Revision 2
+consolidates interpretation provenance, present applicability and evidence-quality
+rules. Recall
 opens authorized original evidence. Temporal Recollection resolves a cue and
 assembles a bounded chronology from eligible evidence. Imprint_Zero proposes
 learning under consent. UMS governs ownership, eligibility and the full memory
@@ -52,10 +54,10 @@ The following are proof obligations, all pending for this campaign.
 
 | Stage | Required evidence before claiming the capability |
 | --- | --- |
-| Governance ratification | Resonant Jones decides on GOV-01 and GOV-02 together, including the delegated preference exception, independent historical consultation policy and Stage 2B Preview objective. |
+| Governance ratification | Resonant Jones decides on GOV-01 and GOV-02 together, including the delegated preference exception, independent historical consultation and derived processing permissions, interpretation lineage, current-turn applicability, evidence-quality limits and the Stage 2B Preview objective. |
 | 1. Worker identity, durable provenance and coverage | Two accounts on one shared worker, including sequential use and interrupted/replayed work. Prove native custody and positive imported provenance per message, mixed and unknown origin handling, strict Project exclusions, deterministic bounded traversal beyond 500 threads and truthful partial coverage. |
 | 2. Governed Recall and original-source opening | Prove explicit account-wide search, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
-| 2B. Temporal Recollection | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#proposed-follow-through-read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution and Vestige replay below. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
+| 2B. Temporal Recollection | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#proposed-follow-through-read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution, interpretation provenance, evidence-quality and current-applicability behavior, and the Vestige and temporal preference replays below. No full Turn Intake Compiler, general graph or durable interpretation store is required. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
 | 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
 | 4. Governed Auto-approve | Apply the jointly ratified guardrails and UMS decision. Prove revocation before commit, denial on missing metadata, atomic/idempotent promotion under concurrency, and protection of rejected or purged records. Qualify selected imports separately, including mixed-context locality after promotion and restore. |
 | 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Exercise the ratified Stage 2B scope and limits, then demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
@@ -86,14 +88,38 @@ before any explanation of the reference. Hold the cue constant across these case
 | A. Authorized original entry available | Resolve the cue against that entry. Recognize the title and any relationship only to the extent independently supported by the originals. |
 | B. Entry unavailable, eligible conversation evidence available | Use the conversation spans and attribute what they support. A title alone cannot establish a relationship. Do not imply the missing entry was opened. |
 | C. Neither source supports recognition | Express uncertainty or non-recognition naturally. An invented biography fails the fixture. |
+| D. Same-name or same-title collision | Keep distinct identities. Resolve only when evidence supports the disambiguation; otherwise preserve uncertainty. Do not merge subjects. |
+| E. Plausible but incorrect derived recap | Use the authorized original to reject or qualify unsupported claims. Keep the recap attributed; no invented quotation or Persona experience. |
+| F. Recap-only evidence | Attribute what the recap says. Do not imply original inspection or independently confirm the relationship, title or chronology. |
 
 Score cue detection, anchor retrieval, entity resolution, source authorization,
-temporal reconstruction, attribution, natural response and abstention separately.
+evidence quality, relationship support, temporal reconstruction, attribution,
+present applicability, natural response and abstention separately.
 A natural recognition can be brief. It need not recite the recovered chronology.
 Separate retrieval from answer scoring and include cross-session updates and
 unanswerable cases, following the evaluation approach of
 [LongMemEval](https://arxiv.org/abs/2410.10813). This is research input.
 The report of the missed callback and the evaluation design confer no runtime proof.
+
+**Temporal preference replay.** Use authorized synthetic evidence containing an
+older attributable preference, a newer potentially changed statement, a late
+import of the older statement, a distinct current-turn instruction and a
+derived recap. Track event, assertion, acquisition and interpretation clocks
+independently. Exercise these cases:
+
+| Request | Expected behavior |
+| --- | --- |
+| Historical question | Attribute the earlier preference and present only supported chronology, regardless of import order. |
+| Current task | Follow the scoped current instruction without writing, deactivating or promoting durable memory or resolving a conflicting candidate. |
+| Both requests with recap only | Attribute the recap and qualify history; no exact quotation or claim an original was inspected. Follow the scoped current instruction as before. |
+
+Reverse the import order and rebuild the index without altering historical
+answers or semantic timestamps. Repeat derived summaries without gaining
+independent corroboration. Check that a one-off exception does not stick,
+material conflicts get surfaced or routed to review, reversible defaults avoid
+unnecessary confirmation, consequential ambiguity is clarified, and an explicit
+durable correction can still use the authorized UMS path. These are proposed
+proof obligations, not executable or completed runtime tests.
 
 Documentation checks establish consistency of this proposal. Runtime implementation,
 ratification and Preview activation are separate decisions.

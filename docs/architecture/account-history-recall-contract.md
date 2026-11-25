@@ -88,7 +88,7 @@ episode must preserve the following through replay and restore.
 | Identity and ownership | Stable episode identity in an account namespace, source Project and permitted scope. Derive replay identity from stable source lineage and an evidence anchor. Preserve an explicit mapping when database IDs change. |
 | Evidence | Typed source family, original source record and revision, role and provenance, original span boundaries or a resolvable revision-specific locator. |
 | Participants and relationships | Source-attributed names, aliases, titles, applicable existing stable subject references and relationships supported by cited spans. Preserve competing matches. Similarity and matching names cannot merge subjects or establish Persona identity. |
-| Time and revision | Event time or supported range, assertion time, acquisition time, uncertainty and correction/supersession links. Record extraction semantics, projection version and rebuild time separately. |
+| Time and revision | Event time or supported range, assertion time, acquisition time, and interpretation time where applicable. Preserve uncertainty and correction or supersession links. Record extraction semantics, projection version and rebuild time separately. |
 | Permitted use | Source-derived read, retention, exposure and inference restrictions, including restrictions inherited from imported contributors. |
 
 Rebuilding the same source revision with the same extraction semantics must
@@ -100,33 +100,75 @@ sources only, rechecking tombstones, exclusions and current policy. Record remap
 source identity and acquisition history through the [account export and restore
 contract](account-export-restore-contract.md). A safely reconstructable projection
 needs no separate canonical export family. Portable source identity, permissions,
-provenance and non-rebuildable governance state must round-trip. Restored policy
-history alone cannot authorize fresh indexing.
+provenance, lineage for authorized retained interpretations and non-rebuildable
+governance state must round-trip through that authority. Restored metadata does
+not reactivate indexing, historical consultation, exposure, collection or delegation.
 
 ### Temporal evidence and ordering
 
 **Event time** dates what happened. **Assertion time** dates the source's account
-of it. **Acquisition time** dates when Codexify obtained that evidence. Rebuild
-time describes only projection maintenance. An April 2025 event described in
-July 2026 and imported later keeps its supported April range, July assertion and
-actual acquisition date. Where only the assertion date is known, leave the event
+of it. **Acquisition time** dates when Codexify obtained that evidence.
+**Interpretation time** dates when the attributed person or model produced a
+particular analysis of it. Rebuild time describes only projection maintenance.
+An April 2025 event described in July 2026 and imported later keeps its supported
+April range, July assertion and actual acquisition date. Any subsequent analysis
+has its own interpretation timestamp; neither that timestamp nor import time
+supplies the event date. Where only the assertion date is known, leave the event
 undated. Preserve original granularity, ranges, contemporaneous versus
 retrospective attribution, inconsistent accounts and explicit corrections.
 Link a correction to the assertion it qualifies while that source is retained.
 
 Rank by relevance to select evidence. Present dated events in supported temporal
-order. Mark overlapping ranges as unordered relative to each other and group
+order. Neither chronology nor recency upgrades the quality of support or changes
+durable memory authority. Mark overlapping ranges as unordered relative to each other and group
 unknown event times explicitly. Use assertion time when known and stable source
 identity/span as deterministic display tie-breakers. A tie-breaker makes no claim
 about event order. A later source can correct an earlier one without erasing the
 historical disagreement.
 
+### Claim support and interpretation provenance
+
+Classify evidence relative to the claim, not by a universal ranking:
+
+| Evidence posture | What it can support |
+| --- | --- |
+| Authorized original actually opened | What the inspected message, exchange, document revision or span establishes. It can show what someone said without confirming every assertion in it. A locator or index match is not an open. |
+| Attributable later first-person account | What that participant later reported about the event. Do not present the account as contemporaneous evidence or as a quotation of the earlier exchange. |
+| Derived recap or interpretation | What the recap or analysis says. It may orient an authorized lookup; it does not independently verify a relationship, chronology or exact quotation of an unavailable original. |
+
+Consequential claims must retain sufficient lineage to identify the evidence,
+exact source revision, whether it was opened, attribution and source role,
+current access, contradictions and uncertainty, and whether the claim concerns
+history or present applicability. Require separate evidence for each claimed
+relationship, succession, identity equivalence or chronology. A title alone
+cannot establish any of them. If only a recap is available, attribute the recap
+and communicate its relevant limits naturally. Qualify or omit unsupported
+claims. Do not pass off paraphrase as quotation, imply an unread source was
+inspected, or attribute another Persona's experience to the active Persona.
+
+Ordinary recollections, packets and turn-level analyses remain transient. A
+deliberately retained interpretation uses an existing authorized, source-appropriate
+persistence path with UMS governance, not a new store. Preserve its stable identity,
+producing actor and applicable model or interpretation semantics version, production
+time, exact supporting source identities and revisions, attributable spans,
+account and Project scope, use and inference restrictions, uncertainty, and
+correction or supersession links. Replaying or rebuilding the same interpretation
+does not reset its timestamp. New analysis is a distinguishable revision or
+interpretation. Preserve shared underlying lineage: multiple derivatives of the
+same original assertion are not independent corroboration. If independence
+cannot be established, do not claim it.
+
 ### Bounded chronological evidence packet
 
 The packet is transient. Include the matched cue, evidence-backed entity
-references, selected episodes and attributable original excerpts or locators,
-roles and source revisions, the three historical times where known, uncertainty,
-contradictions, corrections, and applicable inference restrictions. Attach
+references and ambiguity indicators, selected episodes and attributable original
+excerpts or locators, roles and exact source revisions, whether each original
+was opened, claim-level support and derivation classes, and applicable inference
+restrictions. Include event, assertion, acquisition and interpretation times
+where applicable (with the producing actor for interpretations), uncertainty,
+corrections, contradictions, shared-source lineage and the transient
+[present-applicability assessment](turn-intake-compiler-contract.md#historical-evidence-and-current-turn-applicability).
+Distinguish current instructions from historical text. Attach
 content-free authorization and coverage receipts. Distinguish matches,
 authorized originals actually read, injected evidence, partial traversal,
 unavailable sources and insufficient support. Locators alone cannot substantiate
