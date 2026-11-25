@@ -29,11 +29,11 @@ HOLD.
 
 2026-04-28
 
-## Proposed amendment · Imported sources and permitted use
+## Imported sources and permitted use
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
-The accepted import controls and Chronicle permissions below govern until ratification.
-The proposal adds three independent owner decisions for the first usable Private Preview.
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The first usable Private Preview requires three independent owner decisions.
+Existing Chronicle permissions remain confined to their original purpose.
 
 | Decision | What Guardian must establish |
 | --- | --- |
@@ -64,13 +64,13 @@ the most restrictive applicable posture. Check before each disclosure, including
 fallback. If the approved path is unavailable, withhold the restricted payload and
 report the limitation. Qualification of that model and transport remains a future proof.
 
-The [Recall contract](../account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
-owns source opening. The [UMS contract](../unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion)
+The [Recall contract](../account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns source opening. The [UMS contract](../unified-memory-store-contract.md#imprint_zero-candidates-and-promotion)
 owns durable collection and disposition.
 
-## Proposed follow-through: episode processing and source use
+## Episode processing and source use
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 Maintaining a durable episode projection processes account data even when no
 one queries it. Resolve that permission through the existing owner-controlled
 continuity and source-use policies. Evaluate each use independently.

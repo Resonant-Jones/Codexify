@@ -1,9 +1,9 @@
 # Personal Facts Guardrails Contract
 
-**Proposal status.** CX-RECALL-IMPRINT-GOV-02 proposes a narrowly delegated
-approval path in [§12](#12-promotion-eligibility) for joint ratification with
-GOV-01 by Resonant Jones. Individual review governs pending that decision.
-Proposed approval changes below carry no implementation claim.
+**Ratified architecture, 2026-11-25.** Resonant Jones ratified the limited UMS
+delegation in [§12](#12-promotion-eligibility) through GOV-01 and GOV-02
+Revision 2. Individual Review remains the default. Delegated promotion requires
+separate implementation and proof.
 
 ## 1. Purpose
 
@@ -83,7 +83,7 @@ This contract is **docs-only**. It does not implement behavior, change extractor
 |---|---|
 | **Personal Fact** | A durable, structured claim about the user stored in the `personal_facts` table with associated evidence and revision lineage. |
 | **Candidate Fact** | A proposed personal fact that has been extracted but not yet reviewed, approved, or trusted. Quarantined by default. |
-| **Verified Fact** | A fact with an attributable owner-authorized promotion decision under §12. Individual review governs today. GOV-02 proposes a second, delegated decision path for eligible general preferences. |
+| **Verified Fact** | A fact with an attributable owner-authorized promotion decision under §12. Review is the default. §12 permits delegated UMS approval only for eligible general preferences. |
 | **Active Fact** | A verified fact whose lifecycle status is `active`. Only active facts are runtime-eligible. |
 | **Retired Fact** | A previously-verified fact whose lifecycle status is `retired`. Excluded from runtime use. |
 | **Disputed Fact** | A candidate or verified fact whose lifecycle status reflects a user dispute. Excluded from runtime use until resolved. |
@@ -100,7 +100,7 @@ This contract is **docs-only**. It does not implement behavior, change extractor
 
 ## 7. Candidate lifecycle
 
-The diagram shows the individual Review path. Under the proposed §12 exception,
+The diagram shows the individual Review path. Under the ratified §12 exception,
 a reviewable general preference can reach verification through the same UMS
 transaction with recorded owner-delegation evidence. Both paths preserve the
 separate activation and context-eligibility checks.
@@ -128,7 +128,7 @@ Key lifecycle rules:
 
 - **Candidate creation is not trust.** Extraction produces candidates. Candidates are not facts.
 - **Quarantine is not failure.** A quarantined candidate is protected from runtime use while awaiting review.
-- **Approval is the trust boundary.** Individual approval or edit-then-approve is the default. The proposed delegated exception is confined to §12.
+- **Approval is the trust boundary.** Individual approval or edit-then-approve is the default. The delegated exception is confined to §12.
 - **Verified active status is the runtime boundary.** Only `active` facts participate in retrieval, prompt assembly, or runtime behavior.
 - **Every transition must record a revision row.** Lifecycle changes must be auditable.
 - **Deletion must preserve evidence provenance.** Deleted facts should retain evidence rows for audit unless explicit purge policy is invoked.
@@ -261,13 +261,13 @@ The following reason labels are **proposed**. They must become canonical tokens 
 
 ## 12. Promotion eligibility
 
-**GOV-02 proposed decision.** Review is the default. The owner may individually
+**Ratified promotion modes.** Review is the default. The owner may individually
 approve the current candidate revision, optionally after editing it. Alternatively,
 the owner may explicitly delegate approval of eligible general preferences to UMS
 under an active, versioned, revocable policy. Both paths require all of the following.
 
 1. **Effective owner authority.** Record the authenticated individual decision or,
-   for the proposed Auto-approve path, the account-authored policy revision,
+   for the Auto-approve path, the account-authored policy revision,
    effective decision authority, allowed source family, preference category and
    scope that authorize this exact candidate at commit.
 2. **Valid candidate shape**: The candidate key and value form a complete, reviewable statement.
@@ -305,7 +305,7 @@ established at its own boundary.
 
 ## 13. Runtime eligibility
 
-- **Verified and active is the lifecycle gate.** Under [ADR-013](adr/013-verified-personal-facts-context-injection.md) the broker may admit only verified, active facts. Effective scope, exclusions and inference restrictions must also permit the specific use. The proposed decision path supplies no exception to these checks.
+- **Verified and active is the lifecycle gate.** Under [ADR-013](adr/013-verified-personal-facts-context-injection.md) the broker may admit only verified, active facts. Effective scope, exclusions and inference restrictions must also permit the specific use. Both promotion paths require these checks.
 - **Candidate, quarantined, disputed, retired, deleted, and unresolved facts are not runtime-eligible.** These lifecycle states must not participate in retrieval, prompt assembly, or runtime behavior.
 - **Runtime eligibility means** the fact may be injected into provider context, included in retrieval results, or used in prompt assembly.
 - **Runtime exclusion must be testable** before implementation is considered complete. Tests must prove that non-active facts are not present in retrieval results, prompt context, or provider payloads.

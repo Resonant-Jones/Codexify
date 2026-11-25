@@ -3,14 +3,14 @@
 - Status: Accepted architecture decision; implementation pending
 - Date / accepted: 2026-11-13
 - Decision owner and human approver: Resonant Jones
-- Scope: trusted Private Preview GitHub/Notion read-only connector pilot
+- Scope: trusted Private Preview GitHub/Notion read-only connector pilot and independently authorized continuity reads under GOV-01 and GOV-02 Revision 2
 - Evidence posture: documented-contract and inspected code paths, not runtime proof
 - Release posture: HOLD unchanged
 
-## Proposed amendment · Recall on the trusted Preview worker
+## Recall on the trusted Preview worker
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
-The accepted pilot below covers GitHub and Notion reads. This proposal reuses its
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The accepted pilot below covers GitHub and Notion reads. GOV-01 reuses its
 in-process, account-bound Command Bus topology for a separately authorized Recall
 operation. Connector permissions, the operator key, an authenticated HTTP route
 and queue-supplied account fields cannot establish worker authority for Recall.
@@ -33,17 +33,17 @@ shared worker must never share grants, results or provider continuation state.
 
 Use a dedicated read-only PostgreSQL role, read-only transactions and bounded,
 typed reads. Guardian independently enforces account, Project, resource, purpose
-and content-use restrictions. No arbitrary SQL operation is proposed. Verify
+and content-use restrictions. Arbitrary SQL is outside this authority. Verify
 asset-store permissions at original-source open.
 
-[Recall](../account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
-owns the evidence grant. The [tool loop](../agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation)
+[Recall](../account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns the evidence grant. The [tool loop](../agent-tool-loop-contract.md#bounded-recall-continuation)
 owns sequencing and replay. A two-account shared-worker proof is required before
 any Preview worker can exercise this extension.
 
-## Proposed follow-through: accepted work for recollection
+## Accepted work for recollection
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 For an enabled ambient historical read on the trusted Preview worker, bind
 Guardian's decision to the original accepting account, canonical task, user
 message, turn and live attempt, current Project, source families, recollection
@@ -199,7 +199,7 @@ in-process topology is settled; the detailed adapter and proof remain pending.
 
 ## Connector and history boundaries
 
-Scope is only trusted Private Preview GitHub/Notion `content_search` and
+The connector pilot covers only trusted Private Preview GitHub/Notion `content_search` and
 `content_read`. Preserve their provider-specific execution, credential and
 resource-permission owners; the legacy GitHub sync owner remains separate.
 No connector writes, repository mutations, ingestion/synchronization, memory or
@@ -211,8 +211,8 @@ The [history recall contract](../account-history-recall-contract.md) retains its
 request-scoped HistoryRecallGrant, canonical account and Project ownership,
 per-message provenance classification and imported-history model-exposure
 exclusions. This connector decision does **not** activate remote/multi-user
-history-recall workers or amend ADR-016/084 consent. Imported-history exposure
-remains separately unauthorized.
+history-recall workers or amend ADR-016/084 consent. For selected imports, the ratified Recall design requires independent ADR-016
+and ADR-084 grants, approved local inference and runtime proof.
 
 ## Alignment and consequences
 

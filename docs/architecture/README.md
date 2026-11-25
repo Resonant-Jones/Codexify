@@ -26,41 +26,38 @@ Source anchors:
 
 # Codexify Architecture KB
 
-## Guardian Recall and Imprint_Zero governance proposal
+## Guardian Recall, Temporal Recollection and Imprint_Zero
 
-**GOV-01 and GOV-02 · Consolidated proposal for ratification by Resonant Jones.**
-GOV-01 is the independently reviewable proposal at
-`68d10826be4fa1976dbbd45df9cf6d1c2a64436d`, based on
-`784bbc3688c78042bd5501772b6a068f3000597d`. CX-RECALL-IMPRINT-GOV-02 adds
-Temporal Recollection and proposes the matching guardrails exception. Revision 2
-consolidates interpretation provenance, present applicability and evidence-quality
-rules. Recall
-opens authorized original evidence. Temporal Recollection resolves a cue and
-assembles a bounded chronology from eligible evidence. Imprint_Zero proposes
-learning under consent. UMS governs ownership, eligibility and the full memory
-lifecycle. Selected imported history is required for the first usable Private
-Preview. Including the narrow Temporal Recollection slice in that acceptance
-gate requires explicit human ratification. Release posture is HOLD.
+**Ratification and scope freeze.** On 2026-11-25 Resonant Jones ratified GOV-01
+and GOV-02 Revision 2 together. The frozen campaign is the consolidated text at
+`c2afb38f36963a052556a826e2e90f4dc2793fc2`, including GOV-01 at
+`68d10826be4fa1976dbbd45df9cf6d1c2a64436d`. Changes to its scope or acceptance
+requirements require a new explicit decision by the decision owner.
 
-Read the [proposed ADR amendments](adr/adr-index.md#proposed-amendments-awaiting-human-review)
+Recall opens authorized original evidence. Temporal Recollection resolves a cue
+and assembles a bounded chronology from eligible evidence. Imprint_Zero proposes
+learning under consent. UMS owns the durable memory lifecycle. The first usable Private Preview requires both selected imported history and
+**Stage 2B Temporal Recollection**. Release posture is **HOLD**.
+
+Read the [ratified ADR amendments](adr/adr-index.md#ratified-guardian-continuity-amendments)
 together. ADR-016 governs archive treatment and derived processing. ADR-084
 governs the two recollection paths and durable memory authority. ADR-112 governs
 accepted-worker authorization. The
 [managed capabilities and consent study](https://app.notion.com/p/419beb70dda98129a3a0cd9d00c293a3)
 is supporting research. The repository contracts govern.
 
-Each future stage requires its own authorized Task Spec and evidence receipt.
-The following are proof obligations, all pending for this campaign.
+Ratification completes the governance stage. Each runtime stage below requires a
+separately authorized Task Spec and its own evidence receipt. All runtime proof
+obligations are open.
 
 | Stage | Required evidence before claiming the capability |
 | --- | --- |
-| Governance ratification | Resonant Jones decides on GOV-01 and GOV-02 together, including the delegated preference exception, independent historical consultation and derived processing permissions, interpretation lineage, current-turn applicability, evidence-quality limits and the Stage 2B Preview objective. |
 | 1. Worker identity, durable provenance and coverage | Two accounts on one shared worker, including sequential use and interrupted/replayed work. Prove native custody and positive imported provenance per message, mixed and unknown origin handling, strict Project exclusions, deterministic bounded traversal beyond 500 threads and truthful partial coverage. |
-| 2. Governed Recall and original-source opening | Prove explicit account-wide search, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
-| 2B. Temporal Recollection | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#proposed-follow-through-read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution, interpretation provenance, evidence-quality and current-applicability behavior, and the Vestige and temporal preference replays below. No full Turn Intake Compiler, general graph or durable interpretation store is required. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
-| 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#proposed-amendment--imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
+| 2. Governed Recall and original-source opening | Prove explicit account-wide search, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
+| 2B. Temporal Recollection (mandatory for Preview) | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution, interpretation provenance, evidence-quality and current-applicability behavior, and the Vestige and temporal preference replays below. No full Turn Intake Compiler, general graph or durable interpretation store is required. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
+| 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
 | 4. Governed Auto-approve | Apply the jointly ratified guardrails and UMS decision. Prove revocation before commit, denial on missing metadata, atomic/idempotent promotion under concurrency, and protection of rejected or purged records. Qualify selected imports separately, including mixed-context locality after promotion and restore. |
-| 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Exercise the ratified Stage 2B scope and limits, then demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
+| 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Require passing Stage 2B behavioral proofs within its measured work limits, then demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
 
 ### Stage 2B behavioral proof obligations
 
@@ -118,11 +115,10 @@ answers or semantic timestamps. Repeat derived summaries without gaining
 independent corroboration. Check that a one-off exception does not stick,
 material conflicts get surfaced or routed to review, reversible defaults avoid
 unnecessary confirmation, consequential ambiguity is clarified, and an explicit
-durable correction can still use the authorized UMS path. These are proposed
-proof obligations, not executable or completed runtime tests.
+durable correction can still use the authorized UMS path. These proof obligations remain open.
 
-Documentation checks establish consistency of this proposal. Runtime implementation,
-ratification and Preview activation are separate decisions.
+Documentation validation records consistency of the decision. Preview acceptance requires
+release-candidate runtime evidence for the frozen scope.
 
 ## Browser episodic context and recall routing
 

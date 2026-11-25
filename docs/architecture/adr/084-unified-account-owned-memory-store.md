@@ -1,14 +1,14 @@
 # ADR-084: Unified Account-Owned Memory Store
 
-**Status:** Accepted — candidate authority amended 2026-09-25; historical conversation recall intent authorization clarified 2026-11-01
+**Status:** Accepted — candidate authority amended 2026-09-25; historical conversation recall intent authorization clarified 2026-11-01; GOV-01 and GOV-02 Revision 2 ratified 2026-11-25
 
 **Date:** 2026-09-04
 
-## Proposed amendment · Account recall and delegated preference approval
+## Account recall and delegated preference approval
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
-The accepted current-Project, native-history decision and collection rules below
-remain the authority pending ratification. Two distinct capabilities are proposed.
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The current-Project, native-history rules below describe the original Recall path.
+The ratified campaign extends its design and keeps Recall and learning independently authorized.
 
 1. **Recall.** Default to the current Project. An authenticated owner may choose
    account-wide scope on the current request. Guardian binds that choice to the
@@ -18,7 +18,7 @@ remain the authority pending ratification. Two distinct capabilities are propose
    citation or source ID locates a resource. Opening it and disclosing it to a
    model each require their own applicable checks. Neither search nor opening
    creates a candidate or grants standing consent. Selected imports follow the
-   [three independent import decisions](016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+   [three independent import decisions](016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
 2. **Learning.** Imprint_Zero may propose from eligible native or expressly
    selected imported user-authored evidence under existing collection consent.
    Historical and new messages feed the same UMS candidate authority. Imprint_Zero
@@ -38,17 +38,17 @@ A promoted fact's verification and activation remain under the specialized
 Personal Facts lifecycle. Context assembly must also satisfy canonical scope
 and inherited inference restrictions.
 
-**Joint ratification with GOV-02.** The proposed wording in the
+**Promotion authority.** The
 [Personal Facts guardrails contract §12](../personal-facts-guardrails-contract.md#12-promotion-eligibility)
 reconciles individual approval with this narrow delegation to the
 [UMS promotion service](../unified-memory-store-contract.md#promotion-authority-and-atomicity).
-Individual approval governs pending ratification by Resonant Jones. The
+Individual approval remains the default. The
 [ADR-013 injection gate](013-verified-personal-facts-context-injection.md)
 admits only verified, active facts and grants the broker no promotion authority.
 
-## Proposed follow-through: Temporal Recollection authority
+## Temporal Recollection authority
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 Temporal Recollection reconstructs context for an accepted turn using attributable
 evidence. A name, alias, title, historical callback, prior event, supported
 relationship or temporal expression in the current accepted user message may
@@ -69,10 +69,10 @@ credential. Revalidate before lookup, opening an original, and handing a packet
 to inference. Revocation invalidates outstanding grants and stale results.
 
 Use existing UMS and continuity control-plane owners for the
-[independent permissions](016-continuity-governance-surface-contract.md#proposed-follow-through-episode-processing-and-source-use).
+[independent permissions](016-continuity-governance-surface-contract.md#episode-processing-and-source-use).
 The read can assemble historical evidence. It cannot create or promote a fact,
 modify a source, establish a canonical relationship, or edit a Persona. The
-[Context Broker path](../turn-intake-compiler-contract.md#proposed-pre-answer-temporal-recollection)
+[Context Broker path](../turn-intake-compiler-contract.md#pre-answer-temporal-recollection)
 consumes a bounded, ephemeral packet. Claim strength is limited by
 [evidence actually inspected and its lineage](../account-history-recall-contract.md#claim-support-and-interpretation-provenance).
 A statement can be true historically and not apply now. A valid current explicit
@@ -155,7 +155,8 @@ separate dimensions.
 - Explicit user-authored memory statements may constitute approval.
 - Ambiguous references, imports, classifier suggestions, assistant inferences,
   and external/tool claims remain candidates, dormant records, or quarantined
-  evidence until the account principal performs the applicable explicit action.
+  evidence until the applicable owner-authorized decision. The delegated path above
+  is limited to eligible general preferences.
 - Explicit recall is a request-scoped retrieval grant. It does not permanently
   approve, activate, restore, or change the context posture of a record.
 - Pinning changes ranking among already eligible records only.
@@ -401,9 +402,9 @@ qualifies:
 - user-selected scope limits;
 - retention and deletion restrictions.
 
-This amendment does not authorize account-wide retrieval, cross-Project widening,
-or imported-conversation model exposure. Those remain separately governed and
-closed.
+The original grant remains limited to native history in one Project. GOV-01
+defines separate requirements for explicit wider Recall and selected imports.
+Those paths require implementation and qualification.
 
 #### G. Relationship to the Turn Intake Compiler
 

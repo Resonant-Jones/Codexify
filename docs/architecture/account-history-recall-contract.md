@@ -1,6 +1,6 @@
 # Account-Scoped Historical Recall Contract
 
-Status: implemented
+Status: initial Project-scoped search implemented. GOV-01 and GOV-02 Revision 2 are ratified architecture awaiting implementation and proof.
 Scope: one bounded, read-only, account-scoped historical conversation retrieval
 capability for Guardian.
 
@@ -9,18 +9,18 @@ ADR-016; schema, guarded writers, custody-aware reader integration and
 PostgreSQL proof unimplemented**.
 See [section 3.14](#314-accepted-durable-native-message-custody-2026-11-05).
 
-This document describes the implemented boundary. It does not claim live runtime
-qualification; see [Validation results](#validation-results).
+The numbered sections document the initial implementation and its limits.
+Its [validation results](#14-validation-results) cover that path only.
 
 ---
 
-## Proposed amendment · Search coverage and original-source opening
+## Search coverage and original-source opening
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
 At the reviewed revision the search route returns bounded excerpts, scans at most
 500 threads, and admits native history in one authorized Project. The model worker
 is limited to local single-account transport and ordinary chat withholds the tool.
-The proposed traversal, source open and Preview dispatch require separate implementation.
+The ratified traversal, source open and Preview dispatch require separate implementation.
 
 **Search.** Derive identity from the accepted owner request. Default to its Project.
 Only an explicit current-request choice permits searching eligible owned Projects.
@@ -28,7 +28,7 @@ A strict Project boundary takes precedence. Within that grant search Projects,
 threads, messages, images and files using typed reads. Apply access, retention,
 deletion, per-message provenance and relevant use restrictions before returning
 any content or identifying metadata. Selected imports follow the
-[ADR-016 proposal](adr/016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+[ADR-016 source-use rules](adr/016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
 
 Bound each traversal by source family, stable ordering with a unique tie-breaker,
 a defined search window, page size, byte budget and deadline. Bind continuation
@@ -58,17 +58,17 @@ reference must reopen through authenticated resource checks, including when a
 person follows it later. Owner inspection and model exposure have distinct grants.
 Search snippets, Chronicle pointers and reconstructed memory have no open authority.
 
-Use the [accepted-work binding proposal](adr/112-trusted-worker-account-bound-dispatch.md#proposed-amendment--recall-on-the-trusted-preview-worker)
-and the matching [agent](agent-tool-loop-contract.md#proposed-amendment--bounded-recall-continuation)
-and [provider](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall)
+Use the [accepted-work binding](adr/112-trusted-worker-account-bound-dispatch.md#recall-on-the-trusted-preview-worker)
+and the matching [agent](agent-tool-loop-contract.md#bounded-recall-continuation)
+and [provider](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall)
 contracts. A partial or denied open may support an answer from already authorized
 search evidence only if the answer accurately identifies that evidence and its limits.
 
-## Proposed Temporal Recollection read path
+## Temporal Recollection read path
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 The implemented search described below requires an explicit historical request.
-The [proposed owner policy](adr/084-unified-account-owned-memory-store.md#proposed-follow-through-temporal-recollection-authority)
+The [ratified owner policy](adr/084-unified-account-owned-memory-store.md#temporal-recollection-authority)
 adds a distinct current-Project read path for eligible cues. The Context Broker
 owns pre-answer evidence assembly. Looking up the original again requires live
 source permission even if an alias, memory or prior search identified it.
@@ -213,8 +213,8 @@ The backend resolves the account; the model never chooses it.
 **Classification: aligned with existing ADRs.** This implementation does not
 require a new interpretation of imported-history model exposure and does not
 introduce a new standing recall permission. See
-[Unsupported cases](#9-unsupported-cases-and-the-decisions-they-need) for the
-two boundaries that remain closed and the exact decision each one needs.
+[Implementation limits](#9-implementation-limits-and-governing-decisions) for the
+remaining engineering and qualification prerequisites.
 
 ## 3. Request-scoped recall authorization
 
@@ -1027,7 +1027,7 @@ This capability does **not** expose imported message content to a model:
   say "that part of your history is an imported archive I can't read into this
   answer".
 
-The two accepted ADR-016 paths that *do* permit model exposure of imported
+The two Chronicle-specific ADR-016 paths for model exposure of imported
 content — the request-scoped Chronicle interpretation request (2025-10-10) and
 the reviewed per-message Chronicle approval with digest (2025-10-11) — are
 purpose-bound, request-local, consent-gated, and local-only. Neither is a
@@ -1045,7 +1045,7 @@ Existing Command Bus operational auditing continues under its own contract. The
 recall result contains conversation excerpts by design — that is the point of
 the capability — but the audit trail records the command, not the transcript.
 
-## 9. Unsupported cases, and the decisions they need
+## 9. Implementation limits and governing decisions
 
 ### 9.1 Account-wide recall widening — not enabled
 
@@ -1060,17 +1060,10 @@ current-Project scope, rather than with a widened grant. A named Project that
 the account does not own, or whose ownership is conflicted, is an independent
 denial that a confirmation cannot override.
 
-This is deliberate. ADR-084 states that request fields are *preferences, not
-permissions*, and that Guardian derives a bounded grant from authenticated user
-intent. Deriving wider intent requires either:
-
-- an accepted intent→grant resolver with an ADR-approved rule for what user
-  wording authorizes account scope, or
-- an explicit, authenticated, request-scoped user action that names the scope.
-
-The decision needed: **an ADR amendment to ADR-084 (or a new ADR) that defines
-how account-wide and cross-Project scope may be granted.** Until that exists,
-cross-Project recall fails closed.
+GOV-01 establishes the decision for wider Recall under ADR-084. It requires
+an authenticated current-request choice and a Guardian-issued grant bounded
+by the owner's eligible resources and strict Project restrictions. The
+implemented resolver remains Project-scoped.
 
 ### 9.2 Multi-user and remote deployments — worker lane not eligible
 
@@ -1084,29 +1077,18 @@ In remote or multi-user deployments the loopback Command Bus transport carries
 only the operator key, so the account cannot be recovered from the transport.
 Rather than resolve a possibly-wrong account, the lane fails closed.
 
-The decision needed: **a transport that carries the authenticated account
-subject to the worker** — for example a short-lived, purpose-scoped account
-credential in the loopback adapter — or an approved alternative binding. The
-transport change is out of scope for this task.
+GOV-01 extends the [ADR-112 accepted-work binding](adr/112-trusted-worker-account-bound-dispatch.md#recall-on-the-trusted-preview-worker) to Recall. Guardian must
+bind the accepting account, accepted message, task, live attempt and exact
+Recall operation to current policy. The connector pilot grants no Recall
+permission. Implementation and shared-worker isolation proof remain pending.
 
-[ADR-112](adr/112-trusted-worker-account-bound-dispatch.md) now accepts a
-Guardian-verified in-process binding direction **only for the trusted Private
-Preview GitHub/Notion read-only connector pilot**. Its accepted-job reconciliation
-is PARTIAL and its implementation remains pending. It does not activate this
-remote/multi-user history-recall worker lane, supply a HistoryRecallGrant, or
-authorize reuse of connector permission for history. Any future recall integration
-must independently satisfy this contract's request-scoped grant, canonical
-account/Project ownership, provenance and content restrictions. Section 9.3 and
-ADR-016/084 imported-history consent boundaries remain unchanged.
+### 9.3 Imported archive model exposure in the initial search
 
-### 9.3 Imported archive model exposure — not permitted
-
-See [section 7](#7-imported-history-authorization-behavior). The decision
-needed: **an ADR amendment that extends the ADR-016 request-local consent
-pattern (or its per-message approved/digest pattern) to general explicit
-historical recall**, with an explicit treatment, scope binding, and
-record-read recheck. Until that exists, imported archive content is not
-model-exposed.
+The [implemented search](#7-imported-history-authorization-behavior) excludes
+imported content. GOV-01's selected-import path requires eligible treatment,
+positive message provenance, current Recall and exposure grants, independent
+resource checks, and an approved local inference path. Proof of each condition
+is required before Preview use.
 
 ## 10. Performance and safety envelope
 

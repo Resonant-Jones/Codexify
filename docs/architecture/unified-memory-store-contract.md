@@ -6,13 +6,13 @@
 >
 > Governing ADR: [ADR-084](./adr/084-unified-account-owned-memory-store.md)
 >
-> Last updated: 2026-09-25
+> Last updated: 2026-11-25
 
-## Proposed amendment · Imprint_Zero candidates and promotion
+## Imprint_Zero candidates and promotion
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
-This proposed extension to §§3.4, 5, 8, 10 and 12 depends on ratification of
-[ADR-084's amendment](adr/084-unified-account-owned-memory-store.md#proposed-amendment--account-recall-and-delegated-preference-approval).
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+This amendment extends §§3.4, 5, 8, 10 and 12 under
+[ADR-084's amendment](adr/084-unified-account-owned-memory-store.md#account-recall-and-delegated-preference-approval).
 Existing persistence and portability proofs cover their original record families
 and transitions. The lifecycle below requires its own migration and proof.
 
@@ -70,9 +70,9 @@ of that user's preference. Authority to promote a preference ends at the
 Personal Fact. Changing a User Profile field, editing a Project or updating a
 thread would each require a separately authorized action for that change.
 
-**Joint ratification with GOV-02.** The
+**Personal Facts guardrails.** The
 [Personal Facts guardrails contract §12](personal-facts-guardrails-contract.md#12-promotion-eligibility)
-now carries the proposed delegated exception alongside the individual review
+defines the ratified delegated exception alongside the individual review
 rule. Both paths use this transaction. The legacy helper's tolerance for absent
 guardrail metadata cannot establish eligibility. The verified-active read gate
 and all non-approval guardrails apply independently of the promotion mode.
@@ -96,7 +96,7 @@ Auto-approve the owner chooses source-Project or account scope for eligible gene
 preferences. Neither owning a fact nor approving it guarantees context use. Check
 current scope, activation, source-use restrictions and approved inference path at
 read and provider handoff, including in a later chat. Preserve
-[ADR-016's locality rule](adr/016-continuity-governance-surface-contract.md#proposed-amendment--imported-sources-and-permitted-use).
+[ADR-016's locality rule](adr/016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
 
 The Settings candidate list and optional server-rendered inline cards project the
 same UMS state. Notify using §8.3 pending-count and reminder metadata. Fetch card
@@ -124,7 +124,7 @@ effective authority for that account and installation.
 
 ## Historical validity and durable preference authority
 
-**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Proposed for joint ratification.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 A supported historical assertion is not necessarily a verified Personal Fact.
 A verified preference may be valid for its historical scope yet uncertain for
 today's turn. An attributable newer statement or changed behavior can signal
@@ -146,9 +146,9 @@ See [current-turn applicability](turn-intake-compiler-contract.md#historical-evi
 for the broker boundary and [interpretation governance](account-history-recall-contract.md#claim-support-and-interpretation-provenance)
 for transient evidence and independently authorized retention.
 
-## Proposed follow-through: read-side eligibility for Temporal Recollection
+## Read-side eligibility for Temporal Recollection
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 The existing `episodic_semantic_memory` species can supply evidence when all
 ambient eligibility checks pass. The other canonical species keep their defined
 meanings. A PostgreSQL episode projection is derived from sources. It adds no
@@ -167,7 +167,7 @@ depend on Stage 3 candidate ingestion or Stage 4 delegated promotion.
 
 Keep explicit-recall-only records and pending candidates outside ambient memory.
 Consulting original history requires the independent disabled-by-default
-[historical recollection policy](adr/084-unified-account-owned-memory-store.md#proposed-follow-through-temporal-recollection-authority)
+[historical recollection policy](adr/084-unified-account-owned-memory-store.md#temporal-recollection-authority)
 and a fresh current-Project grant. Index membership, a memory reference and an
 inferred relationship confer no eligibility. Recollection performs no collection,
 promotion or activation. Import-derived memory retains applicable local-inference

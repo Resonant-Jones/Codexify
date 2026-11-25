@@ -1,5 +1,5 @@
 Purpose: Define the implemented bounded tool-augmented chat completion contract so the backend exposes one honest tool turn without implying a general autonomous agent loop.
-Last updated: 2026-10-14
+Last updated: 2026-11-25
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/core/ai_router.py
@@ -11,10 +11,10 @@ Source anchors:
 - docs/architecture/runtime-protocol-token-contract.md
 - docs/architecture/provider-tool-turn-boundary-contract.md
 
-## Proposed amendment · Bounded Recall continuation
+## Bounded Recall continuation
 
-**CX-RECALL-IMPRINT-GOV-01 · Proposed for review by Resonant Jones, 2026-11-25.**
-The implemented one-command semantics below remain the baseline. The proposed
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The implemented one-command semantics below remain the baseline. The ratified
 exception permits one authorized historical search, optionally one independently
 authorized open of one result from that search, and one final answer. All other
 tools keep the single-command boundary. A later model-selected read, including
@@ -45,15 +45,14 @@ another page, requires a newly authorized user turn.
    negative answer. Record command outcomes, coverage and terminal state without
    copying restricted content into operational receipts.
 
-The [provider contract](provider-tool-turn-boundary-contract.md#proposed-amendment--provider-continuation-for-recall)
+The [provider contract](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall)
 owns opaque adapter state and correlation. The
-[Recall contract](account-history-recall-contract.md#proposed-amendment--search-coverage-and-original-source-opening)
-owns resource authorization and coverage. No general tool-loop expansion or
-provider-private state persistence is proposed.
+[Recall contract](account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns resource authorization and coverage. The exception leaves all other command budgets and provider-private state rules intact.
 
-### Proposed Stage 2B server-side evidence assembly
+### Stage 2B server-side evidence assembly
 
-**CX-RECALL-IMPRINT-GOV-02 · Pending joint ratification.** Before answering,
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.** Before answering,
 the Context Broker may assemble multiple eligible original spans in one bounded
 read operation under Guardian's source-access decisions. Recheck every resource.
 The model cannot select another command, specify an arbitrary internal query or

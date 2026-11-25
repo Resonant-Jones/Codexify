@@ -3,7 +3,7 @@
 Purpose: Define the governed pre-model seam that classifies a user turn into typed runtime posture before retrieval, context assembly, tool/action routing, model invocation, memory writes, or mutation.
 Classification: architecture contract
 Implementation status: docs-only contract; no live runtime implementation in this task
-Last updated: 2026-06-27
+Last updated: 2026-11-25
 Source anchors / governing docs:
 - docs/architecture/README.md
 - docs/architecture/00-current-state.md
@@ -22,9 +22,9 @@ Companion surface: [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md) pro
 
 Related proposal: [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md) evaluates which repeated contract and fixture values may deserve promotion into canonical token registries later. It is proposal-only and does not create runtime tokens.
 
-## Proposed pre-answer Temporal Recollection
+## Pre-answer Temporal Recollection
 
-**CX-RECALL-IMPRINT-GOV-02 · Proposed for joint ratification with GOV-01.**
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
 The existing intake contract and [fixture pack](turn-intake-fixture-pack.md)
 describe expected behavior. Stage 2B can implement this narrow accepted-turn
 path in the existing Context Broker and retrieval policy flow without first
