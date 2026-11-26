@@ -2066,7 +2066,7 @@ class PgDB(ChatDB):
         return messages
 
     def resolve_authored_chat_turn(
-        self, thread_id: int, *, user_id: str, message_id: int
+        self, thread_id: int, *, user_id: str, message_id: int | None
     ) -> dict[str, Any] | None:
         with self._sa_session() as session:
             return resolve_authored_chat_turn(

@@ -256,7 +256,7 @@ def test_admission_uses_saved_route(
     ]
     mock_db.resolve_authored_chat_turn.side_effect = (
         lambda thread_id, *, user_id, message_id: (
-            dict(MESSAGES[0], id=42) if message_id == 42 else None
+            dict(MESSAGES[0], id=42) if message_id in (None, 42) else None
         )
     )
     monkeypatch.setattr(chat, "llm_settings", settings)

@@ -2,11 +2,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from guardian.routes import chat
-from guardian.core import chat_completion_service
-from guardian.core import dependencies
+from guardian.core import chat_completion_service, dependencies
 from guardian.core.dependencies import RequestUserScope
 from guardian.queue.turn_lock import build_turn_lock_envelope
+from guardian.routes import chat
 
 
 @pytest.mark.asyncio
@@ -19,9 +18,13 @@ async def test_chat_complete_uses_single_system_message(monkeypatch):
         "active_profile_id": None,
         "active_profile_revision": None,
     }
-    mock_db.list_messages.return_value = [
-        {"role": "user", "content": "Hello", "id": 1},
-    ]
+    turn = {"role": "user", "content": "Hello", "id": 1, "extra_meta": {}}
+    mock_db.resolve_authored_chat_turn.return_value = turn
+    session = mock_db._sa_session.return_value.__enter__.return_value
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = (
+        "test"
+    )
+    session.execute.return_value.mappings.return_value.one_or_none.return_value = turn
     mock_db.count_messages.return_value = 1
     mock_db.create_message.return_value = 2
 

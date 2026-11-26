@@ -94,7 +94,6 @@ from guardian.core.chat_completion_service import (
     read_provider_request_captures,
     reconcile_chat_attempt_receipts,
     resolve_thread_completion_settings,
-    split_history_and_latest_turn,
     store_provider_request_capture,
 )
 from guardian.core.chat_postgres_deadline import postgres_operation_scope
@@ -2861,70 +2860,6 @@ def chat_list_messages(
     }
 
 
-def _legacy_completion_turn(
-    thread_id: int, max_context: int | None, account_id: str
-) -> dict[str, Any]:
-    """Preserve completion selection for clients that send no message receipt."""
-    limit = int(max_context or 50)
-    try:
-        items = chatlog_db.list_messages(
-            thread_id,
-            limit=limit,
-            offset=0,
-            user_id=account_id,
-        )
-    except TypeError:
-        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
-    try:
-        items = sorted(items, key=lambda m: m.get("id") or 0)
-    except Exception:
-        pass
-    message_ids = [
-        message_id
-        for message_id in (_coerce_message_id(item.get("id")) for item in items)
-        if message_id is not None
-    ]
-    if message_ids:
-        backfill = _fetch_message_extra_meta(
-            thread_id=thread_id,
-            message_ids=message_ids,
-        )
-        if backfill:
-            for item in items:
-                message_id = _coerce_message_id(item.get("id"))
-                if message_id is None or item.get("extra_meta"):
-                    continue
-                metadata = backfill.get(message_id)
-                if metadata:
-                    item["extra_meta"] = metadata
-    context: List[Dict[str, str]] = []
-    for msg in items:
-        role = str(msg.get("role") or "").strip()
-        msg_content = msg.get("content")
-        if isinstance(msg_content, list):
-            # Structured content (multimodal): extract text for context check
-            text_parts = [
-                str(p.get("text", "")).strip()
-                for p in msg_content
-                if isinstance(p, dict) and p.get("type") == "text"
-            ]
-            text_content = " ".join(t for t in text_parts if t)
-            if text_content:
-                context.append({"role": role, "content": text_content})
-        elif (
-            isinstance(msg_content, str)
-            and msg_content.strip()
-            and msg_content.strip().lower() != "null"
-        ):
-            context.append({"role": role, "content": msg_content})
-    if not context:
-        raise HTTPException(status_code=400, detail="Thread has no usable context")
-    latest_turn = split_history_and_latest_turn(items)["latest_turn"]
-    if latest_turn is None:
-        raise HTTPException(status_code=400, detail="Thread has no usable context")
-    return latest_turn
-
-
 def _stale_authored_turn() -> HTTPException:
     return HTTPException(
         status_code=409,
@@ -2981,24 +2916,16 @@ async def chat_complete(
         )
 
     account_id = _request_account_id(request_user_scope)
-    verify_authored_turn = (
-        body.expected_message_id is not None or body.thinking_effort is not None
+    has_receipt = body.expected_message_id is not None
+    if body.thinking_effort is not None and not has_receipt:
+        raise _stale_authored_turn()
+    latest_turn = chatlog_db.resolve_authored_chat_turn(
+        thread_id, user_id=account_id, message_id=body.expected_message_id
     )
-    if verify_authored_turn:
-        if body.expected_message_id is None:
+    if latest_turn is None:
+        if has_receipt:
             raise _stale_authored_turn()
-        latest_turn = chatlog_db.resolve_authored_chat_turn(
-            thread_id, user_id=account_id, message_id=body.expected_message_id
-        )
-        if latest_turn is None:
-            raise _stale_authored_turn()
-    else:
-        latest_turn = _legacy_completion_turn(thread_id, body.max_context, account_id)
-    latest_turn_message_id = (
-        _coerce_message_id(latest_turn.get("id"))
-        if isinstance(latest_turn, dict)
-        else None
-    )
+        raise HTTPException(status_code=400, detail="Thread has no usable context")
 
     requested_source_mode = normalize_source_mode(
         body.source_mode
@@ -3162,7 +3089,7 @@ async def chat_complete(
         request_id=root_request_id,
         user_id=account_id,
         thread_id=thread_id,
-        latest_turn_message_id=latest_turn_message_id,
+        latest_turn_message_id=latest_turn["id"],
         latest_turn_messages=_detect_structured_latest_turn(latest_turn),
         provider=provider,
         model=requested_model,
@@ -3224,7 +3151,7 @@ async def chat_complete(
             turn_id=turn_id,
             request_id=root_request_id,
             account_acceptance_scope=request_user_scope,
-            **({"verify_authored_turn": True} if verify_authored_turn else {}),
+            authored_turn_has_receipt=has_receipt,
         )
     except StaleChatTurnError as exc:
         raise _stale_authored_turn() from exc

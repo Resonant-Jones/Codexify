@@ -89,16 +89,24 @@ def post_message(client, thread_id, content, **fields):
 
 
 def complete(
-    client, thread_id, message_id, *, effort="default", request_id=None, **fields
+    client,
+    thread_id,
+    message_id=None,
+    *,
+    effort="default",
+    request_id=None,
+    with_receipt=True,
+    **fields,
 ):
     payload = {
         "provider": ROUTE[0],
         "model": ROUTE[1],
         "reasoning_mode": "think",
         "depth_mode": "light",
-        "expected_message_id": message_id,
         **fields,
     }
+    if with_receipt:
+        payload["expected_message_id"] = message_id
     if effort is not None:
         payload["thinking_effort"] = effort
     headers = {"X-Request-ID": request_id} if request_id else None
@@ -112,15 +120,21 @@ def queued_task():
 
 
 @pytest.mark.parametrize(
-    ("effort", "provider_effort"), [("default", None), ("max", "max"), (None, "high")]
+    ("effort", "provider_effort", "with_receipt"),
+    [
+        ("default", None, True),
+        ("max", "max", True),
+        (None, "high", True),
+        (None, "high", False),
+    ],
+    ids=["provider-default", "max", "omitted-effort", "no-receipt"],
 )
 def test_long_chat_preserves_authored_target_and_default(
-    ordinary_chat, capture, monkeypatch, effort, provider_effort
+    ordinary_chat, capture, monkeypatch, effort, provider_effort, with_receipt
 ):
     client, db, thread_id = ordinary_chat
     settings, _, transports = capture
-    for i in range(55):
-        db.create_message(thread_id, "user", f"old {i}")
+    older = [db.create_message(thread_id, "user", f"old {i}") for i in range(55)]
     prior = db.create_message(thread_id, "user", "bounded prior question")
     answer = db.create_message(thread_id, "assistant", "bounded prior reply")
     target = post_message(client, thread_id, "Answer this exact message")
@@ -131,11 +145,17 @@ def test_long_chat_preserves_authored_target_and_default(
         )
     db.create_message(thread_id, "assistant", "a reply after the target")
 
-    response = complete(client, thread_id, target, effort=effort, max_context=3)
+    response = complete(
+        client,
+        thread_id,
+        target,
+        effort=effort,
+        with_receipt=with_receipt,
+        **({"max_context": 3} if with_receipt else {}),
+    )
     assert response.status_code == 200, response.text
     task = queued_task()
     assert task.task_id == response.json()["task_id"]
-    assert task.latest_turn_message_id == target
     assert task.thinking_effort == effort
     assert (task.provider, task.model, task.reasoning_mode) == (*ROUTE[:2], "think")
     with db._connect() as conn:
@@ -165,9 +185,6 @@ def test_long_chat_preserves_authored_target_and_default(
         service.build_messages_for_llm(task, user_id=ACCOUNT)
     )
     assembly = bundle["_completion_assembly"]
-    assert [message["id"] for message in assembly["history"]] == [prior, answer]
-    assert assembly["latest_turn"]["id"] == target
-    assert trace["retrieval_query"] == "Answer this exact message"
     ai_router.chat_with_ai(
         messages,
         provider=provider,
@@ -178,10 +195,18 @@ def test_long_chat_preserves_authored_target_and_default(
         accepted_deadline=service.accepted_chat_deadline_for_task(task),
     )
     (request,) = transports
-    assert [m["content"] for m in request["messages"] if m["role"] == "user"] == [
+    sent = [m["content"] for m in request["messages"] if m["role"] == "user"]
+    assert sent[-2:] == [
         "bounded prior question",
         "Answer this exact message",
-    ]
+    ], f"accepted {task.latest_turn_message_id} for authored {target}, provider saw {sent[-2:]}"
+    assert task.latest_turn_message_id == target
+    assert assembly["latest_turn"]["id"] == target
+    expected_history = (
+        [prior, answer] if with_receipt else [*older[-47:], prior, answer]
+    )
+    assert [message["id"] for message in assembly["history"]] == expected_history
+    assert trace["retrieval_query"] == "Answer this exact message"
     assert request["thinking"] == {"type": "enabled"}
     if provider_effort is None:
         assert "reasoning_effort" not in request
@@ -238,7 +263,10 @@ def test_rejects_invalid_foreign_ineligible_and_stale_receipts(ordinary_chat):
     assert queued_task().latest_turn_message_id == newest
 
 
-def test_rechecks_stale_receipt_inside_attempt_transaction(ordinary_chat, monkeypatch):
+@pytest.mark.parametrize("with_receipt", [True, False], ids=["receipt", "no-receipt"])
+def test_rechecks_selected_turn_inside_attempt_transaction(
+    ordinary_chat, monkeypatch, with_receipt
+):
     client, db, thread_id = ordinary_chat
     target = post_message(client, thread_id, "about to become stale")
     preliminary_read_done = Event()
@@ -253,7 +281,14 @@ def test_rechecks_stale_receipt_inside_attempt_transaction(ordinary_chat, monkey
     with monkeypatch.context() as patch:
         patch.setattr(chat, "_build_doc_context_override", wait_for_later_send)
         with ThreadPoolExecutor() as executor:
-            pending = executor.submit(complete, client, thread_id, target)
+            pending = executor.submit(
+                complete,
+                client,
+                thread_id,
+                target,
+                with_receipt=with_receipt,
+                effort="default" if with_receipt else None,
+            )
             try:
                 assert preliminary_read_done.wait(timeout=5)
                 newer = post_message(client, thread_id, "newer before acceptance")
@@ -324,3 +359,83 @@ def test_concurrent_submissions_and_replay_keep_request_identity(
     assert stale_replay.status_code == 409, stale_replay.text
     assert redis_queue.dequeue(service.CHAT_COMPLETION_QUEUE_NAME, block=False) is None
     assert db.resolve_authored_chat_turn(thread_id, user_id=ACCOUNT, message_id=newest)
+
+
+def test_no_receipt_accepts_unmarked_structured_ordinary_turn(ordinary_chat):
+    client, db, thread_id = ordinary_chat
+    post_message(client, thread_id, "Older native message")
+    original = [
+        {"type": "text", "text": "Current legacy attachment"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aW1hZ2U="}},
+    ]
+    legacy = db.create_message(
+        thread_id,
+        "user",
+        "Current legacy attachment [Image attached]",
+        extra_meta={"original_content": original},
+    )
+    db.create_native_user_message(thread_id, "user", "different account", user_id=OTHER)
+    db.create_message(
+        thread_id, "user", "imported", extra_meta={"origin": "chatgpt_import"}
+    )
+
+    response = complete(client, thread_id, effort=None, with_receipt=False)
+    assert response.status_code == 200, response.text
+    task = queued_task()
+    assert task.latest_turn_message_id == legacy
+    assert task.latest_turn_messages == original
+
+
+def test_pinned_history_preserves_baseline_image_inputs(
+    ordinary_chat, capture, monkeypatch
+):
+    client, db, thread_id = ordinary_chat
+    settings, _, _ = capture
+    source = "data:image/png;base64,aW1hZ2U="
+    post_message(
+        client,
+        thread_id,
+        f"<!-- cfy-media:image:prior -->\n<!-- cfy-media-src:{source} -->\nMarked image",
+    )
+    post_message(
+        client,
+        thread_id,
+        [
+            {"type": "text", "text": "Structured image"},
+            {"type": "image_url", "image_url": {"url": source}},
+        ],
+    )
+    target = post_message(client, thread_id, "Follow-up question")
+    response = complete(client, thread_id, effort=None, with_receipt=False)
+    assert response.status_code == 200, response.text
+    task = queued_task()
+    assert task.latest_turn_message_id == target
+
+    _seed_completion_service(monkeypatch, thread_row=db.get_chat_thread(thread_id))
+    monkeypatch.setattr(dependencies, "chatlog_db", db)
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(service, "resolve_thread_system_profile", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        service, "resolve_model_vision_capability_state", lambda *a, **kw: True
+    )
+    unpinned = ChatCompletionTask.from_dict(task.to_dict())
+    unpinned.latest_turn_message_id = None
+
+    def user_inputs(completion):
+        messages, *_ = asyncio.run(
+            service.build_messages_for_llm(completion, user_id=ACCOUNT)
+        )
+        return [message["content"] for message in messages if message["role"] == "user"]
+
+    assert (
+        user_inputs(task)
+        == user_inputs(unpinned)
+        == [
+            [
+                {"type": "text", "text": "Marked image"},
+                {"type": "image_url", "image_url": {"url": source}},
+            ],
+            "Structured image [Image attached]",
+            "Follow-up question",
+        ]
+    )
