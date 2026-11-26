@@ -15,7 +15,7 @@ from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, func, inspect, or_, select, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, aliased, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from guardian.conversation_origin import ConversationOriginSystem
@@ -56,6 +56,10 @@ from guardian.db.models import (
 
 class ChatToolCheckpointError(ValueError):
     """The accepted request cannot safely use the proposed tool decision."""
+
+
+class StaleChatTurnError(ValueError):
+    """The submitted receipt no longer identifies an eligible current turn."""
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +437,69 @@ _GUARDIAN_DB_CACHE_LOCK = Lock()
 _DEFAULT_USER_ID = "local"
 
 
+def resolve_authored_chat_turn(
+    session: Session,
+    *,
+    thread_id: int,
+    user_id: str,
+    message_id: int,
+    lock_message: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve an exact ordinary-chat receipt, with a current-turn check by ID."""
+    from guardian.core.message_origin_classification import classify_message_origin
+
+    newer = aliased(ChatMessage)
+    newer_user_turn = (
+        select(newer.id)
+        .where(
+            newer.thread_id == thread_id,
+            newer.id > message_id,
+            newer.user_id == user_id,
+            newer.role == "user",
+            newer.kind == "chat",
+            newer.hosted_room_participant_id.is_(None),
+            newer.extra_meta.has_key(RESERVED_MESSAGE_ORIGIN_KEY),  # noqa: W601
+        )
+        .exists()
+    )
+    query = (
+        select(
+            ChatMessage.id,
+            ChatMessage.role,
+            ChatMessage.content,
+            ChatMessage.extra_meta,
+        )
+        .join(ChatThread, ChatThread.id == ChatMessage.thread_id)
+        .where(
+            ChatMessage.id == message_id,
+            ChatMessage.thread_id == thread_id,
+            ChatThread.user_id == user_id,
+            ChatMessage.user_id == user_id,
+            ChatMessage.role == "user",
+            ChatMessage.kind == "chat",
+            ChatMessage.hosted_room_participant_id.is_(None),
+            ~newer_user_turn,
+        )
+    )
+    if lock_message:
+        query = query.with_for_update(of=ChatMessage, read=True)
+    row = session.execute(query).mappings().one_or_none()
+    if row is None or not isinstance(row["extra_meta"], dict):
+        return None
+    # Ordinary chat embeddings also write this lifecycle field. It carries no
+    # source claim for a receipt, even though recall treats it conservatively.
+    origin_metadata = {
+        key: value
+        for key, value in row["extra_meta"].items()
+        if key != "embedding_status"
+    }
+    if not classify_message_origin(origin_metadata).is_native:
+        return None
+    if row["content"].strip().lower() in {"", "null"}:
+        return None
+    return dict(row)
+
+
 def create_chat_completion_attempt(
     chatlog_db: Any,
     *,
@@ -443,6 +510,7 @@ def create_chat_completion_attempt(
     deadline_snapshot: AcceptedChatTaskDeadline | None = None,
     turn_lock_token: str | None = None,
     accepted_account_id: str | None = None,
+    authored_turn: tuple[str, int] | None = None,
 ) -> None:
     """Commit the resource binding before the task can enter Redis."""
     if deadline_snapshot is not None:
@@ -463,16 +531,18 @@ def create_chat_completion_attempt(
     ):
         raise ValueError("Invalid accepted account custody")
     with chatlog_db._sa_session() as session:
-        if accepted_account_id is not None:
-            from guardian.db.models import User
-
-            # Recheck ownership under lock in the same transaction as insertion.
+        if accepted_account_id is not None or authored_turn is not None:
+            # New message inserts also lock this thread via their foreign key.
+            # The subsequent receipt read is serialized with those inserts.
             owner = (
                 session.query(ChatThread.user_id)
                 .filter_by(id=thread_id)
                 .with_for_update()
                 .scalar()
             )
+        if accepted_account_id is not None:
+            from guardian.db.models import User
+
             account = (
                 session.query(User.id)
                 .filter_by(id=accepted_account_id)
@@ -481,6 +551,20 @@ def create_chat_completion_attempt(
             )
             if owner != accepted_account_id or account != accepted_account_id:
                 raise ValueError("Accepted account custody unavailable")
+        if authored_turn is not None:
+            user_id, message_id = authored_turn
+            if (
+                owner != user_id
+                or resolve_authored_chat_turn(
+                    session,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    message_id=message_id,
+                    lock_message=True,
+                )
+                is None
+            ):
+                raise StaleChatTurnError()
         session.add(
             ChatCompletionAttempt(
                 request_id=request_id,

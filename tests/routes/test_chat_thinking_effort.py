@@ -254,6 +254,11 @@ def test_admission_uses_saved_route(
         dict(MESSAGES[0], id=41),
         dict(MESSAGES[0], id=42),
     ]
+    mock_db.resolve_authored_chat_turn.side_effect = (
+        lambda thread_id, *, user_id, message_id: (
+            dict(MESSAGES[0], id=42) if message_id == 42 else None
+        )
+    )
     monkeypatch.setattr(chat, "llm_settings", settings)
     monkeypatch.setattr(
         chat, "enqueue_chat_completion", _capture_accepted_completion(captured)

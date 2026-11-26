@@ -101,6 +101,7 @@ from guardian.core.chat_postgres_deadline import postgres_operation_scope
 from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
+    StaleChatTurnError,
     find_conflicting_source_lineage,
     get_chat_completion_attempt_by_task_id,
     list_chat_completion_attempts_for_thread,
@@ -2860,61 +2861,17 @@ def chat_list_messages(
     }
 
 
-@router.post("/{thread_id}/complete")
-async def chat_complete(
-    thread_id: int,
-    body: ChatCompletionRequest = Body(...),
-    request: Request = None,
-    api_key: str = Depends(require_api_key),
-    request_id: str | None = Header(None, alias="X-Request-ID"),
-    inspect_provider_request: bool = Header(
-        False, alias="X-Provider-Request-Inspection"
-    ),
-    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
-):
-    """
-    Enqueue an assistant reply for the given thread and return a task id.
-    """
-    root_request_id = _request_id_from_request(request)
-    if not root_request_id:
-        root_request_id, _ = normalize_request_id(request_id)
-    turn_id = _normalize_turn_id(body.turn_id)
-    requested_provider = str(body.provider or "").strip().lower() or None
-    requested_model = str(body.model or "").strip() or None
-
-    user_system_override = body.system_override
-    if isinstance(user_system_override, str):
-        user_system_override = user_system_override.strip() or None
-    else:
-        user_system_override = None
-
-    thread_exists = (
-        chatlog_db.get_chat_thread(thread_id)
-        if hasattr(chatlog_db, "get_chat_thread")
-        else True
-    )
-    if not thread_exists:
-        raise HTTPException(status_code=404, detail="Thread not found")
-    _require_thread_account_scope(
-        thread_id,
-        request_user_scope,
-        thread=thread_exists if isinstance(thread_exists, dict) else None,
-    )
-
-    capture_owner = None
-    capture_project_id = None
-    if inspect_provider_request is True:
-        capture_owner, capture_project_id = _require_provider_capture_owner(
-            thread_id, request_user_scope
-        )
-
-    limit = int(body.max_context or 50)
+def _legacy_completion_turn(
+    thread_id: int, max_context: int | None, account_id: str
+) -> dict[str, Any]:
+    """Preserve completion selection for clients that send no message receipt."""
+    limit = int(max_context or 50)
     try:
         items = chatlog_db.list_messages(
             thread_id,
             limit=limit,
             offset=0,
-            user_id=_request_account_id(request_user_scope),
+            user_id=account_id,
         )
     except TypeError:
         items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
@@ -2965,6 +2922,78 @@ async def chat_complete(
     latest_turn = split_history_and_latest_turn(items)["latest_turn"]
     if latest_turn is None:
         raise HTTPException(status_code=400, detail="Thread has no usable context")
+    return latest_turn
+
+
+def _stale_authored_turn() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail="The authored message changed. Review the current turn and retry.",
+    )
+
+
+@router.post("/{thread_id}/complete")
+async def chat_complete(
+    thread_id: int,
+    body: ChatCompletionRequest = Body(...),
+    request: Request = None,
+    api_key: str = Depends(require_api_key),
+    request_id: str | None = Header(None, alias="X-Request-ID"),
+    inspect_provider_request: bool = Header(
+        False, alias="X-Provider-Request-Inspection"
+    ),
+    request_user_scope: RequestUserScope = Depends(get_request_user_scope),
+):
+    """
+    Enqueue an assistant reply for the given thread and return a task id.
+    """
+    root_request_id = _request_id_from_request(request)
+    if not root_request_id:
+        root_request_id, _ = normalize_request_id(request_id)
+    turn_id = _normalize_turn_id(body.turn_id)
+    requested_provider = str(body.provider or "").strip().lower() or None
+    requested_model = str(body.model or "").strip() or None
+
+    user_system_override = body.system_override
+    if isinstance(user_system_override, str):
+        user_system_override = user_system_override.strip() or None
+    else:
+        user_system_override = None
+
+    thread_exists = (
+        chatlog_db.get_chat_thread(thread_id)
+        if hasattr(chatlog_db, "get_chat_thread")
+        else True
+    )
+    if not thread_exists:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    _require_thread_account_scope(
+        thread_id,
+        request_user_scope,
+        thread=thread_exists if isinstance(thread_exists, dict) else None,
+    )
+
+    capture_owner = None
+    capture_project_id = None
+    if inspect_provider_request is True:
+        capture_owner, capture_project_id = _require_provider_capture_owner(
+            thread_id, request_user_scope
+        )
+
+    account_id = _request_account_id(request_user_scope)
+    verify_authored_turn = (
+        body.expected_message_id is not None or body.thinking_effort is not None
+    )
+    if verify_authored_turn:
+        if body.expected_message_id is None:
+            raise _stale_authored_turn()
+        latest_turn = chatlog_db.resolve_authored_chat_turn(
+            thread_id, user_id=account_id, message_id=body.expected_message_id
+        )
+        if latest_turn is None:
+            raise _stale_authored_turn()
+    else:
+        latest_turn = _legacy_completion_turn(thread_id, body.max_context, account_id)
     latest_turn_message_id = (
         _coerce_message_id(latest_turn.get("id"))
         if isinstance(latest_turn, dict)
@@ -2988,14 +3017,6 @@ async def chat_complete(
     reasoning_mode = thread_execution.reasoning_mode
     source_mode = thread_execution.source_mode
     if body.thinking_effort is not None:
-        if (
-            body.expected_message_id is None
-            or body.expected_message_id != latest_turn_message_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="The authored message changed. Review the current turn and retry.",
-            )
         if (requested_provider, requested_model) != (
             provider,
             model,
@@ -3101,7 +3122,6 @@ async def chat_complete(
     internal_depth_mode = map_internal_depth_mode(
         requested_depth_raw, effective_depth_mode
     )
-    account_id = _request_account_id(request_user_scope)
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=internal_depth_mode,
@@ -3204,7 +3224,10 @@ async def chat_complete(
             turn_id=turn_id,
             request_id=root_request_id,
             account_acceptance_scope=request_user_scope,
+            **({"verify_authored_turn": True} if verify_authored_turn else {}),
         )
+    except StaleChatTurnError as exc:
+        raise _stale_authored_turn() from exc
     except ChatCompletionEnqueueError as exc:
         if exc.reason == "turn_in_flight":
             raise HTTPException(status_code=429, detail="turn_in_flight")

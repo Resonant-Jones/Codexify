@@ -126,6 +126,7 @@ from guardian.core.completion_terminal import (
 from guardian.core.config import LLMConfigError, get_settings, validate_llm_config
 from guardian.core.db import (
     ChatToolCheckpointError,
+    StaleChatTurnError,
     create_chat_completion_attempt,
     create_chat_message_with_metadata,
     freeze_chat_tool_decision,
@@ -1019,6 +1020,7 @@ def enqueue_chat_completion(
     request_id: str | None = None,
     participant: ChatAcceptanceParticipant | None = None,
     account_acceptance_scope: dependencies.RequestUserScope | None = None,
+    verify_authored_turn: bool = False,
 ) -> ChatCompletionEnqueueResult:
     """Accept one canonical chat completion task into the chat execution lane."""
 
@@ -1032,6 +1034,12 @@ def enqueue_chat_completion(
         )
     except ValueError as exc:
         raise ChatCompletionEnqueueError("account_acceptance_unavailable") from exc
+
+    authored_turn: tuple[str, int] | None = None
+    if verify_authored_turn:
+        if account_acceptance_scope is None or task.latest_turn_message_id is None:
+            raise StaleChatTurnError()
+        authored_turn = (account_acceptance_scope.user_id, task.latest_turn_message_id)
 
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
     if task_identity is None or task.thread_id != thread_id:
@@ -1115,7 +1123,7 @@ def enqueue_chat_completion(
             "retrieval_override",
             "persona_selection_snapshot",
         )
-        if task.thinking_effort is not None:
+        if task.thinking_effort is not None or verify_authored_turn:
             authoritative_fields += ("latest_turn_message_id", "reasoning_mode")
         authoritative_snapshot = {
             field: copy.deepcopy(getattr(task, field)) for field in authoritative_fields
@@ -1218,6 +1226,7 @@ def enqueue_chat_completion(
                 if accepted_account_id
                 else {}
             ),
+            **({"authored_turn": authored_turn} if authored_turn else {}),
         )
     except Exception as exc:
         if participant is not None and participant_prepared:
@@ -1228,6 +1237,8 @@ def enqueue_chat_completion(
                 turn_id=turn_id,
             )
         _best_effort_release_turn_lock(thread_id, locked)
+        if isinstance(exc, StaleChatTurnError):
+            raise
         logger.error(
             "[chat.complete] attempt persistence failed thread_id=%s task_id=%s cause_class=%s",
             thread_id,
@@ -5680,7 +5691,9 @@ async def build_messages_for_llm(
     # the transcript endpoint at GET /{thread_id}/messages).
     limit = int(task.max_context or 50)
     if isinstance(dependencies.chatlog_db, PgDB):
-        items = dependencies.chatlog_db.recent_messages(thread_id, limit=limit)
+        items = dependencies.chatlog_db.recent_messages(
+            thread_id, limit=limit, through_message_id=explicit_latest_turn_message_id
+        )
     else:
         items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
         try:
