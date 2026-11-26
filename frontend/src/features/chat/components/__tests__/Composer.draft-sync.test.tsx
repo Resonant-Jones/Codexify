@@ -45,17 +45,20 @@ describe("Composer draft sync", () => {
     window.localStorage.clear();
   });
 
-  it.each([true, false])("renders one labelled native effort selector, compact=%s", (compactMobile) => {
+  it.each([true, false])("renders one labelled Solar effort control, compact=%s", (compactMobile) => {
     const onChange = vi.fn();
     const props = { onSend: vi.fn(), draftScopeKey: "tab", modelOptions: [{ value: "fixture", label: "Fixture" }],
       thinkingEffortLevels: ["low", "high", "max"], compactMobile, onThinkingEffortChange: onChange };
     const view = render(<Composer {...props} activeInferenceMode="think" />);
-    const control = screen.getByRole("combobox", { name: "Thinking effort" }) as HTMLSelectElement;
-    expect(Array.from(control.options, option => option.text)).toEqual(["Provider default", "Low", "High", "Max"]);
-    fireEvent.change(control, { target: { value: "low" } });
+    fireEvent.click(screen.getByRole("button", { name: "Thinking effort: Provider default" }));
+    const control = screen.getByRole("slider", { name: "Thinking effort" });
+    expect(control).toHaveAttribute("aria-valuetext", "Provider default");
+    expect(control).toHaveAttribute("max", "2");
+    fireEvent.keyDown(control, { key: "Home" });
     expect(onChange).toHaveBeenCalledWith("low");
     view.rerender(<Composer {...props} activeInferenceMode="no_think" />);
-    expect(screen.queryByRole("combobox", { name: "Thinking effort" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Thinking effort" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Thinking effort:/ })).toBeNull();
   });
 
   it("renders without crashing when no project context is provided", () => {
