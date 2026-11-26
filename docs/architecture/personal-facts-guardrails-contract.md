@@ -100,10 +100,12 @@ This contract is **docs-only**. It does not implement behavior, change extractor
 
 ## 7. Candidate lifecycle
 
-The diagram shows the individual Review path. Under the ratified §12 exception,
-a reviewable general preference can reach verification through the same UMS
-transaction with recorded owner-delegation evidence. Both paths preserve the
-separate activation and context-eligibility checks.
+Individual Review and eligible owner-delegated approval use the same
+[canonical UMS promotion transaction](#12-promotion-eligibility).
+Verification, activation eligibility, and context eligibility are distinct
+logical gates. Verification and activation may be recorded atomically when both
+sets of requirements are met. A resolved dispute returns the record to the
+applicable eligibility checks before any runtime use.
 
 ```mermaid
 flowchart TD
@@ -112,16 +114,24 @@ flowchart TD
     G --> D[Discard with reason]
     G --> Q[Quarantine with reason]
     G --> R[Reviewable candidate]
-    R --> U{User action}
-    U -->|Approve| V[Verified active fact]
-    U -->|Edit then approve| V
+    R --> U{Individual Review}
+    U -->|Approve| P[Authorized UMS promotion transaction]
+    U -->|Edit then approve| P
+    R -->|Eligible owner-delegated approval under §12| P
+    P -->|Promotion succeeds| V[Verified fact]
+    V --> A{Activation eligibility}
+    A -->|Eligible and activated| AF[Active fact]
+    AF --> C{Context eligibility under §13}
+    C -->|Eligible for this use| RE[Runtime eligible]
     U -->|Dispute| DP[Disputed fact]
     U -->|Delete| DL[Deleted]
-    V -->|Retire| RT[Retired fact]
+    AF -->|Retire| RT[Retired fact]
     V -->|Dispute| DP
-    DP -->|Resolve| V
+    AF -->|Dispute| DP
+    DP -->|Resolve| RD{Authorized review disposition}
+    RD -->|Reviewable candidate| R
+    RD -->|Previously verified and verification established| V
     DP -->|Delete| DL
-    V --> RE[Runtime eligible]
 ```
 
 Key lifecycle rules:
@@ -129,7 +139,7 @@ Key lifecycle rules:
 - **Candidate creation is not trust.** Extraction produces candidates. Candidates are not facts.
 - **Quarantine is not failure.** A quarantined candidate is protected from runtime use while awaiting review.
 - **Approval is the trust boundary.** Individual approval or edit-then-approve is the default. The delegated exception is confined to §12.
-- **Verified active status is the runtime boundary.** Only `active` facts participate in retrieval, prompt assembly, or runtime behavior.
+- **Runtime use requires verified and active status.** The fact must also pass [context eligibility for the specific use](#13-runtime-eligibility).
 - **Every transition must record a revision row.** Lifecycle changes must be auditable.
 - **Deletion must preserve evidence provenance.** Deleted facts should retain evidence rows for audit unless explicit purge policy is invoked.
 

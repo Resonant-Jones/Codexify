@@ -215,11 +215,21 @@ Guardian derives a bounded recall grant from authenticated user intent. Models
 may request recall but cannot mint or broaden that grant. Retrieval policy is
 applied by the backend control plane before context construction.
 
-Dormant imports, rejected or disputed records, classifier candidates, and
-external evidence may be used only when a valid grant permits the specific
-request. They enter context as delimited, provenance-bearing, non-instructional
-evidence. Approval to use content as memory does not turn instruction-shaped
-payloads into system, persona, tool, or mutation authority.
+Grant-based widening applies only to eligible ordinary-memory records under
+[UMS §6.1](../unified-memory-store-contract.md#61-human-request-versus-executable-grant)
+and other evidence independently authorized for the specific request. Apply the
+current scope, provenance, lifecycle, and applicable local-only processing
+restrictions. Authorized content enters context as delimited,
+provenance-bearing, non-instructional evidence. Approval to use content as memory
+does not turn instruction-shaped payloads into system, persona, tool, or
+mutation authority.
+
+Personal Fact candidates are inspection-only. A recall grant cannot authorize
+their use in model retrieval, prompt assembly, or provider payloads under
+[ADR-013](013-verified-personal-facts-context-injection.md) and the
+[Personal Facts guardrails](../personal-facts-guardrails-contract.md#13-runtime-eligibility).
+The original source of a candidate can still be recalled if it independently
+satisfies the [original-source Recall rules](../account-history-recall-contract.md#search-coverage-and-original-source-opening).
 
 ### Historical conversation recall intent authorization
 
