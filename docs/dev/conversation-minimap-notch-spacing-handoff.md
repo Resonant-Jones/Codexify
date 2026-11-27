@@ -152,11 +152,12 @@ Files:
 - docs/dev/conversation-minimap.md
 ```
 
-Discovery scope is limited to these files plus the existing minimap helpers in
-`frontend/src/features/chat/conversationNavigation.ts`. If the implementation
-requires changing the projection semantics in `conversationNavigation.ts`, say
-so explicitly in the closeout before making that change — it is not authorised
-by default.
+Discovery scope is limited to these files plus read-only inspection of
+`frontend/src/features/chat/conversationNavigation.ts`. If the presentation
+change cannot be made without changing projection semantics, stop before editing
+that file. Explain the dependency and request explicit scope approval, or defer
+the projection change to a separately authorized follow-up. Do not use the
+closeout as a substitute for approval.
 
 ## Acceptance criteria
 
@@ -198,12 +199,19 @@ Validation:
 - git diff --check
 ```
 
-The Vitest command must report 75 or more passing tests with no failures. The
-Playwright command must report 10 passing scenarios. The typecheck command must
-not introduce any new errors beyond the repository's pre-existing baseline of
-120 errors on `main` at `784bbc368` (verify by running the command on a clean
-checkout and comparing counts; the number is a moving baseline, so the
-comparison matters more than the figure).
+The Vitest command must report 75 or more passing tests with no failures.
+Playwright must pass all 10 existing scenarios unchanged and the new
+pitch-measurement scenario: at least 11 passing scenarios, with no failures or
+skips.
+
+Run the same typecheck on the clean implementation base and the candidate with
+matching dependencies and compiler options. Capture both diagnostic lists.
+Match diagnostics by repository-relative path (or global scope), TypeScript
+code, message, and source location, accounting for line shifts using the diff.
+Preserve duplicate occurrences when comparing. Any unmatched candidate
+diagnostic is a regression, even if the total count stays the same or falls.
+The 120 errors observed on `784bbc368` are a historical reference, not an
+acceptance threshold.
 
 A regression test must assert the bounded pitch directly, by reading the
 rendered notch geometry rather than by asserting on a CSS string, so that a
