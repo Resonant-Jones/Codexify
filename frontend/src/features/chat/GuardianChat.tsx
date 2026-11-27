@@ -1005,7 +1005,7 @@ export function GuardianChat({
     projectId: string | null,
     projectName: string | null
   ) => void;
-  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
+  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<number | void>;
   onThreadPersisted?: (
     threadId: number,
     title?: string,
@@ -1446,16 +1446,41 @@ export function GuardianChat({
     [selectedProvider]
   );
 
+  const matchesSavedRoute = !persistedThreadConfig || (
+    selectedProvider?.id === persistedThreadConfig.providerId &&
+    selectedModel?.id === persistedThreadConfig.modelId
+  );
+  const routeEffortLevels = matchesSavedRoute &&
+    selectedProvider?.enabled && selectedProvider.authorized && selectedProvider.available &&
+    selectedProvider.id === activeProviderId && selectedModel?.id === activeModelId
+    ? selectedModel?.thinkingEffortLevels
+    : undefined;
+
   const supportsManualInferenceMode = useMemo(() => {
     if (!selectedProvider || !selectedModel) return false;
+    if (routeEffortLevels?.length) return true;
     if (selectedProvider.id !== "local") return false;
     return Boolean(selectedModel.runtime?.reasoning?.mode) || /qwen|qwq/i.test(selectedModel.id);
-  }, [selectedModel, selectedProvider]);
+  }, [selectedModel, selectedProvider, routeEffortLevels]);
 
   const effectiveInferenceMode = supportsManualInferenceMode
     ? activeInferenceMode
     : DEFAULT_COMPOSER_INFERENCE_MODE;
 
+  const effortLevels = effectiveInferenceMode === "think" ? routeEffortLevels : undefined;
+  const effortRouteKey = JSON.stringify([
+    selectedProvider?.id, selectedModel?.id, effectiveInferenceMode, effortLevels,
+  ]);
+  // Distinguish returning to a route from a send that started on its earlier visit.
+  const effortRoute = useMemo(() => ({ key: effortRouteKey }), [effortRouteKey]);
+  const currentEffortRoute = useRef(effortRoute);
+  useLayoutEffect(() => { currentEffortRoute.current = effortRoute; }, [effortRoute]);
+  const effortScope = JSON.stringify([activeThread.id, effortRouteKey]);
+  const [effortSelection, setEffortSelection] = useState({ scope: effortScope, level: "default" });
+  const consumedEffort = useRef<typeof effortSelection | null>(null);
+  if (effortSelection.scope !== effortScope) {
+    setEffortSelection({ scope: effortScope, level: "default" });
+  }
   const inferenceModeOptions = useMemo(() => {
     const base = [
       {
@@ -1943,9 +1968,16 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (
     tid: number,
-    options: CompletionRequestOptions = {}
+    options: CompletionRequestOptions = {},
+    thinkingEffort?: string,
+    messageId?: number | void,
   ): Promise<CompletionOutcome> => {
     const selection = resolveCompletionSelection(options);
+    if (thinkingEffort !== undefined && (currentEffortRoute.current !== effortRoute ||
+        typeof messageId !== "number" || !Number.isSafeInteger(messageId) || messageId <= 0)) {
+      inferenceRequest.markFailed("Could not confirm the authored turn and model. Review the chat and retry.");
+      return "failed";
+    }
     const contextDirectives =
       options.slashIntent?.contextDirectives ?? null;
     const completionSourceMode =
@@ -1965,6 +1997,7 @@ export function GuardianChat({
         guardianName,
         contextDirectives,
       }),
+      ...(thinkingEffort !== undefined ? { thinking_effort: thinkingEffort, expected_message_id: messageId } : {}),
       source_mode: completionSourceMode,
       ...(completionSlashIntent ? { slashIntent: completionSlashIntent } : {}),
     };
@@ -3824,6 +3857,17 @@ export function GuardianChat({
       await handleCodingLoopDispatch(contentForSend, targetThreadId);
       return;
     }
+    const thinkingEffort = effortLevels?.length
+      ? consumedEffort.current === effortSelection ? "default" : effortSelection.level
+      : undefined;
+    if (thinkingEffort !== undefined && (currentEffortRoute.current !== effortRoute ||
+        (targetThreadId != null && targetThreadId !== effectiveThreadId))) {
+      throw new Error("The selected thread or model changed. Review the chat and retry.");
+    }
+    if (thinkingEffort && thinkingEffort !== "default") {
+      consumedEffort.current = effortSelection;
+      setEffortSelection({ scope: effortScope, level: "default" });
+    }
     if (!targetThreadId) {
       let createdThreadId: number | null = null;
       setPendingTurnLock(true);
@@ -3843,7 +3887,7 @@ export function GuardianChat({
           return;
         }
 
-        await api.post(`/chat/${createdThreadId}/messages`, {
+        const receipt = await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
           content: contentForSend,
           project_id: workspaceProjectId ?? undefined,
@@ -3880,7 +3924,7 @@ export function GuardianChat({
         // persistence success with assistant completion.
         setTimeout(() => {
           void (async () => {
-            const completionOutcome = await completeThread(createdThreadId, options);
+            const completionOutcome = await completeThread(createdThreadId, options, thinkingEffort, receipt?.data?.message?.id);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(createdThreadId, false);
               if (completionOutcome === "failed") {
@@ -3912,19 +3956,21 @@ export function GuardianChat({
           setTurnLockForThread(targetThreadId, false);
           return;
         }
+        let messageId: number | void;
         if (targetThreadId !== effectiveThreadId) {
-          await api.post(`/chat/${targetThreadId}/messages`, {
+          const receipt = await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
             content: contentForSend,
             project_id: workspaceProjectId ?? undefined,
           });
+          messageId = receipt?.data?.message?.id;
           emitThreadsRefresh("refresh", {
             reason: "message",
             id: String(targetThreadId),
           });
           setChatReloadVersion((v) => v + 1);
         } else {
-          await onSendMessage(contentForSend, options);
+          messageId = await onSendMessage(contentForSend, options);
           await refreshSnapshot(targetThreadId, "user-send");
         }
 
@@ -3939,7 +3985,7 @@ export function GuardianChat({
         setTimeout(() => {
           if (targetThreadId == null) return;
           void (async () => {
-            const completionOutcome = await completeThread(targetThreadId, options);
+            const completionOutcome = await completeThread(targetThreadId, options, thinkingEffort, messageId);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(targetThreadId, false);
               if (completionOutcome === "failed") {
@@ -4880,6 +4926,9 @@ export function GuardianChat({
                 }}
                 activeInferenceMode={effectiveInferenceMode}
                 inferenceModeOptions={inferenceModeOptions}
+                thinkingEffortLevels={routeEffortLevels}
+                thinkingEffort={effortSelection.level}
+                onThinkingEffortChange={(level) => setEffortSelection({ scope: effortScope, level })}
                 onInferenceModeChange={(mode) => {
                   const nextSnapshot = mergeThreadConfigSnapshot({
                     inferenceMode: threadConfigInferenceModeFromComposer(

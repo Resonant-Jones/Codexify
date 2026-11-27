@@ -93,6 +93,28 @@ def mock_db():
             "created_at": "2025-11-09T12:00:00",
         }
     ]
+
+    # Let existing route tests seed transcript rows while exercising the new
+    # repository boundary. SQL selection is covered by the PostgreSQL tests.
+    def current_turn():
+        rows = [
+            dict({"id": i, "extra_meta": {}}, **row)
+            for i, row in enumerate(mock.list_messages.return_value, start=1)
+            if row.get("role") == "user"
+            and str(row.get("content") or "").strip().lower() not in {"", "null"}
+        ]
+        return max(rows, key=lambda row: row["id"], default=None)
+
+    mock.resolve_authored_chat_turn.side_effect = (
+        lambda thread_id, *, user_id, message_id: current_turn()
+    )
+    attempt_session = mock._sa_session.return_value.__enter__.return_value
+    attempt_session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = (
+        expected_user_id
+    )
+    attempt_session.execute.return_value.mappings.return_value.one_or_none.side_effect = (
+        current_turn
+    )
     mock.count_messages.return_value = 1
 
     mock.delete_message.return_value = True
@@ -232,10 +254,7 @@ def test_client(mock_db, mock_auth, monkeypatch, tmp_path):
                             ) as mock_event_bus:
                                 mock_event_bus.emit_event.return_value = None
 
-                                from guardian.guardian_api import (
-                                    app,
-                                    require_api_key,
-                                )
+                                from guardian.guardian_api import app, require_api_key
 
                                 # Override the dependency injection for require_api_key
                                 def mock_require_api_key_override():

@@ -23,6 +23,7 @@ export type LlmCatalogRuntimeIdentity = {
 export type LlmCatalogModel = {
   id: string;
   canonicalId: string;
+  thinkingEffortLevels?: string[];
   providerId: string;
   displayName: string;
   pickerLabel: string;
@@ -161,6 +162,15 @@ export function describeModelCapability(model: {
   return model.supportsVision ? "Vision-capable chat" : "Text-only chat";
 }
 
+function readThinkingEffortLevels(value: unknown): string[] | undefined {
+  if (!value || typeof value !== "object" || !("requires_mode" in value) ||
+      value.requires_mode !== "think" || !("levels" in value) || !Array.isArray(value.levels)) return;
+  const levels = value.levels;
+  if (levels.length && levels.every((level) => ["low", "high", "max"].includes(level))) {
+    return [...new Set<string>(levels)];
+  }
+}
+
 function normalizeModel(
   providerId: string,
   raw: unknown
@@ -238,6 +248,7 @@ function normalizeModel(
   return {
     id: canonicalId,
     canonicalId,
+    thinkingEffortLevels: readThinkingEffortLevels(model.thinking_effort),
     providerId,
     displayName,
     pickerLabel,

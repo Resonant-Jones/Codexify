@@ -245,9 +245,11 @@ def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
         def get_chat_thread(self, _thread_id: int):
             return {"id": 558, "project_id": None}
 
-        def list_messages(self, _thread_id: int, limit: int, offset: int):
-            _ = (limit, offset)
-            return [{"id": 1, "role": "user", "content": "seed context"}]
+        def resolve_authored_chat_turn(
+            self, thread_id: int, *, user_id: str, message_id: int | None
+        ):
+            assert message_id is None
+            return {"id": thread_id, "role": "user", "content": "seed context"}
 
     async def fake_doc_context_override(**_kwargs):
         return None
@@ -302,6 +304,7 @@ def test_chat_complete_turn_lock_blocks_parallel_requests(monkeypatch):
     accepted = submissions[0]
     accepted_task = accepted["task"]
     assert accepted["thread_id"] == thread_id
+    assert getattr(accepted_task, "latest_turn_message_id") == thread_id
     assert accepted["turn_id"] == getattr(accepted_task, "turn_id")
     assert accepted["request_id"] == getattr(accepted_task, "request_id")
     assert first.json()["task_id"] == getattr(accepted_task, "task_id")
@@ -322,19 +325,22 @@ def test_chat_complete_carries_browser_context_only_for_submitted_attempt(
         ChatCompletionTaskCreatedEventResult,
     )
     from guardian.routes import chat as chat_routes
+    from guardian.tasks.types import ChatCompletionTask
 
     class _StubChatlogDB:
         def get_chat_thread(self, thread_id: int):
             return {"id": thread_id, "project_id": None}
 
-        def list_messages(self, _thread_id: int, limit: int, offset: int):
-            _ = (limit, offset)
-            return [{"id": 1, "role": "user", "content": "seed context"}]
+        def resolve_authored_chat_turn(
+            self, thread_id: int, *, user_id: str, message_id: int | None
+        ):
+            assert message_id is None
+            return {"id": thread_id, "role": "user", "content": "seed context"}
 
     async def fake_doc_context_override(**_kwargs):
         return None
 
-    enqueued: list[object] = []
+    enqueued: list[ChatCompletionTask] = []
 
     def fake_enqueue_chat_completion(task, **kwargs):
         _ = kwargs
@@ -386,11 +392,13 @@ def test_chat_complete_carries_browser_context_only_for_submitted_attempt(
     assert with_context.status_code == 200
     assert len(enqueued) == 1
     assert enqueued[0].browser_context == browser_context
+    assert enqueued[0].latest_turn_message_id == 559
 
     without_context = client.post("/api/chat/560/complete", json={})
     assert without_context.status_code == 200
     assert len(enqueued) == 2
     assert enqueued[1].browser_context is None
+    assert enqueued[1].latest_turn_message_id == 560
 
 
 def test_message_write_never_persists_browser_context(monkeypatch):

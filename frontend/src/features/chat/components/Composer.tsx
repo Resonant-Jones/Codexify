@@ -17,6 +17,7 @@ import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMen
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
+import { SolarEffortControl } from "@/features/chat/components/SolarEffortControl";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
@@ -251,6 +252,9 @@ export function Composer({
   activeModelId = "default",
   modelOptions = [],
   onModelChange,
+  thinkingEffortLevels,
+  thinkingEffort = "default",
+  onThinkingEffortChange,
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
@@ -298,6 +302,9 @@ export function Composer({
   mobileModelLabel?: string;
   mobileModelOptions?: ComposerSelectOption[];
   onMobileModelChange?: (modelId: string) => void;
+  thinkingEffortLevels?: string[];
+  thinkingEffort?: string;
+  onThinkingEffortChange?: (level: string) => void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -443,10 +450,9 @@ export function Composer({
   useEffect(() => {
     const controls = landingControlsRef.current;
     if (!isLandingPresentation || !controls) return;
-    // ComposerSelectMenu owns its open state. Observe its public trigger state
-    // so portaled menus retain disclosure, including programmatic provider opens.
+    // Observe the triggers so portaled controls retain landing disclosure.
     const update = () => {
-      const open = Boolean(controls.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'));
+      const open = Boolean(controls.querySelector('[aria-haspopup][aria-expanded="true"]'));
       setLandingSelectorOpen(open);
       if (!open) {
         setLandingControlsFocused(controls.contains(document.activeElement));
@@ -455,7 +461,7 @@ export function Composer({
       }
     };
     const observer = new MutationObserver(update);
-    observer.observe(controls, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
+    observer.observe(controls, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-expanded"] });
     update();
     return () => observer.disconnect();
   }, [isLandingPresentation, compactMobile]);
@@ -1281,6 +1287,17 @@ export function Composer({
     </Button>
   );
 
+  const effortControl = activeInferenceMode === "think" && thinkingEffortLevels?.length ? (
+    <SolarEffortControl
+      levels={thinkingEffortLevels}
+      value={thinkingEffort}
+      onChange={onThinkingEffortChange}
+      disabled={draftControlsDisabled}
+      compact={compactMobile}
+      variant={isLandingPresentation && !compactMobile ? "chip" : "bare"}
+    />
+  ) : null;
+
   const renderLandingInferenceControls = () => (
     <div
       ref={landingControlsRef}
@@ -1331,6 +1348,7 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
         <ComposerSelectMenu
           ariaLabel="Select inference mode"
           menuLabel="Mode"
@@ -1409,7 +1427,10 @@ export function Composer({
     return (
       <div
         data-testid="composer-mobile-route-row"
-        className="flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
+        className={cn(
+          "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]",
+          effortControl && "[&>[data-ddm-root]]:flex [&>[data-ddm-root]]:min-w-0"
+        )}
       >
         <ComposerSelectMenu
           ariaLabel="Select provider"
@@ -1434,6 +1455,14 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
+        {thinkingEffortLevels?.length ? (
+          <ComposerSelectMenu ariaLabel="Select inference mode" menuLabel="Mode"
+            valueLabel={inferenceModeLabel} selectedValue={activeInferenceMode}
+            options={inferenceModeOptions} isPhoneShell triggerVariant="bare"
+            disabled={draftControlsDisabled}
+            onSelect={(mode) => onInferenceModeChange?.(mode as ComposerInferenceMode)} />
+        ) : null}
       </div>
     );
   };
@@ -1702,6 +1731,7 @@ export function Composer({
                   disabled={draftControlsDisabled || modelOptions.length === 0}
                   onSelect={onModelChange ?? (() => {})}
                 />
+                {effortControl}
                 <ComposerSelectMenu
                   ariaLabel="Select inference mode"
                   menuLabel="Mode"

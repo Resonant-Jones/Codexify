@@ -783,6 +783,7 @@ class ChatCompletionTask(BaseTask):
     selection_source: str | None = None
     provider_pinned: bool = False
     reasoning_mode: str | None = None
+    thinking_effort: str | None = None
     tools: list[dict[str, Any]] | None = None
     max_context: int | None = 50
     depth_mode: str | None = "normal"
@@ -807,6 +808,8 @@ class ChatCompletionTask(BaseTask):
 
     def to_dict(self) -> dict[str, Any]:
         payload = super().to_dict()
+        if self.thinking_effort is None:
+            payload.pop("thinking_effort", None)
         if all(payload[name] is None for name in DEADLINE_FIELDS):
             for name in DEADLINE_FIELDS:
                 del payload[name]
@@ -865,6 +868,7 @@ class ChatCompletionTask(BaseTask):
             selection_source=payload.get("selection_source"),
             provider_pinned=bool(payload.get("provider_pinned", False)),
             reasoning_mode=payload.get("reasoning_mode"),
+            thinking_effort=payload.get("thinking_effort"),
             tools=_coerce_list_of_mappings(payload.get("tools")),
             max_context=payload.get("max_context"),
             depth_mode=payload.get("depth_mode"),
