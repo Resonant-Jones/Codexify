@@ -85,6 +85,34 @@ describe("landing inference disclosure", () => {
     mount({ providerOpenSignal: 1 }); await act(async () => {}); revealed(true);
     fireEvent.keyDown(document, { key: "Escape" }); await act(async () => {}); revealed(false);
   });
+  it("retains landing disclosure while the Solar panel is open and preserves the draft", async () => {
+    const onThinkingEffortChange = vi.fn();
+    mount({
+      activeInferenceMode: "think",
+      thinkingEffortLevels: ["low", "high", "max"],
+      thinkingEffort: "high",
+      onThinkingEffortChange,
+    });
+    const textarea = screen.getByTestId("composer-textarea");
+    fireEvent.change(textarea, { target: { value: "Keep my draft" } });
+    fireEvent.pointerEnter(zone());
+    const trigger = screen.getByRole("button", { name: "Thinking effort: High" });
+    fireEvent.click(trigger);
+    await leave(); revealed(true);
+    const panel = screen.getByRole("dialog", { name: "Thinking effort" });
+    expect(zone()).not.toContainElement(panel);
+    expect(within(panel).getByRole("slider")).toHaveAttribute("aria-valuetext", "High");
+    fireEvent.change(within(panel).getByRole("slider"), { target: { value: "2" } });
+    expect(onThinkingEffortChange).toHaveBeenLastCalledWith("max");
+    fireEvent.click(within(panel).getByRole("button", { name: "Provider default" }));
+    expect(onThinkingEffortChange).toHaveBeenLastCalledWith("default");
+    await act(async () => {
+      fireEvent.keyDown(within(panel).getByRole("slider"), { key: "Escape" });
+    });
+    expect(trigger).toHaveFocus();
+    expect(textarea).toHaveValue("Keep my draft");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
   it("reserves fixed internal geometry with reduced-motion styles and only three selectors", () => {
     mount({ projectOptions: [{ value: "1", label: "Project" }], onProjectChange: vi.fn() });
     const row = screen.getByTestId("composer-landing-control-row"), rowClass = row.className;

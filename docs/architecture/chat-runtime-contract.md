@@ -678,3 +678,22 @@ persistent authority surface or new ADR is introduced. Deterministic synthetic
 byte-equivalence, ownership, expiry, overflow, concurrency, relay, and chat
 regression tests establish only their exercised test surface; supported-path
 live qualification and a Raw JSON/Readable frontend viewer remain deferred.
+
+### Ordinary chat thinking effort
+
+On the ADR-052 Tester profile, the ordinary chat catalog advertises native
+effort for the discovered DeepSeek Flash model at DeepSeek's native endpoint.
+The descriptor requires Think mode. The composer can request provider default,
+low, high, or max for the next completion. Admission checks the request against
+the saved thread route, mode, and the persisted message ID returned to the composer.
+A mismatched or missing receipt rejects a participating send before enqueue.
+The accepted task carries the selection and server-resolved message ID across
+worker retries and bounded tool calls. Each dispatch applies canonical model
+selection, requiring current discovery for effort, and verifies route compatibility
+before sending. A changed route can reject the turn and the user can retry at
+the new route's default.
+
+Provider default omits the native `reasoning_effort` field. Earlier clients
+that omit the completion option retain their existing serializer behavior.
+The setting is scoped to a turn and grants no egress, model, tool, or budget
+authority. [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)

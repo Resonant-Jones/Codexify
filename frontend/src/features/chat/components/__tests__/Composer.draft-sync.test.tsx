@@ -45,6 +45,22 @@ describe("Composer draft sync", () => {
     window.localStorage.clear();
   });
 
+  it.each([true, false])("renders one labelled Solar effort control, compact=%s", (compactMobile) => {
+    const onChange = vi.fn();
+    const props = { onSend: vi.fn(), draftScopeKey: "tab", modelOptions: [{ value: "fixture", label: "Fixture" }],
+      thinkingEffortLevels: ["low", "high", "max"], compactMobile, onThinkingEffortChange: onChange };
+    const view = render(<Composer {...props} activeInferenceMode="think" />);
+    fireEvent.click(screen.getByRole("button", { name: "Thinking effort: Provider default" }));
+    const control = screen.getByRole("slider", { name: "Thinking effort" });
+    expect(control).toHaveAttribute("aria-valuetext", "Provider default");
+    expect(control).toHaveAttribute("max", "2");
+    fireEvent.keyDown(control, { key: "Home" });
+    expect(onChange).toHaveBeenCalledWith("low");
+    view.rerender(<Composer {...props} activeInferenceMode="no_think" />);
+    expect(screen.queryByRole("slider", { name: "Thinking effort" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Thinking effort:/ })).toBeNull();
+  });
+
   it("renders without crashing when no project context is provided", () => {
     expect(() =>
       render(<Composer onSend={vi.fn()} draftScopeKey="tab-1" draftValue="" />)

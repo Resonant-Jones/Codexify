@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from requests import exceptions as req_exc
 
 from guardian.core.accepted_deadline_transport import AcceptedDeadlineTransport
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
@@ -1994,6 +1995,7 @@ def chat_with_ai(
     strict_single_request: bool = False,
     requested_model_is_authoritative: bool = False,
     accepted_deadline: AcceptedChatTaskDeadline | None = None,
+    thinking_effort: str | None = None,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -2001,6 +2003,9 @@ def chat_with_ai(
 
     require_context(provider_name)
     target_model = model or _default_model_for_provider(provider_name, settings)
+    validate_effort(
+        thinking_effort, provider_name, target_model, reasoning_mode, settings
+    )
     local_model_resolution: LocalModelResolution | None = None
 
     if provider_name == "local":
@@ -2062,11 +2067,19 @@ def chat_with_ai(
                 ),
             )
 
-    if provider_routing_requires_discovered_inventory(provider_name):
+    if (
+        provider_routing_requires_discovered_inventory(provider_name)
+        or thinking_effort is not None
+    ):
         valid, reason = validate_provider_model_selection(
             provider_id=provider_name,
             model_id=target_model,
             settings=settings,
+            **(
+                {"require_available_inventory": True}
+                if thinking_effort is not None
+                else {}
+            ),
         )
         if not valid:
             raise HTTPException(
@@ -2132,6 +2145,11 @@ def chat_with_ai(
         return call_deepseek(
             messages,
             target_model,
+            **(
+                {"_validated_thinking_effort": thinking_effort}
+                if thinking_effort is not None
+                else {}
+            ),
             **_filter_callable_kwargs(
                 call_deepseek,
                 {
@@ -4046,6 +4064,7 @@ def call_deepseek(
     *,
     temperature: Optional[float] = None,
     reasoning_mode: Optional[str] = None,
+    _validated_thinking_effort: str | None = None,
     max_tokens: Optional[int] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
@@ -4067,12 +4086,21 @@ def call_deepseek(
         isinstance(item, dict) and item.get("command_id") for item in tools
     ):
         request_tools, _aliases = build_tool_definitions(tools)
+    # The router checked the roster for this attempt. Recheck current route and mode.
+    validate_effort(
+        _validated_thinking_effort,
+        "deepseek",
+        model,
+        reasoning_mode,
+        settings,
+    )
     payload = build_deepseek_payload(
         model=model,
         messages=messages,
         reasoning_mode=reasoning_mode,
         temperature=temperature,
         tools=request_tools,
+        thinking_effort=_validated_thinking_effort,
     )
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)

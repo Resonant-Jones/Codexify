@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
@@ -137,8 +137,26 @@ const inferenceMocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/lib/authState", () => ({
+  useAuthState: () => ({
+    ready: true,
+    status: "authenticated",
+    token: "test-token",
+  }),
+}));
+
+vi.mock("@/lib/runtimeConfig", () => ({
+  getRuntimeConfigHydrationState: () => "ready",
+  getRuntimeConfigVersion: () => 0,
+  resolveApiUrl: (path: string) => path,
+  subscribeRuntimeConfigState: () => () => {},
+  getRuntimeConfigSync: () => ({ authMode: "remote" }),
+}));
+
 vi.mock("@/lib/api", () => ({
   default: apiSpies,
+  fetchSlashCommandManifest: async () => ({ schemaVersion: 1, commands: [] }),
+  hasRequestAuthCredential: () => true,
   buildChatCompletePath: (threadId: string | number) => `/chat/${threadId}/complete`,
   clearInFlightCompletionTurnId: vi.fn(),
   getInFlightCompletionTurnId: vi.fn(() => null),
@@ -178,6 +196,9 @@ vi.mock("@/features/guardian/components/Composer", () => ({
     activeProviderId,
     activeModelId,
     activeInferenceMode,
+    thinkingEffort,
+    onThinkingEffortChange,
+    onSend,
     sourceMode,
     onProviderChange,
     onModelChange,
@@ -187,6 +208,9 @@ vi.mock("@/features/guardian/components/Composer", () => ({
     activeProviderId?: string | null;
     activeModelId?: string;
     activeInferenceMode?: ComposerInferenceMode;
+    thinkingEffort?: string;
+    onThinkingEffortChange: (level: string) => void;
+    onSend: (text: string) => Promise<void>;
     sourceMode?: "project" | "personal_knowledge";
     onProviderChange?: (providerId: string) => void;
     onModelChange?: (modelId: string) => void;
@@ -194,6 +218,8 @@ vi.mock("@/features/guardian/components/Composer", () => ({
     onSourceModeChange?: (mode: "project" | "personal_knowledge") => void;
   }) => (
     <div data-testid="composer-stub">
+      <button onClick={() => onThinkingEffortChange("max")}>{thinkingEffort}</button>
+      <button onClick={() => void onSend("fixture")}>Send fixture</button>
       <div data-testid="provider-value">{String(activeProviderId ?? "none")}</div>
       <div data-testid="model-value">{String(activeModelId ?? "none")}</div>
       <div data-testid="mode-value">{String(activeInferenceMode ?? "default")}</div>
@@ -333,8 +359,17 @@ vi.mock("@/features/chat/hooks/useLlmCatalog", () => ({
         available: true,
         models: [
           { id: "remote-model-a", canonicalId: "remote-model-a" },
+          { id: "effort-model", canonicalId: "effort-model", thinkingEffortLevels: ["low", "high", "max"] },
           { id: "remote-model-b", canonicalId: "remote-model-b" },
         ],
+      },
+      {
+        id: "speculative",
+        displayName: "Speculative",
+        enabled: true,
+        authorized: true,
+        available: true,
+        models: [{ id: "catalog-fallback", canonicalId: "catalog-fallback", thinkingEffortLevels: ["low", "high", "max"] }],
       },
     ];
     return {
@@ -416,6 +451,7 @@ function buildActiveThread(
 
 function renderChatThread(options: {
   thread: Thread;
+  sendMessage?: () => Promise<number | void>;
   initialProviderId?: string | null;
   initialModelId?: string;
   initialInferenceMode?: ComposerInferenceMode;
@@ -446,7 +482,7 @@ function renderChatThread(options: {
         guardianName="Guardian"
         userName="tester"
         activeThread={thread as any}
-        onSendMessage={vi.fn().mockResolvedValue(undefined)}
+        onSendMessage={options.sendMessage ?? vi.fn().mockResolvedValue(42)}
         onNewChat={vi.fn()}
         sessionTabs={[
           {
@@ -569,6 +605,66 @@ describe("GuardianChat thread config selectors", () => {
     apiMock.post.mockResolvedValue({ data: {} });
     apiMock.patch.mockResolvedValue({ data: {} });
     apiMock.delete.mockResolvedValue({ data: {} });
+  });
+
+  it("clears effort across mode changes and consumes it on exactly one completion", async () => {
+    const route = createThreadConfig({ providerId: "remote", modelId: "effort-model", inferenceMode: "think" });
+    const view = renderChatThread({ thread: buildActiveThread("42", route) });
+    await waitFor(() => expect(getComposerState().mode).toBe("think"));
+    fireEvent.click(screen.getByText("default", { selector: "button" }));
+    expect(screen.getByText("max", { selector: "button" })).toBeInTheDocument();
+    view.rerenderWithThread(buildActiveThread("42", { ...route, inferenceMode: "fast" }));
+    await waitFor(() => expect(getComposerState().mode).toBe("no_think"));
+    view.rerenderWithThread(buildActiveThread("42", route));
+    await waitFor(() => expect(getComposerState().mode).toBe("think"));
+    fireEvent.click(screen.getByText("default", { selector: "button" }));
+    fireEvent.click(screen.getByText("Send fixture"));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/chat/42/complete", expect.objectContaining({
+      provider: "remote", model: "effort-model", reasoning_mode: "think", thinking_effort: "max", expected_message_id: 42,
+    })));
+    expect(screen.getByText("default", { selector: "button" })).toBeInTheDocument();
+  });
+
+  it.each([42, undefined])("includes provider default only with a persisted message receipt (%s)", async (id) => {
+    const route = createThreadConfig({ providerId: "remote", modelId: "effort-model", inferenceMode: "think" });
+    renderChatThread({ thread: buildActiveThread("42", route), sendMessage: async () => id });
+    await waitFor(() => expect(getComposerState().mode).toBe("think"));
+    fireEvent.click(screen.getByText("Send fixture"));
+    if (id === undefined) {
+      await waitFor(() => expect(inferenceMocks.markFailed).toHaveBeenCalledWith(expect.stringContaining("authored turn")));
+      expect(apiMock.post.mock.calls.filter(([path]) => path === "/chat/42/complete")).toHaveLength(0);
+    } else {
+      await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/chat/42/complete",
+        expect.objectContaining({ thinking_effort: "default", expected_message_id: id })));
+    }
+  });
+
+  it("omits effort when only a speculative catalog fallback advertises it", async () => {
+    const route = createThreadConfig({ providerId: "speculative", modelId: "missing", inferenceMode: "think" });
+    renderChatThread({ thread: buildActiveThread("42", route) });
+    await waitFor(() => expect(getComposerState().provider).toBe("speculative"));
+    expect(getComposerState().mode).toBe("default");
+    fireEvent.click(screen.getByText("Send fixture"));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith("/chat/42/complete", expect.anything()));
+    const [, payload] = apiMock.post.mock.calls.find(([path]) => path === "/chat/42/complete")!;
+    expect(payload).not.toHaveProperty("thinking_effort");
+    expect(payload).not.toHaveProperty("expected_message_id");
+  });
+
+  it("rejects a saved mode change while the authored message receipt is pending", async () => {
+    const route = createThreadConfig({ providerId: "remote", modelId: "effort-model", inferenceMode: "think" });
+    let finish!: (id: number) => void;
+    const sendMessage = vi.fn(() => new Promise<number>((resolve) => { finish = resolve; }));
+    const view = renderChatThread({ thread: buildActiveThread("42", route), sendMessage });
+    await waitFor(() => expect(getComposerState().mode).toBe("think"));
+    fireEvent.click(screen.getByText("default", { selector: "button" }));
+    fireEvent.click(screen.getByText("Send fixture"));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    view.rerenderWithThread(buildActiveThread("42", { ...route, inferenceMode: "fast" }));
+    await waitFor(() => expect(getComposerState().mode).toBe("no_think"));
+    await act(async () => finish(42));
+    await waitFor(() => expect(inferenceMocks.markFailed).toHaveBeenCalledWith(expect.stringContaining("authored turn")));
+    expect(apiMock.post.mock.calls.some(([path]) => path === "/chat/42/complete")).toBe(false);
   });
 
   it("hydrates an existing thread from persisted thread_config instead of ambient defaults", async () => {

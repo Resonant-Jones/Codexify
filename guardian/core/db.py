@@ -15,7 +15,8 @@ from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, func, inspect, or_, select, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.orm import Session, aliased, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from guardian.conversation_origin import ConversationOriginSystem
@@ -56,6 +57,18 @@ from guardian.db.models import (
 
 class ChatToolCheckpointError(ValueError):
     """The accepted request cannot safely use the proposed tool decision."""
+
+@dataclass(frozen=True)
+class AuthoredChatTurn:
+    """Ordinary-chat turn selected before the acceptance transaction."""
+
+    user_id: str
+    message_id: int
+    has_receipt: bool
+
+
+class StaleChatTurnError(ValueError):
+    """The selected turn is no longer eligible for ordinary-chat acceptance."""
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +446,82 @@ _GUARDIAN_DB_CACHE_LOCK = Lock()
 _DEFAULT_USER_ID = "local"
 
 
+def resolve_authored_chat_turn(
+    session: Session,
+    *,
+    thread_id: int,
+    user_id: str,
+    message_id: int | None,
+    lock_message: bool = False,
+) -> dict[str, Any] | None:
+    """Resolve a submitted receipt or select the current ordinary turn by ID."""
+    from guardian.core.message_origin_classification import classify_message_origin
+
+    query = (
+        select(
+            ChatMessage.id,
+            ChatMessage.role,
+            ChatMessage.content,
+            ChatMessage.extra_meta,
+        )
+        .join(ChatThread, ChatThread.id == ChatMessage.thread_id)
+        .where(
+            ChatMessage.thread_id == thread_id,
+            ChatThread.user_id == user_id,
+            ChatMessage.user_id == user_id,
+            ChatMessage.role == "user",
+            ChatMessage.kind == "chat",
+            ChatMessage.hosted_room_participant_id.is_(None),
+        )
+    )
+    if message_id is None:
+        # Older ordinary rows lack the native assertion. Keep them eligible
+        # for receipt-less completion while excluding recorded import lineage.
+        query = (
+            query.where(
+                ~ChatMessage.extra_meta.has_any(
+                    array(sorted(IMPORT_LINEAGE_METADATA_KEYS))
+                )
+            )
+            .order_by(ChatMessage.id.desc())
+            .limit(1)
+        )
+    else:
+        newer = aliased(ChatMessage)
+        newer_user_turn = (
+            select(newer.id)
+            .where(
+                newer.thread_id == thread_id,
+                newer.id > message_id,
+                newer.user_id == user_id,
+                newer.role == "user",
+                newer.kind == "chat",
+                newer.hosted_room_participant_id.is_(None),
+                newer.extra_meta.has_key(RESERVED_MESSAGE_ORIGIN_KEY),  # noqa: W601
+            )
+            .exists()
+        )
+        query = query.where(ChatMessage.id == message_id, ~newer_user_turn)
+    if lock_message:
+        query = query.with_for_update(of=ChatMessage, read=True)
+    row = session.execute(query).mappings().one_or_none()
+    if row is None or not isinstance(row["extra_meta"], dict):
+        return None
+    if row["content"].strip().lower() in {"", "null"}:
+        return None
+    if message_id is not None:
+        # Ordinary chat embeddings also write this lifecycle field. It carries no
+        # source claim for a receipt, even though recall treats it conservatively.
+        origin_metadata = {
+            key: value
+            for key, value in row["extra_meta"].items()
+            if key != "embedding_status"
+        }
+        if not classify_message_origin(origin_metadata).is_native:
+            return None
+    return dict(row)
+
+
 def create_chat_completion_attempt(
     chatlog_db: Any,
     *,
@@ -443,6 +532,7 @@ def create_chat_completion_attempt(
     deadline_snapshot: AcceptedChatTaskDeadline | None = None,
     turn_lock_token: str | None = None,
     accepted_account_id: str | None = None,
+    authored_turn: AuthoredChatTurn | None = None,
 ) -> None:
     """Commit the resource binding before the task can enter Redis."""
     if deadline_snapshot is not None:
@@ -463,16 +553,18 @@ def create_chat_completion_attempt(
     ):
         raise ValueError("Invalid accepted account custody")
     with chatlog_db._sa_session() as session:
-        if accepted_account_id is not None:
-            from guardian.db.models import User
-
-            # Recheck ownership under lock in the same transaction as insertion.
+        if accepted_account_id is not None or authored_turn is not None:
+            # New message inserts also lock this thread via their foreign key.
+            # The subsequent receipt read is serialized with those inserts.
             owner = (
                 session.query(ChatThread.user_id)
                 .filter_by(id=thread_id)
                 .with_for_update()
                 .scalar()
             )
+        if accepted_account_id is not None:
+            from guardian.db.models import User
+
             account = (
                 session.query(User.id)
                 .filter_by(id=accepted_account_id)
@@ -481,6 +573,20 @@ def create_chat_completion_attempt(
             )
             if owner != accepted_account_id or account != accepted_account_id:
                 raise ValueError("Accepted account custody unavailable")
+        if authored_turn is not None:
+            if owner != authored_turn.user_id:
+                raise StaleChatTurnError()
+            turn = resolve_authored_chat_turn(
+                session,
+                thread_id=thread_id,
+                user_id=authored_turn.user_id,
+                message_id=(
+                    authored_turn.message_id if authored_turn.has_receipt else None
+                ),
+                lock_message=True,
+            )
+            if turn is None or turn["id"] != authored_turn.message_id:
+                raise StaleChatTurnError()
         session.add(
             ChatCompletionAttempt(
                 request_id=request_id,

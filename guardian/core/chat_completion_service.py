@@ -115,6 +115,7 @@ from guardian.core.chat_postgres_deadline import (
     postgres_operation_scope,
     require_accepted_work_budget,
 )
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.completion_terminal import (
     CompletionAttemptResult,
     CompletionTerminalError,
@@ -124,7 +125,9 @@ from guardian.core.completion_terminal import (
 )
 from guardian.core.config import LLMConfigError, get_settings, validate_llm_config
 from guardian.core.db import (
+    AuthoredChatTurn,
     ChatToolCheckpointError,
+    StaleChatTurnError,
     create_chat_completion_attempt,
     create_chat_message_with_metadata,
     freeze_chat_tool_decision,
@@ -1018,6 +1021,7 @@ def enqueue_chat_completion(
     request_id: str | None = None,
     participant: ChatAcceptanceParticipant | None = None,
     account_acceptance_scope: dependencies.RequestUserScope | None = None,
+    authored_turn_has_receipt: bool | None = None,
 ) -> ChatCompletionEnqueueResult:
     """Accept one canonical chat completion task into the chat execution lane."""
 
@@ -1035,6 +1039,17 @@ def enqueue_chat_completion(
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
     if task_identity is None or task.thread_id != thread_id:
         raise ChatCompletionEnqueueError("task_identity_invalid")
+
+    # Hosted Room producers supply their own authorized turn binding.
+    authored_turn: AuthoredChatTurn | None = None
+    if authored_turn_has_receipt is not None:
+        if account_acceptance_scope is None or task.latest_turn_message_id is None:
+            raise StaleChatTurnError()
+        authored_turn = AuthoredChatTurn(
+            account_acceptance_scope.user_id,
+            task.latest_turn_message_id,
+            has_receipt=authored_turn_has_receipt,
+        )
 
     task.task_id = task_identity
     if request_id is not None:
@@ -1096,7 +1111,7 @@ def enqueue_chat_completion(
 
     participant_prepared = False
     if participant is not None:
-        authoritative_fields = (
+        authoritative_fields: tuple[str, ...] = (
             "task_id",
             "user_id",
             "thread_id",
@@ -1110,9 +1125,12 @@ def enqueue_chat_completion(
             "selection_source",
             "provider_pinned",
             "requested_source_mode",
+            "thinking_effort",
             "retrieval_override",
             "persona_selection_snapshot",
         )
+        if task.thinking_effort is not None or authored_turn is not None:
+            authoritative_fields += ("latest_turn_message_id", "reasoning_mode")
         authoritative_snapshot = {
             field: copy.deepcopy(getattr(task, field)) for field in authoritative_fields
         }
@@ -1214,6 +1232,7 @@ def enqueue_chat_completion(
                 if accepted_account_id
                 else {}
             ),
+            **({"authored_turn": authored_turn} if authored_turn else {}),
         )
     except Exception as exc:
         if participant is not None and participant_prepared:
@@ -1224,6 +1243,8 @@ def enqueue_chat_completion(
                 turn_id=turn_id,
             )
         _best_effort_release_turn_lock(thread_id, locked)
+        if isinstance(exc, StaleChatTurnError):
+            raise
         logger.error(
             "[chat.complete] attempt persistence failed thread_id=%s task_id=%s cause_class=%s",
             thread_id,
@@ -1918,6 +1939,8 @@ def _dispatch_completion_attempt(
     reasoning_mode = getattr(task, "reasoning_mode", None)
     temperature = getattr(task, "temperature", None)
     settings = get_settings()
+    effort = getattr(task, "thinking_effort", None)
+    validate_effort(effort, provider, model, reasoning_mode, settings)
     exact_text_model = bool(
         provider == "local"
         and getattr(task, "selection_source", None) == "explicit"
@@ -2083,6 +2106,7 @@ def _dispatch_completion_attempt(
     try:
         output = chat_with_ai(
             messages_for_llm,
+            **({"thinking_effort": effort} if effort is not None else {}),
             **_filter_callable_kwargs(
                 chat_with_ai,
                 {
@@ -5556,6 +5580,20 @@ async def build_messages_for_llm(
         requested_source_mode=_requested_source_mode_from_task(task),
         settings=settings,
     )
+    explicit_latest_turn_message_id = _coerce_message_id(
+        getattr(task, "latest_turn_message_id", None)
+    )
+    effort = getattr(task, "thinking_effort", None)
+    if effort is not None:
+        validate_effort(
+            effort,
+            thread_execution.provider,
+            thread_execution.model,
+            thread_execution.reasoning_mode,
+            settings,
+        )
+        if explicit_latest_turn_message_id is None:
+            raise ValueError("thread_target_turn_missing")
     provider = thread_execution.provider
     routing_debug_metadata = _task_routing_debug_metadata(task)
     requested_source_mode = _requested_source_mode_from_task(task)
@@ -5659,7 +5697,9 @@ async def build_messages_for_llm(
     # the transcript endpoint at GET /{thread_id}/messages).
     limit = int(task.max_context or 50)
     if isinstance(dependencies.chatlog_db, PgDB):
-        items = dependencies.chatlog_db.recent_messages(thread_id, limit=limit)
+        items = dependencies.chatlog_db.recent_messages(
+            thread_id, limit=limit, through_message_id=explicit_latest_turn_message_id
+        )
     else:
         items = dependencies.chatlog_db.list_messages(thread_id, limit=limit, offset=0)
         try:
@@ -5669,9 +5709,6 @@ async def build_messages_for_llm(
         except Exception:
             pass
 
-    explicit_latest_turn_message_id = _coerce_message_id(
-        getattr(task, "latest_turn_message_id", None)
-    )
     turn_split = split_history_and_latest_turn(
         items,
         latest_turn_message_id=explicit_latest_turn_message_id,
@@ -7881,6 +7918,13 @@ def run_chat_completion_task(
     requested_model = normalize_model_id(
         getattr(task, "requested_model", None)
     ) or normalize_model_id(getattr(task, "model", None))
+    validate_effort(
+        getattr(task, "thinking_effort", None),
+        provider,
+        model,
+        getattr(task, "reasoning_mode", None),
+        settings,
+    )
     messages_for_llm, routing_meta = _apply_image_attachment_routing(
         messages_for_llm,
         bundle=bundle,
