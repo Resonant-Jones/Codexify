@@ -153,17 +153,20 @@ Files:
 ```
 
 Discovery scope is limited to these files plus read-only inspection of
-`frontend/src/features/chat/conversationNavigation.ts`. If the presentation
-change cannot be made without changing projection semantics, stop before editing
-that file. Explain the dependency and request explicit scope approval, or defer
+`frontend/src/features/chat/conversationNavigation.ts` and
+`frontend/src/features/chat/ChatView.tsx`. Inspect the latter to confirm the
+canonical minimap mount and eligibility gates, without editing it. If the
+presentation change requires editing either read-only file, stop first. Explain the dependency and request explicit scope approval, or defer
 the projection change to a separately authorized follow-up. Do not use the
 closeout as a substitute for approval.
 
 ## Acceptance criteria
 
-- At a 900px-tall transcript container, the notch pitch is at most 32 CSS px
-  for a 2-turn thread and at most 32 CSS px for a 3-turn thread. The current
-  900px and 450px pitches are the failing baseline.
+- At a 900px-tall transcript container, adjacent notches in 2-turn and 3-turn
+  threads have a center-to-center vertical pitch of at most 32 CSS px and a
+  visible vertical edge-to-edge gap of at least 2 CSS px. The gap requirement
+  prevents touching or overlapping marks, including taller rendered notches.
+  The current 900px and 450px pitches are the failing baseline.
 - The dash size stays at least 6 x 2 CSS px so a notch remains visible and
   hoverable.
 - The first notch is fully visible: its top edge is not above the rail's
@@ -216,7 +219,8 @@ acceptance threshold.
 A regression test must assert the bounded pitch directly, by reading the
 rendered notch geometry rather than by asserting on a CSS string, so that a
 future change cannot silently re-open the gap. The browser suite must gain a
-scenario that measures the rendered pitch in a real browser.
+scenario that measures both center-to-center pitch and the edge-to-edge gap
+for each adjacent pair in a real browser.
 
 Report environment limitations separately from failures. In a restricted local
 runtime, Chromium may only launch with `--single-process`, and that build
