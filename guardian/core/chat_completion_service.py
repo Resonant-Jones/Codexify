@@ -1032,6 +1032,10 @@ def enqueue_chat_completion(
     except ValueError as exc:
         raise ChatCompletionEnqueueError("account_acceptance_unavailable") from exc
 
+    # Capture Guardian's route-selected identity before any queue preparation.
+    accepted_user_message_id = (
+        task.latest_turn_message_id if accepted_account_id else None
+    )
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
     if task_identity is None or task.thread_id != thread_id:
         raise ChatCompletionEnqueueError("task_identity_invalid")
@@ -1210,7 +1214,10 @@ def enqueue_chat_completion(
             deadline_snapshot=deadline,
             turn_lock_token=locked.lease_token,
             **(
-                {"accepted_account_id": accepted_account_id}
+                {
+                    "accepted_account_id": accepted_account_id,
+                    "accepted_user_message_id": accepted_user_message_id,
+                }
                 if accepted_account_id
                 else {}
             ),

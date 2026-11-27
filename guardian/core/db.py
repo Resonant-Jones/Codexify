@@ -443,8 +443,9 @@ def create_chat_completion_attempt(
     deadline_snapshot: AcceptedChatTaskDeadline | None = None,
     turn_lock_token: str | None = None,
     accepted_account_id: str | None = None,
+    accepted_user_message_id: int | None = None,
 ) -> None:
-    """Commit the resource binding before the task can enter Redis."""
+    """Commit the authenticated resource binding before publishing the task."""
     if deadline_snapshot is not None:
         if not isinstance(deadline_snapshot, AcceptedChatTaskDeadline):
             raise ValueError("Recovery requires the original accepted deadline")
@@ -462,7 +463,11 @@ def create_chat_completion_attempt(
         )
     ):
         raise ValueError("Invalid accepted account custody")
+    if accepted_user_message_id is not None and accepted_account_id is None:
+        raise ValueError("Accepted message custody requires accepted account custody")
     with chatlog_db._sa_session() as session:
+        # An ineligible source withholds custody while ordinary chat can continue.
+        source_id = None
         if accepted_account_id is not None:
             from guardian.db.models import User
 
@@ -481,6 +486,16 @@ def create_chat_completion_attempt(
             )
             if owner != accepted_account_id or account != accepted_account_id:
                 raise ValueError("Accepted account custody unavailable")
+            if accepted_user_message_id is not None:
+                from guardian.core.chat_account_custody import eligible_chat_source_id
+
+                source_id = eligible_chat_source_id(
+                    session,
+                    message_id=accepted_user_message_id,
+                    account_id=accepted_account_id,
+                    thread_id=thread_id,
+                    lock_source=True,
+                )
         session.add(
             ChatCompletionAttempt(
                 request_id=request_id,
@@ -494,6 +509,7 @@ def create_chat_completion_attempt(
                 ),
                 turn_lock_token=turn_lock_token,
                 accepted_account_id=accepted_account_id,
+                accepted_user_message_id=source_id,
             )
         )
 

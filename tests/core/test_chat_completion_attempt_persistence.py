@@ -10,6 +10,7 @@ import pytest
 
 from guardian.core import chat_completion_service as service
 from guardian.core.db import ChatToolCheckpointError, _checkpoint_from_attempt
+from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import ChatCompletionAttempt
 from guardian.queue.redis_queue import QueueEnqueueError
 from guardian.queue.turn_lock import build_turn_lock_envelope
@@ -158,7 +159,10 @@ def test_persistence_failure_blocks_enqueue_and_cleans_up(acceptance, monkeypatc
     )
     with pytest.raises(service.ChatCompletionEnqueueError) as error:
         service.enqueue_chat_completion(
-            task, thread_id=1, turn_id="turn-1", participant=participant
+            task, thread_id=1, turn_id="turn-1", participant=participant,
+            account_acceptance_scope=RequestUserScope(
+                user_id=task.user_id, account_id=task.user_id,
+            ),
         )
     assert error.value.reason == "attempt_persistence_unavailable"
     enqueue.assert_not_called()

@@ -2,11 +2,14 @@
 
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 
-from guardian.core.db import create_chat_completion_attempt
+from guardian.core.db import (
+    build_native_origin_assertion,
+    create_chat_completion_attempt,
+)
 
 
 def _db(owner="account-a", account="account-a"):
@@ -85,3 +88,45 @@ def test_bounded_255_character_canonical_id_is_preserved():
     db, session = _db(account, account)
     _create(db, accepted_account_id=account)
     assert session.add.call_args.args[0].accepted_account_id == account
+
+
+def test_source_custody_requires_original_account_before_database_use():
+    db, session = _db()
+    with pytest.raises(ValueError, match="requires accepted account custody"):
+        _create(db, accepted_user_message_id=11)
+    session.query.assert_not_called()
+    session.add.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "source_meta,expected",
+    [
+        (build_native_origin_assertion().as_metadata(), 11),
+        ({}, None),
+        ({"origin": "chatgpt_import"}, None),
+        ({**build_native_origin_assertion().as_metadata(), "origin": "claude_import"}, None),
+        (None, None),
+    ],
+)
+def test_source_eligibility_is_checked_under_lock_on_insert(source_meta, expected):
+    db, session = _db()
+    query = session.query.return_value.filter_by.return_value
+    query.with_for_update.return_value.scalar.side_effect = [
+        "account-a",
+        "account-a",
+        source_meta,
+    ]
+    _create(db, accepted_account_id="account-a", accepted_user_message_id=11)
+    row = session.add.call_args.args[0]
+    assert row.accepted_account_id == "account-a"
+    assert row.accepted_user_message_id == expected
+    assert query.with_for_update.call_args_list == [call(), call(), call(read=True)]
+    session.query.return_value.filter_by.assert_called_with(
+        id=11,
+        thread_id=1,
+        user_id="account-a",
+        role="user",
+        kind="chat",
+        hosted_room_participant_id=None,
+        sender_display_name_snapshot=None,
+    )

@@ -1574,6 +1574,10 @@ class ChatCompletionAttempt(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     # Original authenticated ordinary-chat custody; NULL legacy rows confer none.
     accepted_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # A historical identity snapshot. Source deletion leaves it unresolved.
+    accepted_user_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
     tool_turn_id: Mapped[str | None] = mapped_column(String(128))
     tool_command_id: Mapped[str | None] = mapped_column(String(512))
     tool_args_hash: Mapped[str | None] = mapped_column(String(64))
@@ -1603,6 +1607,12 @@ class ChatCompletionAttempt(Base):
             "(deadline_snapshot IS NOT NULL AND turn_lock_token IS NOT NULL "
             "AND length(trim(turn_lock_token)) > 0)",
             name="ck_chat_attempt_recovery_snapshot_pair",
+        ),
+        CheckConstraint(
+            "accepted_user_message_id IS NULL OR "
+            "(accepted_user_message_id > 0 AND accepted_account_id IS NOT NULL "
+            "AND length(trim(accepted_account_id)) > 0)",
+            name="ck_chat_attempt_source_requires_account",
         ),
         # The checkpoint columns are all-or-nothing. This must live in the same
         # tuple as the constraints above: a second `__table_args__` assignment

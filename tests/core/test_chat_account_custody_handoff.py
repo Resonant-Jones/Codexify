@@ -28,6 +28,7 @@ def _capture_create(monkeypatch):
     def create(db, **kwargs):
         captured.append(dict(kwargs))
         kwargs.pop("accepted_account_id", None)
+        kwargs.pop("accepted_user_message_id", None)
         return original(db, **kwargs)
 
     monkeypatch.setattr(service, "create_chat_completion_attempt", create)
@@ -45,6 +46,7 @@ def test_authenticated_ordinary_scope_reaches_persistence(acceptance, monkeypatc
     )
     assert result.queue_accepted
     assert captured[0]["accepted_account_id"] == scope.account_id
+    assert captured[0]["accepted_user_message_id"] == task.latest_turn_message_id
     assert acceptance.events.index("commit_attempt") < acceptance.events.index(
         "enqueue"
     )
@@ -58,6 +60,7 @@ def test_omitted_scope_does_not_infer_custody_from_task(acceptance, monkeypatch,
         task, thread_id=1, turn_id="turn-a"
     ).queue_accepted
     assert "accepted_account_id" not in captured[0]
+    assert "accepted_user_message_id" not in captured[0]
 
 
 def test_legacy_local_scope_preserves_chat_without_new_custody(acceptance, monkeypatch):
@@ -70,6 +73,7 @@ def test_legacy_local_scope_preserves_chat_without_new_custody(acceptance, monke
         account_acceptance_scope=RequestUserScope(user_id=task.user_id),
     ).queue_accepted
     assert "accepted_account_id" not in captured[0]
+    assert "accepted_user_message_id" not in captured[0]
 
 
 @pytest.mark.parametrize("kind", ["owner", "guest"])
