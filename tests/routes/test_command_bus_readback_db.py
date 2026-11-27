@@ -19,7 +19,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from guardian.command_bus.store import CommandBusStore
-from guardian.db.models import Base, ChatMessage, ChatThread, CommandRun, User
+from guardian.db.models import Base, ChatMessage, ChatThread, CommandRun, OpenAIImportSource, User
 from guardian.routes import command_bus as routes
 
 
@@ -41,6 +41,7 @@ def persisted(monkeypatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     tables = {
         User.__table__,
+        OpenAIImportSource.__table__,
         ChatThread.__table__,
         ChatMessage.__table__,
         CommandRun.__table__,

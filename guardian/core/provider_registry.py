@@ -237,9 +237,7 @@ _PROVIDER_GOVERNANCE_BY_ID = {
 
 PROVIDER_ORDER = tuple(rule.provider for rule in _PROVIDER_GOVERNANCE_RULES)
 
-PROVIDER_LABELS = {
-    rule.provider: rule.label for rule in _PROVIDER_GOVERNANCE_RULES
-}
+PROVIDER_LABELS = {rule.provider: rule.label for rule in _PROVIDER_GOVERNANCE_RULES}
 
 CLOUD_PROVIDERS = {
     rule.provider for rule in _PROVIDER_GOVERNANCE_RULES if not rule.local_only
@@ -583,9 +581,7 @@ def provider_governance(provider_id: str | None) -> dict[str, Any]:
 
 
 def provider_governance_contract() -> dict[str, dict[str, Any]]:
-    return {
-        rule.provider: rule.as_dict() for rule in _PROVIDER_GOVERNANCE_RULES
-    }
+    return {rule.provider: rule.as_dict() for rule in _PROVIDER_GOVERNANCE_RULES}
 
 
 def provider_routing_requires_discovered_inventory(
@@ -599,9 +595,7 @@ def provider_allows_default_during_degraded_discovery(
     provider_id: str | None,
 ) -> bool:
     rule = _provider_governance_rule(provider_id)
-    return bool(
-        rule and rule.configured_defaults_allowed_during_degraded_discovery
-    )
+    return bool(rule and rule.configured_defaults_allowed_during_degraded_discovery)
 
 
 def _normalize_reason(message: str) -> str:
@@ -690,9 +684,7 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
     base_url = ""
 
     if provider == "groq":
-        override = str(
-            getattr(settings, "GROQ_MODEL_DISCOVERY_URL", "") or ""
-        ).strip()
+        override = str(getattr(settings, "GROQ_MODEL_DISCOVERY_URL", "") or "").strip()
         base_url = (
             str(getattr(settings, "GROQ_BASE_URL", "") or "").strip()
             or _DEFAULT_GROQ_MODEL_INDEX_BASE
@@ -701,9 +693,7 @@ def _provider_model_index_url(provider_id: str, settings: Settings) -> str:
         override = str(
             getattr(settings, "DEEPSEEK_MODEL_DISCOVERY_URL", "") or ""
         ).strip()
-        base_url = str(
-            getattr(settings, "DEEPSEEK_BASE_URL", "") or ""
-        ).strip()
+        base_url = str(getattr(settings, "DEEPSEEK_BASE_URL", "") or "").strip()
     elif provider == "alibaba":
         override = str(
             getattr(settings, "ALIBABA_MODEL_DISCOVERY_URL", "") or ""
@@ -753,9 +743,9 @@ def _provider_model_index_headers(
         headers["Authorization"] = f"Bearer {api_key}"
         return headers
     if provider == "alibaba":
-        headers[
-            "Authorization"
-        ] = f"Bearer {str(getattr(settings, 'ALIBABA_API_KEY', '') or '').strip()}"
+        headers["Authorization"] = (
+            f"Bearer {str(getattr(settings, 'ALIBABA_API_KEY', '') or '').strip()}"
+        )
         return headers
     if provider == "minimax":
         api_key = str(getattr(settings, "MINIMAX_API_KEY", "") or "").strip()
@@ -769,8 +759,7 @@ def _provider_model_index_headers(
             headers["x-api-key"] = api_key
             headers["anthropic-version"] = (
                 str(
-                    getattr(settings, "MINIMAX_ANTHROPIC_VERSION", "2023-06-01")
-                    or ""
+                    getattr(settings, "MINIMAX_ANTHROPIC_VERSION", "2023-06-01") or ""
                 ).strip()
                 or "2023-06-01"
             )
@@ -935,8 +924,7 @@ def _is_chat_model_index_item(item: dict[str, Any]) -> bool:
         return False
     identifier_hint_text = _model_identifier_hint_text(item)
     return not any(
-        hint in identifier_hint_text
-        for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
+        hint in identifier_hint_text for hint in _MODEL_INDEX_IDENTIFIER_NON_CHAT_HINTS
     )
 
 
@@ -987,9 +975,7 @@ def _normalize_model_kind(
     supports_vision: bool,
 ) -> str:
     raw_kind = (
-        str(item.get("model_kind") or item.get("modelKind") or "")
-        .strip()
-        .lower()
+        str(item.get("model_kind") or item.get("modelKind") or "").strip().lower()
     )
     if raw_kind in {"chat", "vision_chat", "utility"}:
         return raw_kind
@@ -1090,9 +1076,7 @@ def _apply_model_override(
     if override_snapshot["supports_vision"] is not None:
         merged["supports_vision"] = bool(override_snapshot["supports_vision"])
     if override_snapshot["supports_text_input"] is not None:
-        merged["supports_text_input"] = bool(
-            override_snapshot["supports_text_input"]
-        )
+        merged["supports_text_input"] = bool(override_snapshot["supports_text_input"])
 
     model_kind = override_snapshot["model_kind"]
     if model_kind:
@@ -1115,9 +1099,7 @@ def _apply_model_override(
     capabilities["text_input"] = bool(merged.get("supports_text_input"))
     merged["capabilities"] = capabilities
     merged["override"] = {
-        key: value
-        for key, value in override_snapshot.items()
-        if value is not None
+        key: value for key, value in override_snapshot.items() if value is not None
     }
     merged["manual_override"] = True
     return merged
@@ -1203,9 +1185,7 @@ def _extract_capabilities(item: dict[str, Any]) -> dict[str, bool] | None:
     if not isinstance(raw, dict):
         return None
     capabilities = {
-        str(key): bool(value)
-        for key, value in raw.items()
-        if isinstance(value, bool)
+        str(key): bool(value) for key, value in raw.items() if isinstance(value, bool)
     }
     return capabilities or None
 
@@ -1308,8 +1288,7 @@ def _discover_dynamic_provider_models(
             "degraded",
             endpoint=endpoint,
             reason=(
-                "Provider model index request failed "
-                f"(HTTP {response.status_code})"
+                "Provider model index request failed " f"(HTTP {response.status_code})"
             ),
             failure_kind="provider_http_error",
         )
@@ -1380,41 +1359,23 @@ def provider_authorized(provider_id: str, settings: Settings) -> bool:
     if governance and governance.governance_classification == "disabled":
         return False
     if provider == "openai":
-        return _has_real_api_key(
-            str(getattr(settings, "OPENAI_API_KEY", "") or "")
-        )
+        return _has_real_api_key(str(getattr(settings, "OPENAI_API_KEY", "") or ""))
     if provider == "groq":
-        return _has_real_api_key(
-            str(getattr(settings, "GROQ_API_KEY", "") or "")
-        )
+        return _has_real_api_key(str(getattr(settings, "GROQ_API_KEY", "") or ""))
     if provider == "deepseek":
-        return _has_real_api_key(
-            str(getattr(settings, "DEEPSEEK_API_KEY", "") or "")
-        )
+        return _has_real_api_key(str(getattr(settings, "DEEPSEEK_API_KEY", "") or ""))
     if provider == "alibaba":
-        has_key = _has_real_api_key(
-            str(getattr(settings, "ALIBABA_API_KEY", "") or "")
-        )
-        has_base = bool(
-            str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip()
-        )
+        has_key = _has_real_api_key(str(getattr(settings, "ALIBABA_API_KEY", "") or ""))
+        has_base = bool(str(getattr(settings, "ALIBABA_API_BASE", "") or "").strip())
         return has_key and has_base
     if provider == "minimax":
-        has_key = _has_real_api_key(
-            str(getattr(settings, "MINIMAX_API_KEY", "") or "")
-        )
-        has_base = bool(
-            str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip()
-        )
+        has_key = _has_real_api_key(str(getattr(settings, "MINIMAX_API_KEY", "") or ""))
+        has_base = bool(str(getattr(settings, "MINIMAX_API_BASE", "") or "").strip())
         return has_key and has_base
     if provider == "anthropic":
-        return _has_real_api_key(
-            str(getattr(settings, "ANTHROPIC_API_KEY", "") or "")
-        )
+        return _has_real_api_key(str(getattr(settings, "ANTHROPIC_API_KEY", "") or ""))
     if provider == "gemini":
-        return _has_real_api_key(
-            str(getattr(settings, "GEMINI_API_KEY", "") or "")
-        )
+        return _has_real_api_key(str(getattr(settings, "GEMINI_API_KEY", "") or ""))
     return False
 
 
@@ -1496,19 +1457,13 @@ def _cloud_capable_configuration_present(settings: Settings) -> bool:
     ).strip()
     if raw_allowlist:
         allowlisted = {
-            item.strip().lower()
-            for item in raw_allowlist.split(",")
-            if item.strip()
+            item.strip().lower() for item in raw_allowlist.split(",") if item.strip()
         }
         if allowlisted & CLOUD_PROVIDERS:
             return True
 
-    openai_configured = bool(
-        str(getattr(settings, "OPENAI_API_KEY", "") or "").strip()
-    )
-    groq_configured = bool(
-        str(getattr(settings, "GROQ_API_KEY", "") or "").strip()
-    )
+    openai_configured = bool(str(getattr(settings, "OPENAI_API_KEY", "") or "").strip())
+    groq_configured = bool(str(getattr(settings, "GROQ_API_KEY", "") or "").strip())
     deepseek_configured = bool(
         str(getattr(settings, "DEEPSEEK_API_KEY", "") or "").strip()
     )
@@ -1538,9 +1493,7 @@ def supported_profile_posture(settings: Settings) -> dict[str, Any]:
     )
 
     manifest = get_active_supported_profile()
-    selected_provider = normalize_provider(
-        getattr(settings, "LLM_PROVIDER", None)
-    )
+    selected_provider = normalize_provider(getattr(settings, "LLM_PROVIDER", None))
     cloud_capable = _cloud_capable_configuration_present(settings)
 
     if manifest is None:
@@ -1609,8 +1562,7 @@ def _static_provider_models(
 
 def _minimax_documented_models(settings: Settings) -> list[dict[str, Any]]:
     models = [
-        _normalize_model_descriptor(dict(item))
-        for item in _MINIMAX_DOCUMENTED_MODELS
+        _normalize_model_descriptor(dict(item)) for item in _MINIMAX_DOCUMENTED_MODELS
     ]
     default_model = default_model_for_provider("minimax", settings)
     existing_ids = {
@@ -1669,11 +1621,7 @@ def resolve_provider_capability(
             available=available,
             disabled_reason=disabled_reason,
         )
-        if (
-            provider == "minimax"
-            and available
-            and model_index["state"] != "available"
-        ):
+        if provider == "minimax" and available and model_index["state"] != "available":
             fallback_models = _minimax_documented_models(settings)
             if fallback_models:
                 models = fallback_models
@@ -1681,9 +1629,7 @@ def resolve_provider_capability(
                     1 for model in models if bool(model.get("supports_chat"))
                 )
                 utility_model_count = sum(
-                    1
-                    for model in models
-                    if not bool(model.get("supports_chat"))
+                    1 for model in models if not bool(model.get("supports_chat"))
                 )
                 model_index = {
                     **model_index,
@@ -1694,8 +1640,7 @@ def resolve_provider_capability(
                         "using documented model list"
                     ),
                     "failure_kind": str(
-                        model_index.get("failure_kind")
-                        or "discovery_unavailable"
+                        model_index.get("failure_kind") or "discovery_unavailable"
                     ).strip()
                     or "discovery_unavailable",
                     "model_count": chat_model_count,
@@ -1734,9 +1679,7 @@ def resolve_provider_capability(
             and not models
             and (
                 not default_model
-                or not provider_allows_default_during_degraded_discovery(
-                    provider
-                )
+                or not provider_allows_default_during_degraded_discovery(provider)
             )
         ):
             available = False
@@ -1763,9 +1706,7 @@ def resolve_provider_capability(
         }
 
     models = _apply_model_overrides(provider, models)
-    chat_model_count = sum(
-        1 for model in models if bool(model.get("supports_chat"))
-    )
+    chat_model_count = sum(1 for model in models if bool(model.get("supports_chat")))
     if chat_model_count <= 0 and model_index.get("state") == "available":
         model_index = {
             **model_index,
@@ -1811,9 +1752,7 @@ def get_provider_model_descriptors(
         return []
 
     default_model = normalize_model_id(capability["default_model"])
-    model_index_state = str(
-        capability["model_index"].get("state") or ""
-    ).strip()
+    model_index_state = str(capability["model_index"].get("state") or "").strip()
     if (
         governance.configured_defaults_allowed_on_discovery_failure
         and default_model
@@ -1887,9 +1826,7 @@ def resolve_provider_for_model(
     if not candidate:
         return None
 
-    local_ids = {
-        normalize_model_id(item) for item in (local_model_ids or []) if item
-    }
+    local_ids = {normalize_model_id(item) for item in (local_model_ids or []) if item}
     if candidate in local_ids:
         local_status = provider_status("local", settings)
         if local_status["enabled"] or not enabled_only:
@@ -1915,15 +1852,19 @@ def validate_provider_model_selection(
     model_id: str | None,
     settings: Settings,
     local_model_ids: Iterable[str] | None = None,
+    require_available_inventory: bool = False,
 ) -> tuple[bool, str | None]:
     provider = normalize_provider(provider_id)
     capability = resolve_provider_capability(provider, settings)
     if not capability["enabled"]:
-        return False, str(
-            capability["disabled_reason"] or "Provider unavailable"
-        )
+        return False, str(capability["disabled_reason"] or "Provider unavailable")
 
     model = normalize_model_id(model_id)
+    if require_available_inventory and (
+        not capability["authorized"]
+        or capability["model_index"]["state"] != "available"
+    ):
+        return False, "Provider requires an available discovered chat model"
     if not model:
         if capability["default_model"]:
             return True, None

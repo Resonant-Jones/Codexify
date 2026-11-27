@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from types import MethodType
+from typing import TypedDict
 
 import pytest
 
@@ -16,12 +17,20 @@ from tests.core.test_chat_completion_service_latest_turn_regression import (
 )
 
 
-class _Cursor:
-    def __init__(self, rows: list[dict[str, object]]) -> None:
-        self.rows = rows
-        self.selected: list[dict[str, object]] = []
+class _MessageRow(TypedDict):
+    id: int
+    thread_id: int
+    role: str
+    content: str
+    created_at: datetime
 
-    def __enter__(self) -> "_Cursor":
+
+class _Cursor:
+    def __init__(self, rows: list[_MessageRow]) -> None:
+        self.rows = rows
+        self.selected: list[_MessageRow] = []
+
+    def __enter__(self) -> _Cursor:
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -29,28 +38,64 @@ class _Cursor:
 
     def execute(self, query: str, params: tuple[object, ...] | list[object]) -> None:
         assert "FROM chat_messages" in query
-        assert params[0] == 1
-        newest_first = "ORDER BY created_at DESC, id DESC" in query
-        oldest_first = "ORDER BY created_at ASC, id ASC" in query
-        assert newest_first or oldest_first
+        rows = self.rows
+        if "JOIN chat_messages AS anchor" in query:
+            anchor_id, thread_id, limit = params
+            assert thread_id == 1
+            assert "anchor.thread_id = message.thread_id" in query
+            assert "message.id <= anchor.id" in query
+            assert (
+                "(message.created_at, message.id) <= (anchor.created_at, anchor.id)"
+                in query
+            )
+            assert "ORDER BY message.created_at DESC, message.id DESC" in query
+            anchor = next(
+                (
+                    row
+                    for row in rows
+                    if row["id"] == anchor_id and row["thread_id"] == thread_id
+                ),
+                None,
+            )
+            if anchor is None:
+                self.selected = []
+                return
+            rows = [
+                row
+                for row in rows
+                if row["thread_id"] == thread_id
+                and row["id"] <= anchor["id"]
+                and (row["created_at"], row["id"])
+                <= (anchor["created_at"], anchor["id"])
+            ]
+            newest_first = True
+            offset = 0
+        else:
+            assert params[0] == 1
+            newest_first = "ORDER BY created_at DESC, id DESC" in query
+            oldest_first = "ORDER BY created_at ASC, id ASC" in query
+            assert newest_first or oldest_first
+            limit = params[1] if newest_first else params[-2]
+            offset = 0 if newest_first else params[-1]
+
+        assert isinstance(limit, int)
+        assert isinstance(offset, int)
         ordered = sorted(
-            self.rows,
+            rows,
             key=lambda row: (row["created_at"], row["id"]),
             reverse=newest_first,
         )
-        limit = int(params[1] if newest_first else params[-2])
-        offset = 0 if newest_first else int(params[-1])
         self.selected = ordered[offset : offset + limit]
 
-    def fetchall(self) -> list[dict[str, object]]:
+    def fetchall(self) -> list[_MessageRow]:
         return self.selected
 
 
 class _Connection:
-    def __init__(self, rows: list[dict[str, object]]) -> None:
+    def __init__(self, rows: list[_MessageRow]) -> None:
         self.rows = rows
 
-    def __enter__(self) -> "_Connection":
+    def __enter__(self) -> _Connection:
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -64,7 +109,7 @@ def _chatlog(message_count: int) -> PgDB:
     # Exercise PgDB's actual SQL construction and row-order normalization.
     # The cursor evaluates that SQL's ordering and limit against seeded rows.
     start = datetime(2026, 9, 23)
-    rows: list[dict[str, object]] = [
+    rows: list[_MessageRow] = [
         {
             "id": message_id,
             "thread_id": 1,
@@ -104,11 +149,15 @@ def test_postgres_recent_window_is_newest_and_chronological(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("message_count", [55, 110])
 async def test_completion_keeps_latest_target_and_excludes_oldest_overflow(
     monkeypatch: pytest.MonkeyPatch,
+    message_count: int,
 ) -> None:
     captured = _seed_completion_service(monkeypatch, messages=[])
-    monkeypatch.setattr(chat_completion_service.dependencies, "chatlog_db", _chatlog(55))
+    monkeypatch.setattr(
+        chat_completion_service.dependencies, "chatlog_db", _chatlog(message_count)
+    )
     task = ChatCompletionTask(
         user_id="user-1",
         thread_id=1,
@@ -137,7 +186,9 @@ async def test_completion_keeps_latest_target_and_excludes_oldest_overflow(
 @pytest.mark.asyncio
 async def test_context_broker_uses_newest_six_in_chronological_order() -> None:
     broker = ContextBroker(chatlog_db=_chatlog(10), vector_store=None)
-    assert [row["id"] for row in await broker._fetch_messages(1, 6, user_id="user-1")] == [
+    assert [
+        row["id"] for row in await broker._fetch_messages(1, 6, user_id="user-1")
+    ] == [
         5,
         6,
         7,

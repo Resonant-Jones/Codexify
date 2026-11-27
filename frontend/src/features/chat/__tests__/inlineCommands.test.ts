@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { SlashCommandDefinition } from "@/contracts/slashCommands";
 import {
   getSupportedInlineCommands,
   markInlineCommandExecuted,
   matchInlineCommandPrefix,
-  parseInlineCommandDraft,
+  parseInlineCommandDraft as parseCommandDraft,
   suggestInlineCommandValues,
   type InlineCommandOptionSets,
 } from "@/features/chat/inlineCommands";
@@ -38,6 +39,23 @@ const optionSets: InlineCommandOptionSets = {
   ],
 };
 
+const commands: SlashCommandDefinition[] = Object.keys(optionSets).map((id) => ({
+  id,
+  token: `/${id}`,
+  label: id.charAt(0).toUpperCase() + id.slice(1),
+  description: "Test control",
+  aliases: [],
+  keywords: [],
+  scaffold: `/${id}`,
+  interactionModes: ["composer_control"],
+  effects: null,
+  availability: "unknown",
+  availabilityReason: "eligibility_not_evaluated",
+}));
+
+const parseInlineCommandDraft = (draft: string, options: InlineCommandOptionSets) =>
+  parseCommandDraft(draft, options, commands);
+
 describe("inline command registry", () => {
   it("lists supported canonical commands for a slash-only draft", () => {
     const result = parseInlineCommandDraft("/", optionSets);
@@ -48,7 +66,7 @@ describe("inline command registry", () => {
   });
 
   it("filters canonical command names by prefix", () => {
-    const definitions = getSupportedInlineCommands(optionSets);
+    const definitions = getSupportedInlineCommands(optionSets, commands);
     expect(matchInlineCommandPrefix("pro", definitions).map((item) => item.name))
       .toEqual(["project", "provider"]);
     expect(parseInlineCommandDraft("/mod", optionSets).state).toBe("incomplete");

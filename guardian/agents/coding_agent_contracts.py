@@ -6,7 +6,7 @@ This module is intentionally dependency-light and does not execute adapters.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from guardian.pi.tokens import PI_AUTHORIZED_REASONING_EFFORTS
@@ -223,7 +223,7 @@ class CodingExecutionBinding:
         attempt_id: str,
         max_attempts: int,
         reasoning_effort: str | None = None,
-    ) -> "CodingExecutionBinding":
+    ) -> CodingExecutionBinding:
         # A lane with a validated compatibility rule is governed by Guardian, so
         # every binding minted for it governs the effort. Leaving it ungoverned
         # would hand the harness its own default instead — a level Guardian
@@ -240,9 +240,7 @@ class CodingExecutionBinding:
                     # A lane that cannot authorize its own default authorizes
                     # nothing. Fail closed here rather than persist a level no
                     # lane validated.
-                    raise ValueError(
-                        "execution_binding_reasoning_effort_unsupported"
-                    )
+                    raise ValueError("execution_binding_reasoning_effort_unsupported")
                 reasoning_effort = lane.default
         binding_id = f"xeb_{uuid4().hex}"
         return cls(
@@ -280,7 +278,7 @@ class CodingExecutionBinding:
         )
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "CodingExecutionBinding":
+    def from_dict(cls, payload: dict[str, object]) -> CodingExecutionBinding:
         required = (
             "binding_id",
             "harness_id",
@@ -303,7 +301,8 @@ class CodingExecutionBinding:
         )
         if any(not str(payload.get(key) or "").strip() for key in required):
             raise ValueError("execution_binding_incomplete")
-        schema_version = int(payload.get("schema_version") or 0)
+        # int() validates this external value, including buffer and integer protocols.
+        schema_version = int(cast(Any, payload.get("schema_version") or 0))
         if schema_version not in {
             CODING_EXECUTION_BINDING_SCHEMA_VERSION,
             CODING_EXECUTION_BINDING_EFFORT_SCHEMA_VERSION,
@@ -331,11 +330,12 @@ class CodingExecutionBinding:
                 raise ValueError("execution_binding_reasoning_effort_unsupported")
         if payload.get("harness_selection_mode") not in {"default", "explicit"}:
             raise ValueError("execution_binding_selection_mode_invalid")
-        if payload.get("credential_owner_scope") == "service" and not str(
-            payload.get("usage_policy_ref") or ""
-        ).strip():
+        if (
+            payload.get("credential_owner_scope") == "service"
+            and not str(payload.get("usage_policy_ref") or "").strip()
+        ):
             raise ValueError("execution_binding_usage_policy_missing")
-        max_attempts = int(payload.get("max_attempts") or 0)
+        max_attempts = int(cast(Any, payload.get("max_attempts") or 0))
         if max_attempts < 1 or max_attempts > 3:
             raise ValueError("execution_binding_attempt_limit_invalid")
         project_id = payload.get("project_id")

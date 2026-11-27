@@ -77,7 +77,9 @@ SCRATCH_PATH = "/scratch"
 UPLOAD_PATH = "/tmp/workspace.tar"
 
 
-def default_runner(argv: Sequence[str], timeout_seconds: int = 120) -> "tuple[int, bytes, bytes]":
+def default_runner(
+    argv: Sequence[str], timeout_seconds: int = 120
+) -> tuple[int, bytes, bytes]:
     """Run ``argv`` and capture its output."""
     try:
         proc = subprocess.run(  # noqa: S603 - argv is built by this adapter
@@ -129,16 +131,20 @@ class DockerCloudSandboxProvider:
         kit: str | None = None,
         region: str | None = None,
         name_prefix: str | None = None,
-        workspace_resolver: Callable[[object], "tuple[str, str]"] | None = None,
+        workspace_resolver: Callable[[object], tuple[str, str]] | None = None,
     ):
         self._runner = runner or default_runner
-        self._sbx_binary = sbx_binary or os.getenv("CODEXIFY_SANDBOX_SBX_BINARY", "sbx")
+        binary = sbx_binary or os.getenv("CODEXIFY_SANDBOX_SBX_BINARY", "sbx")
+        assert binary is not None
+        self._sbx_binary = binary
         self._kit = kit or os.getenv("CODEXIFY_SANDBOX_DOCKER_KIT", "codexify-sandbox")
         self._region = region or os.getenv("CODEXIFY_SANDBOX_DOCKER_REGION")
         self._name_prefix = name_prefix or os.getenv(
             "CODEXIFY_SANDBOX_DOCKER_NAME_PREFIX", "codexify-sbx"
         )
-        self._workspace_resolver = workspace_resolver or self._default_workspace_resolver
+        self._workspace_resolver = (
+            workspace_resolver or self._default_workspace_resolver
+        )
 
     # --- registry surface --------------------------------------------------
 
@@ -219,9 +225,7 @@ class DockerCloudSandboxProvider:
         finally:
             if created:
                 teardown = self._teardown(sandbox_name)
-                teardown_status = (
-                    "complete" if teardown.exit_code == 0 else "failed"
-                )
+                teardown_status = "complete" if teardown.exit_code == 0 else "failed"
                 teardown_warning = None
                 if teardown.exit_code != 0:
                     teardown_warning = (
@@ -367,9 +371,7 @@ class DockerCloudSandboxProvider:
             f"tar -xf {shlex.quote(UPLOAD_PATH)} -C {shlex.quote(WORKSPACE_PATH)}",
         )
 
-    def _establish_boundaries(
-        self, request: SandboxRequest, name: str
-    ) -> _ExecOutcome:
+    def _establish_boundaries(self, request: SandboxRequest, name: str) -> _ExecOutcome:
         """
         Establish and attest the read-only workspace and the scratch cap.
 
@@ -382,10 +384,10 @@ class DockerCloudSandboxProvider:
                 "set -eu",
                 f"WS={shlex.quote(WORKSPACE_PATH)}",
                 f"SCRATCH={shlex.quote(SCRATCH_PATH)}",
-                "mkdir -p \"$SCRATCH\"",
+                'mkdir -p "$SCRATCH"',
                 # The tmpfs size option is the kernel-enforced ceiling: it caps
                 # the only writable path the guest has.
-                f"mount -t tmpfs -o size={storage_bytes} tmpfs \"$SCRATCH\"",
+                f'mount -t tmpfs -o size={storage_bytes} tmpfs "$SCRATCH"',
                 # Attest the ceiling from the kernel's own mount table.
                 "MOUNT_LINE=$(awk -v p=\"$SCRATCH\" '$2==p {print; exit}' /proc/mounts)",
                 'case "$MOUNT_LINE" in *" tmpfs "*) ;; *) echo scratch_not_tmpfs; exit 41;; esac',
@@ -395,12 +397,12 @@ class DockerCloudSandboxProvider:
                 # Make the workspace read-only.
                 'mount -o remount,ro "$WS" 2>/dev/null || { echo workspace_remount_failed; exit 44; }',
                 # Attest read-only from the mount table and by effect.
-                'WS_OPTS=$(awk -v p="$WS" \'$2==p {print $4; exit}\' /proc/mounts)',
+                "WS_OPTS=$(awk -v p=\"$WS\" '$2==p {print $4; exit}' /proc/mounts)",
                 'case ",$WS_OPTS," in *,ro,*) ;; *) echo workspace_not_read_only; exit 45;; esac',
                 'if touch "$WS/.codexify-ro-probe" 2>/dev/null; then',
                 '  rm -f "$WS/.codexify-ro-probe" 2>/dev/null || true',
-                '  echo workspace_writable; exit 46',
-                'fi',
+                "  echo workspace_writable; exit 46",
+                "fi",
                 "echo boundaries_established",
             ]
         )
@@ -424,9 +426,7 @@ class DockerCloudSandboxProvider:
         code, stdout, stderr = self._runner(argv, timeout)
         return _ExecOutcome(code, stdout, stderr)
 
-    def _exec(
-        self, name: str, command: str, timeout: int = 120
-    ) -> _ExecOutcome:
+    def _exec(self, name: str, command: str, timeout: int = 120) -> _ExecOutcome:
         argv = [
             self._sbx_binary,
             "--cloud",
@@ -440,7 +440,7 @@ class DockerCloudSandboxProvider:
         return self._run(argv, timeout)
 
     @staticmethod
-    def _default_workspace_resolver(workspace) -> "tuple[str, str]":
+    def _default_workspace_resolver(workspace) -> tuple[str, str]:
         """
         Resolve a workspace to a local archive plus its digest.
 
@@ -479,7 +479,7 @@ class DockerCloudSandboxProvider:
     @staticmethod
     def _truncate(
         request: SandboxRequest, run: _ExecOutcome
-    ) -> "tuple[bytes, bytes, bool]":
+    ) -> tuple[bytes, bytes, bool]:
         limit = max(0, int(request.resources.output_max_bytes))
         stdout, stderr = run.stdout, run.stderr
         truncated = False

@@ -38,6 +38,7 @@ from guardian.core.hosted_room_session import (
 )
 from guardian.db.models import (
     ChatCompletionAttempt,
+    OpenAIImportSource,
     ChatMessage,
     ChatThread,
     HostedRoom,
@@ -79,6 +80,7 @@ SELECTED_TEST_TABLES = (
     Project.__table__,
     PersonaProfile.__table__,
     PersonaProfileRevision.__table__,
+    OpenAIImportSource.__table__,
     ChatThread.__table__,
     ChatCompletionAttempt.__table__,
     HostedRoom.__table__,

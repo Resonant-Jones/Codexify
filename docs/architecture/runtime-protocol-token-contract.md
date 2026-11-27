@@ -26,6 +26,13 @@ inline literals.
 
 ## Current token domains
 
+- Bounded account-import transport errors, from `AccountImportErrorCode`:
+  `account_import_chunk_invalid`, `account_import_chunk_conflict`,
+  `account_import_chunk_integrity_failed`,
+  `account_import_chunk_storage_unavailable`. These describe intake transport
+  refusal only. They do not create a new import status, enqueue a worker,
+  authorize another account, or establish archive completeness.
+
 - Acceptance statuses:
   `accepted`, `accepted_degraded`
 

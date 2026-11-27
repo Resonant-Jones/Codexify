@@ -55,6 +55,7 @@ import api, {
   OptionalSurfaceError,
 } from "@/lib/api";
 import { buildChatCompletionPayload } from "@/lib/chatClient";
+import { generateImage, imageGenerationError, requireImageCommandDiscovery, resolveImageGenerationIntent } from "@/features/chat/imageGeneration";
 import { isRagTraceUIEnabled } from "@/lib/devFlags";
 import { cn } from "@/lib/utils";
 import { useLiveEvents, type LiveEvent } from "@/hooks/useLiveEvents";
@@ -125,6 +126,7 @@ import {
 import { applyAgentRunEvent } from "@/features/chat/hooks/useAgentRuns";
 import { useCodingLoopRuns } from "@/features/chat/codingLoop/CodingLoop";
 import { SUPPORTED_PROFILE_ROUTE_LABELS } from "@/contracts/supportedProfileRoutes";
+import { useSlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
 import {
   markRuntimeRouteUnavailableIfNotFound,
   useRuntimeRouteCapability,
@@ -1003,7 +1005,7 @@ export function GuardianChat({
     projectId: string | null,
     projectName: string | null
   ) => void;
-  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<void>;
+  onSendMessage: (text: string, options?: ComposerSendOptions) => Promise<number | void>;
   onThreadPersisted?: (
     threadId: number,
     title?: string,
@@ -1040,6 +1042,7 @@ export function GuardianChat({
 }) {
   const auth = useAuthState();
   const authCanSend = auth.ready && auth.status === "authenticated";
+  const slashCommandLibrary = useSlashCommandLibrary(auth, runtimeHealth?.backendReachable);
   const [landingGreetingIndex, setLandingGreetingIndex] = useState(
     randomLandingGreetingIndex
   );
@@ -1443,16 +1446,41 @@ export function GuardianChat({
     [selectedProvider]
   );
 
+  const matchesSavedRoute = !persistedThreadConfig || (
+    selectedProvider?.id === persistedThreadConfig.providerId &&
+    selectedModel?.id === persistedThreadConfig.modelId
+  );
+  const routeEffortLevels = matchesSavedRoute &&
+    selectedProvider?.enabled && selectedProvider.authorized && selectedProvider.available &&
+    selectedProvider.id === activeProviderId && selectedModel?.id === activeModelId
+    ? selectedModel?.thinkingEffortLevels
+    : undefined;
+
   const supportsManualInferenceMode = useMemo(() => {
     if (!selectedProvider || !selectedModel) return false;
+    if (routeEffortLevels?.length) return true;
     if (selectedProvider.id !== "local") return false;
     return Boolean(selectedModel.runtime?.reasoning?.mode) || /qwen|qwq/i.test(selectedModel.id);
-  }, [selectedModel, selectedProvider]);
+  }, [selectedModel, selectedProvider, routeEffortLevels]);
 
   const effectiveInferenceMode = supportsManualInferenceMode
     ? activeInferenceMode
     : DEFAULT_COMPOSER_INFERENCE_MODE;
 
+  const effortLevels = effectiveInferenceMode === "think" ? routeEffortLevels : undefined;
+  const effortRouteKey = JSON.stringify([
+    selectedProvider?.id, selectedModel?.id, effectiveInferenceMode, effortLevels,
+  ]);
+  // Distinguish returning to a route from a send that started on its earlier visit.
+  const effortRoute = useMemo(() => ({ key: effortRouteKey }), [effortRouteKey]);
+  const currentEffortRoute = useRef(effortRoute);
+  useLayoutEffect(() => { currentEffortRoute.current = effortRoute; }, [effortRoute]);
+  const effortScope = JSON.stringify([activeThread.id, effortRouteKey]);
+  const [effortSelection, setEffortSelection] = useState({ scope: effortScope, level: "default" });
+  const consumedEffort = useRef<typeof effortSelection | null>(null);
+  if (effortSelection.scope !== effortScope) {
+    setEffortSelection({ scope: effortScope, level: "default" });
+  }
   const inferenceModeOptions = useMemo(() => {
     const base = [
       {
@@ -1940,9 +1968,16 @@ export function GuardianChat({
   // Helper: ask backend to complete the thread and then refresh
   const completeThread = async (
     tid: number,
-    options: CompletionRequestOptions = {}
+    options: CompletionRequestOptions = {},
+    thinkingEffort?: string,
+    messageId?: number | void,
   ): Promise<CompletionOutcome> => {
     const selection = resolveCompletionSelection(options);
+    if (thinkingEffort !== undefined && (currentEffortRoute.current !== effortRoute ||
+        typeof messageId !== "number" || !Number.isSafeInteger(messageId) || messageId <= 0)) {
+      inferenceRequest.markFailed("Could not confirm the authored turn and model. Review the chat and retry.");
+      return "failed";
+    }
     const contextDirectives =
       options.slashIntent?.contextDirectives ?? null;
     const completionSourceMode =
@@ -1962,6 +1997,7 @@ export function GuardianChat({
         guardianName,
         contextDirectives,
       }),
+      ...(thinkingEffort !== undefined ? { thinking_effort: thinkingEffort, expected_message_id: messageId } : {}),
       source_mode: completionSourceMode,
       ...(completionSlashIntent ? { slashIntent: completionSlashIntent } : {}),
     };
@@ -3665,11 +3701,15 @@ export function GuardianChat({
     setCodexDraft(null);
   }, []);
 
+  const imageTurnBusyRef = useRef(false);
   // Enhanced send handler with auto-thread creation
   const handleSendMessage = async (
     text: string,
     options?: ComposerSendOptions
   ) => {
+    const codingLoopMode = options?.executionMode === "coding";
+    const imageIntent = codingLoopMode || text.includes("<!-- cfy-media:")
+      ? null : options?.imageGeneration ?? resolveImageGenerationIntent(text);
     /**
      * Inject human consciousness into the thread's awareness stream.
      *
@@ -3680,30 +3720,36 @@ export function GuardianChat({
     const hydrationState = getRuntimeConfigHydrationState();
     if (hydrationState === "pending") {
       showToast("Local runtime is still hydrating. Try again in a moment.");
+      if (imageIntent) throw new Error("Local runtime is still hydrating. Try again in a moment.");
       return;
     }
     if (hydrationState === "failed") {
       showToast(
         "Local runtime handoff failed. Open desktop diagnostics and retry."
       );
+      if (imageIntent) throw new Error("Local runtime handoff failed. Open desktop diagnostics and retry.");
       return;
     }
     if (!auth.ready) {
       showToast("Authentication is not ready yet.");
+      if (imageIntent) throw new Error("Authentication is not ready yet.");
       return;
     }
     if (!authCanSend) {
       showToast(
         "Authentication required. Sign in or provide a dev key in local development."
       );
+      if (imageIntent) throw new Error("Sign in before generating an image.");
       return;
     }
     const targetThreadId = options?.threadIdOverride ?? effectiveThreadId;
-    const codingLoopMode = options?.executionMode === "coding";
+    if (imageTurnBusyRef.current) {
+      throw new Error("An image is already being generated. Wait for it to finish.");
+    }
     const requestedProfileId = resolveProfileIdFromCommand(text);
     const isProfileCommand =
       !codingLoopMode && targetThreadId != null && Boolean(requestedProfileId);
-    if (llmBackendUnavailable && !isProfileCommand && !codingLoopMode) {
+    if (llmBackendUnavailable && !isProfileCommand && !codingLoopMode && !imageIntent) {
       const title =
         llmHealth.modelsAvailable === false
           ? "No AI models available."
@@ -3716,6 +3762,7 @@ export function GuardianChat({
     }
     if (targetThreadId != null && isTurnLocked(targetThreadId)) {
       notifyTurnLocked();
+      if (imageIntent) throw new Error("Wait for the current turn to finish before generating an image.");
       return;
     }
     if (
@@ -3723,6 +3770,7 @@ export function GuardianChat({
       isCompletionInFlight(targetThreadId)
     ) {
       notifyTurnLocked();
+      if (imageIntent) throw new Error("Wait for the current turn to finish before generating an image.");
       return;
     }
     if (targetThreadId != null && requestedProfileId) {
@@ -3759,6 +3807,48 @@ export function GuardianChat({
       }
       return;
     }
+    if (imageIntent) {
+      requireImageCommandDiscovery(slashCommandLibrary, imageIntent);
+      if (!imageIntent.prompt.trim()) throw new Error("Describe the image you want to generate.");
+      let imageThreadId = targetThreadId;
+      let imageSaved = false;
+      let imageAttached = false;
+      imageTurnBusyRef.current = true;
+      setPendingTurnLock(true);
+      try {
+        imageThreadId ??= await createThreadFromComposer(text);
+        if (imageThreadId == null) throw new Error("Could not create a thread for this image.");
+        setTurnLockForThread(imageThreadId, true);
+        await api.post(`/chat/${imageThreadId}/messages`, {
+          role: "user", content: text,
+          project_id: workspaceProjectId ?? undefined,
+        });
+        await refreshSnapshot(imageThreadId, "image-request");
+        const image = await generateImage(imageIntent, { threadId: imageThreadId });
+        imageSaved = true;
+        // Store the durable id. The bubble fetches a fresh signed URL on reload.
+        await api.post(`/chat/${imageThreadId}/messages`, {
+          role: "assistant",
+          content: `<!-- cfy-media:image:generated:${image.id} -->\n\nGenerated with ${image.model}.`,
+          metadata: { image_generation: { id: image.id, provider: image.provider, model: image.model } },
+        });
+        imageAttached = true;
+        await refreshSnapshot(imageThreadId, "image-generated");
+        emitThreadsRefresh("refresh", { reason: "message", id: String(imageThreadId) });
+      } catch (error) {
+        const message = imageAttached ? "Image saved. Refresh this chat to view it."
+          : imageSaved ? "Image saved to Gallery, but it could not be attached to this chat. Check Gallery before generating again."
+          : imageGenerationError(error);
+        showToast(message);
+        // The media record may already exist; retrying a paid call isn't automatic.
+        throw new Error(message);
+      } finally {
+        imageTurnBusyRef.current = false;
+        setPendingTurnLock(false);
+        if (imageThreadId != null) setTurnLockForThread(imageThreadId, false);
+      }
+      return;
+    }
     const contentForSend = await buildDocumentContextMessage(
       text,
       activeDocumentTiles
@@ -3766,6 +3856,17 @@ export function GuardianChat({
     if (codingLoopMode) {
       await handleCodingLoopDispatch(contentForSend, targetThreadId);
       return;
+    }
+    const thinkingEffort = effortLevels?.length
+      ? consumedEffort.current === effortSelection ? "default" : effortSelection.level
+      : undefined;
+    if (thinkingEffort !== undefined && (currentEffortRoute.current !== effortRoute ||
+        (targetThreadId != null && targetThreadId !== effectiveThreadId))) {
+      throw new Error("The selected thread or model changed. Review the chat and retry.");
+    }
+    if (thinkingEffort && thinkingEffort !== "default") {
+      consumedEffort.current = effortSelection;
+      setEffortSelection({ scope: effortScope, level: "default" });
     }
     if (!targetThreadId) {
       let createdThreadId: number | null = null;
@@ -3786,7 +3887,7 @@ export function GuardianChat({
           return;
         }
 
-        await api.post(`/chat/${createdThreadId}/messages`, {
+        const receipt = await api.post(`/chat/${createdThreadId}/messages`, {
           role: "user",
           content: contentForSend,
           project_id: workspaceProjectId ?? undefined,
@@ -3823,7 +3924,7 @@ export function GuardianChat({
         // persistence success with assistant completion.
         setTimeout(() => {
           void (async () => {
-            const completionOutcome = await completeThread(createdThreadId, options);
+            const completionOutcome = await completeThread(createdThreadId, options, thinkingEffort, receipt?.data?.message?.id);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(createdThreadId, false);
               if (completionOutcome === "failed") {
@@ -3855,19 +3956,21 @@ export function GuardianChat({
           setTurnLockForThread(targetThreadId, false);
           return;
         }
+        let messageId: number | void;
         if (targetThreadId !== effectiveThreadId) {
-          await api.post(`/chat/${targetThreadId}/messages`, {
+          const receipt = await api.post(`/chat/${targetThreadId}/messages`, {
             role: "user",
             content: contentForSend,
             project_id: workspaceProjectId ?? undefined,
           });
+          messageId = receipt?.data?.message?.id;
           emitThreadsRefresh("refresh", {
             reason: "message",
             id: String(targetThreadId),
           });
           setChatReloadVersion((v) => v + 1);
         } else {
-          await onSendMessage(contentForSend, options);
+          messageId = await onSendMessage(contentForSend, options);
           await refreshSnapshot(targetThreadId, "user-send");
         }
 
@@ -3882,7 +3985,7 @@ export function GuardianChat({
         setTimeout(() => {
           if (targetThreadId == null) return;
           void (async () => {
-            const completionOutcome = await completeThread(targetThreadId, options);
+            const completionOutcome = await completeThread(targetThreadId, options, thinkingEffort, messageId);
             if (completionOutcome !== "ok" && completionOutcome !== "inflight") {
               setTurnLockForThread(targetThreadId, false);
               if (completionOutcome === "failed") {
@@ -4719,6 +4822,7 @@ export function GuardianChat({
                 threadId={effectiveThreadId ?? undefined}
               />
               <Composer
+                slashCommandLibrary={slashCommandLibrary}
                 presentationMode={
                   isLandingPresentation ? "landing" : "conversation"
                 }
@@ -4822,6 +4926,9 @@ export function GuardianChat({
                 }}
                 activeInferenceMode={effectiveInferenceMode}
                 inferenceModeOptions={inferenceModeOptions}
+                thinkingEffortLevels={routeEffortLevels}
+                thinkingEffort={effortSelection.level}
+                onThinkingEffortChange={(level) => setEffortSelection({ scope: effortScope, level })}
                 onInferenceModeChange={(mode) => {
                   const nextSnapshot = mergeThreadConfigSnapshot({
                     inferenceMode: threadConfigInferenceModeFromComposer(

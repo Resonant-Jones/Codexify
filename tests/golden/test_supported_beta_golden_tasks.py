@@ -351,13 +351,15 @@ def test_golden_completion_acceptance_contract(monkeypatch):
         "active_profile_id": None,
         "active_profile_revision": None,
     }
-    mock_db.list_messages.return_value = [
-        {"id": 1, "role": "user", "content": "Hello there"}
-    ]
+    turn = {"id": 1, "role": "user", "content": "Hello there", "extra_meta": {}}
+    mock_db.resolve_authored_chat_turn.return_value = turn
     mock_db.write_audit_log.return_value = None
     # Authenticated acceptance rechecks persisted thread and User ownership.
     session = mock_db._sa_session.return_value.__enter__.return_value
-    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = (
+        "test_user"
+    )
+    session.execute.return_value.mappings.return_value.one_or_none.return_value = turn
 
     captured: dict[str, object] = {}
     monkeypatch.setattr(chat, "chatlog_db", mock_db)
@@ -433,6 +435,7 @@ def test_golden_completion_acceptance_contract(monkeypatch):
     assert "execution" not in payload
     assert captured["queue_name"] == "codexify:queue:chat"
     assert getattr(captured["task"], "turn_lock_owner") == payload["task_id"]
+    assert getattr(captured["task"], "latest_turn_message_id") == turn["id"]
     # Accepted work is queued for execution; it is not terminal completion.
 
 

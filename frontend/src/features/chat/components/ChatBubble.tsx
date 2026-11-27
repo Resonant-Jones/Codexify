@@ -28,6 +28,7 @@ import DocumentContextTileView from "@/features/chat/components/DocumentContextT
 import GenerativeUIRenderer, { isGenerativeUiEnabled } from "@/features/chat/components/generativeUi/GenerativeUIRenderer";
 import { parseUiArtifacts } from "@/features/chat/components/generativeUi/artifactCodec";
 import { requestComposerPrefill } from "@/features/chat/components/generativeUi/hostActions";
+import { GeneratedChatImage } from "@/features/chat/components/GeneratedChatImage";
 
 type Attachment = {
   kind: "image" | "document";
@@ -349,6 +350,11 @@ const AttachmentTiles = ({
         const key = `${att.kind}-${att.id ?? idx}`;
         const resolvedSrc = att.src ? resolveMediaSrc(att.src) : att.src;
         if (att.kind === "image") {
+          if (att.id?.startsWith("generated:")) {
+            return <div key={key} className={`${tileFrame} ${tileSize}`}>
+              <GeneratedChatImage id={att.id.slice("generated:".length)} />
+            </div>;
+          }
           return (
             <div key={key} className={`${tileFrame} ${tileSize}`}>
               {resolvedSrc ? (

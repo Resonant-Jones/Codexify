@@ -353,6 +353,11 @@ type GuardianChatWithSidebarProps = {
   onApplicationNavigationExpandedChange?: (expanded: boolean) => void;
   frameFirstMobile?: boolean;
   mobileFramePrelude?: React.ReactNode;
+  sidebarOpener?: React.RefObject<(() => void) | null>;
+  allowDockedSidebar?: boolean;
+  sidebarWidth?: number;
+  sidebarDivider?: React.ReactNode;
+  onDockedSidebarChange?: (visible: boolean) => void;
   browserFocused?: boolean;
   focusedSidebarOpen?: boolean;
   focusedSidebarPinned?: boolean;
@@ -385,6 +390,7 @@ export default function GuardianChatWithSidebar({
   onApplicationNavigationExpandedChange,
   frameFirstMobile = false,
   mobileFramePrelude,
+  sidebarOpener, allowDockedSidebar, sidebarWidth, sidebarDivider, onDockedSidebarChange,
   browserFocused = false,
   focusedSidebarOpen = false,
   focusedSidebarPinned = false,
@@ -436,7 +442,7 @@ export default function GuardianChatWithSidebar({
     [shellViewportProfile]
   );
   const isPhoneShell = mobileShellProfile.active;
-  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split" && !browserFocused;
+  const isDesktopLayout = shellViewportProfile.sidebarArrangement === "split" && allowDockedSidebar !== false && !browserFocused;
   const [threads, setThreads] = React.useState<Thread[]>([]);
   const projectCache = useProjectsCache({ threadsForLooseCount: threads });
   const projectListRef = React.useRef(projectCache.projectList);
@@ -928,6 +934,7 @@ export default function GuardianChatWithSidebar({
       ? isLandingSidebarOpen
       : sidebarIntro === "suppressed" ? false : isSidebarVisible
     : isMobileSidebarOpen;
+  React.useLayoutEffect(() => { onDockedSidebarChange?.(isDesktopLayout && isSidebarOpen); }, [isDesktopLayout, isSidebarOpen, onDockedSidebarChange]);
   const isMobileOverlayActive = !isDesktopLayout && isSidebarOpen;
   const guardianLayoutMode = browserFocused
     ? "collapsed_drawer"
@@ -957,6 +964,8 @@ export default function GuardianChatWithSidebar({
     },
     [browserFocused, guardianPresentationMode, isDesktopLayout, onFocusedSidebarOpenChange, updateSidebarIntro]
   );
+
+  React.useImperativeHandle(sidebarOpener, () => () => setSidebarOpen(true), [setSidebarOpen]);
 
   const closeMobileToolsMenu = React.useCallback(() => {
     setMobileToolsMenuOpen(false);
@@ -1624,7 +1633,7 @@ export default function GuardianChatWithSidebar({
 
     try {
       // Persist the message and then refresh the authoritative thread snapshot.
-      await api.post(`/chat/${numericThreadId}/messages`, {
+      const receipt = await api.post(`/chat/${numericThreadId}/messages`, {
         role: "user",
         content: text,
         metadata: isLikelyPrompt(text) ? { type: "prompt" } : undefined,
@@ -1684,6 +1693,8 @@ export default function GuardianChatWithSidebar({
           );
         }
       }
+      const messageId = receipt?.data?.message?.id;
+      return typeof messageId === "number" ? messageId : undefined;
     } catch (err) {
       console.warn("[guardian] failed to persist user message", err);
       const status = (err as any)?.response?.status;
@@ -2051,7 +2062,7 @@ export default function GuardianChatWithSidebar({
       }
       returnFocusRef={mobileSidebarTriggerRef}
       wallpaperUrl={renderableWallpaperUrl}
-      presentation={browserFocused ? "shelf" : "modal"}
+      presentation={browserFocused && allowDockedSidebar !== false ? "shelf" : "modal"}
       pinned={browserFocused && focusedSidebarPinned}
       onPinnedChange={onFocusedSidebarPinnedChange}
       onShelfPointerLeave={browserFocused && !focusedSidebarPinned ? closeSidebar : undefined}
@@ -2097,12 +2108,12 @@ export default function GuardianChatWithSidebar({
           maxWidth: mobileShellProfile.guardian.frameMaxWidth,
           gridTemplateColumns:
             !isPhoneShell && isDesktopLayout && isSidebarOpen
-              ? "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
+              ? sidebarDivider ? `${sidebarWidth}px 12px minmax(0, 1fr)` : "clamp(300px, 24vw, 360px) minmax(0, 1fr)"
               : "1fr",
-          gap: "var(--gutter)",
+          gap: sidebarDivider ? 0 : "var(--gutter)",
           padding: "0px",
           boxSizing: "border-box",
-          transition: isPhoneShell
+          transition: sidebarDivider || isPhoneShell
             ? undefined
             : "grid-template-columns 0.2s ease-out",
         }}
@@ -2164,12 +2175,14 @@ export default function GuardianChatWithSidebar({
           </div>
         )}
         {/* Chat Panel */}
+        {isDesktopLayout && isSidebarOpen && sidebarDivider}
         <div
+          data-primary-pane="chat"
           data-testid="guardian-primary-frame"
           data-frame-owner={frameFirstMobile ? "mobile-guardian" : "guardian"}
           className="flex h-full w-full min-h-0 overflow-hidden flex-col box-border"
           style={{
-            gridColumn: isDesktopLayout && isSidebarOpen ? "2" : "1",
+            gridColumn: isDesktopLayout && isSidebarOpen ? (sidebarDivider ? "3" : "2") : "1",
             gridRow: "1",
           }}
         >

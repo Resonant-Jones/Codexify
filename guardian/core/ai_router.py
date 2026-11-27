@@ -9,19 +9,21 @@ import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import unquote, urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 import requests
 from fastapi import HTTPException
 from requests import exceptions as req_exc
 
-from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.accepted_deadline_transport import AcceptedDeadlineTransport
-from guardian.tasks.chat_deadline import AcceptedChatTaskDeadline, AcceptedChatTaskDeadlineExceeded
+from guardian.core.chat_thinking_effort import validate_effort
+from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.core.config import Settings, get_settings
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.core.event_contracts import _coerce_text
+from guardian.core.media_signing import verify_media_signature
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_model_id,
@@ -40,9 +42,7 @@ from guardian.protocol_tokens import (
     GuardianProviderTransportClassification,
 )
 from guardian.providers.deepseek_adapter import DeepSeekResponse
-from guardian.providers.deepseek_adapter import (
-    build_payload as build_deepseek_payload,
-)
+from guardian.providers.deepseek_adapter import build_payload as build_deepseek_payload
 from guardian.providers.deepseek_adapter import build_tool_definitions
 from guardian.providers.deepseek_adapter import (
     normalize_tool_calls as normalize_deepseek_tool_calls,
@@ -70,8 +70,14 @@ from guardian.providers.whooshd_control_plane import (
 from guardian.providers.whooshd_tool_adapter import (
     WhooshdStructuredResponse,
     WhooshdStructuredTransportError,
+)
+from guardian.providers.whooshd_tool_adapter import (
     parse_structured_response as parse_whooshd_structured_response,
-    prepare_structured_transport,
+)
+from guardian.providers.whooshd_tool_adapter import prepare_structured_transport
+from guardian.tasks.chat_deadline import (
+    AcceptedChatTaskDeadline,
+    AcceptedChatTaskDeadlineExceeded,
 )
 from guardian.utils.log_safety import install_safe_logging
 
@@ -251,9 +257,7 @@ class _WhooshdCancellationMonitor:
         self._stop = threading.Event()
         self.cancelled = threading.Event()
         self._whooshd_request_id = _whooshd_request_id_from_response(response)
-        self._cancel_url = _whooshd_cancel_url(
-            base_url, self._whooshd_request_id
-        )
+        self._cancel_url = _whooshd_cancel_url(base_url, self._whooshd_request_id)
         self._headers = {
             WHOOSHD_CONTROL_VERSION_HEADER: WHOOSHD_CONTROL_PLANE_VERSION,
         }
@@ -279,9 +283,7 @@ class _WhooshdCancellationMonitor:
     def set_response(self, response: requests.Response) -> None:
         self._response = response
         if not self._whooshd_request_id:
-            self._whooshd_request_id = _whooshd_request_id_from_response(
-                response
-            )
+            self._whooshd_request_id = _whooshd_request_id_from_response(response)
         if not self._cancel_url:
             self._cancel_url = _whooshd_cancel_url(
                 self._base_url,
@@ -312,9 +314,9 @@ class _WhooshdCancellationMonitor:
                 continue
             if self._request_matches(item):
                 candidate = item.get("request_id")
-                if isinstance(
-                    candidate, str
-                ) and _SAFE_WHOOSHD_REQUEST_ID_RE.fullmatch(candidate):
+                if isinstance(candidate, str) and _SAFE_WHOOSHD_REQUEST_ID_RE.fullmatch(
+                    candidate
+                ):
                     return candidate
         return None
 
@@ -374,9 +376,7 @@ def _whooshd_request_id_from_response(
 ) -> str | None:
     if response is None:
         return None
-    return parse_whooshd_response_correlation(response).get(
-        "whooshd_request_id"
-    )
+    return parse_whooshd_response_correlation(response).get("whooshd_request_id")
 
 
 def _whooshd_base_url(base_url: str) -> str:
@@ -384,9 +384,7 @@ def _whooshd_base_url(base_url: str) -> str:
     path = parsed.path.rstrip("/")
     if path.endswith("/v1"):
         path = path[:-3].rstrip("/")
-    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")).rstrip(
-        "/"
-    )
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")).rstrip("/")
 
 
 def _whooshd_cancel_url(base_url: str, request_id: str | None) -> str | None:
@@ -475,9 +473,7 @@ COMPLETION_OUTPUT_KIND_TOOL_DECISION = "tool_decision"
 COMPLETION_OUTPUT_KIND_MALFORMED_TOOL_DECISION = "malformed_tool_decision"
 
 
-def _normalize_tool_decision_payload(
-    payload: dict[str, Any]
-) -> dict[str, Any] | None:
+def _normalize_tool_decision_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     command_id = str(
         payload.get("command_id") or payload.get("commandId") or ""
     ).strip()
@@ -496,9 +492,7 @@ def _normalize_tool_decision_payload(
         "command_id": command_id,
         "arguments": dict(arguments),
     }
-    tool_name = str(
-        payload.get("tool_name") or payload.get("toolName") or ""
-    ).strip()
+    tool_name = str(payload.get("tool_name") or payload.get("toolName") or "").strip()
     if tool_name:
         normalized["tool_name"] = tool_name
     summary = str(payload.get("summary") or payload.get("reason") or "").strip()
@@ -527,9 +521,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
 
     if isinstance(raw_output, dict):
         kind = (
-            str(raw_output.get("kind") or raw_output.get("type") or "")
-            .strip()
-            .lower()
+            str(raw_output.get("kind") or raw_output.get("type") or "").strip().lower()
         )
         if (
             kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
@@ -571,9 +563,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
         return _assistant(text)
 
     if isinstance(parsed, dict):
-        kind = (
-            str(parsed.get("kind") or parsed.get("type") or "").strip().lower()
-        )
+        kind = str(parsed.get("kind") or parsed.get("type") or "").strip().lower()
         if (
             kind == COMPLETION_OUTPUT_KIND_TOOL_DECISION
             or parsed.get("tool_decision") is not None
@@ -595,9 +585,7 @@ def normalize_completion_output(raw_output: Any) -> dict[str, Any]:
                 "raw": raw_output,
             }
         assistant_text = (
-            parsed.get("assistant_text")
-            or parsed.get("content")
-            or parsed.get("text")
+            parsed.get("assistant_text") or parsed.get("content") or parsed.get("text")
         )
         if assistant_text is not None:
             return _assistant(assistant_text)
@@ -727,18 +715,12 @@ def _tool_decision_from_content_blocks(
         if block_type not in {"tool_use", "tool_call"}:
             continue
         command_id = str(
-            block.get("name")
-            or block.get("command_id")
-            or block.get("tool_name")
-            or ""
+            block.get("name") or block.get("command_id") or block.get("tool_name") or ""
         ).strip()
         if not command_id:
             continue
         arguments = _coerce_tool_arguments(
-            block.get("input")
-            or block.get("arguments")
-            or block.get("params")
-            or {}
+            block.get("input") or block.get("arguments") or block.get("params") or {}
         )
         reason = str(block.get("text") or block.get("summary") or "").strip()
         return NormalizedCompletionOutput(
@@ -779,9 +761,7 @@ def normalize_completion_output(
                 kind="tool_decision",
                 command_id=call.get("command_id") or None,
                 arguments=_coerce_tool_arguments(call.get("arguments")),
-                reason=(
-                    "unknown_tool_alias" if not call.get("command_id") else None
-                ),
+                reason=("unknown_tool_alias" if not call.get("command_id") else None),
                 raw_payload=output.raw_payload,
                 provider="deepseek",
                 tool_call_id=call.get("tool_call_id") or None,
@@ -812,9 +792,7 @@ def normalize_completion_output(
         content_blocks = getattr(output, "content_blocks", None)
         candidate = None
         if isinstance(raw_payload, dict):
-            candidate = _tool_decision_from_mapping(
-                raw_payload, provider=provider
-            )
+            candidate = _tool_decision_from_mapping(raw_payload, provider=provider)
             if candidate is not None:
                 return candidate
             choices = raw_payload.get("choices")
@@ -995,9 +973,7 @@ def _local_extended_thinking_patterns(settings: Settings) -> tuple[str, ...]:
 
 
 def _local_no_think_patterns(settings: Settings) -> tuple[str, ...]:
-    raw = str(
-        getattr(settings, "LOCAL_NO_THINK_MODEL_PATTERNS", "") or ""
-    ).strip()
+    raw = str(getattr(settings, "LOCAL_NO_THINK_MODEL_PATTERNS", "") or "").strip()
     if not raw:
         raw = "qwen3.5,qwen-3.5,qwen 3.5,qwen3,qwen-3,qwen 3"
     return tuple(
@@ -1006,9 +982,7 @@ def _local_no_think_patterns(settings: Settings) -> tuple[str, ...]:
 
 
 def _local_no_think_skip_patterns(settings: Settings) -> tuple[str, ...]:
-    raw = str(
-        getattr(settings, "LOCAL_NO_THINK_SKIP_MODEL_PATTERNS", "") or ""
-    ).strip()
+    raw = str(getattr(settings, "LOCAL_NO_THINK_SKIP_MODEL_PATTERNS", "") or "").strip()
     if not raw:
         raw = (
             "thinking-2507,qwen3.5-thinking,qwen-3.5-thinking,"
@@ -1020,9 +994,7 @@ def _local_no_think_skip_patterns(settings: Settings) -> tuple[str, ...]:
     )
 
 
-def _match_pattern(
-    value: str, patterns: tuple[str, ...]
-) -> tuple[bool, str | None]:
+def _match_pattern(value: str, patterns: tuple[str, ...]) -> tuple[bool, str | None]:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return False, None
@@ -1075,9 +1047,7 @@ def resolve_local_reasoning_directive(
         return LocalReasoningDirective(mode="default", source="default")
 
     instruction = (
-        str(
-            getattr(resolved, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or ""
-        ).strip()
+        str(getattr(resolved, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or "").strip()
         or "/no_think"
     )
     return LocalReasoningDirective(
@@ -1085,8 +1055,7 @@ def resolve_local_reasoning_directive(
         source="profile",
         instruction=instruction,
         profile_reason=(
-            "model matched LOCAL_NO_THINK_MODEL_PATTERNS "
-            f"via '{matched_pattern}'"
+            "model matched LOCAL_NO_THINK_MODEL_PATTERNS " f"via '{matched_pattern}'"
         ),
     )
 
@@ -1109,8 +1078,7 @@ def _resolve_reasoning_override_instruction(
     if normalized in {"no_think", "fast", "/no_think"}:
         instruction = (
             str(
-                getattr(settings, "LOCAL_NO_THINK_INSTRUCTION", "/no_think")
-                or ""
+                getattr(settings, "LOCAL_NO_THINK_INSTRUCTION", "/no_think") or ""
             ).strip()
             or "/no_think"
         )
@@ -1258,9 +1226,7 @@ def apply_local_reasoning_directive(
         return messages, directive
 
     adapted = [
-        dict(message)
-        for message in (messages or [])
-        if isinstance(message, dict)
+        dict(message) for message in (messages or []) if isinstance(message, dict)
     ]
     target_index = _find_last_message_index(adapted, "user")
     if target_index < 0:
@@ -1313,9 +1279,7 @@ def _transform_messages_for_ollama_vision(
     result: list[dict[str, Any]] = []
     for message in messages or []:
         content = message.get("content")
-        if not isinstance(content, list) or not _content_has_image_payload(
-            content
-        ):
+        if not isinstance(content, list) or not _content_has_image_payload(content):
             result.append(message)
             continue
         text_parts, image_base64_list = [], []
@@ -1326,9 +1290,7 @@ def _transform_messages_for_ollama_vision(
                 if txt:
                     text_parts.append(txt)
             elif part_type == "image_url":
-                img_url = str(
-                    (part.get("image_url") or {}).get("url") or ""
-                ).strip()
+                img_url = str((part.get("image_url") or {}).get("url") or "").strip()
                 if img_url:
                     encoded = _encode_image_url_to_base64(img_url)
                     if encoded:
@@ -1362,19 +1324,43 @@ def _encode_image_url_to_base64(url: str) -> str | None:
         parsed = urlparse(url)
         if parsed.path.startswith("/media/"):
             media_path = unquote(parsed.path[len("/media/") :])
-            local_root = os.environ.get("GUARDIAN_MEDIA_ROOT", "")
+            local_root = os.environ.get("STORAGE_BASE_PATH") or os.environ.get(
+                "GUARDIAN_MEDIA_ROOT", ""
+            )
             if local_root and media_path:
-                file_path = os.path.join(local_root, media_path)
-                with open(file_path, "rb") as fh:
+                signatures = parse_qs(parsed.query).get("sig")
+                signature = signatures[0] if signatures else None
+                if not verify_media_signature(parsed.path, signature):
+                    return None
+                root = Path(local_root).resolve()
+                file_path = (root / media_path).resolve()
+                if not file_path.is_relative_to(root):
+                    return None
+                # Documents have an additional account gate on the serving
+                # route; an image block must not bypass it with a local read.
+                relative = file_path.relative_to(root)
+                if Path(media_path).parts[:1] == ("documents",) or relative.parts[
+                    :1
+                ] == ("documents",):
+                    return None
+                with file_path.open("rb") as fh:
                     return base64.b64encode(fh.read()).decode("utf-8")
             from guardian.core.config import get_settings
 
             settings = get_settings()
             host = getattr(settings, "GUARDIAN_INTERNAL_HOST", "localhost")
             port = getattr(settings, "GUARDIAN_INTERNAL_PORT", "8000")
-            resp = requests.get(
-                f"http://{host}:{port}{parsed.path}", timeout=10
-            )
+            # Workers have no media mount. Reuse their configured internal
+            # Guardian address rather than fetching from the worker itself.
+            internal_base = str(
+                os.environ.get("GUARDIAN_INTERNAL_URL")
+                or os.environ.get("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE")
+                or f"http://{host}:{port}"
+            ).rstrip("/")
+            media_target = parsed.path
+            if parsed.query:
+                media_target += f"?{parsed.query}"
+            resp = requests.get(f"{internal_base}{media_target}", timeout=10)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
         elif parsed.scheme in ("http", "https"):
@@ -1500,9 +1486,7 @@ def _format_local_connect_error(
         or "timeout" in lowered
     ):
         timeout_kind = (
-            "read timeout"
-            if isinstance(err, req_exc.ReadTimeout)
-            else "timeout"
+            "read timeout" if isinstance(err, req_exc.ReadTimeout) else "timeout"
         )
         profile_hint = (
             " If this local model intentionally spends a long time reasoning before streaming, "
@@ -1546,8 +1530,7 @@ def _local_chat_model_is_authoritative(settings: Settings) -> bool:
     # particular, a stale model carried by a local request must never displace
     # LOCAL_CHAT_MODEL while the Whoosh'd + DeepSeek profile is active.
     return (
-        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER"))
-        == "local"
+        _normalize_provider(manifest.provider_contract.get("LLM_PROVIDER")) == "local"
     )
 
 
@@ -1564,9 +1547,9 @@ def _local_execution_model_candidates(
         )
         # Include LOCAL_VISION_MODEL only when the requested model matches it
         vision_model = getattr(settings, "LOCAL_VISION_MODEL", None)
-        if vision_model and normalize_model_id(
-            requested_model
-        ) == normalize_model_id(vision_model):
+        if vision_model and normalize_model_id(requested_model) == normalize_model_id(
+            vision_model
+        ):
             raw_candidates += (("LOCAL_VISION_MODEL", vision_model),)
     else:
         raw_candidates = (
@@ -1638,9 +1621,7 @@ def resolve_local_execution_model(
             strict=strict,
             requested_model=requested or None,
             failure_kind=LOCAL_MODEL_MISSING_FAILURE_KIND,
-            message=(
-                f"{source_name} is not configured for local chat execution"
-            ),
+            message=(f"{source_name} is not configured for local chat execution"),
             endpoint_resolution=endpoint_resolution,
         )
     configured_model, source = candidates[0]
@@ -1677,7 +1658,8 @@ def resolve_local_execution_model(
                 message=f"Requested model '{requested}' is not advertised by the local runtime",
                 endpoint_resolution=resolved_endpoint,
                 advertised_models=list(names),
-                inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
+                inventory_source=str(resolved_endpoint.get("inventory_source") or "")
+                or None,
             )
         return LocalModelResolution(
             model=requested,
@@ -1686,7 +1668,8 @@ def resolve_local_execution_model(
             requested_model=requested,
             endpoint_resolution=resolved_endpoint,
             advertised_models=list(names),
-            inventory_source=str(resolved_endpoint.get("inventory_source") or "") or None,
+            inventory_source=str(resolved_endpoint.get("inventory_source") or "")
+            or None,
         )
 
     if (
@@ -1696,9 +1679,7 @@ def resolve_local_execution_model(
     ):
         available_models = {
             normalized
-            for normalized in (
-                normalize_model_id(item) for item in (names or [])
-            )
+            for normalized in (normalize_model_id(item) for item in (names or []))
             if normalized
         }
         if strict and configured_model not in available_models:
@@ -1708,8 +1689,7 @@ def resolve_local_execution_model(
                 .lower()
             )
             inventory_source = (
-                str(resolved_endpoint.get("inventory_source") or "").strip()
-                or None
+                str(resolved_endpoint.get("inventory_source") or "").strip() or None
             )
             availability_reason = (
                 WHOOSHD_CONFIGURED_MODEL_NOT_ADVERTISED_REASON
@@ -1834,9 +1814,7 @@ def _local_provider_failure_detail(
             attempted_base_urls=normalized_base_urls,
             state="degraded",
             failure_kind=failure_kind,
-            reason=_summarize_local_attempt_failures(
-                list(attempted_endpoints or [])
-            )
+            reason=_summarize_local_attempt_failures(list(attempted_endpoints or []))
             or message,
         )
     if whooshd_error:
@@ -1971,9 +1949,7 @@ def build_openai_vision_content(
     return parts
 
 
-def _filter_callable_kwargs(
-    func: Any, kwargs: dict[str, Any]
-) -> dict[str, Any]:
+def _filter_callable_kwargs(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Drop keyword arguments unsupported by a callable.
 
     This keeps the dispatch layer backward-compatible with older test doubles
@@ -2019,6 +1995,7 @@ def chat_with_ai(
     strict_single_request: bool = False,
     requested_model_is_authoritative: bool = False,
     accepted_deadline: AcceptedChatTaskDeadline | None = None,
+    thinking_effort: str | None = None,
 ):
     settings = _resolve_settings(settings)
     provider_name = _normalize_provider(provider or settings.LLM_PROVIDER)
@@ -2026,6 +2003,9 @@ def chat_with_ai(
 
     require_context(provider_name)
     target_model = model or _default_model_for_provider(provider_name, settings)
+    validate_effort(
+        thinking_effort, provider_name, target_model, reasoning_mode, settings
+    )
     local_model_resolution: LocalModelResolution | None = None
 
     if provider_name == "local":
@@ -2087,11 +2067,19 @@ def chat_with_ai(
                 ),
             )
 
-    if provider_routing_requires_discovered_inventory(provider_name):
+    if (
+        provider_routing_requires_discovered_inventory(provider_name)
+        or thinking_effort is not None
+    ):
         valid, reason = validate_provider_model_selection(
             provider_id=provider_name,
             model_id=target_model,
             settings=settings,
+            **(
+                {"require_available_inventory": True}
+                if thinking_effort is not None
+                else {}
+            ),
         )
         if not valid:
             raise HTTPException(
@@ -2157,6 +2145,11 @@ def chat_with_ai(
         return call_deepseek(
             messages,
             target_model,
+            **(
+                {"_validated_thinking_effort": thinking_effort}
+                if thinking_effort is not None
+                else {}
+            ),
             **_filter_callable_kwargs(
                 call_deepseek,
                 {
@@ -2209,9 +2202,7 @@ def chat_with_ai(
 def _resolve_local_base(settings: Settings) -> str:
     base_url = (settings.LOCAL_BASE_URL or "").strip()
     if not base_url:
-        raise HTTPException(
-            status_code=400, detail="LOCAL_BASE_URL is not configured"
-        )
+        raise HTTPException(status_code=400, detail="LOCAL_BASE_URL is not configured")
     normalized_base = base_url.rstrip("/")
 
     from guardian.core.supported_profile import get_active_supported_profile
@@ -2344,9 +2335,7 @@ def describe_local_endpoint_resolution(
     selected = str(selected_base_url or "").strip() or None
     payload: dict[str, Any] = {
         "state": state
-        or (
-            "available" if selected else "degraded" if attempted else "unknown"
-        ),
+        or ("available" if selected else "degraded" if attempted else "unknown"),
         "attempted_sequence": attempted,
         "attempts": [
             {
@@ -2373,8 +2362,7 @@ def describe_local_endpoint_resolution(
 
 def _resolve_local_base_candidates(settings: Settings) -> list[str]:
     return [
-        candidate.base_url
-        for candidate in _resolve_local_endpoint_candidates(settings)
+        candidate.base_url for candidate in _resolve_local_endpoint_candidates(settings)
     ]
 
 
@@ -2423,9 +2411,7 @@ def _summarize_local_attempt_failures(failures: list[str]) -> str:
 
 
 def _all_local_attempt_failures_are_404(failures: list[str]) -> bool:
-    return bool(failures) and all(
-        "(HTTP 404" in failure for failure in failures
-    )
+    return bool(failures) and all("(HTTP 404" in failure for failure in failures)
 
 
 def _parse_local_catalog_entries(payload: Any) -> list[dict[str, Any]]:
@@ -2442,16 +2428,11 @@ def _parse_local_catalog_entries(payload: Any) -> list[dict[str, Any]]:
                 model_name = item.strip()
             elif isinstance(item, dict):
                 model_name = str(
-                    item.get("name")
-                    or item.get("model")
-                    or item.get("id")
-                    or ""
+                    item.get("name") or item.get("model") or item.get("id") or ""
                 ).strip()
                 raw_metadata = item.get("metadata")
                 if isinstance(raw_metadata, dict):
-                    display_name = str(
-                        raw_metadata.get("display_name") or ""
-                    ).strip()
+                    display_name = str(raw_metadata.get("display_name") or "").strip()
                     if display_name:
                         metadata = {"display_name": display_name}
             else:
@@ -2493,9 +2474,7 @@ def discover_local_model_inventory(
             else f"{candidate.base_url}/v1"
         )
         local_base = (
-            local_base_v1[:-3]
-            if local_base_v1.endswith("/v1")
-            else local_base_v1
+            local_base_v1[:-3] if local_base_v1.endswith("/v1") else local_base_v1
         )
         candidate_names: list[str] = []
         successful_inventory_urls: list[str] = []
@@ -2570,18 +2549,12 @@ def discover_local_model_inventory(
         deduped.append(clean)
 
     if not deduped:
-        fallback, _source, _strict = _configured_local_model_resolution(
-            settings
-        )
+        fallback, _source, _strict = _configured_local_model_resolution(settings)
         if fallback:
             deduped = [fallback]
 
     resolution_state = (
-        "available"
-        if selected_base_url
-        else "degraded"
-        if deduped
-        else "unavailable"
+        "available" if selected_base_url else "degraded" if deduped else "unavailable"
     )
     if resolution_state == "degraded" and failure_kind is None:
         failure_kind = "local_discovery_failed"
@@ -2602,14 +2575,10 @@ def discover_local_model_inventory(
     if selected_inventory_endpoint:
         resolution["inventory_endpoint"] = selected_inventory_endpoint
         vendor = (
-            str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "")
-            .strip()
-            .lower()
+            str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
         )
         if vendor:
-            resolution[
-                "inventory_source"
-            ] = f"{vendor}:{selected_inventory_endpoint}"
+            resolution["inventory_source"] = f"{vendor}:{selected_inventory_endpoint}"
     if selected_inventory_models:
         resolution["inventory_models"] = selected_inventory_models
     return deduped, resolution
@@ -2630,9 +2599,7 @@ def _build_threadwake_segments(
     """
     if settings is None:
         return None
-    if not getattr(
-        settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False
-    ):
+    if not getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False):
         return None
     vendor = getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
     if vendor != "whooshd":
@@ -2696,22 +2663,14 @@ def _build_threadwake_config(settings: Settings | None = None) -> dict | None:
     """Build the threadwake config block for the request payload."""
     if settings is None:
         return None
-    if not getattr(
-        settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False
-    ):
+    if not getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SEGMENTS_ENABLED", False):
         return None
     vendor = getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or ""
     if vendor != "whooshd":
         return None
 
-    mode = (
-        getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_MODE", "observe")
-        or "observe"
-    )
-    scope = (
-        getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SCOPE", "thread")
-        or "thread"
-    )
+    mode = getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_MODE", "observe") or "observe"
+    scope = getattr(settings, "CODEXIFY_WHOOSHD_THREADWAKE_SCOPE", "thread") or "thread"
 
     return {
         "enabled": True,
@@ -2843,9 +2802,7 @@ def call_local(
 
     # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
     tw_config = _build_threadwake_config(settings)
-    tw_segments = _build_threadwake_segments(
-        adapted_messages, settings=settings
-    )
+    tw_segments = _build_threadwake_segments(adapted_messages, settings=settings)
     if tw_config is not None:
         payload["threadwake"] = tw_config
     if tw_segments is not None:
@@ -2997,9 +2954,7 @@ def call_local(
                         endpoint=url,
                         runtime_policy=runtime_policy,
                         received_version=exc.received_version,
-                        attempted_endpoints=[
-                            f"{url} (contract_version_unsupported)"
-                        ],
+                        attempted_endpoints=[f"{url} (contract_version_unsupported)"],
                         attempted_base_urls=attempted_base_urls,
                     ) from exc
                 if whooshd_error is not None:
@@ -3097,11 +3052,8 @@ def call_local(
                 detail=_local_provider_failure_detail(
                     settings=settings,
                     model=model,
-                    endpoint=last_transport_url
-                    or (base_urls[-1] if base_urls else ""),
-                    failure_kind=whooshd_provider_failure_kind(
-                        last_whooshd_error.code
-                    ),
+                    endpoint=last_transport_url or (base_urls[-1] if base_urls else ""),
+                    failure_kind=whooshd_provider_failure_kind(last_whooshd_error.code),
                     message=detail,
                     provider_error=last_whooshd_error.code,
                     runtime_policy=runtime_policy,
@@ -3135,9 +3087,7 @@ def call_local(
                     settings=settings,
                     model=model,
                     endpoint=last_transport_url,
-                    failure_kind=_provider_transport_failure_kind(
-                        last_transport_error
-                    ),
+                    failure_kind=_provider_transport_failure_kind(last_transport_error),
                     message=detail,
                     provider_error=_sanitize_provider_error(
                         str(last_transport_error),
@@ -3201,7 +3151,9 @@ def call_local(
     except AcceptedChatTaskDeadlineExceeded:
         if (
             deadline_transport is not None
-            and str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
+            and str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "")
+            .strip()
+            .lower()
             == "whooshd"
         ):
             _abort_accepted_whooshd_request(
@@ -3281,9 +3233,7 @@ def stream_local(
 
     # ── ThreadWake segment metadata (Whoosh'd integration) ─────────────
     tw_config = _build_threadwake_config(settings)
-    tw_segments = _build_threadwake_segments(
-        adapted_messages, settings=settings
-    )
+    tw_segments = _build_threadwake_segments(adapted_messages, settings=settings)
     if tw_config is not None:
         payload["threadwake"] = tw_config
     if tw_segments is not None:
@@ -3293,9 +3243,7 @@ def stream_local(
 
     timeout = runtime_policy.request_timeout
     whooshd_monitoring = (
-        str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "")
-        .strip()
-        .lower()
+        str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip().lower()
         == "whooshd"
     )
 
@@ -3312,7 +3260,9 @@ def stream_local(
     last_transport_error: req_exc.RequestException | None = None
     last_whooshd_error: WhooshdErrorDiagnostic | None = None
     cancel_monitor: _WhooshdCancellationMonitor | None = None
-    deadline_transport = AcceptedDeadlineTransport(accepted_deadline) if accepted_deadline else None
+    deadline_transport = (
+        AcceptedDeadlineTransport(accepted_deadline) if accepted_deadline else None
+    )
     post_stream = deadline_transport.post if deadline_transport else requests.post
 
     try:
@@ -3327,9 +3277,7 @@ def stream_local(
             )
             for kind, url in attempt_urls:
                 current_url = url
-                candidate_cancel_monitor: _WhooshdCancellationMonitor | None = (
-                    None
-                )
+                candidate_cancel_monitor: _WhooshdCancellationMonitor | None = None
                 if callable(cancel_check) and whooshd_monitoring:
                     candidate_cancel_monitor = _WhooshdCancellationMonitor(
                         response=None,
@@ -3379,18 +3327,14 @@ def stream_local(
                     else:
                         ollama_messages = adapted_messages
                         if _messages_contain_image_payload(adapted_messages):
-                            ollama_messages = (
-                                _transform_messages_for_ollama_vision(
-                                    adapted_messages
-                                )
+                            ollama_messages = _transform_messages_for_ollama_vision(
+                                adapted_messages
                             )
                         payload_ollama = {
                             "model": model,
                             "messages": ollama_messages,
                             "temperature": (
-                                0.7
-                                if temperature is None
-                                else float(temperature)
+                                0.7 if temperature is None else float(temperature)
                             ),
                             "stream": True,
                         }
@@ -3456,9 +3400,7 @@ def stream_local(
                         else:
                             attempt_failures.append(f"{url} (HTTP 404)")
                     elif not (200 <= resp.status_code < 300):
-                        detail = _extract_provider_error_message(
-                            resp, secret=api_key
-                        )
+                        detail = _extract_provider_error_message(resp, secret=api_key)
                         attempt_failures.append(
                             f"{url} (HTTP {resp.status_code}: {detail})"
                         )
@@ -3535,9 +3477,8 @@ def stream_local(
                         attempted_base_urls=attempted_base_urls,
                     ),
                 ) from last_transport_error
-            elif (
-                local_model_resolution.strict
-                and _all_local_attempt_failures_are_404(attempt_failures)
+            elif local_model_resolution.strict and _all_local_attempt_failures_are_404(
+                attempt_failures
             ):
                 endpoint_resolution = describe_local_endpoint_resolution(
                     settings,
@@ -3574,9 +3515,7 @@ def stream_local(
             response_correlation: dict[str, Any] | None = None
             parsed_response_provenance: WhooshdRuntimeProvenance | None = None
             response_headers = getattr(response, "headers", {}) or {}
-            header_provenance = response_headers.get(
-                WHOOSHD_RUNTIME_PROVENANCE_HEADER
-            )
+            header_provenance = response_headers.get(WHOOSHD_RUNTIME_PROVENANCE_HEADER)
             if header_provenance:
                 try:
                     parsed_header = parse_whooshd_runtime_provenance(
@@ -3598,9 +3537,7 @@ def stream_local(
             # with the non-streaming path in ``call_local``. An empty mapping is
             # normalized to ``None`` so absent correlation is never persisted as a
             # synthesized identifier.
-            response_correlation = (
-                parse_whooshd_response_correlation(response) or None
-            )
+            response_correlation = parse_whooshd_response_correlation(response) or None
             if callable(cancel_check):
                 if cancel_monitor is None:
                     cancel_monitor = _WhooshdCancellationMonitor(
@@ -3716,9 +3653,7 @@ def stream_local(
                             visible_output_emitted=visible_output_emitted,
                             explicit_provider_terminal_observed=True,
                             finish_reason=str(
-                                chunk.get("done_reason")
-                                or finish_reason
-                                or "stop"
+                                chunk.get("done_reason") or finish_reason or "stop"
                             ),
                             transport_ended_cleanly=True,
                             provider="local",
@@ -3858,9 +3793,7 @@ def call_groq(
 
     api_key = settings.GROQ_API_KEY
     if not api_key:
-        raise HTTPException(
-            status_code=400, detail="GROQ_API_KEY is not configured"
-        )
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY is not configured")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -4060,9 +3993,7 @@ def _call_openai_compatible_chat(
                 model=model,
                 endpoint=url,
                 failure_kind=(
-                    "provider_http_error"
-                    if typed_failure_kinds
-                    else "http_error"
+                    "provider_http_error" if typed_failure_kinds else "http_error"
                 ),
                 message=(
                     f"{provider_display_name} request failed "
@@ -4091,9 +4022,7 @@ def _call_openai_compatible_chat(
                 model=model,
                 endpoint=url,
                 failure_kind=(
-                    "provider_payload_error"
-                    if typed_failure_kinds
-                    else "parse_error"
+                    "provider_payload_error" if typed_failure_kinds else "parse_error"
                 ),
                 message=f"{provider_display_name} response parse failed: {detail}",
                 provider_error=detail,
@@ -4135,6 +4064,7 @@ def call_deepseek(
     *,
     temperature: Optional[float] = None,
     reasoning_mode: Optional[str] = None,
+    _validated_thinking_effort: str | None = None,
     max_tokens: Optional[int] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     settings: Optional[Settings] = None,
@@ -4150,22 +4080,27 @@ def call_deepseek(
         raise HTTPException(
             status_code=400, detail="DEEPSEEK_API_KEY is not configured"
         )
-    base = (
-        str(settings.DEEPSEEK_BASE_URL or _DEFAULT_DEEPSEEK_BASE)
-        .strip()
-        .rstrip("/")
-    )
+    base = str(settings.DEEPSEEK_BASE_URL or _DEFAULT_DEEPSEEK_BASE).strip().rstrip("/")
     request_tools = tools
     if tools and any(
         isinstance(item, dict) and item.get("command_id") for item in tools
     ):
         request_tools, _aliases = build_tool_definitions(tools)
+    # The router checked the roster for this attempt. Recheck current route and mode.
+    validate_effort(
+        _validated_thinking_effort,
+        "deepseek",
+        model,
+        reasoning_mode,
+        settings,
+    )
     payload = build_deepseek_payload(
         model=model,
         messages=messages,
         reasoning_mode=reasoning_mode,
         temperature=temperature,
         tools=request_tools,
+        thinking_effort=_validated_thinking_effort,
     )
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
@@ -4346,6 +4281,14 @@ def _anthropic_image_block(source: dict[str, Any]) -> dict[str, Any] | None:
         }
 
     url = str(source.get("url") or "").strip()
+    if url.startswith("data:"):
+        media_type, separator, data = url[5:].partition(";base64,")
+        if not separator or not media_type.startswith("image/") or not data:
+            return None
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
     if source_type == "url" or url:
         if not url:
             return None
@@ -4400,9 +4343,7 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
                             if image_block is not None:
                                 blocks.append(image_block)
                                 continue
-                            if str(
-                                source.get("type") or ""
-                            ).strip().lower() in {
+                            if str(source.get("type") or "").strip().lower() in {
                                 "base64",
                                 "url",
                             }:
@@ -4489,9 +4430,7 @@ def _normalize_messages_for_anthropic_with_meta(
         normalized.append({"role": role, "content": content_blocks})
 
     if not normalized:
-        normalized = [
-            {"role": "user", "content": [{"type": "text", "text": ""}]}
-        ]
+        normalized = [{"role": "user", "content": [{"type": "text", "text": ""}]}]
 
     if prompt_meta:
         segments = prompt_meta.get("segments")
@@ -4603,11 +4542,9 @@ def call_minimax(
             "messages": anthropic_messages,
             "temperature": 0.7 if temperature is None else float(temperature),
             "max_tokens": int(
-                (
-                    max_tokens
-                    if max_tokens is not None
-                    else getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
-                )
+                max_tokens
+                if max_tokens is not None
+                else getattr(settings, "MINIMAX_ANTHROPIC_MAX_TOKENS", 1024)
             ),
         }
         if system_prompt:

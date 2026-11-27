@@ -148,6 +148,7 @@ def _confirmed_conversation_counts(
     conversations: list[dict[str, Any]],
     *,
     user_id: str,
+    openai_import_source_id: str | None = None,
 ) -> dict[str, int]:
     """Confirm durable source conversations after the ingestion commit.
 
@@ -176,7 +177,10 @@ def _confirmed_conversation_counts(
     # its thread metadata without weakening the production Postgres check.
     threads = getattr(chatlog_db, "threads", None)
     messages = getattr(chatlog_db, "messages", None)
-    if isinstance(threads, dict) and isinstance(messages, list):
+    if (
+        openai_import_source_id is None
+        and isinstance(threads, dict) and isinstance(messages, list)
+    ):
         confirmed: dict[str, int] = {}
         for thread_id, thread in threads.items():
             if not isinstance(thread, dict) or str(thread.get("user_id")) != user_id:
@@ -210,9 +214,11 @@ def _confirmed_conversation_counts(
                 JOIN chat_threads ct ON ct.id = cm.thread_id
                 WHERE ct.user_id = %s
                   AND cm.extra_meta->>'source_thread_id' = ANY(%s)
+                  AND (to_jsonb(ct)->>'openai_import_source_id') IS NOT DISTINCT FROM %s::text
+                  AND (%s::text IS NULL OR ct.origin_system = 'openai')
                 GROUP BY cm.extra_meta->>'source_thread_id'
                 """,
-                (user_id, source_ids),
+                (user_id, source_ids, openai_import_source_id, openai_import_source_id),
             )
             rows = cursor.fetchall()
     except Exception as exc:
@@ -365,6 +371,8 @@ def _conversation_spool(
     adapter: OpenAILegacyExportAdapter | OpenAIShardedExportAdapter,
     inventory: Any,
     diagnostic_dir: Path,
+    *,
+    verify_group_evidence: bool = False,
 ) -> Iterator[sqlite3.Connection]:
     """Rebuildable, job-local ordering scratch; never a checkpoint authority."""
     with TemporaryDirectory(prefix="openai-order-", dir=diagnostic_dir) as scratch:
@@ -376,8 +384,41 @@ def _conversation_spool(
                 "CREATE TABLE conversations (ordinal INTEGER PRIMARY KEY, "
                 "create_key REAL, update_key REAL, payload TEXT NOT NULL)"
             )
-            source = adapter.iter_conversations(inventory, scratch_dir=Path(scratch))
+            source = adapter.iter_conversations(
+                inventory, scratch_dir=Path(scratch),
+                **({"preserve_duplicates": True} if verify_group_evidence else {}),
+            )
+            seen_groups: dict[str, tuple[int, str | None | object]] = {}
+            unresolved = object()
+            from guardian.core.openai_import_routing import (
+                UnresolvedOpenAIGroup, classify_openai_group,
+            )
+
             for ordinal, conversation in enumerate(source):
+                if verify_group_evidence:
+                    source_id = str(conversation.get("conversation_id") or conversation.get("id") or "")
+                    if source_id:
+                        try:
+                            group = classify_openai_group(conversation)
+                        except UnresolvedOpenAIGroup:
+                            group = unresolved
+                        previous = seen_groups.get(source_id)
+                        if previous is not None:
+                            first_ordinal, first_group = previous
+                            if first_group != group and first_group is not unresolved:
+                                (first_payload,) = db.execute(
+                                    "SELECT payload FROM conversations WHERE ordinal = ?",
+                                    (first_ordinal,),
+                                ).fetchone()
+                                first = json.loads(first_payload)
+                                first.pop("conversation_template_id", None)
+                                db.execute(
+                                    "UPDATE conversations SET payload = ? WHERE ordinal = ?",
+                                    (json.dumps(first, ensure_ascii=False), first_ordinal),
+                                )
+                                seen_groups[source_id] = (first_ordinal, unresolved)
+                            continue
+                        seen_groups[source_id] = (ordinal, group)
                 db.execute(
                     "INSERT INTO conversations VALUES (?, ?, ?, ?)",
                     (ordinal, _source_timestamp(conversation, "create_time"),
@@ -421,6 +462,7 @@ def import_openai_export_conversations(
     disable_personal_facts: bool = False,
     messages_only: bool = False,
     completed_conversation_ids: set[str] | None = None,
+    openai_import_source_id: str | None = None,
     on_batch_committed: Callable[[dict[str, Any]], None] | None = None,
 ) -> ImportDiagnostics:
     """Import OpenAI export conversations into Codexify chat tables.
@@ -504,7 +546,10 @@ def import_openai_export_conversations(
         return diagnostics
 
     try:
-        with _conversation_spool(adapter, inventory, diag_dir) as db:
+        with _conversation_spool(
+            adapter, inventory, diag_dir,
+            verify_group_evidence=openai_import_source_id is not None,
+        ) as db:
             diagnostics.conversations_discovered = db.execute(
                 "SELECT COUNT(*) FROM conversations"
             ).fetchone()[0]
@@ -571,6 +616,8 @@ def import_openai_export_conversations(
                         messages_only=messages_only,
                         completed_conversation_ids=set(completed_conversation_ids or ()),
                         on_batch_committed=on_batch_committed,
+                        **({"openai_import_source_id": openai_import_source_id}
+                           if openai_import_source_id is not None else {}),
                     )
                 except Exception as exc:
                     diagnostics.errors.append(f"Import failed: {exc}")
@@ -616,6 +663,7 @@ def _import_with_checkpoints(
     messages_only: bool,
     completed_conversation_ids: set[str],
     on_batch_committed: Callable[[dict[str, Any]], None] | None,
+    openai_import_source_id: str | None = None,
 ) -> None:
     """Import conversations in bounded batches with checkpointing."""
     batch_count = (total + batch_size - 1) // batch_size
@@ -653,6 +701,8 @@ def _import_with_checkpoints(
             len(pending),
         )
 
+        source_scope = ({"openai_import_source_id": openai_import_source_id}
+                        if openai_import_source_id is not None else {})
         # Import the batch
         batch_stats = _import_conversation_batch(
             conversations=pending,
@@ -660,6 +710,7 @@ def _import_with_checkpoints(
             embedding_mode=embedding_mode,
             disable_personal_facts=disable_personal_facts,
             messages_only=messages_only,
+            **source_scope,
         )
 
         # Update diagnostics from batch stats
@@ -669,7 +720,11 @@ def _import_with_checkpoints(
         committed_counts = _confirmed_conversation_counts(
             pending,
             user_id=user_id,
+            **source_scope,
         )
+        unresolved = set(batch_stats.get("unresolved_grouping_ids") or [])
+        for value in unresolved:
+            committed_counts.pop(value, None)
         committed_ids = [
             str(conv.get("conversation_id") or conv.get("id") or "")
             for conv in pending
@@ -720,6 +775,8 @@ def _import_with_checkpoints(
                         for value in committed_ids
                     ],
                     "skipped_conversation_ids": skipped_ids,
+                    **({"unresolved_grouping_ids": sorted(unresolved)}
+                       if openai_import_source_id is not None else {}),
                     "threads_imported": int(
                         batch_stats.get("threads_imported", 0)
                     ),
@@ -736,7 +793,8 @@ def _import_with_checkpoints(
             diagnostics.skipped_records.extend(
                 {
                     "conversation_id": value,
-                    "reason": "not_confirmed_after_ingestion",
+                    "reason": "openai_project_membership_unresolved"
+                    if value in unresolved else "not_confirmed_after_ingestion",
                 }
                 for value in skipped_ids
             )
@@ -762,6 +820,7 @@ def _import_conversation_batch(
     embedding_mode: str,
     disable_personal_facts: bool,
     messages_only: bool,
+    openai_import_source_id: str | None = None,
 ) -> dict[str, Any]:
     """Import a single batch of conversations with short transactions.
 
@@ -847,6 +906,8 @@ def _import_conversation_batch(
                 user_id=user_id,
                 embedding_mode=effective_embedding,
                 disable_personal_facts=disable_personal_facts,
+                **({"openai_import_source_id": openai_import_source_id}
+                   if openai_import_source_id is not None else {}),
             )
         finally:
             dependencies.chatlog_db = previous

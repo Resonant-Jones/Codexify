@@ -1,5 +1,14 @@
 import axios from "axios";
 import {
+  ACCOUNT_AUTH_FAILURE_CODES,
+  ACCOUNT_AUTH_FAILURE_HEADER,
+} from "@/contracts/runtimeTokens";
+import {
+  decodeSlashCommandManifest,
+  type SlashCommandIntentPayload,
+  type SlashCommandManifest,
+} from "@/contracts/slashCommands";
+import {
   markAuthUnauthenticatedFrom401,
   syncAuthStateFromCredentials,
 } from "@/lib/authState";
@@ -9,12 +18,7 @@ import {
   resolveBackendUrl,
   type RuntimeConfig,
 } from "@/lib/runtimeConfig";
-import type { SlashCommandIntentPayload } from "@/contracts/slashCommands";
 import type { ThreadConfig } from "@/types/ui";
-import {
-  ACCOUNT_AUTH_FAILURE_CODES,
-  ACCOUNT_AUTH_FAILURE_HEADER,
-} from "@/contracts/runtimeTokens";
 import type {
   PersonaVoicePreviewRequest,
   PersonaVoicePreviewResponse,
@@ -269,6 +273,21 @@ export function buildAuthenticatedFetchInit(
     ...(Object.keys(headers).length ? { headers } : {}),
     credentials: init.credentials ?? "include",
   };
+}
+
+export async function fetchSlashCommandManifest(
+  signal: AbortSignal
+): Promise<SlashCommandManifest> {
+  // This optional read uses the shared URL and credential resolution without
+  // feeding discovery failures into the completion transport's outage guard.
+  const response = await fetch(
+    resolveApiUrl("/api/chat/slash-commands/manifest"),
+    buildAuthenticatedFetchInit({ signal, cache: "no-store" })
+  );
+  if (!response.ok) {
+    throw new Error(`Slash command discovery returned HTTP ${response.status}`);
+  }
+  return decodeSlashCommandManifest(await response.json());
 }
 
 function resolveTimeoutMs(): number {
@@ -803,7 +822,7 @@ function isAbsoluteUrl(value: string): boolean {
 }
 
 function isBackendTransportError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
   if (error?.code === "ERR_BACKEND_OUTAGE_FUSE") return false;
   if (error?.code === "ERR_CLIENT_RATE_GUARD") return false;
   if (error?.response) return false;
@@ -870,7 +889,7 @@ function extractTransportErrorSignal(error: any): string {
 }
 
 export function isBackendRuntimeUnavailableError(error: any): boolean {
-  if (!error) return false;
+  if (!error || error instanceof AccountImportLocalError) return false;
   if (["ERR_BACKEND_OUTAGE_FUSE", "ERR_CLIENT_RATE_GUARD", "ERR_CANCELED"].includes(error?.code)) return false;
   if (isBackendTransportError(error)) return true;
   if (isBackendProxyOutageResponse(error)) return true;
@@ -963,6 +982,7 @@ export type AccountImportStatus =
   | "failed";
 
 export interface AccountImportJob {
+  openai_import_source_id?: string | null;
   job_id: string;
   source_system: AccountImportSourceSystem;
   source_export_fingerprint?: string | null;
@@ -1003,11 +1023,56 @@ export interface AccountImportBrowserFile {
 
 const ACCOUNT_IMPORT_BASE_PATH = "/api/imports/openai-account";
 
+// Local verification/receipt failures are not backend transport failures.
+class AccountImportLocalError extends Error {}
+
+// Durable imports have their own finite deadline and replay rules. A late
+// failure on unrelated shell traffic must not block a verified export locally.
+// This flag affects only the client outage throttle; credentials and server
+// ownership/content checks still run through the ordinary Axios interceptors.
+export const ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
+// Uploads have a byte-dependent, finite deadline; the fixed read/commit limit
+// alone would always reject a valid 32 MiB batch on a slow uplink.
+export const ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS = 70 * 60_000;
+const ACCOUNT_IMPORT_MIN_UPLOAD_BYTES_PER_SECOND = 64 * 1024;
+export function accountImportUploadTimeoutMs(totalBytes: number): number {
+  const boundedBytes = Number.isFinite(totalBytes) ? Math.max(0, totalBytes) : 0;
+  const transferBudget = Math.ceil(boundedBytes / ACCOUNT_IMPORT_MIN_UPLOAD_BYTES_PER_SECOND * 1000) + 60_000;
+  return Math.min(ACCOUNT_IMPORT_MAX_UPLOAD_TIMEOUT_MS, Math.max(ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS, transferBudget));
+}
+const ACCOUNT_IMPORT_REQUEST_CONFIG = {
+  timeout: ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS,
+  __cfyDurableAccountImport: true,
+};
+
+export interface OpenAIImportSource {
+  id: string;
+  label: string;
+}
+
+export async function listOpenAIImportSources(signal?: AbortSignal): Promise<OpenAIImportSource[]> {
+  const response = await api.get<{ sources: OpenAIImportSource[] }>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/sources`,
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+  );
+  return response.data.sources;
+}
+
+export async function createOpenAIImportSource(label: string, signal?: AbortSignal): Promise<OpenAIImportSource> {
+  const response = await api.post<OpenAIImportSource>(
+    `${ACCOUNT_IMPORT_BASE_PATH}/sources`,
+    { label },
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, signal }
+  );
+  return response.data;
+}
+
 export async function createOpenAIAccountImport(
   declaration: {
     total_file_count: number;
     total_byte_count: number;
     source_system: AccountImportSourceSystem;
+    openai_import_source_id?: string;
   },
 ): Promise<AccountImportJob> {
   if (!isAccountImportSourceSystem(declaration.source_system)) {
@@ -1023,7 +1088,10 @@ export async function createOpenAIAccountImport(
       total_file_count: declaration.total_file_count,
       total_byte_count: declaration.total_byte_count,
       source_system: declaration.source_system,
-    }
+      ...(declaration.openai_import_source_id !== undefined
+        ? { openai_import_source_id: declaration.openai_import_source_id } : {}),
+    },
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   // Provenance boundary: the Web client must never assign or accept
   // canonical conversation origin. If the server were ever to return one
@@ -1039,10 +1107,173 @@ export async function createOpenAIAccountImport(
   return response.data;
 }
 
+export interface AccountImportManifest {
+  job_id: string;
+  source_system: AccountImportSourceSystem;
+  status: AccountImportStatus;
+  total_file_count: number;
+  total_byte_count: number;
+  files: Array<{ path: string; size: number; sha256: string }>;
+  next_cursor?: number;
+}
+
+export async function fetchOpenAIAccountImportManifest(jobId: string): Promise<AccountImportManifest> {
+  const path = `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/manifest`;
+  const all: AccountImportManifest["files"] = [];
+  let cursor = 0;
+  let first: AccountImportManifest | null = null;
+  // The server can raise its configured max_files above the default 20,000.
+  // Its declared total remains the upper bound, while 32 entries per page
+  // leaves room for the server's 192 KiB response budget and long paths.
+  for (let page = 0; page < Math.max(200, Math.ceil((first?.total_file_count ?? 20_000) / 32)); page += 1) {
+    const response = await api.get<AccountImportManifest>(
+      cursor === 0 ? path : `${path}?cursor=${cursor}`,
+      ACCOUNT_IMPORT_REQUEST_CONFIG
+    );
+    const value = response.data;
+    if (!first) first = value;
+    if (!value || value.job_id !== first.job_id ||
+        value.source_system !== first.source_system || value.status !== first.status ||
+        value.total_file_count !== first.total_file_count ||
+        value.total_byte_count !== first.total_byte_count ||
+        !Array.isArray(value.files) || all.length + value.files.length > (first.total_file_count ?? 20_000)) {
+      throw new Error("Account import manifest pages changed or exceeded the supported limit.");
+    }
+    all.push(...value.files);
+    const next = value.next_cursor;
+    if (next === undefined) return { ...first, files: all };
+    if (!Number.isSafeInteger(next) || next <= cursor ||
+        next !== cursor + value.files.length || next > (first.total_file_count ?? 20_000)) {
+      throw new Error("Account import manifest pagination is invalid.");
+    }
+    cursor = next;
+  }
+  throw new Error("Account import manifest exceeded the bounded page limit.");
+}
+
+export const ACCOUNT_IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+export const ACCOUNT_IMPORT_DIRECT_FILE_BYTES = 32 * 1024 * 1024;
+export const ACCOUNT_IMPORT_BROWSER_HASH_BYTES = 128 * 1024 * 1024;
+export const ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS = 30_000;
+
+// Native Blob/WebCrypto work cannot be cancelled. A deadline rejects promptly,
+// but quarantines its allocation until settlement; direct API retries also fail
+// closed. The coordinator drains this ownership inside its cross-tab Web Lock.
+const pendingImportVerification = new Set<Promise<void>>();
+export async function waitForAccountImportVerification(): Promise<void> {
+  while (pendingImportVerification.size) {
+    await Promise.all([...pendingImportVerification]);
+  }
+}
+function quarantineImportVerification(work: Promise<unknown>): void {
+  const settled = work.then(() => undefined, () => undefined);
+  pendingImportVerification.add(settled);
+  void settled.then(() => pendingImportVerification.delete(settled));
+}
+
+function boundedImportVerification<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal?.aborted) return Promise.reject(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
+  return (async () => {
+    const nativeWork = Promise.resolve().then(() => {
+      if (signal?.aborted) throw new AccountImportLocalError("Verification stopped");
+      return operation();
+    });
+    let rejectDeadline!: (error: AccountImportLocalError) => void;
+    const deadline = new Promise<never>((_resolve, reject) => { rejectDeadline = reject; });
+    const interrupted = () => rejectDeadline(new AccountImportLocalError("Local export verification stopped; staged bytes are retained."));
+    signal?.addEventListener("abort", interrupted, { once: true });
+    const timer = setTimeout(() => rejectDeadline(new AccountImportLocalError("Local export verification timed out; the current file operation must finish before retrying. Staged bytes are retained.")), ACCOUNT_IMPORT_HASH_STEP_TIMEOUT_MS);
+    try {
+      return await Promise.race([nativeWork, deadline]);
+    } catch (error) {
+      // Report promptly, without pretending that native work was cancelled.
+      // Quarantine prevents allocation by retries; the coordinator holds its
+      // cross-tab lock until waitForAccountImportVerification settles.
+      quarantineImportVerification(nativeWork);
+      if (error instanceof AccountImportLocalError) throw error;
+      throw new AccountImportLocalError("Local export verification failed or timed out; staged bytes are retained.");
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", interrupted);
+    }
+  })();
+}
+
+async function digestImportBlob(blob: Blob, signal?: AbortSignal): Promise<string> {
+  if (blob.size > ACCOUNT_IMPORT_BROWSER_HASH_BYTES) {
+    const { sha256 } = await import("@noble/hashes/sha2.js");
+    const incremental = sha256.create();
+    for (let offset = 0; offset < blob.size; offset += ACCOUNT_IMPORT_CHUNK_BYTES) {
+      if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+      const piece = blob.slice(offset, Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, blob.size));
+      const bytes = await boundedImportVerification(() => piece.arrayBuffer(), signal);
+      if (bytes.byteLength !== piece.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
+      incremental.update(new Uint8Array(bytes));
+    }
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    return Array.from(incremental.digest(), value => value.toString(16).padStart(2, "0")).join("");
+  }
+  const bytes = await boundedImportVerification(() => blob.arrayBuffer(), signal);
+  if (bytes.byteLength !== blob.size) throw new AccountImportLocalError("Selected file size changed; staged bytes are retained.");
+  const digest = await boundedImportVerification(() => crypto.subtle.digest("SHA-256", bytes), signal);
+  return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function uploadLargeAccountImportFile(
+  jobId: string, item: AccountImportBrowserFile, signal?: AbortSignal
+): Promise<AccountImportJob> {
+  if (item.file.size > 2 * 1024 * 1024 * 1024) {
+    throw new AccountImportLocalError("This file exceeds the backend 2 GiB file limit. Keep this import and its staged bytes.");
+  }
+  // The whole original identity is pinned before the first transport part.
+  // Native reads/hashing can finish late, but must never lead to a late POST.
+  const wholeHash = await digestImportBlob(item.file, signal);
+  let offset = 0;
+  let job: AccountImportJob | undefined;
+  while (offset < item.file.size) {
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const piece = item.file.slice(offset, Math.min(offset + ACCOUNT_IMPORT_CHUNK_BYTES, item.file.size));
+    const pieceHash = await digestImportBlob(piece, signal);
+    if (signal?.aborted) throw new AccountImportLocalError("Local export verification stopped; staged bytes are retained.");
+    const form = new FormData();
+    form.append("chunk", piece, item.file.name);
+    form.append("relative_path", item.relativePath);
+    form.append("file_size", String(item.file.size));
+    form.append("file_sha256", wholeHash);
+    form.append("chunk_sha256", pieceHash);
+    form.append("offset", String(offset));
+    if (item.file.type) form.append("content_type", item.file.type);
+    const response = await api.post<{ job: AccountImportJob; received_bytes: number; complete: boolean }>(
+      `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/file-chunks`, form,
+      { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: accountImportUploadTimeoutMs(piece.size), signal }
+    );
+    const receipt = response.data;
+    const received = receipt?.received_bytes;
+    if (receipt?.job?.job_id !== jobId || !Number.isSafeInteger(received) ||
+        received < offset + piece.size || received > item.file.size ||
+        (received < item.file.size && received % ACCOUNT_IMPORT_CHUNK_BYTES !== 0) ||
+        receipt.complete !== (received === item.file.size)) {
+      throw new AccountImportLocalError("Invalid bounded upload receipt; staged bytes are retained.");
+    }
+    job = receipt.job;
+    offset = received;
+  }
+  if (!job) throw new AccountImportLocalError("No logical file was admitted.");
+  return job;
+}
+
 export async function uploadOpenAIAccountImportBatch(
   jobId: string,
-  files: AccountImportBrowserFile[]
+  files: AccountImportBrowserFile[],
+  signal?: AbortSignal
 ): Promise<AccountImportJob> {
+  if (pendingImportVerification.size) {
+    throw new AccountImportLocalError("Local export verification is still finishing; retry when it settles. Staged bytes are retained.");
+  }
+  if (files.some(item => item.file.size > ACCOUNT_IMPORT_DIRECT_FILE_BYTES)) {
+    if (files.length !== 1) throw new Error("Large files must use one bounded logical-file transfer.");
+    return uploadLargeAccountImportFile(jobId, files[0], signal);
+  }
   const formData = new FormData();
   for (const item of files) {
     formData.append("files", item.file, item.file.name);
@@ -1051,7 +1282,7 @@ export async function uploadOpenAIAccountImportBatch(
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/files`,
     formData,
-    { timeout: 0 }
+    { ...ACCOUNT_IMPORT_REQUEST_CONFIG, timeout: accountImportUploadTimeoutMs(files.reduce((sum, item) => sum + item.file.size, 0)), signal }
   );
   return response.data;
 }
@@ -1060,14 +1291,15 @@ export async function commitOpenAIAccountImport(jobId: string): Promise<AccountI
   const response = await api.post<AccountImportJob>(
     `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}/commit`,
     undefined,
-    { timeout: 0 }
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
 
 export async function fetchOpenAIAccountImport(jobId: string): Promise<AccountImportJob> {
   const response = await api.get<AccountImportJob>(
-    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`
+    `${ACCOUNT_IMPORT_BASE_PATH}/${encodeURIComponent(jobId)}`,
+    ACCOUNT_IMPORT_REQUEST_CONFIG
   );
   return response.data;
 }
@@ -1401,6 +1633,7 @@ api.interceptors.request.use((config) => {
   (config as any).__cfyCanonicalBackendProbe = canonicalProbe;
   const now = Date.now();
   if (
+    !(config as { __cfyDurableAccountImport?: boolean }).__cfyDurableAccountImport &&
     shouldApplyBackendOutageFuse(config.url) &&
     backendOutageUntil > now
   ) {

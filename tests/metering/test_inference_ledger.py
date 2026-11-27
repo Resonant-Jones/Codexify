@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from guardian.db.models import (
     Base, ChatThread, InferenceUsageEvent, PersonaProfile,
+    OpenAIImportSource,
     PersonaProfileRevision, Project, User,
 )
 from guardian.metering.ledger import (
@@ -52,7 +53,8 @@ def _sessions():
         Base.metadata.create_all(
             engine, tables=[
                 User.__table__, Project.__table__, PersonaProfile.__table__,
-                PersonaProfileRevision.__table__, ChatThread.__table__,
+                PersonaProfileRevision.__table__, OpenAIImportSource.__table__,
+                ChatThread.__table__,
                 InferenceUsageEvent.__table__,
             ],
         )

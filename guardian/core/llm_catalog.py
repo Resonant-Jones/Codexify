@@ -17,6 +17,7 @@ from guardian.core.ai_router import (
     discover_local_model_inventory,
     resolve_local_execution_model,
 )
+from guardian.core.chat_thinking_effort import effort_route_available
 from guardian.core.config import Settings, get_settings
 from guardian.core.provider_registry import CLOUD_PROVIDERS as _CLOUD_PROVIDERS
 from guardian.core.provider_registry import PROVIDER_LABELS as _PROVIDER_LABELS
@@ -40,6 +41,7 @@ from guardian.core.whooshd_model_profiles import (
     whooshd_profile_by_id_or_repo,
     whooshd_profile_model_repos,
 )
+from guardian.providers.deepseek_adapter import NATIVE_EFFORT_LEVELS
 
 _MODEL_FAMILY_ALIASES = {
     "deepseek": "DeepSeek",
@@ -129,9 +131,7 @@ def _base_model_entry(
     return entry
 
 
-def _local_model_capabilities(
-    model_id: str, display_name: str
-) -> dict[str, Any]:
+def _local_model_capabilities(model_id: str, display_name: str) -> dict[str, Any]:
     haystack = f"{model_id} {display_name}".lower()
     supports_vision = any(hint in haystack for hint in _LOCAL_VISION_HINTS)
     return {
@@ -152,9 +152,7 @@ def _whooshd_profile_capabilities(
         return _local_model_capabilities(model_id, display_name)
 
     raw_capabilities = profile.get("capabilities")
-    capabilities = (
-        raw_capabilities if isinstance(raw_capabilities, dict) else {}
-    )
+    capabilities = raw_capabilities if isinstance(raw_capabilities, dict) else {}
     supports_chat = bool(capabilities.get("chat", True))
     supports_vision = bool(capabilities.get("vision", False))
     supports_text_input = supports_chat
@@ -444,9 +442,7 @@ def _fetch_local_models(
     )
     effective_model = normalize_model_id(local_model_resolution.model)
     if effective_model:
-        normalized_names = {
-            normalize_model_id(name): name for name in deduped if name
-        }
+        normalized_names = {normalize_model_id(name): name for name in deduped if name}
         if effective_model in normalized_names:
             deduped = [
                 normalized_names[effective_model],
@@ -459,8 +455,7 @@ def _fetch_local_models(
         elif str(endpoint_resolution.get("state") or "").strip() != "available":
             deduped = [effective_model, *deduped]
     source_base = str(
-        (endpoint_resolution.get("selected_endpoint") or {}).get("base_url")
-        or ""
+        (endpoint_resolution.get("selected_endpoint") or {}).get("base_url") or ""
     ).strip()
     if not source_base:
         try:
@@ -470,16 +465,11 @@ def _fetch_local_models(
     source_label = _source_label(source_base) if source_base else None
     inventory_display_names = _local_inventory_display_names(endpoint_resolution)
     identities = _apply_local_display_disambiguation(
-        [
-            _local_model_identity(name, source_label=source_label)
-            for name in deduped
-        ]
+        [_local_model_identity(name, source_label=source_label) for name in deduped]
     )
     entries: list[dict[str, Any]] = []
     for name, identity in zip(deduped, identities, strict=False):
-        inventory_display_name = inventory_display_names.get(
-            normalize_model_id(name)
-        )
+        inventory_display_name = inventory_display_names.get(normalize_model_id(name))
         profile = whooshd_profile_by_id_or_repo(name)
         if profile:
             name = str(profile.get("id") or name).strip()
@@ -508,9 +498,7 @@ def _fetch_local_models(
             "vision": bool(local_capabilities["supports_vision"]),
             "text_input": bool(local_capabilities["supports_text_input"]),
         }
-        entry["canonical_id"] = str(
-            identity.get("canonical_id") or name
-        ).strip()
+        entry["canonical_id"] = str(identity.get("canonical_id") or name).strip()
         entry["display_label"] = str(
             inventory_display_name
             or (profile or {}).get("display_name")
@@ -531,9 +519,7 @@ def _fetch_local_models(
         if profile:
             entry["profile_id"] = str(profile.get("id") or "").strip()
             entry["profile_source"] = "whooshd_model_profile"
-            entry["display_vendor"] = str(
-                profile.get("display_vendor") or ""
-            ).strip()
+            entry["display_vendor"] = str(profile.get("display_vendor") or "").strip()
             release_posture = profile.get("release_posture")
             if isinstance(release_posture, dict):
                 entry["release_posture"] = dict(release_posture)
@@ -543,8 +529,8 @@ def _fetch_local_models(
             weights = profile.get("weights")
             if isinstance(weights, dict):
                 entry["weights"] = dict(weights)
-            entry["runtime"]["whooshd_profile"] = (
-                _whooshd_profile_runtime_metadata(profile)
+            entry["runtime"]["whooshd_profile"] = _whooshd_profile_runtime_metadata(
+                profile
             )
         entries.append(entry)
     entries = _apply_local_model_overrides(entries)
@@ -615,9 +601,7 @@ def _cloud_models(
             model_kind = (
                 "vision_chat"
                 if supports_chat and supports_vision
-                else "chat"
-                if supports_chat
-                else "utility"
+                else "chat" if supports_chat else "utility"
             )
         if not supports_chat or model_kind == "utility":
             continue
@@ -640,6 +624,11 @@ def _cloud_models(
             supports_text_input=bool(supports_text_input),
             model_kind=model_kind,
         )
+        if effort_route_available(provider_id, model_id, settings, capability):
+            entry["thinking_effort"] = {
+                "requires_mode": "think",
+                "levels": list(NATIVE_EFFORT_LEVELS),
+            }
         capability_status = str(item.get("_capability") or "").strip().lower()
         if capability_status in {"confirmed", "inferred", "unsupported"}:
             entry["_capability"] = capability_status
@@ -658,9 +647,7 @@ def _provider_models(
     settings: Settings,
 ) -> list[dict[str, Any]]:
     if provider_id == "local":
-        models, _resolution, _local_model_resolution = _fetch_local_models(
-            settings
-        )
+        models, _resolution, _local_model_resolution = _fetch_local_models(settings)
         return models
     return _cloud_models(provider_id, settings)
 
@@ -682,9 +669,7 @@ def _provider_source(
     if provider_id != "local":
         return None
     selected_base = str(
-        ((endpoint_resolution or {}).get("selected_endpoint") or {}).get(
-            "base_url"
-        )
+        ((endpoint_resolution or {}).get("selected_endpoint") or {}).get("base_url")
         or ""
     ).strip()
     try:
@@ -705,9 +690,7 @@ def _provider_source(
     vendor = str(getattr(settings, "LOCAL_PROVIDER_VENDOR", "") or "").strip()
     if vendor:
         source["vendor"] = vendor
-    runtime_preset = str(
-        getattr(settings, "LOCAL_RUNTIME_PRESET", "") or ""
-    ).strip()
+    runtime_preset = str(getattr(settings, "LOCAL_RUNTIME_PRESET", "") or "").strip()
     if runtime_preset:
         source["runtimePreset"] = runtime_preset
     return source
@@ -760,16 +743,12 @@ def _provider_entry(
         if (
             models
             and endpoint_resolution is not None
-            and str(endpoint_resolution.get("state") or "").strip()
-            == "available"
+            and str(endpoint_resolution.get("state") or "").strip() == "available"
         ):
             available = True
             enabled = True
             disabled_reason = None
-        if (
-            local_model_resolution is not None
-            and local_model_resolution.failure_kind
-        ):
+        if local_model_resolution is not None and local_model_resolution.failure_kind:
             enabled = False
             disabled_reason = local_model_resolution.message
     else:
@@ -792,9 +771,7 @@ def _provider_entry(
         discoverable=(
             str(endpoint_resolution.get("state") or "").strip() == "available"
             if endpoint_resolution is not None
-            else str(
-                (capability.get("model_index") or {}).get("state") or ""
-            ).strip()
+            else str((capability.get("model_index") or {}).get("state") or "").strip()
             == "available"
         ),
         selectable=bool(enabled),
@@ -810,9 +787,7 @@ def _provider_entry(
     ):
         return None
     runtime_identity = (
-        _local_provider_runtime_identity(settings)
-        if provider_id == "local"
-        else None
+        _local_provider_runtime_identity(settings) if provider_id == "local" else None
     )
     display_name = _provider_display_name(
         provider_id,
@@ -845,9 +820,7 @@ def _provider_entry(
         entry["configured_model"] = local_model_resolution.model
         entry["configured_model_available"] = local_model_resolution.ok
         if model_resolution.get("availability_reason"):
-            entry["availability_reason"] = model_resolution[
-                "availability_reason"
-            ]
+            entry["availability_reason"] = model_resolution["availability_reason"]
         if model_resolution.get("advertised_models") is not None:
             entry["advertised_models"] = model_resolution["advertised_models"]
         if model_resolution.get("inventory_source"):
@@ -877,9 +850,7 @@ def resolve_provider_for_model(
     settings: Settings | None = None,
 ) -> str | None:
     resolved = settings or get_settings()
-    local_models, _resolution, _local_model_resolution = _fetch_local_models(
-        resolved
-    )
+    local_models, _resolution, _local_model_resolution = _fetch_local_models(resolved)
     local_model_ids = [model.get("id") for model in local_models]
     return resolve_provider_for_model_registry(
         model_id,

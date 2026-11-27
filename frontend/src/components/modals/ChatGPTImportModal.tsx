@@ -8,14 +8,21 @@
 import React, { useState, useRef, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useAuthState } from "@/lib/authState";
+import { getRuntimeConfigVersion, subscribeRuntimeConfigState } from "@/lib/runtimeConfig";
 import {
   clearAccountImportCoordinatorResult,
   getAccountImportCoordinatorSnapshot,
+  hasArchivedAccountImport,
+  restoreArchivedAccountImport,
   startOpenAIAccountImport,
   subscribeAccountImportCoordinator,
 } from "@/features/imports/accountImportCoordinator";
 import {
+  createOpenAIImportSource,
   isAccountImportSourceSystem,
+  listOpenAIImportSources,
+  type OpenAIImportSource,
   type AccountImportSourceSystem,
   type ChatGptImportStats,
 } from "@/lib/api";
@@ -194,6 +201,23 @@ export function ChatGPTImportModal({
   const [sourceValidationError, setSourceValidationError] = useState<
     string | null
   >(null);
+  const auth = useAuthState();
+  const runtimeVersion = useSyncExternalStore(
+    subscribeRuntimeConfigState,
+    getRuntimeConfigVersion,
+    getRuntimeConfigVersion,
+  );
+  const [openAISources, setOpenAISources] = useState<OpenAIImportSource[]>([]);
+  const [selectedOpenAISource, setSelectedOpenAISource] = useState("");
+  const [newSourceLabel, setNewSourceLabel] = useState("");
+  const [sourceLoadError, setSourceLoadError] = useState<string | null>(null);
+  const [sourceSaveError, setSourceSaveError] = useState<string | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceSaving, setSourceSaving] = useState(false);
+  const [sourceReload, setSourceReload] = useState(0);
+  const sourceRequest = useRef<AbortController | null>(null);
+  const sourceCreation = useRef<AbortController | null>(null);
+  const dropGeneration = useRef(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const folderRef = useRef<HTMLInputElement | null>(null);
   const accountImport = useSyncExternalStore(
@@ -201,6 +225,11 @@ export function ChatGPTImportModal({
     getAccountImportCoordinatorSnapshot,
     getAccountImportCoordinatorSnapshot
   );
+  React.useEffect(() => {
+    const original = accountImport.job?.status === "receiving"
+      ? accountImport.job.source_system : null;
+    if (original && isAccountImportSourceSystem(original)) setSourceSystem(original);
+  }, [accountImport.job?.status, accountImport.job?.source_system]);
   const accountImportActive = accountImport.phase !== "idle";
   const accountImportTransferring = ["preflighting", "transferring"].includes(
     accountImport.phase
@@ -212,11 +241,80 @@ export function ChatGPTImportModal({
     "running",
   ].includes(accountImport.phase);
 
+  const receiving = accountImport.job?.status === "receiving";
+  const selectingOpenAISource = sourceSystem === "openai" && !receiving;
+  const sourceSelected = selectingOpenAISource && openAISources.some(
+    (source) => source.id === selectedOpenAISource
+  );
+  const needsOpenAISource = selectingOpenAISource && !sourceSelected;
+  const transferBusy = status === "uploading" || accountImportInProgress;
+  const dropContext = useRef({ open, auth, runtimeVersion, sourceSystem, selectedOpenAISource, receiving, transferBusy });
+  dropContext.current = { open, auth, runtimeVersion, sourceSystem, selectedOpenAISource, receiving, transferBusy };
+  React.useEffect(() => {
+    setFile(null);
+    setSourceValidationError(null);
+    if (fileRef.current) fileRef.current.value = "";
+    if (folderRef.current) folderRef.current.value = "";
+    return () => { dropGeneration.current += 1; };
+  }, [open, auth, runtimeVersion, sourceSystem]);
+
+  React.useEffect(() => {
+    setOpenAISources([]);
+    setSelectedOpenAISource("");
+    setNewSourceLabel("");
+    setSourceLoadError(null);
+    setSourceSaveError(null);
+    setSourceSaving(false);
+    setSourceLoading(open && selectingOpenAISource);
+    if (!open || !selectingOpenAISource) return;
+    const request = new AbortController();
+    sourceRequest.current = request;
+    void listOpenAIImportSources(request.signal)
+      .then((sources) => {
+        if (!request.signal.aborted) setOpenAISources(sources);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setSourceLoadError("Couldn’t load your saved OpenAI import sources.");
+      })
+      .finally(() => {
+        if (!request.signal.aborted) setSourceLoading(false);
+      });
+    return () => {
+      request.abort();
+      sourceRequest.current = null;
+      sourceCreation.current?.abort();
+      sourceCreation.current = null;
+    };
+  }, [open, selectingOpenAISource, auth, runtimeVersion, sourceReload]);
+
+  const handleCreateOpenAISource = async () => {
+    const label = newSourceLabel.trim();
+    if (!label || !sourceRequest.current || sourceCreation.current || transferBusy || sourceLoading || sourceLoadError) return;
+    const creation = new AbortController();
+    sourceCreation.current = creation;
+    setSourceSaving(true);
+    setSourceSaveError(null);
+    try {
+      const created = await createOpenAIImportSource(label, creation.signal);
+      if (creation.signal.aborted) return;
+      setOpenAISources((sources) => [...sources.filter((source) => source.id !== created.id), created]);
+      setSelectedOpenAISource(created.id);
+      setNewSourceLabel("");
+      setSourceValidationError(null);
+    } catch {
+      if (!creation.signal.aborted) setSourceSaveError("Couldn’t save the source. Refresh the list before trying again.");
+    } finally {
+      if (!creation.signal.aborted) {
+        sourceCreation.current = null;
+        setSourceSaving(false);
+      }
+    }
+  };
+
   const setSelectedFile = (nextFile: File | null) => {
     if (
-      ["completed", "completed_with_warnings", "failed"].includes(
-        accountImport.phase
-      )
+      (["completed", "completed_with_warnings"].includes(accountImport.phase) ||
+        (accountImport.phase === "failed" && accountImport.job?.status !== "receiving"))
     ) {
       clearAccountImportCoordinatorResult();
     }
@@ -237,6 +335,11 @@ export function ChatGPTImportModal({
   };
 
   const startFolderImport = (files: AccountImportBrowserFile[]) => {
+    if (transferBusy || sourceSaving) return;
+    if (needsOpenAISource) {
+      setSourceValidationError("Select or create a saved OpenAI import source before uploading.");
+      return;
+    }
     setFile(null);
     setStatus("idle");
     setError(null);
@@ -249,7 +352,10 @@ export function ChatGPTImportModal({
       );
       return;
     }
-    void startOpenAIAccountImport(files, sourceSystem).catch(() => {
+    const transfer = sourceSelected
+      ? startOpenAIAccountImport(files, sourceSystem, selectedOpenAISource)
+      : startOpenAIAccountImport(files, sourceSystem);
+    void transfer.catch(() => {
       // The module-level coordinator owns and exposes the durable error state.
     });
   };
@@ -265,6 +371,13 @@ export function ChatGPTImportModal({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
+    if (transferBusy || sourceSaving) return;
+    if (needsOpenAISource) {
+      setSourceValidationError("Select or create a saved OpenAI import source before uploading.");
+      return;
+    }
+    const startedIn = dropContext.current;
+    const generation = dropGeneration.current;
     const transferItems = Array.from(e.dataTransfer.items || []);
     const hasDirectoryEntry = transferItems.some(
       (item) =>
@@ -293,6 +406,12 @@ export function ChatGPTImportModal({
     }
     try {
       const dropped = await enumerateOpenAIExportDrop(e.dataTransfer);
+      const current = dropContext.current;
+      if (generation !== dropGeneration.current || !current.open || current.transferBusy || startedIn.auth !== current.auth ||
+          startedIn.runtimeVersion !== current.runtimeVersion ||
+          startedIn.sourceSystem !== current.sourceSystem ||
+          startedIn.selectedOpenAISource !== current.selectedOpenAISource ||
+          startedIn.receiving !== current.receiving) return;
       if (dropped.length === 0) return;
       if (
         hasDirectoryEntry ||
@@ -304,6 +423,7 @@ export function ChatGPTImportModal({
       }
       setSelectedFile(dropped[0].file);
     } catch (dropError) {
+      if (generation !== dropGeneration.current) return;
       setStatus("error");
       setError(
         dropError instanceof Error
@@ -333,7 +453,7 @@ export function ChatGPTImportModal({
 
       {/* Modal */}
       <div
-        className="relative z-[1201] w-[min(540px,90vw)] rounded-2xl border p-6 flex flex-col gap-4 shadow-xl"
+        className="relative z-[1201] w-[min(540px,90vw)] max-h-[90dvh] overflow-y-auto rounded-2xl border p-6 flex flex-col gap-4 shadow-xl"
         style={{
           background: "var(--panel-bg)",
           borderColor: "var(--panel-border)",
@@ -384,7 +504,7 @@ export function ChatGPTImportModal({
                     value={option.value}
                     checked={checked}
                     disabled={
-                      status === "uploading" || accountImportInProgress
+                      status === "uploading" || accountImportInProgress || accountImport.job?.status === "receiving"
                     }
                     onChange={() => {
                       setSourceSystem(option.value);
@@ -403,6 +523,67 @@ export function ChatGPTImportModal({
               );
             })}
           </div>
+          {selectingOpenAISource && (
+            <div className="mt-3 grid gap-2">
+              <label className="grid gap-1">
+                <span className="font-medium">Saved OpenAI import source</span>
+                <select
+                  className="rounded-md border bg-transparent p-2"
+                  value={selectedOpenAISource}
+                  onChange={(event) => {
+                    setSelectedOpenAISource(event.target.value);
+                    setSourceValidationError(null);
+                  }}
+                  disabled={transferBusy || sourceLoading || sourceSaving || Boolean(sourceLoadError)}
+                >
+                  <option value="">{sourceLoading ? "Loading sources…" : "Select a saved source"}</option>
+                  {openAISources.map((source) => (
+                    <option key={source.id} value={source.id}>{source.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs opacity-70">
+                Use separate sources for exports from separate accounts (for example, Business and Pro).
+                Choose the same source for later exports from that account. Labels do not verify your OpenAI identity.
+              </p>
+              {!sourceLoadError && (
+                <div className="flex items-end gap-2">
+                  <label className="grid min-w-0 flex-1 gap-1">
+                    <span className="text-xs">New source name</span>
+                    <input
+                      className="rounded-md border bg-transparent p-2"
+                      value={newSourceLabel}
+                      maxLength={120}
+                      onChange={(event) => setNewSourceLabel(event.target.value)}
+                      disabled={transferBusy || sourceLoading || sourceSaving || Boolean(sourceSaveError)}
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost" className="border"
+                    size="sm"
+                    disabled={!newSourceLabel.trim() || transferBusy || sourceLoading || sourceSaving || Boolean(sourceSaveError)}
+                    onClick={() => void handleCreateOpenAISource()}
+                  >
+                    Save source
+                  </Button>
+                </div>
+              )}
+              {(sourceLoadError || sourceSaveError) && (
+                <div className="flex items-center gap-2">
+                  <span role="alert">{sourceLoadError || sourceSaveError}</span>
+                  <Button type="button" variant="ghost" className="border" size="sm" onClick={() => setSourceReload((value) => value + 1)}>
+                    Refresh sources
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {receiving && accountImport.job?.openai_import_source_id && (
+            <p className="mt-2 text-xs opacity-70">
+              Resuming keeps the OpenAI source selected when this job was created.
+            </p>
+          )}
           {sourceValidationError && (
             <div
               className="mt-2 text-xs"
@@ -462,8 +643,8 @@ export function ChatGPTImportModal({
             />
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs opacity-70">
-                Drop the complete export folder or ZIP here. Folder drops start
-                immediately and retain nested paths.
+                Drop the complete export folder or ZIP here. After source selection,
+                folder drops start immediately and retain nested paths.
               </div>
               <div className="flex flex-shrink-0 gap-2">
                 <Button
@@ -481,7 +662,7 @@ export function ChatGPTImportModal({
                   variant="outline"
                   size="sm"
                   onClick={() => folderRef.current?.click()}
-                  disabled={status === "uploading" || accountImportInProgress}
+                  disabled={transferBusy || needsOpenAISource || sourceSaving}
                   className="rounded-full"
                 >
                   Choose Folder
@@ -508,11 +689,21 @@ export function ChatGPTImportModal({
               }}
             >
               <div className="font-semibold">
-                {accountImport.phase === "preflighting"
+                {accountImport.verification
+                  ? "Verifying staged files on this device..."
+                  : accountImport.phase === "preflighting"
                   ? "Checking import runtime..."
                   : "Transferring export..."}
               </div>
               <div className="mt-1 text-xs opacity-80">
+                {accountImport.verification && (
+                  <div role="status" aria-live="polite">
+                    {accountImport.verification.completed} of {accountImport.verification.total} files verified
+                    {" "}({formatFileSize(accountImport.verification.bytes)} of {formatFileSize(accountImport.verification.totalBytes)}).
+                    {" "}{accountImport.verification.stage === "reading" ? "Reading" : "Hashing"} the next selected file.
+                    {" "}No remaining files are uploaded until verification completes.
+                  </div>
+                )}
                 {accountImport.job
                   ? `${accountImport.job.uploaded_file_count} of ${accountImport.job.total_file_count} files staged. `
                   : "Preparing staged intake. "}
@@ -714,6 +905,16 @@ export function ChatGPTImportModal({
               ) : null}
             </div>
           )}
+          {!accountImport.job && hasArchivedAccountImport() && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => { void restoreArchivedAccountImport(); }}
+            >
+              Recover saved import for this account
+            </Button>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
@@ -726,11 +927,11 @@ export function ChatGPTImportModal({
           >
             {accountImportActive ? "Close" : "Cancel"}
           </Button>
-          {!accountImportActive && (
+          {(!accountImportActive || (receiving && !transferBusy)) && (
             <Button
               type="button"
               onClick={handleMigrate}
-              disabled={!file || status === "uploading"}
+              disabled={!file || transferBusy || needsOpenAISource || sourceSaving}
               className="rounded-full px-4"
             >
               {status === "uploading" ? (

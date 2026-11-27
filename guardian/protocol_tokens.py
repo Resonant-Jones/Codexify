@@ -499,6 +499,10 @@ class AccountImportEventType(str, Enum):
 class AccountImportErrorCode(str, Enum):
     """Machine-readable failure reasons for durable account imports."""
 
+    CHUNK_INVALID = "account_import_chunk_invalid"
+    CHUNK_CONFLICT = "account_import_chunk_conflict"
+    CHUNK_INTEGRITY = "account_import_chunk_integrity_failed"
+    CHUNK_STORAGE_UNAVAILABLE = "account_import_chunk_storage_unavailable"
     NO_COMMITTED_ENTITIES = "account_import_no_committed_entities"
     RESTAGING_REQUIRED = "account_import_restaging_required"
     RETRY_NOT_ZERO_WRITE = "account_import_retry_not_zero_write"

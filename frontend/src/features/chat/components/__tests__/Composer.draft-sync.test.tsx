@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Composer } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
   CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS,
 } from "@/features/chat/chatLane";
-import api from "@/lib/api";
+import { Composer } from "@/features/chat/components/Composer";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
+import type { SlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
+import api from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -16,11 +17,48 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+const obsidianLibrary: SlashCommandLibrary = {
+  status: "ready",
+  manifest: {
+    schemaVersion: 1,
+    manifestRevision: "obsidian-fixture",
+    commands: [{
+      id: "obsidian",
+      token: "/obsidian",
+      scaffold: "/obsidian",
+      label: "Obsidian",
+      description: "Use Obsidian context",
+      aliases: ["obs"],
+      keywords: [],
+      interactionModes: ["chat_intent"],
+      effects: { intentKind: "integration", retrievalHint: "none" },
+      availability: "unknown",
+      availabilityReason: "eligibility_not_evaluated",
+    }],
+  },
+};
+
 describe("Composer draft sync", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
     window.localStorage.clear();
+  });
+
+  it.each([true, false])("renders one labelled Solar effort control, compact=%s", (compactMobile) => {
+    const onChange = vi.fn();
+    const props = { onSend: vi.fn(), draftScopeKey: "tab", modelOptions: [{ value: "fixture", label: "Fixture" }],
+      thinkingEffortLevels: ["low", "high", "max"], compactMobile, onThinkingEffortChange: onChange };
+    const view = render(<Composer {...props} activeInferenceMode="think" />);
+    fireEvent.click(screen.getByRole("button", { name: "Thinking effort: Provider default" }));
+    const control = screen.getByRole("slider", { name: "Thinking effort" });
+    expect(control).toHaveAttribute("aria-valuetext", "Provider default");
+    expect(control).toHaveAttribute("max", "2");
+    fireEvent.keyDown(control, { key: "Home" });
+    expect(onChange).toHaveBeenCalledWith("low");
+    view.rerender(<Composer {...props} activeInferenceMode="no_think" />);
+    expect(screen.queryByRole("slider", { name: "Thinking effort" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Thinking effort:/ })).toBeNull();
   });
 
   it("renders without crashing when no project context is provided", () => {
@@ -133,6 +171,7 @@ describe("Composer draft sync", () => {
 
     render(
       <Composer
+        slashCommandLibrary={obsidianLibrary}
         onSend={onSend}
         draftScopeKey="tab-1"
         draftValue=""
@@ -178,6 +217,7 @@ describe("Composer draft sync", () => {
 
     render(
       <Composer
+        slashCommandLibrary={obsidianLibrary}
         onSend={onSend}
         draftScopeKey="tab-1"
         draftValue=""

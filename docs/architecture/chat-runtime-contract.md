@@ -548,6 +548,51 @@ Message behavior:
 - Lifecycle validation: closed rooms, revoked/expired invitations, and removed participants block reads and writes.
 - No completion side effect from posting a message: mentions (`@Guardian`, `@Luna`) persist as text; explicit invocation requires one of the two routes above and a source `message_id`.
 
+## Multimodal user content
+
+User image attachments must reach a vision-capable model as image content,
+alongside the user's text. Attachment labels and transcript placeholders alone
+are not image input. OpenAI-compatible requests use `content` arrays containing
+`text` and `image_url` parts; each image retains its options, including `detail`.
+The Anthropic adapter translates image data URLs into `image` blocks with a
+`base64` source, `media_type`, and `data`; Ollama retains its existing native
+`images` adaptation.
+
+The queued worker compatibility entry point applies the same image routing
+helper after provider/model resolution and before each dispatch, including
+rescue dispatches. Service-only invocation tests are insufficient proof of this
+boundary: the worker entry point must also serialize synthetic historical and
+fresh images through a mocked final transport. Missing private media refuses
+before dispatch; this preparation does not select a different provider/model.
+
+The completion service reads both composer attachment markers and structured
+user content preserved in `extra_meta.original_content` or the queued latest
+turn. Media stays bound to its authored user message. In the bounded history
+sent to a known vision-capable model, prior images remain available for follow-up
+questions without being reassigned to the latest user turn. Document text is
+rendered through the existing inference renderer, including when combined with
+images; document/control markers are not provider input.
+
+Codexify `/media/` images are loaded from `STORAGE_BASE_PATH` (with the legacy
+`GUARDIAN_MEDIA_ROOT` fallback) and encoded as image data URLs with MIME types
+identified from their bytes. Direct reads require the same media signature as
+the serving route, stay beneath that root, and exclude document paths, which
+retain their additional account gate. When no root is configured, the internal
+HTTP fallback uses `GUARDIAN_INTERNAL_URL` or the existing internal
+`GUARDIAN_COMMAND_BUS_LOOPBACK_BASE` when configured and retains the signed
+URL's query. An unavailable private image or a
+missing source fails with `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING` before dispatch,
+rather than silently losing the image or forwarding a private media signature.
+Public image URLs remain valid provider inputs when local conversion is
+unavailable.
+
+This is request adaptation under the existing thread and provider authority,
+aligned with ADR-003, ADR-069, and ADR-091. It adds no persistence schema,
+provider/model selection rule, audio/video input support, or release claim.
+The regression tests serialize the GPT-4o adapter request with real fixture
+image bytes and mocked transport; they do not prove live provider understanding
+or deployment. `00-current-state.md` remains release authority.
+
 ## Opt-in provider request inspection
 
 This internal diagnostic slice captures a new actual completion attempt; it
@@ -633,3 +678,22 @@ persistent authority surface or new ADR is introduced. Deterministic synthetic
 byte-equivalence, ownership, expiry, overflow, concurrency, relay, and chat
 regression tests establish only their exercised test surface; supported-path
 live qualification and a Raw JSON/Readable frontend viewer remain deferred.
+
+### Ordinary chat thinking effort
+
+On the ADR-052 Tester profile, the ordinary chat catalog advertises native
+effort for the discovered DeepSeek Flash model at DeepSeek's native endpoint.
+The descriptor requires Think mode. The composer can request provider default,
+low, high, or max for the next completion. Admission checks the request against
+the saved thread route, mode, and the persisted message ID returned to the composer.
+A mismatched or missing receipt rejects a participating send before enqueue.
+The accepted task carries the selection and server-resolved message ID across
+worker retries and bounded tool calls. Each dispatch applies canonical model
+selection, requiring current discovery for effort, and verifies route compatibility
+before sending. A changed route can reject the turn and the user can retry at
+the new route's default.
+
+Provider default omits the native `reasoning_effort` field. Earlier clients
+that omit the completion option retain their existing serializer behavior.
+The setting is scoped to a turn and grants no egress, model, tool, or budget
+authority. [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)

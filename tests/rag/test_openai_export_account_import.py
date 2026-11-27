@@ -29,6 +29,7 @@ from guardian.db.models import (
     MediaAlias,
     MediaAsset,
     OpenAIAccountImportJob,
+    OpenAIImportSource,
     Project,
     ProjectDocumentLink,
     ThreadDocument,
@@ -282,6 +283,7 @@ def account_import_service(tmp_path: Path):
     tables = [
         User.__table__,
         Project.__table__,
+        OpenAIImportSource.__table__,
         OpenAIAccountImportJob.__table__,
         MediaAsset.__table__,
         MediaAlias.__table__,
@@ -323,7 +325,7 @@ def staging_integrity_service(request, tmp_path: Path):
         )
         try:
             Base.metadata.create_all(
-                engine, tables=[User.__table__, OpenAIAccountImportJob.__table__]
+                engine, tables=[User.__table__, OpenAIImportSource.__table__, OpenAIAccountImportJob.__table__]
             )
             yield _build_account_import_service(
                 tmp_path, sessionmaker(bind=engine, autoflush=False)
@@ -388,7 +390,9 @@ def test_staging_integrity_normal_upload_and_replay(
     replayed = service.stage_files(**job, files=[original, attachment])
     assert replayed["uploaded_file_count"] == 2
     assert replayed["uploaded_byte_count"] == 6
-    _assert_staged_contents(sessions, staging, job_id, expected, duplicates=2)
+    # Upload acknowledgement loss must not become an import-data warning.
+    _assert_staged_contents(sessions, staging, job_id, expected)
+    assert replayed["duplicate_count"] == 0
 
     assert service.finalize_job(**job)["status"] == "queued"
     assert service.finalize_job(**job)["status"] == "queued"
@@ -492,7 +496,8 @@ def test_staging_integrity_preserves_committed_blobs_after_error(
     replayed = service.stage_files(**job, files=files)
     assert replayed["uploaded_file_count"] == 2
     assert replayed["uploaded_byte_count"] == 6
-    _assert_staged_contents(sessions, staging, job_id, expected, duplicates=1)
+    _assert_staged_contents(sessions, staging, job_id, expected)
+    assert replayed["duplicate_count"] == 0
 
     assert service.finalize_job(**job)["status"] == "queued"
     destination = tmp_path / "materialized"
@@ -905,7 +910,7 @@ def test_zero_committed_entities_cannot_be_classified_as_success(
         user_id="account-a",
         files=[StagedImportFile("conversations.json", b"[]")],
     )
-    assert staged_replay["duplicate_count"] == 1
+    assert staged_replay["duplicate_count"] == 0
     service.finalize_job(job_id=job["job_id"], user_id="account-a")
     service.mark_running(job_id=job["job_id"], user_id="account-a")
     service.record_source_summary(

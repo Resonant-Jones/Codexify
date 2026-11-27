@@ -1,6 +1,6 @@
 Purpose: Provide a KB-first entry point into Codexify's current architecture so humans and AI can orient quickly, find the right source files, and plan changes with an accurate map. For release-truth questions, start with `00-current-state.md`.
 Start here: start with [`00-current-state.md`](./00-current-state.md) when you need current-state interpretation, release readiness, or short-horizon priorities rather than structural architecture.
-Last updated: 2026-11-17
+Last updated: 2026-11-20
 Source anchors:
 - docs/architecture/
 - docs/qualification/
@@ -25,6 +25,103 @@ Source anchors:
 - guardian/command_bus/contracts.py
 
 # Codexify Architecture KB
+
+## Guardian Recall, Temporal Recollection and Imprint_Zero
+
+**Ratification and scope freeze.** On 2026-11-25 Resonant Jones ratified GOV-01
+and GOV-02 Revision 2 together. The frozen campaign is the consolidated text at
+`c2afb38f36963a052556a826e2e90f4dc2793fc2`, including GOV-01 at
+`68d10826be4fa1976dbbd45df9cf6d1c2a64436d`. Changes to its scope or acceptance
+requirements require a new explicit decision by the decision owner.
+
+Recall opens authorized original evidence. Temporal Recollection resolves a cue
+and assembles a bounded chronology from eligible evidence. Imprint_Zero proposes
+learning under consent. UMS owns the durable memory lifecycle. The first usable Private Preview requires both selected imported history and
+**Stage 2B Temporal Recollection**. Release posture is **HOLD**.
+
+Read the [ratified ADR amendments](adr/adr-index.md#ratified-guardian-continuity-amendments)
+together. ADR-016 governs archive treatment and derived processing. ADR-084
+governs the two recollection paths and durable memory authority. ADR-112 governs
+accepted-worker authorization. The
+[managed capabilities and consent study](https://app.notion.com/p/419beb70dda98129a3a0cd9d00c293a3)
+is supporting research. The repository contracts govern.
+
+Stage 0 includes this ratification and independently verified mainline
+integration. Mainline verification is a prerequisite to issuing the first
+Stage 1 implementation Task Spec. Each runtime stage requires a separately
+authorized Task Spec and its own evidence receipt. All runtime proof
+obligations are open.
+
+| Stage | Required evidence before claiming the capability |
+| --- | --- |
+| 0. Governance ratification and mainline integration | Record human acceptance against Revision 2 and verify the ratified, reconciled governance is on main. |
+| 1. Accepted-worker identity, durable native and imported provenance, and deterministic coverage | Two accounts on one shared worker, including sequential use and interrupted/replayed work. Prove native custody and positive imported provenance per message, mixed and unknown origin handling, strict Project exclusions, deterministic bounded traversal beyond 500 threads and truthful partial coverage. |
+| 2. Governed Recall and original-source opening | Prove explicit account-wide search while automatic historical consultation is disabled, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
+| 2B. Temporal Recollection (mandatory for Preview) | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution, interpretation provenance, evidence-quality and current-applicability behavior, and the Vestige and temporal preference replays below. No full Turn Intake Compiler, general graph or durable interpretation store is required. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
+| 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
+| 4. Governed Auto-approve | Apply the jointly ratified guardrails and UMS decision. Prove revocation before commit, denial on missing metadata, atomic/idempotent promotion under concurrency, and protection of rejected or purged records. Qualify selected imports separately, including mixed-context locality after promotion and restore. |
+| 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Require passing Stage 2B behavioral proofs within its measured work limits, then demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
+
+### Stage 2B behavioral proof obligations
+
+Exercise two accounts and multiple Projects on a shared worker. Test automatic
+historical consultation disabled and explicitly enabled, negative user instructions
+and attempted cross-Project widening. Revoke permission before retrieval, between
+anchor and original, and before provider handoff. Check ambiguous aliases, overlapping
+or unknown dates, retrospective imports, corrections and conflicting accounts.
+Delete, exclude, move and revise sources, then retry, restore and rebuild. Prove
+ineligible data cannot affect results through aliases, ranking, counts or cached
+excerpts. Exercise restricted imported indexing, local-only exposure, fallback
+denial, continuation, and the original deadline. Require source-level coverage
+and separate proof of delegated approval guardrails in the integrated Preview.
+
+**Vestige replay.** The owner reported that Axis-Dot missed a humorous reference
+to Vestige as Keeper of the Codex. No transcript, event date or relationship among
+Pulse, Vestige and Axis is established here. Before building an executable replay,
+obtain the owner-authorized original exchange and its supporting source evidence.
+Use sanitized synthetic equivalents in tracked public fixtures unless the owner
+explicitly permits publication of the originals. Replay the first user message
+before any explanation of the reference. Hold the cue constant across these cases.
+
+| Evidence posture | Expected behavior |
+| --- | --- |
+| A. Authorized original entry available | Resolve the cue against that entry. Recognize the title and any relationship only to the extent independently supported by the originals. |
+| B. Entry unavailable, eligible conversation evidence available | Use the conversation spans and attribute what they support. A title alone cannot establish a relationship. Do not imply the missing entry was opened. |
+| C. Neither source supports recognition | Express uncertainty or non-recognition naturally. An invented biography fails the fixture. |
+| D. Same-name or same-title collision | Keep distinct identities. Resolve only when evidence supports the disambiguation; otherwise preserve uncertainty. Do not merge subjects. |
+| E. Plausible but incorrect derived recap | Use the authorized original to reject or qualify unsupported claims. Keep the recap attributed; no invented quotation or Persona experience. |
+| F. Recap-only evidence | Attribute what the recap says. Do not imply original inspection or independently confirm the relationship, title or chronology. |
+
+Score cue detection, anchor retrieval, entity resolution, source authorization,
+evidence quality, relationship support, temporal reconstruction, attribution,
+present applicability, natural response and abstention separately.
+A natural recognition can be brief. It need not recite the recovered chronology.
+Separate retrieval from answer scoring and include cross-session updates and
+unanswerable cases, following the evaluation approach of
+[LongMemEval](https://arxiv.org/abs/2410.10813). This is research input.
+The report of the missed callback and the evaluation design confer no runtime proof.
+
+**Temporal preference replay.** Use authorized synthetic evidence containing an
+older attributable preference, a newer potentially changed statement, a late
+import of the older statement, a distinct current-turn instruction and a
+derived recap. Track event, assertion, acquisition and interpretation clocks
+independently. Exercise these cases:
+
+| Request | Expected behavior |
+| --- | --- |
+| Historical question | Attribute the earlier preference and present only supported chronology, regardless of import order. |
+| Current task | Follow the scoped current instruction without writing, deactivating or promoting durable memory or resolving a conflicting candidate. |
+| Both requests with recap only | Attribute the recap and qualify history; no exact quotation or claim an original was inspected. Follow the scoped current instruction as before. |
+
+Reverse the import order and rebuild the index without altering historical
+answers or semantic timestamps. Repeat derived summaries without gaining
+independent corroboration. Check that a one-off exception does not stick,
+material conflicts get surfaced or routed to review, reversible defaults avoid
+unnecessary confirmation, consequential ambiguity is clarified, and an explicit
+durable correction can still use the authorized UMS path. These proof obligations remain open.
+
+Documentation validation records consistency of the decision. Preview acceptance requires
+release-candidate runtime evidence for the frozen scope.
 
 ## Browser episodic context and recall routing
 
@@ -59,7 +156,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 ## Doc Map
 
 - [`00-current-state.md`](./00-current-state.md): live operational truth, current release/readiness interpretation, and short-horizon priorities; first and highest-priority entry.
-- [Qualification Registry](../qualification/README.md): generated, drift-gated index of qualification rubrics, run receipts, verdicts, and freshness under `docs/qualification/`. It projects `supported-compose` as `PASS` with `freshness: stale` against the current tip, `supported-compose-stock` as `PASS` with `freshness: stale` against the current tip, and `onboarding-and-people` and `release-readiness-gates` as `HOLD` on absent evidence, because those surfaces have no run receipt at all. The registry's own blocker strings carry the exact changed-path counts; they are tip-dependent and deliberately not repeated here. **The tip of `main` carries a green `Guardian CI` run** (the `push` run on `14e9d66c8` concluded `success`: `Backend Tests (Python 3.11)`, `Frontend Quality`, `alembic-config-sanity`, `Detect Changed Areas` and `Migration Contract (Container)` all passed), and `scripts/qualification/generate_registry.py --check` reports that the committed registry matches the projection at that tip. The drift that made six consecutive `push` runs red (`ac325303b`, `c5d0ccf97`, `410305fb4`, `2c6ede123`, `dee854aaa`, `3e667a6ab`) on the single assertion `tests/qualification/test_qualification_registry.py::test_committed_registry_is_current` was closed when the registry refresh shipped inside the same merge as the surface it describes (`0ec22f801`, merged as `6542dc38f`); the `Qualification Contracts` workflow passed at that merge. The cause was structural — the projection is computed over a qualification surface's changed paths, so a merge that lands such a path moves it — and it can re-open on the next merge that lands a surface path without regenerating against the merge tip. The earlier red run on `c26e176ce` failed one timing-sensitive frontend assertion and was never attributed, so [`00-current-state.md`](./00-current-state.md) records the current reading.
+- [Qualification Registry](../qualification/README.md): generated, drift-gated index of qualification rubrics, run receipts, verdicts, and freshness under `docs/qualification/`. It projects `supported-compose` as `PASS` with `freshness: stale` against the current tip, `supported-compose-stock` as `PASS` with `freshness: stale` against the current tip, and `onboarding-and-people` and `release-readiness-gates` as `HOLD` on absent evidence, because those surfaces have no run receipt at all. The registry's own blocker strings carry the exact changed-path counts; they are tip-dependent and deliberately not repeated here. **The tip of `main` carries a green `Guardian CI` run** (the `push` run on `d1f5e677e` concluded `success` in 53m49s: `Backend Tests (Python 3.11)`, `Frontend Quality`, `alembic-config-sanity`, `Detect Changed Areas` and `Migration Contract (Container)` all passed), and `scripts/qualification/generate_registry.py --check` reports that the committed registry matches the projection at that tip. The drift that made six consecutive `push` runs red (`ac325303b`, `c5d0ccf97`, `410305fb4`, `2c6ede123`, `dee854aaa`, `3e667a6ab`) on the single assertion `tests/qualification/test_qualification_registry.py::test_committed_registry_is_current` was closed when the registry refresh shipped inside the same merge as the surface it describes (`0ec22f801`, merged as `6542dc38f`); the `Qualification Contracts` workflow passed at that merge. The cause was structural — the projection is computed over a qualification surface's changed paths, so a merge that lands such a path moves it — and it can re-open on the next merge that lands a surface path without regenerating against the merge tip; a documentation-only merge cannot, because `docs/architecture/**` is outside every declared surface. **A green run is one sample, not a durable state:** two publish commits have now failed `Guardian CI` in `Frontend Quality` on the same test file, `GuardianChat.turn-lock-lifecycle.test.tsx` — `e9eb0cae8` (2026-11-17) on the stream-cancellation and late-failure stop POST assertion, and `2bddad1136` (2026-11-19) on the duplicate-image-submission lock-release assertion (`expected "vi.fn()" to be called once, but got 0 times`). Each failed a **different** assertion, and each was a docs-only commit whose frontend tree was byte-identical to a green parent run, which points to a timing-sensitive flake in that file rather than a deterministic publish failure; the earlier red run on `c26e176ce` was never attributed. The intervening publish commit `3a6dc0b` was green. The tip is green again, but the frontend tree has changed since the 2026-11-17 red, so the current tip has never reproduced either failure and the flake is not fixed. [`00-current-state.md`](./00-current-state.md) records the current reading.
 - [Supported-Compose qualification at `41ff615293ec`](./proofs/runtime/2026-10-30-supported-compose-qualification-41ff6152.md): dated runtime receipt for the first supported-Compose qualification whose tested revision sits inside the current tip's lineage. Seven of eight gates passed and **Gate B (startup and migrations) FAILED on the stock supported path**: at that frozen revision the migrator bind-mounted only `./backend` while `backend/migrations` is a symlink to `../guardian/db/migrations`, so a stock-launched stack applied the baked image's Alembic head instead of the source head. It records its own release posture as `HOLD`, attempts no remediation, and is a proof artifact rather than a registry run receipt.
 - [Supported-Compose qualification at `69ef035a`](./proofs/supported-compose/2026-11-03-supported-compose-qualification-69ef035a.md): dated runtime receipt, and the run receipt the qualification registry projects, for the seven-check `supported-compose` rubric v2, executed 2026-11-03 on the **source-matched launcher startup** at frozen revision `69ef035a4320724b9a53279d2fabd6bac0c6e98f`. Rubric verdict **PASS**, release posture **HOLD**, zero cloud credentials in any qualification container, and Gate B green by direct `alembic_version` readback — a boundary the 2026-10-30 run failed. It records two limitations: the `rag-trace` operator surface returns empty, and `worker-coding` runs a non-source-matched image outside the rubric and outside the supported profile. The registry projects this run with `freshness: stale` against the current tip. **It does not cover the stock Compose startup**, which gets its own qualification identity, `supported-compose-stock`, with its own rubric, run receipt and registry entry.
 - [Stock Compose migration-source repair](./proofs/runtime/2026-11-04-stock-compose-migration-source-repair.md): bounded receipt for the implementation correction now in the tree — the stock migrator proves by SHA-256 over `versions/*.py` that the migration source baked into the image describes this checkout, requires exactly one Alembic head, and reads `alembic_version` from PostgreSQL, so a stale image fails closed before the application can serve. It records the pre-baked image head as `3a91d7c4e8b2`, seven revisions behind the source. It qualifies nothing, writes no rubric or registry status, and its release posture is `HOLD`.
@@ -68,6 +165,8 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 - [Docker qualification capacity readiness](./proofs/runtime/2026-11-05-docker-capacity-readiness.md): dated host-capacity measurement and readiness verdict for a *future* stock Compose qualification. Verdict **GO** — 68 GiB free on the volume against a 30 GiB threshold, 39.2 GiB free inside the Docker guest — with no reclamation executed and the Private Preview healthy and unmodified at PostgreSQL revision `3a91d7c4e8b2`. It runs no qualification, qualifies no surface, writes no rubric or registry status, and leaves the release posture at `HOLD`.
 - [Account-Scoped Historical Recall Contract](./account-history-recall-contract.md): governing contract for the **implemented** bounded, read-only, account-scoped history recall capability (`guardian/core/account_history_recall.py` and `GET /api/chat/projects/{project_id}/history/search`). The account is resolved from authenticated authority server-side, and the model-facing `op::history.search` tool is advertised only when a request-scoped grant is present. The contract states its own status as implemented and explicitly does not claim live runtime qualification. Its reader-side per-message origin classification is now implemented, while the accepted same-row durable custody mechanism remains unimplemented, so [`00-current-state.md`](./00-current-state.md) remains release truth.
 - [Imported-History Evidence Reader Contract](./imported-history-evidence-reader-contract.md): human-inspection-only reader boundary for imported-history evidence, gated by request-only read-authority receipts that fail closed on absent or ambiguous decisions. It adds no model exposure, schema, worker, scheduler, or UI, and does not widen release support.
+- [Chat Slash Command Library contract](./chat-slash-command-library-contract.md): contract for the merged canonical slash-command catalog — Guardian's ownership of the discovery metadata in `guardian/slash_commands.py`, the two GET routes and their version 1 wire format, and the rule that discovery grants no execution authority. It is merged source and code-and-test evidence only; it is not release qualification, and [`00-current-state.md`](./00-current-state.md) remains release truth.
+- [OpenAI export Project routing contract](./openai-import-project-routing-contract.md): contract for the merged logical OpenAI import source and Project placement rules — explicit source selection with admission-time source-ID binding, exact source-conversation identity, `g-p-` group classification, atomic placement and replay with no Project adopted by display name, and `account-export.v9` compatibility for archives carrying that state. It states its own status as an approved implementation scope and a branch-validated candidate; it is not release qualification and not evidence that a Preview is running this path, and [`00-current-state.md`](./00-current-state.md) remains release truth.
 - [Guardian coding claim store mainline proof](./proofs/runtime/2026-11-03-guardian-coding-claim-store-mainline-proof.md): dated persistence proof for the coding worker's owner-bound claim, heartbeat, and terminal transitions. Its disposition is GO for independent reconciliation of that persistence slice with Release HOLD — it is not successful coding-worker execution and not supported-runtime qualification.
 - [Qualification capacity preflight](./proofs/runtime/2026-11-03-qualification-capacity-preflight.md): host-capacity measurement for a *future* qualification — capacity readiness PASS, conditional on an immediate pre-build re-check. It does not start QUAL-COMPOSE-02, authorizes no qualification run, qualifies no surface, and leaves the release posture at `HOLD`.
 - [ADR-108 Music Producer authority follow-through](./proofs/runtime/2026-11-05-adr-108-music-producer-authority-follow-through.md): dated receipt for ADR-108's five follow-through items — the `adr-index.md` entry and the `README.md` pointer (merged in #994), the `current_spec` wording correction (merged in #997, proven by a whole-state write that clears omitted values), and the `PLAN.md` authority-boundary pointer (merged in #1004). The fifth item, retiring the withdrawn ADR-102 draft's working-directory stub, is satisfied by the stub's absence: no such file exists in either checkout, and the only ADR-102 on `main` is the unrelated `102-saved-widget-identity-and-revision-boundary.md`. It is a documentation artifact, claims no runtime proof, does not accept ADR-108, does not implement the Studio v1 plan, and leaves the release posture at `HOLD`.
@@ -202,7 +301,7 @@ Codexify is a local-first chat and knowledge workspace built around a FastAPI ba
 - [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md): docs-only fixture pack companion to the Turn Intake Compiler Contract; it defines representative expected classifications before runtime implementation and does not implement classifier, routing, prompt, tool, or retrieval behavior.
 - [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md): docs-only token-domain proposal for repeated turn-intake vocabulary; it evaluates candidate canonical promotion targets without implementing runtime tokens, registries, tests, prompt wiring, classifier behavior, or routing behavior.
 - [Turn Intake Machine-Readable Fixture Projection](./fixtures/turn-intake-fixtures.v1.json): docs/proof-only machine-readable fixture projection companion to the Turn Intake Fixture Pack; intended as future test source material and does not implement classifier, token registry, prompt behavior, retrieval behavior, tool behavior, action gates, or routing behavior.
-- [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, transport visibility, replay, and transcript-integrity semantics.
+- [Chat Runtime Contract](./chat-runtime-contract.md): normative frontend/shared-runtime vocabulary for provider runtime, request lifecycle, transport visibility, replay, and transcript-integrity semantics. It also owns the merged **multimodal user-content** contract (content-array shape, Anthropic and Ollama adaptations, the media signature and containment rules for local `/media/` reads, the internal Guardian fallback, and the pre-dispatch `CHAT_COMPLETE_IMAGE_PAYLOAD_MISSING` refusal), which is code and mocked-transport evidence on `main` with no proof artifact and no qualification surface.
 - [Task-Event Ingress Matrix](./task-event-ingress-matrix.md): accepted six-family ingress contract. Agent/coding moves to owner-authorized snapshots; dedicated public agent SSE is quarantined. The [adopted destination proof](./proofs/2026-10-02-agent-coding-snapshot-readback-proof.md) records 121 passing tests on the isolated prerequisite branch. PR #848/public-ingress qualification remains HOLD.
 - [Chat Transport Visibility and Adaptive Stream Recovery Contract](./adr/038-chat-transport-visibility-and-adaptive-stream-recovery-contract.md): docs-only third-plane contract for stalled-stream interpretation, observation-only recovery, and transcript-safe boundaries.
 - [Guardian Chat Portal](./guardian-chat-portal.md): browser shell guide for the Guardian chat surface, session rail, sidebar, and mobile portal overlay. It explains how the current portal is wired and how to operate it.

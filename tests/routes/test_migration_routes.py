@@ -26,7 +26,9 @@ def _single_user_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def test_client(mock_auth):
+def test_client(mock_auth, monkeypatch):
+    monkeypatch.setattr(migration_routes, "_enforce_manifest_read_limit", lambda user_id: None)
+    monkeypatch.setattr(migration_routes, "_enforce_import_chunk_rate_limit", lambda user_id: None)
     app = FastAPI()
     app.dependency_overrides[
         migration_routes.require_api_key
@@ -1145,3 +1147,73 @@ def test_retry_response_has_no_absolute_host_path(
     assert "/Users/" not in body
     assert "/Volumes/" not in body
     assert ".codex/worktrees" not in body
+
+
+def test_account_import_manifest_route_uses_authenticated_owner(test_client, monkeypatch):
+    service = MagicMock()
+    service.get_upload_manifest.return_value = {"job_id": "job-account-1", "files": []}
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/job-account-1/manifest", headers={"X-User-Id": "account-b"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID, cursor=0)
+
+
+def test_manifest_cursor_respects_server_configured_limit_above_default(test_client, monkeypatch):
+    service = MagicMock()
+    service.get_upload_manifest.return_value = {"job_id": "job-account-1", "files": []}
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/job-account-1/manifest?cursor=20001")
+    assert response.status_code == 200
+    service.get_upload_manifest.assert_called_once_with(job_id="job-account-1", user_id=SERVER_USER_ID, cursor=20001)
+
+
+def test_account_import_manifest_route_preserves_owner_not_found(test_client, monkeypatch):
+    from guardian.services.openai_account_import import AccountImportError
+    service = MagicMock()
+    service.get_upload_manifest.side_effect = AccountImportError("Not found", code="account_import_not_found", status_code=404)
+    monkeypatch.setattr(migration_routes, "_get_account_import_service", lambda: service)
+    response = test_client.get("/api/imports/openai-account/other-account-job/manifest")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "account_import_not_found"
+
+
+def test_manifest_rate_limiter_is_shared_and_fail_closed(monkeypatch):
+    from fastapi import HTTPException
+
+    client = MagicMock()
+    monkeypatch.setattr(migration_routes, "get_redis_client", lambda: client)
+    client.eval.return_value = 120
+    migration_routes._enforce_manifest_read_limit("account-a")
+    args = client.eval.call_args.args
+    assert args[1] == 1
+    assert "account-a" not in args[2]
+
+    client.eval.return_value = 121
+    with pytest.raises(HTTPException) as limited:
+        migration_routes._enforce_manifest_read_limit("account-a")
+    assert limited.value.status_code == 429
+    assert limited.value.headers["Retry-After"] == "60"
+
+    client.eval.side_effect = RuntimeError("redis unavailable")
+    with pytest.raises(HTTPException) as unavailable:
+        migration_routes._enforce_manifest_read_limit("account-a")
+    assert unavailable.value.status_code == 503
+
+
+def test_chunk_rate_limiter_bounds_authenticated_replays(monkeypatch):
+    from fastapi import HTTPException
+
+    client = MagicMock()
+    monkeypatch.setattr(migration_routes, "get_redis_client", lambda: client)
+    client.eval.return_value = 600
+    migration_routes._enforce_import_chunk_rate_limit("account-a")
+    assert "account-a" not in client.eval.call_args.args[2]
+    client.eval.return_value = 601
+    with pytest.raises(HTTPException) as limited:
+        migration_routes._enforce_import_chunk_rate_limit("account-a")
+    assert limited.value.status_code == 429
+    client.eval.side_effect = RuntimeError("redis unavailable")
+    with pytest.raises(HTTPException) as unavailable:
+        migration_routes._enforce_import_chunk_rate_limit("account-a")
+    assert unavailable.value.status_code == 503

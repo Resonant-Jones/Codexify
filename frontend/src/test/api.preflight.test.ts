@@ -6,6 +6,12 @@ import {
   normalizeImportRuntimeError,
   preflightBackendAvailability,
   refreshApiBaseUrl,
+  createOpenAIAccountImport,
+  fetchOpenAIAccountImport,
+  fetchOpenAIAccountImportManifest,
+  uploadOpenAIAccountImportBatch,
+  commitOpenAIAccountImport,
+  ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS,
   shouldClassifyBackendOutageExemptionForTests,
 } from "@/lib/api";
 import { initRuntimeConfig } from "@/lib/runtimeConfig";
@@ -128,6 +134,43 @@ describe("backend outage recovery", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
     await expect(preflightBackendAvailability()).resolves.toEqual({ ok: true });
     expect(isBackendOutageActiveForTests()).toBe(false);
+  });
+
+  it("keeps bounded durable import requests usable when unrelated traffic relatches the fuse", async () => {
+    vi.stubEnv("VITE_ENABLE_REQUEST_GUARD", "false");
+    const adapter = vi.fn(async (config: any) => {
+      if (config.url.includes("failure")) throw Object.assign(new Error("Network Error"), { config });
+      return { data: config.url.includes("/manifest") ? { files: [] } : {}, status: 200, statusText: "OK", headers: {}, config };
+    });
+    api.defaults.adapter = adapter;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    await preflightBackendAvailability();
+    // A late unrelated failure can arrive during local staged-file hashing.
+    await expect(api.get("/failure")).rejects.toThrow();
+    expect(isBackendOutageActiveForTests()).toBe(true);
+    await createOpenAIAccountImport({ source_system: "openai", total_file_count: 1, total_byte_count: 1 });
+    await fetchOpenAIAccountImport("job");
+    await fetchOpenAIAccountImportManifest("job");
+    await uploadOpenAIAccountImportBatch("job", [{ file: new File(["a"], "a"), relativePath: "export/a" }]);
+    await commitOpenAIAccountImport("job");
+    const imports = adapter.mock.calls.slice(1).map(([config]) => config);
+    expect(imports).toHaveLength(5);
+    expect(imports.every(config => config.timeout === ACCOUNT_IMPORT_REQUEST_TIMEOUT_MS && config.withCredentials === true)).toBe(true);
+    expect(isBackendOutageActiveForTests()).toBe(true);
+    await expect(api.get("/api/chat/threads")).rejects.toMatchObject({ code: "ERR_BACKEND_OUTAGE_FUSE" });
+  });
+
+  it.each([401, 403, 409])("preserves import HTTP %s without retrying or clearing the fuse", async (status) => {
+    vi.stubEnv("VITE_ENABLE_REQUEST_GUARD", "false");
+    const adapter = vi.fn(async (config: any) => {
+      if (config.url.includes("failure")) throw Object.assign(new Error("Network Error"), { config });
+      throw Object.assign(new Error("Import rejected"), { config, response: { status } });
+    });
+    api.defaults.adapter = adapter;
+    await expect(api.get("/failure")).rejects.toThrow();
+    await expect(uploadOpenAIAccountImportBatch("job", [])).rejects.toMatchObject({ response: { status } });
+    expect(adapter).toHaveBeenCalledTimes(2);
+    expect(isBackendOutageActiveForTests()).toBe(true);
   });
 
   it("keeps transport, cancellation, HTTP and client guards distinct", () => {

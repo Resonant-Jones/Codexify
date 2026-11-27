@@ -4,25 +4,30 @@
  * Renders the chat composer input and controls, including turn-based gating
  * to prevent overlapping user sends while an assistant reply is in flight.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { BookOpen, Send, X, FileText, Maximize2, Minimize2 } from "lucide-react";
 import { UploadedAttachment, toAbsoluteMediaUrl } from "@/hooks/useUploader";
 import { ImageGenModal } from "@/components/modals/ImageGenModal";
+import { requireImageCommandDiscovery, resolveImageGenerationIntent, type ImageGenerationIntent } from "@/features/chat/imageGeneration";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 import { ComposerActionMenu } from "@/features/chat/components/ComposerActionMenu";
 import ComposerSelectMenu, {
   type ComposerSelectOption,
 } from "@/features/chat/components/ComposerSelectMenu";
+import { SolarEffortControl } from "@/features/chat/components/SolarEffortControl";
 import {
   DEFAULT_COMPOSER_INFERENCE_MODE,
   type ComposerInferenceMode,
 } from "@/types/inference";
 import {
   buildSlashCommandSendPayload,
+  filterSlashCommands,
+  resolveSlashCommand,
   resolveSlashCommandIntent,
+  type SlashCommandDefinition,
   type SlashCommandIntentPayload,
 } from "@/contracts/slashCommands";
 import {
@@ -31,7 +36,6 @@ import {
   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS,
 } from "@/features/chat/chatLane";
 import {
-  markInlineCommandExecuted,
   parseInlineCommandDraft,
   type InlineCommandDefinition,
   type InlineCommandName,
@@ -39,6 +43,7 @@ import {
   type InlineCommandOptionSets,
 } from "@/features/chat/inlineCommands";
 import type { CodingLoopExecutionMode } from "@/features/chat/codingLoop/CodingLoop";
+import type { SlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
 const ACCEPTED_ATTACHMENTS =
   [
     "image/*",
@@ -51,6 +56,7 @@ const ACCEPTED_ATTACHMENTS =
     ".txt",
   ].join(",");
 const DEFAULT_DRAFT_SYNC_DEBOUNCE_MS = 350;
+const EMPTY_SLASH_COMMANDS: readonly SlashCommandDefinition[] = [];
 const MIN_COMPOSER_ROWS = 2;
 const MAX_COMPOSER_ROWS = 6;
 const MIN_COMPOSER_ROWS_MOBILE = 1;
@@ -154,6 +160,7 @@ export type ComposerSendOptions = {
   threadIdOverride?: number;
   slashIntent?: SlashCommandIntentPayload;
   executionMode?: CodingLoopExecutionMode;
+  imageGeneration?: ImageGenerationIntent;
 };
 
 type DepthMode = "shallow" | "normal" | "deep" | "diagnostic";
@@ -245,6 +252,9 @@ export function Composer({
   activeModelId = "default",
   modelOptions = [],
   onModelChange,
+  thinkingEffortLevels,
+  thinkingEffort = "default",
+  onThinkingEffortChange,
   activeInferenceMode = DEFAULT_COMPOSER_INFERENCE_MODE,
   inferenceModeOptions = [],
   onInferenceModeChange,
@@ -261,6 +271,7 @@ export function Composer({
   onProjectChange,
   presentationMode = "conversation",
   compactMobile = false,
+  slashCommandLibrary,
   mobileModelId,
   mobileModelLabel,
   mobileModelOptions = [],
@@ -291,6 +302,9 @@ export function Composer({
   mobileModelLabel?: string;
   mobileModelOptions?: ComposerSelectOption[];
   onMobileModelChange?: (modelId: string) => void;
+  thinkingEffortLevels?: string[];
+  thinkingEffort?: string;
+  onThinkingEffortChange?: (level: string) => void;
   activeInferenceMode?: ComposerInferenceMode;
   inferenceModeOptions?: ComposerSelectOption[];
   onInferenceModeChange?: (mode: ComposerInferenceMode) => void;
@@ -316,6 +330,7 @@ export function Composer({
   providerRuntimeState?: unknown;
   onCatalogRefresh?: () => void;
   compactMobile?: boolean;
+  slashCommandLibrary?: SlashCommandLibrary;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const composerSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -324,6 +339,7 @@ export function Composer({
   const [hasCollapsedOverflow, setHasCollapsedOverflow] = useState(false);
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const commandListboxId = useId();
   const [dismissedCommandDraft, setDismissedCommandDraft] = useState<
     string | null
   >(null);
@@ -381,7 +397,9 @@ export function Composer({
   const voiceTurnDisabled = turnLocked || transportBusy;
 
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
-  const [obsidianSlashActive, setObsidianSlashActive] = useState(false);
+  const commands = slashCommandLibrary?.manifest?.commands ?? EMPTY_SLASH_COMMANDS;
+  const obsidianSlashActive =
+    resolveSlashCommandIntent(value, commands)?.command.id === "obsidian";
   const hasDraftContent = Boolean(value.trim()) || draftAttachments.length > 0;
   const sendTransportDisabled = transportBusy || !hasDraftContent;
 
@@ -432,10 +450,9 @@ export function Composer({
   useEffect(() => {
     const controls = landingControlsRef.current;
     if (!isLandingPresentation || !controls) return;
-    // ComposerSelectMenu owns its open state. Observe its public trigger state
-    // so portaled menus retain disclosure, including programmatic provider opens.
+    // Observe the triggers so portaled controls retain landing disclosure.
     const update = () => {
-      const open = Boolean(controls.querySelector('[aria-haspopup="menu"][aria-expanded="true"]'));
+      const open = Boolean(controls.querySelector('[aria-haspopup][aria-expanded="true"]'));
       setLandingSelectorOpen(open);
       if (!open) {
         setLandingControlsFocused(controls.contains(document.activeElement));
@@ -444,7 +461,7 @@ export function Composer({
       }
     };
     const observer = new MutationObserver(update);
-    observer.observe(controls, { subtree: true, attributes: true, attributeFilter: ["aria-expanded"] });
+    observer.observe(controls, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-expanded"] });
     update();
     return () => observer.disconnect();
   }, [isLandingPresentation, compactMobile]);
@@ -633,9 +650,6 @@ export function Composer({
     return lines.join("\n\n").trim();
   };
 
-  const isObsidianSlashCommand = (rawValue: string) =>
-    resolveSlashCommandIntent(rawValue)?.command.id === "obsidian";
-
   const resolveProjectId = () => {
     const explicitProjectId = normalizeOptionalPositiveProjectId(projectId);
     if (explicitProjectId !== null) return explicitProjectId;
@@ -750,7 +764,16 @@ export function Composer({
       return;
     }
 
-    const { messageText, slashIntent } = buildSlashCommandSendPayload(value);
+    const imageGeneration = draftAttachments.length === 0 ? resolveImageGenerationIntent(value) : null;
+    if (imageGeneration) {
+      try { requireImageCommandDiscovery(slashCommandLibrary, imageGeneration); }
+      catch (error) { showToast((error as Error).message); return; }
+    }
+    if (imageGeneration && !imageGeneration.prompt) {
+      setShowImgGen(true);
+      return;
+    }
+    const { messageText, slashIntent } = buildSlashCommandSendPayload(value, commands);
     const bodyText = messageText.trim();
     const hasAttachments = draftAttachments.length > 0;
     if (!bodyText && !hasAttachments) return;
@@ -795,6 +818,7 @@ export function Composer({
             ? uploadThreadId
             : undefined,
         ...(slashIntent ? { slashIntent } : {}),
+        ...(imageGeneration ? { imageGeneration } : {}),
       });
 
       // Clear the draft after a successful send.
@@ -984,29 +1008,48 @@ export function Composer({
     ]
   );
   const inlineCommandResult = useMemo(
-    () => parseInlineCommandDraft(value, inlineCommandOptionSets),
-    [inlineCommandOptionSets, value]
+    () => parseInlineCommandDraft(value, inlineCommandOptionSets, commands),
+    [commands, inlineCommandOptionSets, value]
   );
-  const commandPaletteOpen =
-    compactMobile &&
-    isComposerFocused &&
-    dismissedCommandDraft !== value &&
-    inlineCommandResult.state !== "unknown" &&
-    inlineCommandResult.state !== "executed";
-  const commandSuggestions = commandPaletteOpen
-    ? inlineCommandResult.suggestions
-    : [];
-  const commandPaletteMode =
-    inlineCommandResult.command == null ? "command" : "value";
+  const commandDraft = /^\/([^/\s]*)([ \t]+[^\r\n]*)?$/.exec(value);
+  const commandQuery = commandDraft?.[1] ?? "";
+  const hasValue = commandDraft?.[2] !== undefined;
+  const exactCommand = commandDraft && resolveSlashCommand(commands, commandQuery);
+  const control = inlineCommandResult.command;
+  const showValues = hasValue && control &&
+    (!exactCommand?.interactionModes.includes("chat_intent") ||
+      !inlineCommandResult.valueQuery ||
+      inlineCommandResult.state !== "unknown");
+  const commandPaletteMode = showValues ? "value" : "command";
+  const canShowPalette = isComposerFocused && dismissedCommandDraft !== value &&
+    commandDraft !== null;
+  const commandSuggestions = showValues
+    ? inlineCommandResult.suggestions.filter((option) => "value" in option)
+    : hasValue ? [] : filterSlashCommands(commands, commandQuery);
+  const commandPaletteOpen = canShowPalette &&
+    (commandSuggestions.length > 0 || Boolean(showValues));
+  const discoveryStatus = canShowPalette && slashCommandLibrary?.status !== "ready"
+    ? slashCommandLibrary?.status
+    : undefined;
+
+  const [navigatedOptions, setNavigatedOptions] = useState(false);
   useEffect(() => {
     setActiveCommandOptionIndex(0);
-  }, [value, commandSuggestions.length]);
+    setNavigatedOptions(false);
+  }, [value, commandSuggestions.length, commands, commandPaletteMode]);
+
+  const isSupportedControl = (command: SlashCommandDefinition) =>
+    command.interactionModes.includes("composer_control") &&
+    Object.prototype.hasOwnProperty.call(inlineCommandOptionSets, command.id);
+
+  const isDisabledCommand = (command: SlashCommandDefinition) =>
+    command.availability === "unavailable" ||
+    (!command.interactionModes.includes("chat_intent") && !isSupportedControl(command));
 
   const updateDraftValue = (next: string) => {
     setValue(next);
     valueRef.current = next;
     setDismissedCommandDraft(null);
-    setObsidianSlashActive(isObsidianSlashCommand(next.trimStart()));
     scheduleDraftCommit(next);
   };
 
@@ -1014,7 +1057,7 @@ export function Composer({
     command: InlineCommandDefinition,
     option: InlineCommandOption
   ) => {
-    if (option.disabled) return;
+    if (option.disabled || draftControlsDisabled) return;
     const handlers: Partial<Record<InlineCommandName, (next: string) => void>> = {
       project: onProjectChange,
       provider: onProviderChange,
@@ -1027,15 +1070,7 @@ export function Composer({
     if (!handler) return;
 
     handler(option.value);
-    const readyResult = parseInlineCommandDraft(
-      `/${command.name} ${option.value}`,
-      inlineCommandOptionSets
-    );
-    const confirmation =
-      readyResult.state === "ready"
-        ? markInlineCommandExecuted(readyResult).confirmation
-        : `${command.label} set to ${option.label}`;
-    setCommandAnnouncement(confirmation);
+    setCommandAnnouncement(`${command.label} set to ${option.label}`);
     updateDraftValue("");
     ref.current?.focus({ preventScroll: true });
   };
@@ -1043,37 +1078,46 @@ export function Composer({
   const activateCommandSuggestion = (index: number) => {
     const suggestion = commandSuggestions[index];
     if (!suggestion) return;
-    if ("name" in suggestion) {
-      updateDraftValue(`/${suggestion.name} `);
+    if ("interactionModes" in suggestion) {
+      if (isDisabledCommand(suggestion)) return;
+      const opensValues = isSupportedControl(suggestion);
+      const next = opensValues ? `${suggestion.scaffold} ` : suggestion.scaffold;
+      updateDraftValue(next);
+      if (!opensValues) setDismissedCommandDraft(next);
       ref.current?.focus({ preventScroll: true });
       return;
     }
-    if (inlineCommandResult.command) {
-      executeInlineCommandOption(inlineCommandResult.command, suggestion);
-    }
+    if (control) executeInlineCommandOption(control, suggestion);
   };
+
+  const commandOptionId = (index: number) => `${commandListboxId}-option-${index}`;
 
   const handleComposerKeyDown = (
     event: React.KeyboardEvent<HTMLTextAreaElement>
   ) => {
-    if (commandPaletteOpen) {
+    if (event.nativeEvent.isComposing) return;
+    if (commandPaletteOpen || discoveryStatus) {
       if (event.key === "Escape") {
         event.preventDefault();
         setDismissedCommandDraft(value);
         return;
       }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    }
+    if (commandPaletteOpen) {
+      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && commandSuggestions.length > 0) {
         event.preventDefault();
         const direction = event.key === "ArrowDown" ? 1 : -1;
         const next =
           (activeCommandOptionIndex + direction + commandSuggestions.length) %
           commandSuggestions.length;
         setActiveCommandOptionIndex(next);
+        setNavigatedOptions(true);
+        document.getElementById(commandOptionId(next))?.scrollIntoView?.({ block: "nearest" });
         return;
       }
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        if (inlineCommandResult.state === "ambiguous") return;
+        if (inlineCommandResult.state === "ambiguous" && !navigatedOptions) return;
         activateCommandSuggestion(activeCommandOptionIndex);
         return;
       }
@@ -1115,12 +1159,14 @@ export function Composer({
         onPaste={onPaste}
         onKeyDown={handleComposerKeyDown}
         aria-controls={
-          commandPaletteOpen ? "composer-inline-command-listbox" : undefined
+          commandPaletteOpen ? commandListboxId : undefined
         }
         aria-expanded={commandPaletteOpen}
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
         aria-activedescendant={
           commandPaletteOpen && commandSuggestions.length > 0
-            ? `composer-inline-option-${activeCommandOptionIndex}`
+            ? commandOptionId(activeCommandOptionIndex)
             : undefined
         }
         className="min-w-0 h-full w-full resize-none border-0 bg-transparent text-base leading-relaxed focus-visible:ring-0 focus-visible:outline-none shadow-none placeholder:text-white/20"
@@ -1185,6 +1231,10 @@ export function Composer({
         fileInputRef.current?.click();
       }}
       onGenerateImage={() => {
+        if (turnLocked) {
+          notifyTurnLocked();
+          return;
+        }
         if (draftControlsDisabled) {
           notifyTransportBusy();
           return;
@@ -1237,6 +1287,17 @@ export function Composer({
     </Button>
   );
 
+  const effortControl = activeInferenceMode === "think" && thinkingEffortLevels?.length ? (
+    <SolarEffortControl
+      levels={thinkingEffortLevels}
+      value={thinkingEffort}
+      onChange={onThinkingEffortChange}
+      disabled={draftControlsDisabled}
+      compact={compactMobile}
+      variant={isLandingPresentation && !compactMobile ? "chip" : "bare"}
+    />
+  ) : null;
+
   const renderLandingInferenceControls = () => (
     <div
       ref={landingControlsRef}
@@ -1287,6 +1348,7 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
         <ComposerSelectMenu
           ariaLabel="Select inference mode"
           menuLabel="Mode"
@@ -1365,7 +1427,10 @@ export function Composer({
     return (
       <div
         data-testid="composer-mobile-route-row"
-        className="flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]"
+        className={cn(
+          "flex w-full min-w-0 items-center gap-[var(--guardian-composer-compact-gap)] px-[var(--composer-text-pad-x,14px)]",
+          effortControl && "[&>[data-ddm-root]]:flex [&>[data-ddm-root]]:min-w-0"
+        )}
       >
         <ComposerSelectMenu
           ariaLabel="Select provider"
@@ -1390,6 +1455,14 @@ export function Composer({
           disabled={draftControlsDisabled || modelOptions.length === 0}
           onSelect={onModelChange ?? (() => {})}
         />
+        {effortControl}
+        {thinkingEffortLevels?.length ? (
+          <ComposerSelectMenu ariaLabel="Select inference mode" menuLabel="Mode"
+            valueLabel={inferenceModeLabel} selectedValue={activeInferenceMode}
+            options={inferenceModeOptions} isPhoneShell triggerVariant="bare"
+            disabled={draftControlsDisabled}
+            onSelect={(mode) => onInferenceModeChange?.(mode as ComposerInferenceMode)} />
+        ) : null}
       </div>
     );
   };
@@ -1441,15 +1514,15 @@ export function Composer({
               >
                 {commandPaletteMode === "command"
                   ? "Composer commands"
-                  : `/${inlineCommandResult.command?.name} values`}
+                  : `${control?.token} values`}
               </div>
               <div
-                id="composer-inline-command-listbox"
+                id={commandListboxId}
                 role="listbox"
                 aria-label={
                   commandPaletteMode === "command"
                     ? "Composer commands"
-                    : `${inlineCommandResult.command?.label} values`
+                    : `${control?.label} values`
                 }
                 className="overflow-y-auto p-[var(--guardian-composer-compact-gap)]"
                 style={{
@@ -1458,15 +1531,17 @@ export function Composer({
                 }}
               >
                 {commandSuggestions.map((suggestion, index) => {
-                  const isCommand = "name" in suggestion;
-                  const disabled = !isCommand && suggestion.disabled;
-                  const optionId = `composer-inline-option-${index}`;
+                  const isCommand = "interactionModes" in suggestion;
+                  const disabled = isCommand
+                    ? isDisabledCommand(suggestion)
+                    : draftControlsDisabled || suggestion.disabled;
+                  const optionId = commandOptionId(index);
                   return (
                     <button
                       key={
                         isCommand
-                          ? suggestion.name
-                          : `${inlineCommandResult.command?.name}-${suggestion.value}`
+                          ? suggestion.id
+                          : `${control?.name}-${suggestion.value}`
                       }
                       id={optionId}
                       type="button"
@@ -1489,7 +1564,7 @@ export function Composer({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {isCommand
-                            ? `/${suggestion.name}`
+                            ? suggestion.token
                             : suggestion.label}
                         </span>
                         {suggestion.description ? (
@@ -1505,7 +1580,19 @@ export function Composer({
                   );
                 })}
               </div>
+              {commandSuggestions.length === 0 ? (
+                <div className="px-[var(--card-pad)] pb-2 text-xs text-[var(--muted)]">
+                  No matching values.
+                </div>
+              ) : null}
             </div>
+          ) : null}
+          {discoveryStatus ? (
+            <p role="status" className="text-xs text-[var(--muted)]">
+              {discoveryStatus === "loading"
+                ? "Loading slash commands…"
+                : "Slash commands are unavailable. You can still send messages."}
+            </p>
           ) : null}
           {!compactMobile ? renderComposerTextarea() : null}
 
@@ -1606,7 +1693,7 @@ export function Composer({
                     data-testid="composer-obsidian-action"
                     className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-none border-0 bg-transparent px-1 text-[11px]"
                     style={{ color: "var(--text)" }}
-                    title="Obsidian context will be queried for this turn"
+                    title="Request Obsidian context for this turn"
                   >
                     <BookOpen className="h-3.5 w-3.5" />
                     <span>Obsidian</span>
@@ -1644,6 +1731,7 @@ export function Composer({
                   disabled={draftControlsDisabled || modelOptions.length === 0}
                   onSelect={onModelChange ?? (() => {})}
                 />
+                {effortControl}
                 <ComposerSelectMenu
                   ariaLabel="Select inference mode"
                   menuLabel="Mode"
@@ -1687,6 +1775,15 @@ export function Composer({
         onOpenChange={setShowImgGen}
         projectId={resolveProjectId()}
         threadId={threadId ?? null}
+        initialPrompt={resolveImageGenerationIntent(value)?.prompt ?? value}
+        initialModelAlias={resolveImageGenerationIntent(value)?.modelAlias}
+        onGenerate={async (intent) => {
+          requireImageCommandDiscovery(slashCommandLibrary, intent);
+          if (turnLocked || transportBusy) throw new Error("Wait for the current turn to finish before generating an image.");
+          await onSend(intent.prompt, { imageGeneration: intent });
+          updateDraftValue("");
+          commitDraftNow("");
+        }}
       />
     </>
   );

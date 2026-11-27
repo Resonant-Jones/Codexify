@@ -1,195 +1,92 @@
-export type SlashCommandId =
-  | "thread"
-  | "doc"
-  | "project"
-  | "workspace"
-  | "profile"
-  | "flow"
-  | "secure"
-  | "connect"
-  | "obsidian"
-  | "codex_entry"
-  | "help";
+import { z } from "zod";
 
-export type SlashCommandIntentKind =
-  | "conversation"
-  | "knowledge"
-  | "workspace"
-  | "automation"
-  | "security"
-  | "integration"
-  | "codex"
-  | "help";
+const intentKind = z.enum([
+  "conversation", "knowledge", "workspace", "automation",
+  "security", "integration", "codex", "help",
+]);
+const retrievalHint = z.enum(["none", "conversation", "project", "personal_knowledge"]);
+const effects = z.object({ intentKind, retrievalHint });
+const commandDefinition = z.object({
+  id: z.string().min(1),
+  token: z.string().regex(/^\/[^/\s]+$/),
+  label: z.string().min(1),
+  description: z.string().min(1),
+  aliases: z.array(z.string().regex(/^[^/\s]+$/)),
+  keywords: z.array(z.string().min(1)),
+  scaffold: z.string().min(1),
+  interactionModes: z.array(z.string().min(1)).min(1),
+  effects: effects.nullable(),
+  availability: z.enum(["available", "unavailable", "unknown"]),
+  availabilityReason: z.string().min(1).nullable(),
+}).refine((command) =>
+  !command.interactionModes.includes("chat_intent") || command.effects !== null
+);
+const manifest = z.object({
+  schemaVersion: z.literal(1),
+  manifestRevision: z.string().min(1),
+  commands: z.array(commandDefinition),
+});
 
-export type SlashCommandRetrievalHint =
-  | "none"
-  | "conversation"
-  | "project"
-  | "personal_knowledge";
+export type SlashCommandIntentKind = z.infer<typeof intentKind>;
+export type SlashCommandRetrievalHint = z.infer<typeof retrievalHint>;
+export type SlashCommandEffects = z.infer<typeof effects>;
+export type SlashCommandDefinition = z.infer<typeof commandDefinition>;
+export type SlashCommandManifest = z.infer<typeof manifest>;
 
-export type SlashCommandEffects = {
-  intentKind: SlashCommandIntentKind;
-  retrievalHint: SlashCommandRetrievalHint;
-};
+export function decodeSlashCommandManifest(value: unknown): SlashCommandManifest {
+  const decoded = manifest.parse(value);
+  const ids = new Set<string>();
+  const tokens = new Set<string>();
+  const aliases = new Set<string>();
+  for (const command of decoded.commands) {
+    const token = normalizeSlashToken(command.token);
+    if (ids.has(command.id) || tokens.has(token)) {
+      throw new Error("Duplicate slash command identity");
+    }
+    ids.add(command.id);
+    tokens.add(token);
+    for (const alias of command.aliases.map(normalizeSlashToken)) {
+      if (aliases.has(alias)) throw new Error("Ambiguous slash command alias");
+      aliases.add(alias);
+    }
+  }
+  return decoded;
+}
 
-export type SlashCommandDefinition = {
-  id: SlashCommandId;
-  label: string;
-  description: string;
-  aliases: readonly string[];
-  keywords: readonly string[];
-  scaffold: string;
-  effects: SlashCommandEffects;
-};
+export function resolveSlashCommand(
+  commands: readonly SlashCommandDefinition[],
+  token: string
+): SlashCommandDefinition | undefined {
+  const normalized = normalizeSlashToken(token);
+  if (!normalized) return undefined;
+  return commands.find((command) => normalizeSlashToken(command.token) === normalized)
+    ?? commands.find((command) =>
+      command.aliases.some((alias) => normalizeSlashToken(alias) === normalized)
+    );
+}
 
-export const SLASH_COMMANDS = [
-  {
-    id: "thread",
-    label: "Thread",
-    description: "Start or switch a conversation thread.",
-    aliases: ["chat", "conversation"],
-    keywords: ["reply", "turn"],
-    scaffold: "/thread",
-    effects: {
-      intentKind: "conversation",
-      retrievalHint: "conversation",
-    },
-  },
-  {
-    id: "doc",
-    label: "Document",
-    description: "Add or reference a document.",
-    aliases: ["do", "docs", "document"],
-    keywords: ["file", "note", "reference"],
-    scaffold: "/doc",
-    effects: {
-      intentKind: "knowledge",
-      retrievalHint: "personal_knowledge",
-    },
-  },
-  {
-    id: "project",
-    label: "Project",
-    description: "Scope the request to a project.",
-    aliases: ["workspace", "repo"],
-    keywords: ["scope", "context"],
-    scaffold: "/project",
-    effects: {
-      intentKind: "workspace",
-      retrievalHint: "project",
-    },
-  },
-  {
-    id: "workspace",
-    label: "Workspace",
-    description: "Work across the current workspace.",
-    aliases: ["root", "local"],
-    keywords: ["folder", "environment"],
-    scaffold: "/workspace",
-    effects: {
-      intentKind: "workspace",
-      retrievalHint: "project",
-    },
-  },
-  {
-    id: "profile",
-    label: "Profile",
-    description: "Choose an identity or persona.",
-    aliases: ["identity", "persona", "account"],
-    keywords: ["user", "role"],
-    scaffold: "/profile",
-    effects: {
-      intentKind: "conversation",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "flow",
-    label: "Flow",
-    description: "Switch to a workflow step.",
-    aliases: ["pipeline", "sequence"],
-    keywords: ["process", "mode"],
-    scaffold: "/flow",
-    effects: {
-      intentKind: "automation",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "secure",
-    label: "Secure",
-    description: "Tighten access or permissions.",
-    aliases: ["permission", "lock"],
-    keywords: ["privacy", "acl"],
-    scaffold: "/secure",
-    effects: {
-      intentKind: "security",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "connect",
-    label: "Connect",
-    description: "Link sources or peers.",
-    aliases: ["sync", "attach"],
-    keywords: ["bridge", "federate"],
-    scaffold: "/connect",
-    effects: {
-      intentKind: "integration",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "obsidian",
-    label: "Obsidian",
-    description: "Pull relevant notes from an active Obsidian connector for this turn.",
-    aliases: ["obs", "vault", "notes"],
-    keywords: ["connector", "context", "knowledge", "markdown"],
-    scaffold: "/obsidian",
-    effects: {
-      intentKind: "integration",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "codex_entry",
-    label: "Codex Entry",
-    description: "Generate a Codex Entry draft from the conversation.",
-    aliases: ["codex", "entry", "artifact"],
-    keywords: ["save", "draft", "note", "capture", "preserve"],
-    scaffold: "/codex_entry",
-    effects: {
-      intentKind: "codex",
-      retrievalHint: "none",
-    },
-  },
-  {
-    id: "help",
-    label: "Help",
-    description: "Show command help.",
-    aliases: ["?", "commands"],
-    keywords: ["guide", "menu"],
-    scaffold: "/help",
-    effects: {
-      intentKind: "help",
-      retrievalHint: "none",
-    },
-  },
-] as const satisfies readonly SlashCommandDefinition[];
+export function filterSlashCommands(
+  commands: readonly SlashCommandDefinition[],
+  query: string
+): readonly SlashCommandDefinition[] {
+  const normalized = normalizeSlashToken(query);
+  if (!normalized) return commands;
+  const exact = resolveSlashCommand(commands, normalized);
+  if (exact) return [exact];
 
-export const SLASH_COMMAND_LOOKUP = Object.fromEntries(
-  SLASH_COMMANDS.map((command) => [command.id, command])
-) as Record<SlashCommandId, SlashCommandDefinition>;
-
-export const SLASH_COMMAND_TOKEN_LOOKUP = Object.fromEntries(
-  SLASH_COMMANDS.flatMap((command) => [
-    [command.id, command],
-    ...command.aliases.map((alias) => [alias, command] as const),
-  ])
-) as Record<string, SlashCommandDefinition>;
+  const tokens: SlashCommandDefinition[] = [];
+  const aliases: SlashCommandDefinition[] = [];
+  const keywords: SlashCommandDefinition[] = [];
+  for (const command of commands) {
+    if (normalizeSlashToken(command.token).startsWith(normalized)) tokens.push(command);
+    else if (command.aliases.some((alias) => normalizeSlashToken(alias).startsWith(normalized))) aliases.push(command);
+    else if (command.keywords.some((keyword) => keyword.toLowerCase().startsWith(normalized))) keywords.push(command);
+  }
+  return [...tokens, ...aliases, ...keywords];
+}
 
 export type SlashCommandIntent = {
-  command: SlashCommandDefinition;
+  command: SlashCommandDefinition & { effects: SlashCommandEffects };
   rawToken: string;
   queryText: string;
 };
@@ -206,7 +103,7 @@ export type SlashCommandContextDirective = {
 export type SlashCommandIntentPayload = {
   intentKind: SlashCommandIntentKind;
   retrievalHint?: SlashCommandRetrievalHint;
-  commandId?: SlashCommandId;
+  commandId?: string;
   rawInput: string;
   queryText?: string;
   contextDirectives?: SlashCommandContextDirective[];
@@ -217,7 +114,8 @@ function normalizeSlashToken(value: string): string {
 }
 
 export function resolveSlashCommandIntent(
-  input: string
+  input: string,
+  commands: readonly SlashCommandDefinition[]
 ): SlashCommandIntent | null {
   const normalizedInput = input.trimEnd();
   if (!normalizedInput) return null;
@@ -244,23 +142,25 @@ export function resolveSlashCommandIntent(
   const normalizedToken = normalizeSlashToken(commandToken);
   if (!normalizedToken) return null;
 
-  const command = SLASH_COMMAND_TOKEN_LOOKUP[normalizedToken];
-  if (!command) return null;
+  const command = resolveSlashCommand(commands, normalizedToken);
+  if (!command?.interactionModes.includes("chat_intent") ||
+      !command.effects || command.availability === "unavailable") return null;
 
   const queryText =
     firstWhitespaceIndex === -1 ? "" : body.slice(firstWhitespaceIndex).trimStart();
 
   return {
-    command,
+    command: { ...command, effects: command.effects },
     rawToken: `/${normalizedToken}`,
     queryText,
   };
 }
 
 export function buildSlashCommandIntentPayload(
-  input: string
+  input: string,
+  commands: readonly SlashCommandDefinition[]
 ): SlashCommandIntentPayload | null {
-  const intent = resolveSlashCommandIntent(input);
+  const intent = resolveSlashCommandIntent(input, commands);
   if (!intent) return null;
 
   const payload: SlashCommandIntentPayload = {
@@ -289,11 +189,14 @@ export function buildSlashCommandIntentPayload(
   };
 }
 
-export function buildSlashCommandSendPayload(input: string): {
+export function buildSlashCommandSendPayload(
+  input: string,
+  commands: readonly SlashCommandDefinition[]
+): {
   messageText: string;
   slashIntent: SlashCommandIntentPayload | null;
 } {
-  const slashIntent = buildSlashCommandIntentPayload(input);
+  const slashIntent = buildSlashCommandIntentPayload(input, commands);
   if (!slashIntent) {
     return {
       messageText: input,

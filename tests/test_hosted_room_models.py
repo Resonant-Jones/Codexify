@@ -17,6 +17,7 @@ from guardian.db.migrations.versions.b2c3d4e5f6a8_add_hosted_room_persistence im
 )
 from guardian.db.models import (
     ChatMessage,
+    OpenAIImportSource,
     ChatThread,
     HOSTED_ROOM_INVITE_STATUSES,
     HOSTED_ROOM_PARTICIPANT_KINDS,
@@ -53,6 +54,7 @@ def hosted_room_engine():
         Project.__table__,
         PersonaProfile.__table__,
         PersonaProfileRevision.__table__,
+        OpenAIImportSource.__table__,
         ChatThread.__table__,
         ChatMessage.__table__,
         HostedRoom.__table__,
