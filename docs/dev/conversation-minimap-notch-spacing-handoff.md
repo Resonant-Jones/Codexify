@@ -122,12 +122,11 @@ Two viable approaches. The implementer should pick one and state the choice:
 
 - **Option A — bounded proportional.** Keep the current percentage positioning
   but clamp the maximum pitch, so a short thread produces a tight cluster while
-  a long thread still spans the rail. Position still encodes scroll position,
-  but no longer linearly.
+  a long thread still spans the rail. Relative position preserves projected turn
+  order; it does not measure transcript scroll offset, message height, or elapsed time.
 - **Option B — compact turn list.** Lay notches out at a fixed pitch
   (independent of thread length), matching the reference most literally.
-  Position no longer encodes scroll position; the rail becomes a list of turns
-  with one highlighted.
+  The rail remains an ordered list of projected turns with one highlighted.
 
 Either option must:
 
@@ -244,7 +243,8 @@ git commit -m "fix(chat): tighten conversation minimap notch spacing"
 
 - Summary of changes
 - Files changed
-- Validation results, or explicit `No automated runtime tests apply`
+- Required Vitest and Playwright results, including the notch pitch and gap proof;
+  report any unrun required check as incomplete rather than not applicable.
 - Which option (A or B) was chosen, and why
 - The measured notch pitch before and after, in CSS px, and the viewport used
 - Git commit hash
