@@ -252,7 +252,6 @@ describe("GuardianChat session-tab binding", () => {
     ["absent", undefined],
     ["blank", ""],
     ["whitespace", "   "],
-    ["placeholder", "You"],
   ])("falls back cleanly when the preferred name is %s", async (_label, userName) => {
     renderPendingDraftThread(userName);
 

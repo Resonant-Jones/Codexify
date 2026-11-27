@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     PrimaryKeyConstraint,
     String,
@@ -338,6 +339,32 @@ USERNAME_STATE_USERNAME_CONSISTENCY_CHECK = (
 )
 
 
+class UserPresentation(Base):
+    """Explicit account appearance; workspace choices never establish ownership."""
+
+    __tablename__ = "user_presentation"
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    is_unique: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    settings: Mapped[dict] = mapped_column(JSON, nullable=False)
+    wallpaper_data: Mapped[bytes | None] = mapped_column(LargeBinary)
+    wallpaper_mime: Mapped[str | None] = mapped_column(String(32))
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_id != 'account' OR is_unique = false",
+            name="ck_user_presentation_account_scope",
+        ),
+        CheckConstraint(
+            "(wallpaper_data IS NULL AND wallpaper_mime IS NULL) OR "
+            "(wallpaper_data IS NOT NULL AND wallpaper_mime IS NOT NULL AND wallpaper_mime IN ('image/png','image/jpeg','image/webp') "
+            "AND length(wallpaper_data) <= 5242880)",
+            name="ck_user_presentation_wallpaper",
+        ),
+    )
+
+
 class UserProfile(Base):
     """Account-owned presentation and social identity for a canonical user.
 
@@ -364,6 +391,7 @@ class UserProfile(Base):
     username: Mapped[str | None] = mapped_column(String(32))
     username_state: Mapped[str | None] = mapped_column(String(16))
     display_name: Mapped[str | None] = mapped_column(String(255))
+    greeting_name: Mapped[str | None] = mapped_column(String(255))
     avatar_url: Mapped[str | None] = mapped_column(String(2048))
     timezone: Mapped[str | None] = mapped_column(String(128))
     accent_color: Mapped[str] = mapped_column(

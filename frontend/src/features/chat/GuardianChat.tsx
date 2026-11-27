@@ -176,7 +176,6 @@ const TURN_LOCK_TOAST =
 const LLM_HEALTH_POLL_MS = 5000;
 const NEW_THREAD_TITLE = "New Thread";
 const DEFAULT_SOURCE_MODE = "project";
-const UNSET_PREFERRED_NAME_VALUES = new Set(["guest", "unknown", "user", "you"]);
 const PERSONALIZED_LANDING_GREETINGS: ReadonlyArray<(name: string) => string> = [
   (name) => `Welcome back, ${name}.`,
   (name) => `Good to see you, ${name}.`,
@@ -193,9 +192,6 @@ function randomLandingGreetingIndex(): number {
 function normalizePreferredName(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) {
-    return null;
-  }
-  if (UNSET_PREFERRED_NAME_VALUES.has(trimmed.toLowerCase())) {
     return null;
   }
   return trimmed;

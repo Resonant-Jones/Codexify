@@ -101,6 +101,15 @@ def account_route(path: str, method: str) -> bool:
         )
         or path
         in {"/api/media/documents", "/api/auth/logout", "/api/auth/scout/handoff"}
+        or (path == "/api/auth/scout/profile" and method in {"GET", "PATCH"})
+        or (
+            path == "/api/auth/scout/profile/presentation"
+            and method in {"GET", "PATCH"}
+        )
+        or (
+            path == "/api/auth/scout/profile/presentation/wallpaper"
+            and method in {"GET", "PUT"}
+        )
         or (path == "/api/projects" and method in {"GET", "POST"})
         or library_read_route(path, method)
         or saved_widget_route(path, method)

@@ -25,6 +25,9 @@ import {
 import { requestWorkspaceOpen } from "@/features/workspace/state/useWorkspaceState";
 import api from "@/lib/api";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
+import { resetAccountAppearanceFixture, setAccountAppearanceFixture, wallpaperSelections } from "@/test/accountPresentationHarness";
+
+vi.mock("@/features/settings/accountPresentation", async () => import("@/test/accountPresentationHarness"));
 
 const runtimeHealthState = {
   status: RUNTIME_HEALTH_STATUSES.HEALTHY,
@@ -545,7 +548,7 @@ function installMatchMedia(prefersDark = false) {
 }
 
 function renderWordmark(themeMode: "light" | "dark") {
-  window.localStorage.setItem("cfy.themeMode", themeMode);
+  setAccountAppearanceFixture({ settings: { theme_mode: themeMode } });
   render(<AppShell />);
   return screen.findByRole("button", { name: "Codexify" });
 }
@@ -624,6 +627,7 @@ describe("AppShell canonical desktop geometry", () => {
 });
 
 beforeEach(() => {
+  resetAccountAppearanceFixture();
   setViewportWidth(1280);
   setAuthenticatedAuthState();
 });
@@ -1610,9 +1614,10 @@ describe("AppShell shared gallery persistence truth", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
 
     const wallpaper = normalizeMediaUrl("/media/images/global-wallpaper.png?sig=stable");
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(wallpaper);
+    expect(wallpaperSelections).toEqual([wallpaper]);
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
     expect(document.querySelector(".codexify-shell")).toHaveStyle({
-      backgroundImage: expect.stringContaining(wallpaper),
+      backgroundImage: expect.stringContaining("blob:account-wallpaper"),
     });
     expect(screen.queryByRole("menuitem", { name: "Generate Prompt" })).not.toBeInTheDocument();
   });
@@ -1756,9 +1761,8 @@ describe("AppShell gallery demo content", () => {
     fireEvent.contextMenu(seededImage);
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
 
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(
-      "/peekaboo-demo/abstract-signal-study.png"
-    );
+    expect(wallpaperSelections).toEqual(["/peekaboo-demo/abstract-signal-study.png"]);
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
     expect(
       screen.getByRole("img", { name: "Abstract signal study" })
     ).toBeInTheDocument();

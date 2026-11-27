@@ -1,47 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
-import {
-  setWallpaperPreference,
-  WALLPAPER_CHANGE_EVENT,
-  WALLPAPER_STORAGE_KEY,
-} from "@/lib/wallpaperPreference";
+import { useCallback } from "react";
+import { useAccountPresentation } from "@/features/settings/accountPresentation";
+import { setWallpaperPreference } from "@/lib/wallpaperPreference";
 
 export function useWallpaperUrl() {
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem(WALLPAPER_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const { wallpaperSrc, epoch } = useAccountPresentation();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === WALLPAPER_STORAGE_KEY) setWallpaperUrl(e.newValue);
-    };
-    const onWallpaperChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ url: string | null }>).detail;
-      setWallpaperUrl(detail?.url ?? null);
-    };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener(WALLPAPER_CHANGE_EVENT, onWallpaperChange);
-    };
-  }, []);
-
-  const setWallpaper = useCallback((src: string | null) => {
-    setWallpaperPreference(src);
-  }, []);
-
-  const renderableWallpaper = useRenderableMediaSrc(wallpaperUrl);
+  const setWallpaper = useCallback((src: string | null) => setWallpaperPreference(src, epoch), [epoch]);
 
   return {
-    wallpaperUrl,
-    renderableWallpaperUrl: renderableWallpaper.src || null,
+    wallpaperUrl: wallpaperSrc,
+    renderableWallpaperUrl: wallpaperSrc,
     setWallpaper,
   } as const;
 }

@@ -5,7 +5,11 @@ import AppShell from "@/components/persona/layout/AppShell";
 import {
   DEFAULT_GLASS_TREATMENT,
   GLASS_TREATMENT_STORAGE_KEY,
+  type GlassTreatment,
 } from "@/theme/glassTreatment";
+import { resetAccountAppearanceFixture, setAccountAppearanceFixture } from "@/test/accountPresentationHarness";
+
+vi.mock("@/features/settings/accountPresentation", async () => import("@/test/accountPresentationHarness"));
 
 // Appearance tests exercise the real shell, not chat health polling. Keep
 // polling requests from outliving this test environment; chat has its own suite.
@@ -23,6 +27,7 @@ vi.mock("@/features/chat/GuardianChat", () => ({
  */
 describe("Glass Treatment shell integration", () => {
   beforeEach(() => {
+    resetAccountAppearanceFixture();
     localStorage.clear();
     window.localStorage.setItem("cfy.lastView", "dashboard");
   });
@@ -44,9 +49,9 @@ describe("Glass Treatment shell integration", () => {
   });
 
   it.each(["frosted", "solid", "refractive"] as const)(
-    "restores a persisted %s treatment on load",
+    "restores the account's %s treatment on load",
     async (treatment) => {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment } });
       render(<AppShell />);
       await waitFor(() =>
         expect(dock()).toHaveAttribute("data-glass-treatment", treatment)
@@ -56,7 +61,7 @@ describe("Glass Treatment shell integration", () => {
   );
 
   it.each(["matte-v2", "", "SOLID", "1", "null"])(
-    "ignores the malformed persisted value %p and falls back to refractive",
+    "ignores malformed legacy browser value %p when the account uses refractive",
     async (bad) => {
       localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, bad);
       render(<AppShell />);
@@ -71,7 +76,7 @@ describe("Glass Treatment shell integration", () => {
   it("never overloads an existing ADR-064 appearance key", async () => {
     localStorage.setItem("cfy.surfaceDepth", "73");
     localStorage.setItem("cfy.surfaceWarmth", "-41");
-    localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, "solid");
+    setAccountAppearanceFixture({ settings: { glass_treatment: "solid" } });
     render(<AppShell />);
     await waitFor(() =>
       expect(dock()).toHaveAttribute("data-glass-treatment", "solid")
@@ -83,7 +88,7 @@ describe("Glass Treatment shell integration", () => {
 
   it("keeps the utility cluster scoped contrast tokens in every treatment", async () => {
     for (const treatment of ["refractive", "frosted", "solid"] as const) {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment as GlassTreatment } });
       const view = render(<AppShell />);
       await waitFor(() =>
         expect(screen.getByTestId("app-shell-utility-cluster")).toBeInTheDocument()
@@ -101,7 +106,7 @@ describe("Glass Treatment shell integration", () => {
 
   it("keeps the Workspace toggle icon-only with its tooltip in every treatment", async () => {
     for (const treatment of ["refractive", "frosted", "solid"] as const) {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment as GlassTreatment } });
       const view = render(<AppShell />);
       await waitFor(() =>
         expect(screen.getByTestId("workspace-drawer-toggle")).toBeInTheDocument()
@@ -116,7 +121,7 @@ describe("Glass Treatment shell integration", () => {
 
   it("keeps dock and utility-cluster grid placement in every treatment", async () => {
     for (const treatment of ["frosted", "solid"] as const) {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment as GlassTreatment } });
       const view = render(<AppShell />);
       await waitFor(() =>
         expect(screen.getByTestId("app-shell-utility-cluster")).toBeInTheDocument()
@@ -137,8 +142,8 @@ describe("Glass Treatment shell integration", () => {
   it.each(["light", "dark"] as const)(
     "keeps collapsed solid dock transparent in %s mode",
     async (themeMode) => {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, "solid");
-      localStorage.setItem("cfy.themeMode", themeMode);
+      setAccountAppearanceFixture({ settings: { glass_treatment: "solid" } });
+      setAccountAppearanceFixture({ settings: { theme_mode: themeMode } });
       render(<AppShell />);
       await waitFor(() =>
         expect(dock()).toHaveAttribute("data-glass-treatment", "solid")
@@ -161,7 +166,7 @@ describe("Glass Treatment shell integration", () => {
   it.each(["refractive", "frosted", "solid"] as const)(
     "keeps global text/icon tokens mode-derived and unchanged under %s",
     async (treatment) => {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment as GlassTreatment } });
       const view = render(<AppShell />);
       await waitFor(() =>
         expect(dock()).toHaveAttribute("data-glass-treatment", treatment)
@@ -181,7 +186,7 @@ describe("Glass Treatment shell integration", () => {
 
   it("does not change the global token values across treatments", async () => {
     const capture = async (treatment: string) => {
-      localStorage.setItem(GLASS_TREATMENT_STORAGE_KEY, treatment);
+      setAccountAppearanceFixture({ settings: { glass_treatment: treatment as GlassTreatment } });
       const view = render(<AppShell />);
       await waitFor(() =>
         expect(dock()).toHaveAttribute("data-glass-treatment", treatment)

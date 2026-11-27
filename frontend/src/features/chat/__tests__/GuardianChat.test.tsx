@@ -563,6 +563,11 @@ describe("GuardianChat inference rail", () => {
     return eventSources.instances[0];
   }
 
+  it.each(["User", "You", "Assistant"])("renders the explicitly chosen greeting name %s", (name) => {
+    renderChat("draft-thread", { userName: name });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(name);
+  });
+
   it("keeps the rail visible while delayed and clears it at terminal proof", async () => {
     renderChat("1");
     const source = await startTrackedRequest();

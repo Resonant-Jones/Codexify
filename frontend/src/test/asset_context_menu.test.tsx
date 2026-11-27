@@ -5,6 +5,8 @@ const { downloadAsset, deleteAsset } = vi.hoisted(() => ({
   downloadAsset: vi.fn(),
   deleteAsset: vi.fn(),
 }));
+const setWallpaper = vi.hoisted(() => vi.fn());
+vi.mock("@/hooks/useWallpaperUrl", () => ({ useWallpaperUrl: () => ({ setWallpaper }) }));
 
 vi.mock("@/lib/runtimeConfig", () => ({
   isTauriRuntime: () => false,
@@ -26,6 +28,7 @@ describe("asset context menu", () => {
   beforeEach(() => {
     downloadAsset.mockReset();
     deleteAsset.mockReset();
+    setWallpaper.mockReset();
     localStorage.clear();
   });
 
@@ -110,6 +113,10 @@ describe("asset context menu", () => {
       screen.getByRole("menu", { name: "Dashboard image actions" })
     ).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
+    expect(setWallpaper).toHaveBeenCalledWith("http://backend.test/media/images/dashboard.png");
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
+    fireEvent.contextMenu(screen.getByLabelText("Dashboard image"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Download" }));
     await waitFor(() =>
       expect(downloadAsset).toHaveBeenCalledWith({
@@ -143,9 +150,10 @@ describe("asset context menu", () => {
     fireEvent.contextMenu(screen.getByLabelText("Wallpaper image"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Set as wallpaper" }));
 
-    expect(localStorage.getItem("cfy.wallpaper")).toBe(
+    expect(setWallpaper).toHaveBeenCalledWith(
       "http://backend.test/media/images/wallpaper.png?sig=stable"
     );
+    expect(localStorage.getItem("cfy.wallpaper")).toBeNull();
   });
 
   it("never persists a transient object URL as wallpaper", () => {

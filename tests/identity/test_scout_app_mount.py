@@ -90,6 +90,10 @@ def test_scout_auth_family_obeys_mainline_auth_route_gate(monkeypatch, posture):
             )
             try:
                 responses = [
+                    client.get("/api/auth/scout/profile"),
+                    client.patch(
+                        "/api/auth/scout/profile", json={"greeting_name": None}
+                    ),
                     client.post(
                         "/api/auth/scout/handoff",
                         json={"challenge": "c" * 43, "state": "s" * 43},
@@ -136,6 +140,121 @@ def test_actual_account_route_never_uses_access_as_missing_account_identity(
         assert response.status_code == 401
         assert "threads" not in response.json()
     client.close()
+
+
+def test_preview_supported_profile_mounts_narrow_scout_profile(monkeypatch):
+    import importlib
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    import fakeredis
+
+    from guardian import guardian_api
+    from guardian.core import auth, scout_account_transport, session_store
+    from guardian.routes import scout_auth
+
+    monkeypatch.setenv("CODEXIFY_SUPPORTED_PROFILE", "v1-whooshd-deepseek-web")
+    monkeypatch.setenv("GUARDIAN_AUTH_MODE", "remote")
+    monkeypatch.setenv("CODEXIFY_MULTI_USER_ENABLED", "true")
+    monkeypatch.setenv("GUARDIAN_SESSION_SECRET", "synthetic-mounted-profile-fixture")
+    subject = "fixture@example.invalid"
+    monkeypatch.setenv("CODEXIFY_PREVIEW_APPROVED_EMAILS", subject)
+    monkeypatch.setattr(
+        scout_account_transport, "verify_access_assertion", lambda _: None
+    )
+    monkeypatch.setattr(scout_auth, "verify_access_assertion", lambda _: None)
+    store = session_store.SessionStore(fakeredis.FakeRedis())
+    monkeypatch.setattr(session_store, "_SESSION_STORE", store)
+    token, _ = auth.issue_session_token(
+        subject=subject, purpose=auth.ACCOUNT_SESSION_PURPOSE
+    )
+    store.store(token, subject, 300)
+    session = Mock()
+    session.execute.return_value.scalar_one_or_none.return_value = "Explicit Greeting"
+    session.get.return_value = None
+    monkeypatch.setattr(
+        scout_auth,
+        "load_guardian_db_from_env",
+        lambda: SimpleNamespace(get_session=lambda: nullcontext(session)),
+    )
+    importlib.reload(guardian_api)
+    # Match the serving route posture, but never run database-producing lifespan.
+    client = _scout_client(guardian_api.app, base_url="https://preview.codexify.space")
+    headers = {
+        "X-Guardian-Account-Session": token,
+        "CF-Access-Jwt-Assertion": "synthetic-access",
+    }
+    try:
+        routes = [
+            r
+            for r in guardian_api.app.routes
+            if getattr(r, "path", None) == "/api/auth/scout/profile"
+        ]
+        assert len(routes) == 2
+        assert {tuple(r.methods) for r in routes} == {("GET",), ("PATCH",)}
+        for suffix, methods in (
+            ("/presentation", {"GET", "PATCH"}),
+            ("/presentation/wallpaper", {"GET", "PUT"}),
+        ):
+            mounted = [
+                r
+                for r in guardian_api.app.routes
+                if getattr(r, "path", None) == "/api/auth/scout/profile" + suffix
+            ]
+            assert {method for r in mounted for method in r.methods} == methods
+        assert not any(
+            getattr(r, "path", None) == "/api/user/profile"
+            for r in guardian_api.app.routes
+        )
+        response = client.get(
+            "/api/auth/scout/profile?user_id=other@example.invalid", headers=headers
+        )
+        assert response.status_code == 200
+        assert response.json() == {"greeting_name": "Explicit Greeting"}
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
+        statement = session.execute.call_args.args[0]
+        assert list(statement.compile().params.values()) == [subject]
+        assert list(statement.selected_columns.keys()) == ["greeting_name"]
+        from guardian.presentation_tokens import PRESENTATION_DEFAULTS
+
+        presentation = client.get(
+            "/api/auth/scout/profile/presentation?workspace_id=11111111-1111-4111-8111-111111111111",
+            headers=headers,
+        )
+        assert presentation.status_code == 200
+        assert presentation.json()["settings"] == PRESENTATION_DEFAULTS
+        assert presentation.json()["wallpaper_url"] is None
+        assert presentation.headers["Cache-Control"] == "no-store"
+        assert (
+            client.patch(
+                "/api/auth/scout/profile",
+                headers=headers,
+                json={"display_name": "Injected"},
+            ).status_code
+            == 400
+        )
+        assert (
+            client.get(
+                "/api/user/profile", headers={"Authorization": "Bearer " + token}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get(
+                "/api/auth/scout/profile", headers={"X-Guardian-Account-Session": token}
+            ).status_code
+            == 400
+        )
+        store.revoke(token)
+        assert client.get("/api/auth/scout/profile", headers=headers).status_code == 401
+        assert session.execute.call_count == 1
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+        session.commit.assert_not_called()
+    finally:
+        client.close()
 
 
 @pytest.mark.parametrize(

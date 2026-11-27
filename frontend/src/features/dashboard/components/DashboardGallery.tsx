@@ -10,7 +10,7 @@ import {
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { usePressFeedback } from "@/hooks/usePressFeedback";
 import { normalizeMediaUrl } from "@/lib/mediaUrl";
-import { setWallpaperPreference } from "@/lib/wallpaperPreference";
+import { useWallpaperUrl } from "@/hooks/useWallpaperUrl";
 import {
   getDashboardGalleryBadgeStyle,
   getDashboardGalleryTileActiveStyle,
@@ -196,6 +196,7 @@ export default function DashboardGallery({
   onAddToThread,
   activeItemSrc,
 }: DashboardGalleryProps) {
+  const { setWallpaper } = useWallpaperUrl();
   const mobileShellProfile = useMobileShellProfile();
   const isPhoneShell = mobileShellProfile.active;
   const [menu, setMenu] = React.useState<{
@@ -240,7 +241,7 @@ export default function DashboardGallery({
         {
           label: "Set as wallpaper",
           onSelect: () => {
-            setWallpaperPreference(entry.resolvedSrc);
+            setWallpaper(entry.resolvedSrc);
           },
         },
         {
@@ -291,7 +292,7 @@ export default function DashboardGallery({
 
       return items;
     },
-    [handleCopyLink, onAddToThread]
+    [handleCopyLink, onAddToThread, setWallpaper]
   );
 
   return (
