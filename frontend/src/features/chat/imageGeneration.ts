@@ -90,10 +90,15 @@ export function imageSelection(catalog: ImageCatalog, intent: ImageGenerationInt
     throw new Error("The requested model is not available from the selected image provider.");
   if (!provider.available)
     throw new Error(provider.unavailable_reason || "Image generation is unavailable.");
+  const usingSavedProvider = !savedProvider || provider.id === savedProvider;
+  if (!intent.model && !intent.modelAlias && savedModel && usingSavedProvider &&
+      !provider.models.includes(savedModel)) {
+    throw new Error("Your saved image model is no longer offered. Choose a model in Generate image or use /sunburst or /flare.");
+  }
   const model =
     intent.model ||
     (intent.modelAlias && provider.model_aliases[intent.modelAlias]) ||
-    (savedModel && provider.models.includes(savedModel) ? savedModel : null) ||
+    (usingSavedProvider && savedModel && provider.models.includes(savedModel) ? savedModel : null) ||
     (provider.id === catalog.default_provider && provider.models.includes(catalog.default_model)
       ? catalog.default_model
       : provider.default_model);

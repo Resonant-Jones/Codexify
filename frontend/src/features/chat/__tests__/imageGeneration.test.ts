@@ -79,6 +79,17 @@ describe("image intent", () => {
     });
     expect(imageSelection(catalog, { prompt: "cat" }).model).toBe("small-id");
   });
+  it("requires a new choice for a retired saved model without sending a paid request", async () => {
+    localStorage.setItem("cfy.imagegen.provider", "openai");
+    localStorage.setItem("cfy.imagegen.model", "gpt-image-1-mini");
+    vi.mocked(api.get).mockResolvedValue({ data: catalog });
+    await expect(generateImage({ prompt: "cat" }, { threadId: 17 })).rejects.toThrow(
+      "Your saved image model is no longer offered"
+    );
+    expect(api.post).not.toHaveBeenCalled();
+    expect(imageSelection(catalog, { prompt: "cat", modelAlias: "flare" }).model).toBe("flare-id");
+    expect(imageSelection(catalog, { prompt: "cat", model: "sunburst-id" }).model).toBe("sunburst-id");
+  });
   it("makes one bounded paid request and emits its saved image", async () => {
     vi.mocked(api.get).mockResolvedValue({ data: catalog });
     vi.mocked(api.post).mockResolvedValue({
