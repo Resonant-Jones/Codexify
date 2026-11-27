@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from guardian.core.ai_router import (
     stream_local,
 )
 from guardian.core.config import Settings
+from guardian.core.media_signing import sign_media_url
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
     GuardianProviderFailureKind,
@@ -29,6 +31,97 @@ from guardian.protocol_tokens import (
 from guardian.providers.whooshd_tool_adapter import WhooshdStructuredResponse
 
 SUPPORTED_LOCAL_BASE_URL = "http://host.docker.internal:8000/v1"
+
+
+@pytest.mark.parametrize(
+    "base_variable",
+    [None, "GUARDIAN_INTERNAL_URL", "GUARDIAN_COMMAND_BUS_LOOPBACK_BASE"],
+)
+def test_media_image_http_fallback_preserves_signature(monkeypatch, base_variable):
+    monkeypatch.delenv("GUARDIAN_MEDIA_ROOT", raising=False)
+    monkeypatch.delenv("STORAGE_BASE_PATH", raising=False)
+    monkeypatch.delenv("GUARDIAN_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("GUARDIAN_COMMAND_BUS_LOOPBACK_BASE", raising=False)
+    if base_variable:
+        monkeypatch.setenv(base_variable, "http://backend:8888/")
+    monkeypatch.setattr(ai_router, "_resolve_settings", lambda value: value)
+    monkeypatch.setattr(
+        "guardian.core.config.get_settings",
+        lambda: SimpleNamespace(
+            GUARDIAN_INTERNAL_HOST="guardian",
+            GUARDIAN_INTERNAL_PORT=8000,
+        ),
+    )
+    requested = []
+
+    def _get(url, **kwargs):
+        requested.append(url)
+        return SimpleNamespace(content=b"image bytes", raise_for_status=lambda: None)
+
+    monkeypatch.setattr(ai_router.requests, "get", _get)
+    result = ai_router._encode_image_url_to_base64(
+        "/media/images/image.png?sig=test-signature"
+    )
+    assert result == base64.b64encode(b"image bytes").decode()
+    base = "http://backend:8888" if base_variable else "http://guardian:8000"
+    assert requested == [f"{base}/media/images/image.png?sig=test-signature"]
+
+
+def test_anthropic_image_adapter_converts_data_url_to_base64_source():
+    content = ai_router._coerce_anthropic_content_blocks(
+        [
+            {"type": "text", "text": "Describe this."},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
+            },
+        ]
+    )
+    assert content == [
+        {"type": "text", "text": "Describe this."},
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "aW1hZ2U="},
+        },
+    ]
+
+
+@pytest.mark.parametrize("path", ["../private.png", "%2E%2E/private.png", "escape.png"])
+def test_media_image_loading_cannot_leave_storage_root(monkeypatch, tmp_path, path):
+    root = tmp_path / "media"
+    root.mkdir()
+    private = tmp_path / "private.png"
+    private.write_bytes(b"private")
+    (root / "escape.png").symlink_to(private)
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(root))
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "test-media-secret")
+    assert (
+        ai_router._encode_image_url_to_base64(sign_media_url(f"/media/{path}")) is None
+    )
+
+
+@pytest.mark.parametrize("signature", ["", "?sig=invalid-signature"])
+def test_storage_image_loading_requires_media_signature(
+    monkeypatch, tmp_path, signature
+):
+    (tmp_path / "image.png").write_bytes(b"private image")
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path))
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "test-media-secret")
+    assert ai_router._encode_image_url_to_base64(f"/media/image.png{signature}") is None
+
+
+@pytest.mark.parametrize("path", ["documents/private.pdf", "images/document-link.png"])
+def test_image_loading_cannot_bypass_document_account_gate(monkeypatch, tmp_path, path):
+    (tmp_path / "documents").mkdir()
+    private = tmp_path / "documents" / "private.pdf"
+    private.write_bytes(b"private document")
+    (tmp_path / "images").mkdir()
+    (tmp_path / "images" / "document-link.png").symlink_to(private)
+    monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path))
+    monkeypatch.setenv("GUARDIAN_MEDIA_URL_SECRET", "test-media-secret")
+    assert (
+        ai_router._encode_image_url_to_base64(sign_media_url(f"/media/{path}")) is None
+    )
 
 
 class _MockResponse:

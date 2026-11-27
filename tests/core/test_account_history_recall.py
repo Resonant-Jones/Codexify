@@ -55,6 +55,7 @@ from guardian.core.account_history_recall import (
 from guardian.core.dependencies import RequestUserScope
 from guardian.db.models import (
     Base,
+    OpenAIImportSource,
     ChatCompletionAttempt,
     ChatMessage,
     ChatThread,
@@ -152,6 +153,7 @@ def session_factory():
         tables=[
             User.__table__,
             Project.__table__,
+            OpenAIImportSource.__table__,
             ChatThread.__table__,
             ChatMessage.__table__,
             ChatCompletionAttempt.__table__,

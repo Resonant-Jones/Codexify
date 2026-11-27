@@ -29,6 +29,91 @@ HOLD.
 
 2026-04-28
 
+## Imported sources and permitted use
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The first usable Private Preview requires three independent owner decisions.
+Existing Chronicle permissions remain confined to their original purpose.
+The original native-history Recall and restored-origin rules below preserve
+the native evidence boundary. Selected imports use the independent Recall
+authorization in this amendment.
+
+| Decision | What Guardian must establish |
+| --- | --- |
+| Archive selection and treatment | The owner selected the imported source and its treatment permits the proposed use. Archive-only permits authorized human inspection and excludes inference. |
+| Model exposure | The owner permitted the particular purpose and source to reach inference. Permission to interpret a Chronicle excerpt is confined to that Chronicle request. |
+| Learning | The account's effective automatic-memory collection consent covers the source and purpose before extraction or storage of a candidate, including an inactive candidate. |
+
+Each operation requires every decision applicable to it. Human inspection requires
+record-read authority. Model-visible Recall additionally requires an authenticated
+current-request Recall grant, eligible treatment, current exposure permission and
+positive imported provenance on each message. Check canonical account, Project,
+thread and resource authority, diary, modeling, identity and sensitive-content
+exclusions. A Project label, a thread origin, a role string or an installed import
+alone cannot establish the origin or authorship of a message. Unknown or conflicting
+origin excludes the message. Learning from imports also requires eligible user
+authorship and treatment permitting durable learning.
+
+Complete the accepted native-message custody work below as a separate prerequisite.
+A native custody assertion cannot prove imported origin. Retain provider and source
+lineage through extraction, review, promotion, export, restore and subsequent use.
+
+**Inference locality.** Whenever imported transcript content or an import-derived
+Personal Fact enters an inference pipeline, use only an approved local path. This
+covers historical extraction, content-bearing embedding and reranking, tool-result
+interpretation, context assembly, provider continuation and later fact use. Carry
+the restriction through excerpts, derived context and retries. Mixed context inherits
+the most restrictive applicable posture. Check before each disclosure, including
+fallback. If the approved path is unavailable, withhold the restricted payload and
+report the limitation. Qualification of that model and transport remains a future proof.
+
+The [Recall contract](../account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns source opening. The [UMS contract](../unified-memory-store-contract.md#imprint_zero-candidates-and-promotion)
+owns durable collection and disposition.
+
+## Episode processing and source use
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+Maintaining a durable episode projection processes account data even when no
+one queries it. Resolve that permission through the existing owner-controlled
+continuity and source-use policies. Evaluate each use independently.
+
+| Use | Required authority |
+| --- | --- |
+| Maintain a derived index | The owner's effective source-processing permission covers the source, scope, derivation and retention. Check before reading for extraction and again before publishing derived data. |
+| Consult historical sources on a turn | Owner-enabled historical recollection permits the source family in the current Project. Guardian issues a fresh, purpose-bound grant for the accepted turn. |
+| Disclose to inference | Current permission permits this content, purpose and inference destination, including any model used during indexing. |
+| Deliberately retain an interpretation | A source-appropriate existing persistence path independently permits retention, scope and reuse. Preserve [interpretation lineage](../account-history-recall-contract.md#claim-support-and-interpretation-provenance). Turn-level analysis and index permission are insufficient. |
+| Collect a durable learning candidate | Effective automatic-memory collection consent and eligible user-authored evidence under GOV-01. |
+| Promote a candidate | The individual decision or eligible live delegation governed by UMS and the Personal Facts guardrails. |
+
+Index permission alone allows no turn-time lookup. If consultation is permitted
+but index maintenance is disabled, use only independently authorized bounded
+reads available within the turn. If none qualify, report insufficient evidence.
+Never create a persistent index as a side effect of answering.
+
+None of these permissions implies another. Apply archive selection and treatment
+before evaluating any imported use. Archive-only content cannot reach a model.
+The existing request-specific Chronicle interpretation and reviewed-message paths
+keep their own approval requirements and cannot supply a recollection grant.
+
+Derived episodes, aliases, relationship references, embeddings, cached spans and
+retained interpretations inherit their sources' restrictions. Filter eligibility before any search,
+ranking or aggregation, again at assembly, and at disclosure. If a reference or
+ranking feature depends on multiple sources, establish authority for every
+contributor or omit it. Hidden aliases, scores, counts and identifiers must
+never reveal excluded sources. For the initial Preview enforce approved local
+inference for imported extraction, embedding, reranking, episode assembly,
+interpretation, provider handoff, continuation and subsequent use of derived memory. Mixed
+context inherits the strictest posture. Deny any fallback that would disclose it.
+
+Changes to permission, placement, source revision, exclusion or deletion invalidate
+affected entries, derived features, packets and cached results before further use.
+Stop processing on revocation. Remove derivatives when their retention is no longer
+authorized. Source erasure must purge affected derived content and suppress its
+reconstruction on rebuild or restore. The [episode projection](../account-history-recall-contract.md#derived-episode-projection)
+owns the read-side representation. Its expiry or rebuild cannot change canonical history.
+
 ## Context
 
 ADR-015 defines the continuity doctrine: Codexify may have a future continuity layer above thread-first chat, but that layer must stay user-governed, inspectable, reversible, and provenance-aware.
@@ -454,7 +539,7 @@ native status during restore.
 | Restored input | Required disposition |
 | --- | --- |
 | Proven native record with preserved trusted origin custody | Preserve original creation meaning, assertion/witness and assertion time only through a separately governed proof-preserving restore path; never stamp restore as native creation. That cross-installation path remains unimplemented. |
-| Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage; keep it excluded from ordinary native recall |
+| Proven imported record, including placement in a native Project/thread | Preserve imported provider identity and lineage. Native Recall excludes imports. Recheck eligibility under the separate selected-import path before any model exposure. |
 | Legacy record lacking proof | Preserve unknown origin, raw metadata, role, and temporal uncertainty; no default native assertion |
 | Contradictory provenance | Fail closed for native exposure; report conflict without leaking content. A proof-preserving restore may reject contradictory proof-bearing input under its existing fail-closed validation boundary; it must never silently repair it |
 | Canonical IDs remapped | Remap canonical relationships under the restore contract, retain provider source IDs and origin semantics, and revalidate exact-message witness linkage rather than trusting a coincidentally equal old ID |

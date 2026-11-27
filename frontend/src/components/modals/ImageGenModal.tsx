@@ -1,170 +1,22 @@
-/**
- * ImageGenModal – Universal image generation modal (PCX_UI_QUIKWINS_002)
- *
- * Single source of truth for image generation across Chat, Gallery, and Dashboard.
- */
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BetaGate } from "@/components/ui/BetaGate";
-import api from "@/lib/api";
-
-const PROJECT_ID_STORAGE_KEYS = [
-  "cfy.projectId",
-  "cfy.activeProjectId",
-  "cfy.lastProjectId",
-  "projectId",
-] as const;
-
-const PROVIDER_STORAGE_KEY = "cfy.imagegen.provider";
-const MODEL_STORAGE_KEY = "cfy.imagegen.model";
-
-type ImageGenProvider = "nano_banana" | "dalle";
-
-const PROVIDER_CONFIG: Record<
-  ImageGenProvider,
-  {
-    label: string;
-    models: string[];
-    defaultModel: string;
-    missingEnv: string;
-  }
-> = {
-  nano_banana: {
-    label: "Nano Banana",
-    models: ["nano-banana"],
-    defaultModel: "nano-banana",
-    missingEnv: "NANO_BANANA_API_KEY",
-  },
-  dalle: {
-    label: "DALL·E",
-    models: ["dall-e-3"],
-    defaultModel: "dall-e-3",
-    missingEnv: "OPENAI_API_KEY",
-  },
-};
-
-const DEFAULT_PROVIDER: ImageGenProvider = "dalle";
-
-const IMAGEGEN_ENDPOINTS = {
-  nano_banana: "/api/media/generate/image",
-  dalle: "/api/media/generate/image",
-} as const;
-
-function parseScopeId(value: unknown): number | null {
-  if (value == null) return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.trunc(parsed);
-}
-
-function inferProjectIdFromPathname(): number | null {
-  if (typeof window === "undefined") return null;
-  const match = window.location.pathname.match(/\/(?:projects?|p)\/(\d+)/i);
-  if (!match) return null;
-  return parseScopeId(match[1]);
-}
-
-function inferThreadIdFromPathname(): number | null {
-  if (typeof window === "undefined") return null;
-  const match = window.location.pathname.match(/\/chat\/(\d+)/i);
-  if (!match) return null;
-  return parseScopeId(match[1]);
-}
-
-function inferProjectIdFromStorage(): number | null {
-  if (typeof window === "undefined") return null;
-  for (const key of PROJECT_ID_STORAGE_KEYS) {
-    const raw = window.localStorage.getItem(key);
-    const parsed = parseScopeId(raw);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-}
-
-function isValidProvider(value: unknown): value is ImageGenProvider {
-  return value === "nano_banana" || value === "dalle";
-}
-
-function readStoredProvider(): ImageGenProvider {
-  if (typeof window === "undefined") return DEFAULT_PROVIDER;
-  const raw = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
-  if (isValidProvider(raw)) return raw;
-  return DEFAULT_PROVIDER;
-}
-
-function readStoredModel(provider: ImageGenProvider): string {
-  if (typeof window === "undefined") return PROVIDER_CONFIG[provider].defaultModel;
-  const raw = (window.localStorage.getItem(MODEL_STORAGE_KEY) || "").trim();
-  if (!raw) return PROVIDER_CONFIG[provider].defaultModel;
-  if (!PROVIDER_CONFIG[provider].models.includes(raw)) {
-    return PROVIDER_CONFIG[provider].defaultModel;
-  }
-  return raw;
-}
-
-function toImageSrc(data: any): string | null {
-  const directCandidates = [
-    data?.src_url,
-    data?.image_url,
-    data?.url,
-    data?.output_url,
-    data?.result?.src_url,
-    data?.result?.image_url,
-    data?.result?.url,
-  ];
-
-  for (const candidate of directCandidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
-  const base64Candidates = [
-    data?.b64_json,
-    data?.image_base64,
-    data?.base64,
-    data?.result?.b64_json,
-    data?.result?.image_base64,
-    Array.isArray(data?.data) ? data.data[0]?.b64_json : undefined,
-  ];
-
-  const mimeType =
-    (typeof data?.mime_type === "string" && data.mime_type) ||
-    (typeof data?.content_type === "string" && data.content_type) ||
-    "image/png";
-
-  for (const candidate of base64Candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      const raw = candidate.trim();
-      if (raw.startsWith("data:")) return raw;
-      return `data:${mimeType};base64,${raw}`;
-    }
-  }
-
-  return null;
-}
-
-function isMissingKeyFailure(provider: ImageGenProvider, err: any): boolean {
-  const status = Number(err?.response?.status || 0);
-  const detail = String(err?.response?.data?.detail || err?.message || "").toLowerCase();
-
-  if (status === 401 || status === 403) return true;
-  if (detail.includes("api key") || detail.includes("not configured") || detail.includes("missing")) {
-    return true;
-  }
-
-  if (provider === "dalle" && detail.includes("openai_api_key")) return true;
-  if (provider === "nano_banana" && detail.includes("nano_banana_api_key")) return true;
-
-  return false;
-}
+import {
+  generateImage,
+  imageGenerationError,
+  loadImageCatalog,
+  type ImageCatalog,
+  type ImageGenerationIntent,
+} from "@/features/chat/imageGeneration";
 
 interface ImageGenModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Optional callback with the generated image URL/data */
   onImageGenerated?: (imageUrl: string) => void;
+  onGenerate?: (intent: ImageGenerationIntent) => Promise<void>;
+  initialPrompt?: string;
+  initialModelAlias?: string;
   projectId?: number | string | null;
   threadId?: number | string | null;
   userId?: string;
@@ -174,206 +26,197 @@ export function ImageGenModal({
   open,
   onOpenChange,
   onImageGenerated,
+  onGenerate,
+  initialPrompt = "",
+  initialModelAlias,
   projectId,
   threadId,
-  userId,
 }: ImageGenModalProps) {
-  const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState<ImageGenProvider>(() => readStoredProvider());
-  const [model, setModel] = useState(() => {
-    const initialProvider = readStoredProvider();
-    return readStoredModel(initialProvider);
-  });
+  const [prompt, setPrompt] = useState(initialPrompt);
+  const [catalog, setCatalog] = useState<ImageCatalog | null>(null);
+  const [providerId, setProviderId] = useState("");
+  const [model, setModel] = useState("");
   const [generating, setGenerating] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
-
-  const modelOptions = useMemo(() => PROVIDER_CONFIG[provider].models, [provider]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
-    } catch {
-      // ignore storage errors
-    }
-  }, [provider]);
+  const provider = catalog?.providers.find((item) => item.id === providerId);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(MODEL_STORAGE_KEY, model);
-    } catch {
-      // ignore storage errors
-    }
-  }, [model]);
+    if (!open) return;
+    let active = true;
+    setPrompt(initialPrompt);
+    setError(null);
+    setCatalog(null);
+    void loadImageCatalog()
+      .then((next) => {
+        if (!active) return;
+        let savedProvider: string | null = null,
+          savedModel: string | null = null;
+        try {
+          savedProvider = localStorage.getItem("cfy.imagegen.provider");
+          savedModel = localStorage.getItem("cfy.imagegen.model");
+        } catch {
+          /* Optional preferences. */
+        }
+        const selected =
+          (initialModelAlias &&
+            next.providers.find((item) => item.model_aliases[initialModelAlias])) ||
+          next.providers.find((item) => item.id === savedProvider) ||
+          next.providers.find((item) => item.id === next.default_provider) ||
+          next.providers[0];
+        setCatalog(next);
+        setProviderId(selected?.id || "");
+        setModel(
+          (initialModelAlias && selected?.model_aliases[initialModelAlias]) ||
+            (savedModel && selected?.models.includes(savedModel)
+              ? savedModel
+              : selected?.models.includes(next.default_model)
+                ? next.default_model
+                : selected?.default_model || "")
+        );
+      })
+      .catch((err: unknown) => {
+        if (active) setError(imageGenerationError(err));
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, initialPrompt, initialModelAlias]);
 
   useEffect(() => {
     const onOpen = () => onOpenChange(true);
-    window.addEventListener("cfy:imagegen:open", onOpen as EventListener);
-    return () => {
-      window.removeEventListener("cfy:imagegen:open", onOpen as EventListener);
-    };
+    window.addEventListener("cfy:imagegen:open", onOpen);
+    return () => window.removeEventListener("cfy:imagegen:open", onOpen);
   }, [onOpenChange]);
 
-  const resolveScope = useCallback(() => {
-    const resolvedProjectId =
-      parseScopeId(projectId) ?? inferProjectIdFromStorage() ?? inferProjectIdFromPathname() ?? 1;
-    const resolvedThreadId = parseScopeId(threadId) ?? inferThreadIdFromPathname() ?? 1;
-    return { resolvedProjectId, resolvedThreadId };
-  }, [projectId, threadId]);
-
-  const handleProviderChange = (nextProvider: ImageGenProvider) => {
-    setProvider(nextProvider);
-    setModel(PROVIDER_CONFIG[nextProvider].defaultModel);
-    setError(null);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const trimmed = prompt.trim();
-    if (!trimmed) {
-      setError("Please enter a prompt");
-      return;
-    }
-
-    const trimmedModel = model.trim();
-    if (!trimmedModel) {
-      setError("Please select a model");
-      return;
-    }
-
-    setGenerating(true);
-    setError(null);
-
-    try {
-      const { resolvedProjectId, resolvedThreadId } = resolveScope();
-      const endpoint = IMAGEGEN_ENDPOINTS[provider];
-      const response = await api.post(endpoint, {
-        prompt: trimmed,
-        model: trimmedModel,
-        project_id: resolvedProjectId,
-        thread_id: resolvedThreadId,
-        user_id: userId ?? "default",
-      });
-
-      const imageSrc = toImageSrc(response.data);
-      if (!imageSrc) {
-        setError("No image payload returned from server");
-        return;
-      }
-
-      // Notify parent if callback provided.
-      onImageGenerated?.(imageSrc);
-
-      // Broadcast success for gallery refresh.
-      try {
-        window.dispatchEvent(
-          new CustomEvent("cfy:gallery:add", {
-            detail: {
-              items: [
-                {
-                  src: imageSrc,
-                  prompt: trimmed,
-                  project_id: resolvedProjectId,
-                  thread_id: resolvedThreadId,
-                  mock: false,
-                  tag: "generated",
-                },
-              ],
-            },
-          })
-        );
-      } catch {
-        // no-op
-      }
-
-      // Show success toast.
-      try {
-        window.dispatchEvent(
-          new CustomEvent("cfy:toast", {
-            detail: { message: "Image generated successfully!", duration: 3000 },
-          })
-        );
-      } catch {
-        // no-op
-      }
-
-      // Reset and close.
-      setPrompt("");
-      onOpenChange(false);
-    } catch (err: any) {
-      if (isMissingKeyFailure(provider, err)) {
-        setError(
-          `API key missing for ${PROVIDER_CONFIG[provider].label}. Add ${PROVIDER_CONFIG[provider].missingEnv} to .env and restart backend.`
-        );
-      } else {
-        const message = err?.response?.data?.detail || err?.message || "Failed to generate image";
-        setError(message);
-      }
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[1200] flex items-center justify-center px-4">
-      {/* Backdrop */}
+  if (!open || typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[1200] flex items-center justify-center px-4 py-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={() => !generating && onOpenChange(false)}
       />
-
-      {/* Modal */}
       <form
-        onSubmit={handleSubmit}
-        className="relative z-[1201] w-[min(560px,92vw)] rounded-2xl border p-6 flex flex-col gap-4 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="imagegen-title"
+        className="relative z-[1201] max-h-[calc(100dvh-2rem)] w-[min(560px,92vw)] overflow-y-auto rounded-2xl border p-6 flex flex-col gap-4 shadow-xl"
         style={{
           background: "var(--panel-bg)",
           borderColor: "var(--panel-border)",
           color: "var(--text)",
         }}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (submitting.current || !provider?.available || !prompt.trim() || !model) return;
+          submitting.current = true;
+          setGenerating(true);
+          setError(null);
+          try {
+            try {
+              localStorage.setItem("cfy.imagegen.provider", providerId);
+              localStorage.setItem("cfy.imagegen.model", model);
+            } catch {
+              /* Optional preferences. */
+            }
+            const intent = { prompt: prompt.trim(), provider: providerId, model };
+            if (onGenerate) await onGenerate(intent);
+            else {
+              const image = await generateImage(intent, {
+                projectId: Number(projectId) > 0 ? Number(projectId) : null,
+                threadId: Number(threadId) > 0 ? Number(threadId) : null,
+              });
+              onImageGenerated?.(image.src_url);
+            }
+            onOpenChange(false);
+          } catch (err) {
+            setError(imageGenerationError(err));
+          } finally {
+            submitting.current = false;
+            setGenerating(false);
+          }
+        }}
       >
-        {/* Beta gate - image generation is deferred for MVP */}
-        <BetaGate
-          title="Image Generation"
-          description="Generate images from text prompts using AI models."
-          statusNote="Coming soon"
-          className="mb-4"
-        />
-
-        {error && (
-          <div className="text-sm font-medium text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</div>
+        <h2 id="imagegen-title" className="text-lg font-semibold">
+          Generate image
+        </h2>
+        <label className="flex flex-col gap-2">
+          Prompt
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            disabled={generating}
+            className="rounded-xl border bg-transparent p-3"
+            rows={4}
+            placeholder="Describe what you’d like to see…"
+          />
+        </label>
+        <label className="flex flex-col gap-2">
+          Provider
+          <select
+            className="rounded-lg border bg-[var(--panel-bg)] p-2"
+            value={providerId}
+            disabled={generating || !catalog}
+            onChange={(e) => {
+              setProviderId(e.target.value);
+              setModel(
+                catalog?.providers.find((item) => item.id === e.target.value)?.default_model || ""
+              );
+            }}
+          >
+            {!catalog && <option value="">Loading image models…</option>}
+            {catalog?.providers.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-2">
+          Model
+          <select
+            className="rounded-lg border bg-[var(--panel-bg)] p-2"
+            value={model}
+            disabled={generating || !provider}
+            onChange={(e) => setModel(e.target.value)}
+          >
+            {provider?.models.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs opacity-70">
+          One image per request. You can also use /sunburst, /flare, or /image in chat.
+        </p>
+        {!provider?.available && provider?.unavailable_reason && (
+          <p role="status">Image generation is unavailable in this runtime.</p>
         )}
-
-        <div className="flex justify-end gap-3 pt-2">
+        {error && (
+          <p role="alert" className="text-sm text-red-400">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-3">
           <Button
             type="button"
             variant="ghost"
-            onClick={() => onOpenChange(false)}
             disabled={generating}
-            className="rounded-full px-4"
+            onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
           <Button
             type="submit"
-            className="rounded-full px-4"
-            disabled={generating || !prompt.trim() || !model.trim()}
+            disabled={generating || !prompt.trim() || !model || !provider?.available}
           >
-            {generating ? (
-              <>
-                <span className="inline-block h-3 w-3 mr-2 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                Generating...
-              </>
-            ) : (
-              "Generate"
-            )}
+            {generating ? "Generating image…" : "Generate"}
           </Button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body
   );
 }
-
 export default ImageGenModal;

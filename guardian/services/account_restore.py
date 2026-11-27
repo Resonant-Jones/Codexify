@@ -27,6 +27,7 @@ from guardian.services.account_export import (  # noqa: E402
     EXPORT_KIND,
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
     MANIFEST_SCHEMA_VERSION,
+    OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION,
     PAYLOAD_FAMILIES,
     PAYLOAD_ORDER,
     PAYLOAD_ORDER_BY_SCHEMA,
@@ -36,6 +37,8 @@ from guardian.services.account_export import (  # noqa: E402
     STAGED_MANIFEST_SCHEMA_VERSION,
     STAGED_PAYLOAD_FAMILIES,
     _is_versioned_digest,
+    _openai_import_state_present,
+    _validate_openai_import_archive,
 )
 from guardian.services.memory_purge import (  # noqa: E402
     purged_record_fingerprint,
@@ -79,6 +82,7 @@ SUPPORTED_SCHEMA_VERSIONS = {
     REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
     LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
     PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION,
+    OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION,
 }
 
 # Restore order is dependency-safe for the current schema. It differs from the
@@ -109,8 +113,14 @@ RESTORE_ORDER = (
     *HISTORICAL_RESTORE_ORDER,
 )
 
+OPENAI_IMPORT_RESTORE_ORDER = (
+    *RESTORE_ORDER[:4],
+    "openai_import_sources",
+    "openai_import_project_groups",
+    *RESTORE_ORDER[4:],
+)
 RESTORE_METHODS = {
-    family: f"restore_account_export_{family}" for family in RESTORE_ORDER
+    family: f"restore_account_export_{family}" for family in OPENAI_IMPORT_RESTORE_ORDER
 }
 
 PAYLOAD_PATHS = {family: path for family, path, _ in PAYLOAD_ORDER}
@@ -137,6 +147,8 @@ def _empty_blob_coverage() -> dict[str, Any]:
 
 
 def _restore_order_for_schema(schema_version: str | None) -> tuple[str, ...]:
+    if schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+        return OPENAI_IMPORT_RESTORE_ORDER
     if schema_version == MANIFEST_SCHEMA_VERSION:
         return RESTORE_ORDER
     if schema_version in (
@@ -692,6 +704,27 @@ class AccountRestoreService:
                     manifest=manifest,
                     payload_rows=payload_rows,
                 )
+
+                if schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION:
+                    try:
+                        _validate_openai_import_archive(payload_rows, user_id=manifest_user_id)
+                    except (ValueError, TypeError, KeyError) as exc:
+                        raise self._validation_error(
+                            "openai_import_source_invalid",
+                            "Invalid account-owned logical OpenAI import state",
+                            manifest=manifest,
+                        ) from exc
+                elif _openai_import_state_present(payload_rows) or any(
+                    path in archive_names for path in (
+                        "entities/openai_import_sources.json",
+                        "entities/openai_import_project_groups.json",
+                    )
+                ):
+                    raise self._validation_error(
+                        "openai_import_source_schema_required",
+                        "OpenAI import sources require account-export.v9",
+                        manifest=manifest,
+                    )
 
                 self._validate_relationships(
                     manifest=manifest,
@@ -1706,7 +1739,10 @@ class AccountRestoreService:
                     manifest=manifest,
                     details={"thread_id": row.get("id")},
                 )
-            if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+            if manifest.get("schema_version") not in (
+                MANIFEST_SCHEMA_VERSION,
+                OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION,
+            ):
                 row["active_profile_revision"] = None
             elif "active_profile_revision" not in row:
                 row["active_profile_revision"] = None
@@ -2036,6 +2072,7 @@ class AccountRestoreService:
             REVISION_MANIFEST_SCHEMA_VERSION,
             REVIEW_REVISION_MANIFEST_SCHEMA_VERSION,
             LIFECYCLE_REVISION_MANIFEST_SCHEMA_VERSION,
+            OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION,
         ):
             ordered_rows.update(
                 {
@@ -2052,6 +2089,17 @@ class AccountRestoreService:
                 }
             )
 
+        openai_import_archive = (
+            parsed.schema_version == OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION
+        )
+        if openai_import_archive:
+            for family in ("openai_import_sources", "openai_import_project_groups"):
+                ordered_rows[family] = parsed.payload_rows[family]
+            if not callable(getattr(self.db, "_connect", None)):
+                raise self._v4_connection_required_error(
+                    parsed=parsed, family_reports=family_reports, counts=counts,
+                )
+
         try:
             if hasattr(self.db, "_connect") and callable(getattr(self.db, "_connect")):
                 with self.db._connect() as conn:  # type: ignore[attr-defined]
@@ -2064,12 +2112,29 @@ class AccountRestoreService:
                                 conn,
                                 target_user_id=parsed.user_id,
                             )
+                        elif openai_import_archive and family == "projects":
+                            result = _call_restore(
+                                RESTORE_METHODS[family], rows, conn,
+                                target_user_id=parsed.user_id,
+                                include_lifecycle=True,
+                            )
+                        elif openai_import_archive and family == "chat_messages":
+                            result = _call_restore(
+                                RESTORE_METHODS[family], rows, conn,
+                                target_user_id=parsed.user_id,
+                            )
+                        elif openai_import_archive and family == "chat_threads":
+                            result = _call_restore(
+                                RESTORE_METHODS[family], rows, conn,
+                                include_openai_import_source=True,
+                            )
                         else:
                             result = _call_restore(RESTORE_METHODS[family], rows, conn)
                         _record_family(family, rows, result)
                     if parsed.schema_version in (
                         STAGED_MANIFEST_SCHEMA_VERSION,
                         REVISION_MANIFEST_SCHEMA_VERSION,
+                        OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION,
                     ):
                         self._restore_unified_memory(
                             parsed=parsed,
@@ -2695,6 +2760,9 @@ RESTORE_PLAN_FAMILIES_BY_SCHEMA = {
         LIFECYCLE_REVISION_MEMORY_RESTORE_PLAN_FAMILIES
     ),
     PURGE_TOMBSTONE_MANIFEST_SCHEMA_VERSION: (
+        PURGE_TOMBSTONE_MEMORY_RESTORE_PLAN_FAMILIES
+    ),
+    OPENAI_IMPORT_SOURCE_MANIFEST_SCHEMA_VERSION: (
         PURGE_TOMBSTONE_MEMORY_RESTORE_PLAN_FAMILIES
     ),
 }

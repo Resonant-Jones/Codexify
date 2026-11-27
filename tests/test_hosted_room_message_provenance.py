@@ -23,6 +23,7 @@ from sqlalchemy.orm import sessionmaker
 
 from guardian.db.models import (
     ChatMessage,
+    OpenAIImportSource,
     ChatThread,
     HostedRoom,
     HostedRoomInvite,
@@ -58,6 +59,7 @@ def engine():
         Project.__table__,
         PersonaProfile.__table__,
         PersonaProfileRevision.__table__,
+        OpenAIImportSource.__table__,
         ChatThread.__table__,
         HostedRoom.__table__,
         HostedRoomInvite.__table__,

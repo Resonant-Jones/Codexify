@@ -1,6 +1,6 @@
 # Account-Scoped Historical Recall Contract
 
-Status: implemented
+Status: initial Project-scoped search implemented. GOV-01 and GOV-02 Revision 2 are ratified architecture awaiting implementation and proof.
 Scope: one bounded, read-only, account-scoped historical conversation retrieval
 capability for Guardian.
 
@@ -9,10 +9,187 @@ ADR-016; schema, guarded writers, custody-aware reader integration and
 PostgreSQL proof unimplemented**.
 See [section 3.14](#314-accepted-durable-native-message-custody-2026-11-05).
 
-This document describes the implemented boundary. It does not claim live runtime
-qualification; see [Validation results](#validation-results).
+The numbered sections document the initial implementation and its limits.
+Its [validation results](#14-validation-results) cover that path only.
 
 ---
+
+## Search coverage and original-source opening
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+At the reviewed revision the search route returns bounded excerpts, scans at most
+500 threads, and admits native history in one authorized Project. The model worker
+is limited to local single-account transport and ordinary chat withholds the tool.
+The ratified traversal, source open and Preview dispatch require separate implementation.
+
+**Search.** Derive identity from the accepted owner request. Default to its Project.
+Only an explicit current-request choice permits searching eligible owned Projects.
+A strict Project boundary takes precedence. Within that grant search Projects,
+threads, messages, images and files using typed reads. Apply access, retention,
+deletion, per-message provenance and relevant use restrictions before returning
+any content or identifying metadata. Selected imports follow the
+[ADR-016 source-use rules](adr/016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
+
+Bound each traversal by source family, stable ordering with a unique tie-breaker,
+a defined search window, page size, byte budget and deadline. Bind continuation
+to that search, window, scope and position. Reauthorize before reading another
+page. If concurrent changes invalidate coverage, report partial coverage or
+require a fresh traversal. A cursor conveys no access. A new model-selected
+page read needs a freshly authorized turn.
+
+| Outcome | What the receipt and answer may establish |
+| --- | --- |
+| Match found | Identify only permitted matches and their source references. Report coverage independently of whether any match was found. |
+| Complete authorized search with no match | All eligible source families and pages within the stated window were exhausted. Limit the claim to that scope. |
+| Partial authorized search with no match | Identify the permitted bounds searched and that more may exist. Indicate whether authorized continuation is possible. |
+| Source unavailable or missing | The original could not be read. A summary, filename or thumbnail cannot stand in for a successful open. |
+| Authorization denied | Record the denial internally. Use a non-enumerating response when disclosing the reason would reveal an inaccessible object. |
+| Provenance ineligible | Withhold content. Expose only policy-permitted coverage information that cannot identify an excluded source. |
+| Execution or deadline failure | Report the reached stage and any verified partial coverage. A failed traversal cannot support an exhaustive negative result. |
+
+**Open.** After search, at most one open may target a member of its authorized
+same-turn result set. Recheck ownership, current grant and policy, Project/thread
+and asset permissions, provenance, exclusions, deletion and permitted destination.
+Read the original resource or a bounded, identified portion of it. For messages,
+identify the message or authorized surrounding range. For files and images, use
+the owning asset service. Each adjacent message or attachment must qualify on its
+own. Bind answer provenance to the actual source and portion read. A navigable
+reference must reopen through authenticated resource checks, including when a
+person follows it later. Owner inspection and model exposure have distinct grants.
+Search snippets, Chronicle pointers and reconstructed memory have no open authority.
+
+Use the [accepted-work binding](adr/112-trusted-worker-account-bound-dispatch.md#recall-on-the-trusted-preview-worker)
+and the matching [agent](agent-tool-loop-contract.md#bounded-recall-continuation)
+and [provider](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall)
+contracts. A partial or denied open may support an answer from already authorized
+search evidence only if the answer accurately identifies that evidence and its limits.
+
+## Temporal Recollection read path
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+The implemented search described below requires an explicit historical request.
+The [ratified owner policy](adr/084-unified-account-owned-memory-store.md#temporal-recollection-authority)
+adds an optional, default-disabled current-Project read path for eligible cues.
+Explicit Recall keeps its separate current-request grant even when that policy
+is disabled. The Context Broker
+owns pre-answer evidence assembly. Looking up the original again requires live
+source permission even if an alias, memory or prior search identified it.
+
+### Derived episode projection
+
+Use PostgreSQL for a rebuildable projection over authorized canonical messages,
+document revisions and other permitted internal sources. Canonical source records
+retain authority. An episode entry supplies a route back to specific evidence.
+Turn-time assembly uses the read-only source path. A separately authorized index
+maintainer may create, refresh, invalidate or remove only derived entries for
+eligible sources. Its write authority ends at the projection. Each projected
+episode must preserve the following through replay and restore.
+
+| Dimension | Required meaning |
+| --- | --- |
+| Identity and ownership | Stable episode identity in an account namespace, source Project and permitted scope. Derive replay identity from stable source lineage and an evidence anchor. Preserve an explicit mapping when database IDs change. |
+| Evidence | Typed source family, original source record and revision, role and provenance, original span boundaries or a resolvable revision-specific locator. |
+| Participants and relationships | Source-attributed names, aliases, titles, applicable existing stable subject references and relationships supported by cited spans. Preserve competing matches. Similarity and matching names cannot merge subjects or establish Persona identity. |
+| Time and revision | Event time or supported range, assertion time, acquisition time, and interpretation time where applicable. Preserve uncertainty and correction or supersession links. Record extraction semantics, projection version and rebuild time separately. |
+| Permitted use | Source-derived read, retention, exposure and inference restrictions, including restrictions inherited from imported contributors. |
+
+Rebuilding the same source revision with the same extraction semantics must
+resolve the same logical entry. A revision, split or changed extraction retains
+explicit lineage and invalidates stale spans. If an old revision cannot be
+reopened, mark it unavailable. Never silently substitute today's source for the
+historical version. Rebuild and restore from surviving, authorized canonical
+sources only, rechecking tombstones, exclusions and current policy. Record remapped
+source identity and acquisition history through the [account export and restore
+contract](account-export-restore-contract.md). A safely reconstructable projection
+needs no separate canonical export family. Portable source identity, permissions,
+provenance, lineage for authorized retained interpretations and non-rebuildable
+governance state must round-trip through that authority. Restored metadata does
+not reactivate indexing, historical consultation, exposure, collection or delegation.
+
+### Temporal evidence and ordering
+
+**Event time** dates what happened. **Assertion time** dates the source's account
+of it. **Acquisition time** dates when Codexify obtained that evidence.
+**Interpretation time** dates when the attributed person or model produced a
+particular analysis of it. Rebuild time describes only projection maintenance.
+An April 2025 event described in July 2026 and imported later keeps its supported
+April range, July assertion and actual acquisition date. Any subsequent analysis
+has its own interpretation timestamp; neither that timestamp nor import time
+supplies the event date. Where only the assertion date is known, leave the event
+undated. Preserve original granularity, ranges, contemporaneous versus
+retrospective attribution, inconsistent accounts and explicit corrections.
+Link a correction to the assertion it qualifies while that source is retained.
+
+Rank by relevance to select evidence. Present dated events in supported temporal
+order. Neither chronology nor recency upgrades the quality of support or changes
+durable memory authority. Mark overlapping ranges as unordered relative to each other and group
+unknown event times explicitly. Use assertion time when known and stable source
+identity/span as deterministic display tie-breakers. A tie-breaker makes no claim
+about event order. A later source can correct an earlier one without erasing the
+historical disagreement.
+
+### Claim support and interpretation provenance
+
+Classify evidence relative to the claim, not by a universal ranking:
+
+| Evidence posture | What it can support |
+| --- | --- |
+| Authorized original actually opened | What the inspected message, exchange, document revision or span establishes. It can show what someone said without confirming every assertion in it. A locator or index match is not an open. |
+| Attributable later first-person account | What that participant later reported about the event. Do not present the account as contemporaneous evidence or as a quotation of the earlier exchange. |
+| Derived recap or interpretation | What the recap or analysis says. It may orient an authorized lookup; it does not independently verify a relationship, chronology or exact quotation of an unavailable original. |
+
+Consequential claims must retain sufficient lineage to identify the evidence,
+exact source revision, whether it was opened, attribution and source role,
+current access, contradictions and uncertainty, and whether the claim concerns
+history or present applicability. Require separate evidence for each claimed
+relationship, succession, identity equivalence or chronology. A title alone
+cannot establish any of them. If only a recap is available, attribute the recap
+and communicate its relevant limits naturally. Qualify or omit unsupported
+claims. Do not pass off paraphrase as quotation, imply an unread source was
+inspected, or attribute another Persona's experience to the active Persona.
+
+Ordinary recollections, packets and turn-level analyses remain transient. A
+deliberately retained interpretation uses an existing authorized, source-appropriate
+persistence path with UMS governance, not a new store. Preserve its stable identity,
+producing actor and applicable model or interpretation semantics version, production
+time, exact supporting source identities and revisions, attributable spans,
+account and Project scope, use and inference restrictions, uncertainty, and
+correction or supersession links. Replaying or rebuilding the same interpretation
+does not reset its timestamp. New analysis is a distinguishable revision or
+interpretation. Preserve shared underlying lineage: multiple derivatives of the
+same original assertion are not independent corroboration. If independence
+cannot be established, do not claim it.
+
+### Bounded chronological evidence packet
+
+The packet is transient. Include the matched cue, evidence-backed entity
+references and ambiguity indicators, selected episodes and attributable original
+excerpts or locators, roles and exact source revisions, whether each original
+was opened, claim-level support and derivation classes, and applicable inference
+restrictions. Include event, assertion, acquisition and interpretation times
+where applicable (with the producing actor for interpretations), uncertainty,
+corrections, contradictions, shared-source lineage and the transient
+[present-applicability assessment](turn-intake-compiler-contract.md#historical-evidence-and-current-turn-applicability).
+Distinguish current instructions from historical text. Attach
+content-free authorization and coverage receipts. Distinguish matches,
+authorized originals actually read, injected evidence, partial traversal,
+unavailable sources and insufficient support. Locators alone cannot substantiate
+unread content. Suppress identifiers, counts and other signals that would expose
+inaccessible records. Never persist the packet as an independent narrative.
+Historical assertions remain attributed evidence, distinct from verified Personal
+Facts and from the active Persona's own experience.
+
+The Stage 2B Task Spec must set and justify finite numeric ceilings for candidates,
+distinct sources, spans, bytes or context tokens, relationship hops and fan-out,
+database execution time, overall latency and retry work under the accepted deadline
+**before implementation authorization**. Enforce aggregate limits across attempts,
+including cache reads and any original spans opened. Refuse unbounded scans or
+traversals. Stop on exhaustion with honest partial coverage. Authority revocation
+or deletion also bars reuse of an earlier packet. Integrate with the existing
+[retrieval navigation model](guardian-retrieval-navigation-model.md) and
+[ADR-089 document bounds](adr/089-open-ended-project-knowledge-and-bounded-document-recall.md).
+Initial storage needs no separate graph service. Physical design, migration and
+runtime APIs belong to a separately authorized task.
 
 ## 1. Purpose
 
@@ -38,8 +215,8 @@ The backend resolves the account; the model never chooses it.
 **Classification: aligned with existing ADRs.** This implementation does not
 require a new interpretation of imported-history model exposure and does not
 introduce a new standing recall permission. See
-[Unsupported cases](#9-unsupported-cases-and-the-decisions-they-need) for the
-two boundaries that remain closed and the exact decision each one needs.
+[Implementation limits](#9-implementation-limits-and-governing-decisions) for the
+remaining engineering and qualification prerequisites.
 
 ## 3. Request-scoped recall authorization
 
@@ -158,8 +335,9 @@ A grant is:
 
 ### 3.5 Scope enforcement
 
-A positive authorization is restricted to the authenticated account, the
-current canonical Project, eligible native conversation evidence, the
+The initial implementation restricts a positive authorization to the
+authenticated account, the current canonical Project, eligible native
+conversation evidence, the
 applicable thread and content permissions, and the current request's recall
 purpose.
 
@@ -192,9 +370,10 @@ purpose.
 
 ### 3.7 Imported-history exclusions
 
-Imported archives remain on ADR-016's human-only inspection path. An explicit
-request aimed at imported history is denied as an independent exclusion, and
-imported threads can never establish intent in the first place. The grant's
+The initial Recall implementation denies explicit requests for imported history.
+Human archive inspection has separate authority. Imported text cannot establish
+current intent. Selected-import exposure must separately meet the ratified
+[original-source Recall rules](#search-coverage-and-original-source-opening). The grant's
 exclusion list carries the imported-archive, diary, and unresolved
 record-read markers so that the bounded read reports them honestly.
 
@@ -852,7 +1031,7 @@ This capability does **not** expose imported message content to a model:
   say "that part of your history is an imported archive I can't read into this
   answer".
 
-The two accepted ADR-016 paths that *do* permit model exposure of imported
+The two Chronicle-specific ADR-016 paths for model exposure of imported
 content — the request-scoped Chronicle interpretation request (2025-10-10) and
 the reviewed per-message Chronicle approval with digest (2025-10-11) — are
 purpose-bound, request-local, consent-gated, and local-only. Neither is a
@@ -870,7 +1049,7 @@ Existing Command Bus operational auditing continues under its own contract. The
 recall result contains conversation excerpts by design — that is the point of
 the capability — but the audit trail records the command, not the transcript.
 
-## 9. Unsupported cases, and the decisions they need
+## 9. Implementation limits and governing decisions
 
 ### 9.1 Account-wide recall widening — not enabled
 
@@ -885,17 +1064,10 @@ current-Project scope, rather than with a widened grant. A named Project that
 the account does not own, or whose ownership is conflicted, is an independent
 denial that a confirmation cannot override.
 
-This is deliberate. ADR-084 states that request fields are *preferences, not
-permissions*, and that Guardian derives a bounded grant from authenticated user
-intent. Deriving wider intent requires either:
-
-- an accepted intent→grant resolver with an ADR-approved rule for what user
-  wording authorizes account scope, or
-- an explicit, authenticated, request-scoped user action that names the scope.
-
-The decision needed: **an ADR amendment to ADR-084 (or a new ADR) that defines
-how account-wide and cross-Project scope may be granted.** Until that exists,
-cross-Project recall fails closed.
+GOV-01 establishes the decision for wider Recall under ADR-084. It requires
+an authenticated current-request choice and a Guardian-issued grant bounded
+by the owner's eligible resources and strict Project restrictions. The
+implemented resolver remains Project-scoped.
 
 ### 9.2 Multi-user and remote deployments — worker lane not eligible
 
@@ -909,29 +1081,18 @@ In remote or multi-user deployments the loopback Command Bus transport carries
 only the operator key, so the account cannot be recovered from the transport.
 Rather than resolve a possibly-wrong account, the lane fails closed.
 
-The decision needed: **a transport that carries the authenticated account
-subject to the worker** — for example a short-lived, purpose-scoped account
-credential in the loopback adapter — or an approved alternative binding. The
-transport change is out of scope for this task.
+GOV-01 extends the [ADR-112 accepted-work binding](adr/112-trusted-worker-account-bound-dispatch.md#recall-on-the-trusted-preview-worker) to Recall. Guardian must
+bind the accepting account, accepted message, task, live attempt and exact
+Recall operation to current policy. The connector pilot grants no Recall
+permission. Implementation and shared-worker isolation proof remain pending.
 
-[ADR-112](adr/112-trusted-worker-account-bound-dispatch.md) now accepts a
-Guardian-verified in-process binding direction **only for the trusted Private
-Preview GitHub/Notion read-only connector pilot**. Its accepted-job reconciliation
-is PARTIAL and its implementation remains pending. It does not activate this
-remote/multi-user history-recall worker lane, supply a HistoryRecallGrant, or
-authorize reuse of connector permission for history. Any future recall integration
-must independently satisfy this contract's request-scoped grant, canonical
-account/Project ownership, provenance and content restrictions. Section 9.3 and
-ADR-016/084 imported-history consent boundaries remain unchanged.
+### 9.3 Imported archive model exposure in the initial search
 
-### 9.3 Imported archive model exposure — not permitted
-
-See [section 7](#7-imported-history-authorization-behavior). The decision
-needed: **an ADR amendment that extends the ADR-016 request-local consent
-pattern (or its per-message approved/digest pattern) to general explicit
-historical recall**, with an explicit treatment, scope binding, and
-record-read recheck. Until that exists, imported archive content is not
-model-exposed.
+The [implemented search](#7-imported-history-authorization-behavior) excludes
+imported content. GOV-01's selected-import path requires eligible treatment,
+positive message provenance, current Recall and exposure grants, independent
+resource checks, and an approved local inference path. Proof of each condition
+is required before Preview use.
 
 ## 10. Performance and safety envelope
 

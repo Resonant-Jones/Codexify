@@ -20,7 +20,6 @@ from guardian.core.account_history_recall import (
     HistoryRecallCapabilityContext,
     HistoryRecallGrant,
 )
-from guardian.routes import command_bus as command_bus_routes
 from guardian.core.completion_terminal import CompletionTerminalEvidence
 from guardian.protocol_tokens import (
     CompletionTerminalStatus,
@@ -36,8 +35,9 @@ from guardian.providers.whooshd_tool_adapter import (
     WhooshdStructuredResponse,
     WhooshdStructuredTransportError,
 )
-from guardian.tasks.types import ChatCompletionTask
+from guardian.routes import command_bus as command_bus_routes
 from guardian.tasks.chat_deadline import build_accepted_chat_task_deadline
+from guardian.tasks.types import ChatCompletionTask
 from guardian.tools.chat_exposure import HISTORY_SEARCH_COMMAND_ID
 
 
@@ -54,9 +54,9 @@ def _build_task(
         model="mock-model",
         origin="api:chat.complete|turn_id=11111111-1111-4111-8111-111111111111",
     )
-    for name, value in build_accepted_chat_task_deadline(
-        datetime.now(timezone.utc)
-    ).to_dict().items():
+    for name, value in (
+        build_accepted_chat_task_deadline(datetime.now(timezone.utc)).to_dict().items()
+    ):
         setattr(task, name, value)
     task.latest_turn_message_id = 2
     task.turn_id = "11111111-1111-4111-8111-111111111111"
@@ -133,7 +133,8 @@ def _seed_service(
             }
             checkpoints[request_id] = existing
         elif (existing["command_id"], existing["args_hash"]) != (
-            values["command_id"], values["args_hash"]
+            values["command_id"],
+            values["args_hash"],
         ):
             raise chat_completion_service.ChatToolCheckpointError(
                 "tool_decision_conflict"
@@ -196,9 +197,7 @@ def _whooshd_stage_2e_response(
             "type": "object",
             "additionalProperties": False,
             "required": ["widget_id"],
-            "properties": {
-                "widget_id": {"type": "string", "enum": ["alpha"]}
-            },
+            "properties": {"widget_id": {"type": "string", "enum": ["alpha"]}},
         },
     )
 
@@ -211,9 +210,7 @@ def _whooshd_stage_2e_tool() -> dict[str, Any]:
             "type": "object",
             "additionalProperties": False,
             "required": ["widget_id"],
-            "properties": {
-                "widget_id": {"type": "string", "enum": ["alpha"]}
-            },
+            "properties": {"widget_id": {"type": "string", "enum": ["alpha"]}},
         },
     }
 
@@ -276,7 +273,11 @@ def test_whooshd_structured_tool_turn_executes_once_and_uses_adapter_continuatio
         chat_completion_service,
         "execute_invoke",
         lambda *, payload, **_kwargs: command_calls.append(payload)
-        or {"run_id": "run-whooshd", "status": "completed", "inline_result": {"status": "green"}},
+        or {
+            "run_id": "run-whooshd",
+            "status": "completed",
+            "inline_result": {"status": "green"},
+        },
     )
     provider_calls: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
 
@@ -381,13 +382,15 @@ def test_whooshd_structured_provenance_mismatch_blocks_before_execute_invoke(
     response = _whooshd_stage_2e_response(
         '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
     )
+    provenance = response.runtime_provenance
+    assert provenance is not None
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: replace(
             response,
             runtime_provenance=replace(
-                response.runtime_provenance,
+                provenance,
                 resolved_model_id="another-model",
             ),
         ),
@@ -428,15 +431,17 @@ def test_whooshd_structured_qualification_mismatch_blocks_before_execute_invoke(
     response = _whooshd_stage_2e_response(
         '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
     )
+    provenance = response.runtime_provenance
+    assert provenance is not None
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: replace(
             response,
             runtime_provenance=replace(
-                response.runtime_provenance,
+                provenance,
                 qualification_attestation=replace(
-                    response.runtime_provenance.qualification_attestation,
+                    provenance.qualification_attestation,
                     attestation_digest="sha256:" + "0" * 64,
                 ),
             ),
@@ -478,13 +483,15 @@ def test_whooshd_structured_insufficient_evidence_blocks_before_execute_invoke(
     response = _whooshd_stage_2e_response(
         '{"kind":"tool_decision","text":null,"command_id":"op::lookup_widget","arguments":{"widget_id":"alpha"}}'
     )
+    provenance = response.runtime_provenance
+    assert provenance is not None
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",
         lambda *_args, **_kwargs: replace(
             response,
             runtime_provenance=replace(
-                response.runtime_provenance,
+                provenance,
                 qualification_attestation=None,
             ),
         ),
@@ -522,7 +529,8 @@ def test_whooshd_structured_second_tool_decision_keeps_one_turn_hard_stop(
         "execute_invoke",
         lambda *, payload, **_kwargs: command_calls.append(payload)
         or {
-            "run_id": "run-whooshd-limit", "status": "completed",
+            "run_id": "run-whooshd-limit",
+            "status": "completed",
             "inline_result": {"ok": True},
         },
     )
@@ -660,9 +668,7 @@ def test_single_tool_decision_path_invokes_command_bus_once_and_reinjects_result
             "inline_result": {"summary": "command result"},
         }
 
-    monkeypatch.setattr(
-        chat_completion_service, "execute_invoke", _execute_invoke
-    )
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _execute_invoke)
 
     chat_calls: list[list[dict[str, Any]]] = []
 
@@ -725,9 +731,7 @@ def test_second_tool_decision_hard_stops_after_one_bounded_turn(
     monkeypatch.setattr(
         chat_completion_service,
         "execute_invoke",
-        lambda *args, **kwargs: command_calls.append(
-            {"args": args, "kwargs": kwargs}
-        )
+        lambda *args, **kwargs: command_calls.append({"args": args, "kwargs": kwargs})
         or {
             "run_id": "run-456",
             "status": "completed",
@@ -788,7 +792,8 @@ def test_frozen_decision_precedes_dispatch_and_matching_retry_reuses_identity(
         if len(dispatched) == 1:
             underlying_executions += 1
         return {
-            "run_id": "run-frozen", "status": "completed",
+            "run_id": "run-frozen",
+            "status": "completed",
             "inline_result": {"value": "ok"},
         }
 
@@ -800,9 +805,9 @@ def test_frozen_decision_precedes_dispatch_and_matching_retry_reuses_identity(
             for message in messages
         ):
             return "final answer"
-        return (
-            '{"type":"tool_decision","command_id":"%s","arguments":%s}'
-            % (decision["command_id"], json.dumps(decision["arguments"]))
+        return '{{"type":"tool_decision","command_id":"{}","arguments":{}}}'.format(
+            decision["command_id"],
+            json.dumps(decision["arguments"]),
         )
 
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
@@ -813,10 +818,15 @@ def test_frozen_decision_precedes_dispatch_and_matching_retry_reuses_identity(
         task, persist_assistant_message=False
     )
     assert order == [
-        "checkpoint_committed", "command_dispatched",
-        "checkpoint_committed", "command_dispatched",
+        "checkpoint_committed",
+        "command_dispatched",
+        "checkpoint_committed",
+        "command_dispatched",
     ]
-    assert first["payload_summary"]["toolTurnId"] == second["payload_summary"]["toolTurnId"]
+    assert (
+        first["payload_summary"]["toolTurnId"]
+        == second["payload_summary"]["toolTurnId"]
+    )
     assert dispatched[0].idempotency_key == dispatched[1].idempotency_key
     assert checkpoints[task.request_id]["command_id"] == "op::echo"
     assert underlying_executions == 1
@@ -830,14 +840,18 @@ def test_frozen_decision_precedes_dispatch_and_matching_retry_reuses_identity(
     assert len(dispatched) == 2
 
     decision["command_id"] = "op::other"
-    with pytest.raises(chat_completion_service.ToolLoopExecutionError) as changed_command:
+    with pytest.raises(
+        chat_completion_service.ToolLoopExecutionError
+    ) as changed_command:
         chat_completion_service.run_chat_completion_task(
             task, persist_assistant_message=False
         )
     assert str(changed_command.value) == "tool_decision_conflict"
     assert len(dispatched) == 2
 
-    monkeypatch.setattr(chat_completion_service, "chat_with_ai", lambda *_a, **_k: "plain divergence")
+    monkeypatch.setattr(
+        chat_completion_service, "chat_with_ai", lambda *_a, **_k: "plain divergence"
+    )
     with pytest.raises(chat_completion_service.ToolLoopExecutionError) as plain:
         chat_completion_service.run_chat_completion_task(
             task, persist_assistant_message=False
@@ -877,8 +891,7 @@ def test_matching_retry_reuses_actual_command_run_without_second_execution(
         ):
             return "final answer"
         return (
-            '{"type":"tool_decision","command_id":"op::health_check",'
-            '"arguments":{}}'
+            '{"type":"tool_decision","command_id":"op::health_check",' '"arguments":{}}'
         )
 
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", provider)
@@ -888,8 +901,14 @@ def test_matching_retry_reuses_actual_command_run_without_second_execution(
     second = chat_completion_service.run_chat_completion_task(
         task, persist_assistant_message=False
     )
-    assert first["payload_summary"]["toolTurnId"] == second["payload_summary"]["toolTurnId"]
-    assert first["payload_summary"]["commandRunId"] == second["payload_summary"]["commandRunId"]
+    assert (
+        first["payload_summary"]["toolTurnId"]
+        == second["payload_summary"]["toolTurnId"]
+    )
+    assert (
+        first["payload_summary"]["commandRunId"]
+        == second["payload_summary"]["commandRunId"]
+    )
     assert executions == 1
 
 
@@ -944,7 +963,9 @@ def test_unavailable_checkpoint_fails_before_command_dispatch(
     monkeypatch.setattr(
         chat_completion_service,
         "freeze_chat_tool_decision",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
     )
     monkeypatch.setattr(
         chat_completion_service,
@@ -1138,9 +1159,7 @@ def test_plaintext_tool_decision_without_advertised_tools_is_blocked(
     monkeypatch.setattr(
         chat_completion_service,
         "execute_invoke",
-        lambda *args, **kwargs: command_calls.append(
-            {"args": args, "kwargs": kwargs}
-        ),
+        lambda *args, **kwargs: command_calls.append({"args": args, "kwargs": kwargs}),
     )
 
     provider_calls: list[list[dict[str, Any]]] = []
@@ -1148,8 +1167,7 @@ def test_plaintext_tool_decision_without_advertised_tools_is_blocked(
     def _chat_with_ai(messages, **_kwargs):
         provider_calls.append([dict(message) for message in messages])
         return (
-            '{"type":"tool_decision","command_id":"op::unadvertised",'
-            '"arguments":{}}'
+            '{"type":"tool_decision","command_id":"op::unadvertised",' '"arguments":{}}'
         )
 
     monkeypatch.setattr(chat_completion_service, "chat_with_ai", _chat_with_ai)
@@ -1188,9 +1206,7 @@ def test_tool_execution_failure_surfaces_bounded_stop_reason(
         command_calls.append({"args": args, "kwargs": kwargs})
         raise RuntimeError("command bus unavailable")
 
-    monkeypatch.setattr(
-        chat_completion_service, "execute_invoke", _execute_invoke
-    )
+    monkeypatch.setattr(chat_completion_service, "execute_invoke", _execute_invoke)
     monkeypatch.setattr(
         chat_completion_service,
         "chat_with_ai",

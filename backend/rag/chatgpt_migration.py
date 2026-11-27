@@ -439,15 +439,31 @@ def _ingest_canonical_messages(**kwargs) -> Tuple[int, int]:
     pending_facts: List[Tuple[Dict[str, Any], List[Dict[str, Any]], bool]] = []
     transaction = getattr(chatlog_db, "conversation_transaction", None)
     scope = transaction() if callable(transaction) else nullcontext()
-    with scope:
-        result = _write_canonical_messages(
-            **{
-                **kwargs,
-                "pending_embed_items": staged_items,
-                "pending_embed_message_ids": staged_message_ids,
-                "pending_facts": pending_facts,
-            }
-        )
+    try:
+        with scope:
+            result = _write_canonical_messages(
+                **{
+                    **kwargs,
+                    "pending_embed_items": staged_items,
+                    "pending_embed_message_ids": staged_message_ids,
+                    "pending_facts": pending_facts,
+                }
+            )
+    except Exception as exc:
+        # This historical global uniqueness constraint cannot admit equal
+        # external message identities across accounts. Refuse without leaking
+        # source identifiers or assigning the conversation to the other owner.
+        if (
+            kwargs.get("openai_import_source_id") is not None
+            and getattr(getattr(exc, "diag", None), "constraint_name", None)
+            == "uq_chat_messages_source_thread_message"
+        ):
+            from guardian.core.openai_import_routing import OpenAIImportPlacementConflict
+
+            raise OpenAIImportPlacementConflict(
+                "OpenAI source conversation/message identity conflicts with an existing import"
+            ) from None
+        raise
     pending_embed_items.extend(staged_items)
     pending_embed_message_ids.extend(staged_message_ids)
     for message, candidates, require_message_db_id in pending_facts:
@@ -474,7 +490,7 @@ def _write_canonical_messages(
     import_profile: str,
     source_thread_id: str,
     messages: List[Dict[str, Any]],
-    imports_project_id: int,
+    imports_project_id: int | None,
     import_grouping_metadata: Dict[str, Any],
     pending_embed_items: List[Dict[str, Any]],
     pending_embed_message_ids: List[int],
@@ -484,6 +500,9 @@ def _write_canonical_messages(
     embedding_mode: str = "enqueue",
     disable_personal_facts: bool = False,
     origin_system: str | None = None,
+    openai_import_source_id: str | None = None,
+    openai_group_id: str | None = None,
+    placement_stats: dict[str, int] | None = None,
     pending_facts: List[Tuple[Dict[str, Any], List[Dict[str, Any]], bool]] | None = None,
 ) -> Tuple[int, int]:
     # Resolve the canonical conversation-origin token. The import_source
@@ -507,11 +526,30 @@ def _write_canonical_messages(
             )
         canonical_origin = legacy
 
+    from contextvars import ContextVar
+
+    from guardian.core.openai_import_routing import (
+        OpenAIImportPlacementConflict,
+        lock_openai_import_owner,
+        resolve_openai_fresh_project,
+    )
+
+    if canonical_origin == "openai" and (
+        openai_import_source_id is not None
+        or isinstance(getattr(chatlog_db, "_conversation_connection", None), ContextVar)
+    ):
+        lock_openai_import_owner(chatlog_db, user_id, openai_import_source_id)
+
+    source_scope = (
+        {"openai_import_source_id": openai_import_source_id}
+        if openai_import_source_id is not None else {}
+    )
     thread_id = _find_existing_thread_for_source(
         chatlog_db,
         user_id=user_id,
         source_thread_id=source_thread_id,
         origin_system=canonical_origin,
+        **source_scope,
     )
     threads_count = 0
     messages_count = 0
@@ -530,6 +568,15 @@ def _write_canonical_messages(
     }
 
     if thread_id is None:
+        if openai_import_source_id is not None:
+            imports_project_id, created = resolve_openai_fresh_project(
+                chatlog_db,
+                user_id=user_id,
+                source_id=openai_import_source_id,
+                group_id=openai_group_id,
+            )
+            if placement_stats is not None and openai_group_id is not None:
+                placement_stats["projects_created" if created else "projects_reused"] += 1
         try:
             thread_record = chatlog_db.create_chat_thread(
                 user_id=user_id,
@@ -538,8 +585,13 @@ def _write_canonical_messages(
                 project_id=imports_project_id,
                 metadata=thread_updates,
                 origin_system=canonical_origin,
+                **source_scope,
             )
         except TypeError:
+            if openai_import_source_id is not None:
+                raise OpenAIImportPlacementConflict(
+                    "Conversation store cannot persist the selected OpenAI import source"
+                )
             thread_record = chatlog_db.create_chat_thread(
                 user_id=user_id,
                 title=title,
@@ -1539,6 +1591,7 @@ def _linearize_mainline(
 def _find_existing_thread_for_source(
     chatlog_db, user_id: str, source_thread_id: str,
     origin_system: str | None = None,
+    openai_import_source_id: str | None = None,
 ) -> Optional[int]:
     if not source_thread_id or not hasattr(chatlog_db, "_connect"):
         return None
@@ -1548,22 +1601,62 @@ def _find_existing_thread_for_source(
         if origin_system is not None
         else (user_id, source_thread_id)
     )
+    # Legacy callers still resolve the earliest row, but sort any scoped
+    # collision first so they cannot accidentally adopt a grouped import.
+    projection = (
+        "DISTINCT cm.thread_id, to_jsonb(ct)->>'openai_import_source_id' AS import_source_id"
+        if openai_import_source_id is not None
+        else "cm.thread_id, to_jsonb(ct)->>'openai_import_source_id' AS import_source_id"
+    )
+    ordering = (
+        "cm.thread_id"
+        if openai_import_source_id is not None
+        else "(to_jsonb(ct)->>'openai_import_source_id' IS NOT NULL) DESC, cm.id ASC LIMIT 1"
+    )
     with chatlog_db._connect() as conn, conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT cm.thread_id
+            SELECT {projection}
             FROM chat_messages cm
             JOIN chat_threads ct ON ct.id = cm.thread_id
             WHERE ct.user_id = %s
               {origin_filter}
               AND cm.extra_meta->>'source_thread_id' = %s
-            ORDER BY cm.id ASC
-            LIMIT 1
+            ORDER BY {ordering}
             """,
             params,
         )
-        row = cur.fetchone()
-        return int(row["thread_id"]) if row else None
+        if openai_import_source_id is None:
+            row = cur.fetchone()
+            rows = [row] if row else []
+        else:
+            rows = cur.fetchall()
+        if not rows:
+            return None
+        if any(row.get("import_source_id") != openai_import_source_id for row in rows) or (
+            openai_import_source_id is not None and len(rows) != 1
+        ):
+            from guardian.core.openai_import_routing import OpenAIImportPlacementConflict
+
+            raise OpenAIImportPlacementConflict(
+                "OpenAI conversation already belongs to another import source or to a legacy import"
+            )
+        thread_id = int(rows[0]["thread_id"])
+        if openai_import_source_id is not None:
+            cur.execute(
+                """SELECT ct.id FROM chat_threads ct
+                JOIN projects p ON p.id = ct.project_id AND p.user_id = ct.user_id
+                WHERE ct.id = %s AND ct.user_id = %s AND p.archived_at IS NULL
+                FOR UPDATE OF ct, p""",
+                (thread_id, user_id),
+            )
+            if cur.fetchone() is None:
+                from guardian.core.openai_import_routing import OpenAIImportPlacementConflict
+
+                raise OpenAIImportPlacementConflict(
+                    "The existing OpenAI conversation is not in an active owned Project"
+                )
+        return thread_id
 
 
 def _find_existing_message_for_source(
@@ -1883,7 +1976,8 @@ def ingest_chatgpt_conversation_records(
     user_id: Optional[str] = None,
     embedding_mode: str = "enqueue",
     disable_personal_facts: bool = False,
-) -> Dict[str, int]:
+    openai_import_source_id: str | None = None,
+) -> Dict[str, Any]:
     """Ingest validated ChatGPT-shaped conversation records.
 
     embedding_mode controls inline embedding enqueue behavior:
@@ -1913,9 +2007,18 @@ def ingest_chatgpt_conversation_records(
     threads_count = 0
     messages_count = 0
     messages_filtered = 0
-    projects_created = 0
-    projects_reused = 0
-    imports_project_id = int(_resolve_imports_project_id(chatlog_db))
+    from guardian.core.openai_import_routing import (
+        UnresolvedOpenAIGroup,
+        classify_openai_group,
+        original_openai_conversation_id,
+    )
+
+    placement_stats = {"projects_created": 0, "projects_reused": 0}
+    unresolved_grouping_ids: list[str] = []
+    imports_project_id = (
+        None if openai_import_source_id is not None
+        else int(_resolve_imports_project_id(chatlog_db))
+    )
     pending_embed_items: List[Dict[str, Any]] = []
     pending_embed_message_ids: List[int] = []
 
@@ -1965,6 +2068,19 @@ def ingest_chatgpt_conversation_records(
                 continue
 
             title = str(conv.get("title") or "Imported Chat")
+            source_scope = {}
+            if openai_import_source_id is not None:
+                try:
+                    group_id = classify_openai_group(conv)
+                    source_thread_id = original_openai_conversation_id(conv)
+                except UnresolvedOpenAIGroup:
+                    unresolved_grouping_ids.append(source_thread_id)
+                    continue
+                source_scope = {
+                    "openai_import_source_id": openai_import_source_id,
+                    "openai_group_id": group_id,
+                    "placement_stats": placement_stats,
+                }
 
             writing_canonical = True
             imported_threads, imported_messages = _ingest_canonical_messages(
@@ -1985,6 +2101,7 @@ def ingest_chatgpt_conversation_records(
                 conversation_level_candidates=model_editable_context_candidates,
                 embedding_mode=embedding_mode,
                 disable_personal_facts=disable_personal_facts,
+                **source_scope,
             )
             threads_count += imported_threads
             messages_count += imported_messages
@@ -2023,8 +2140,9 @@ def ingest_chatgpt_conversation_records(
     return {
         "threads_imported": threads_count,
         "messages_imported": messages_count,
-        "projects_created": projects_created,
-        "projects_reused": projects_reused,
+        **placement_stats,
+        **({"unresolved_grouping_ids": unresolved_grouping_ids}
+           if openai_import_source_id is not None else {}),
         "messages_filtered": messages_filtered,
         "embedding_candidates": embedding_diagnostics["embedding_candidates"],
         "embeddings_persisted": embedding_diagnostics["embeddings_persisted"],

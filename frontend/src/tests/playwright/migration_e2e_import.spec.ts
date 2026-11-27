@@ -1,12 +1,20 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function saveOpenAIImportSource(page: Page, label: string): Promise<string> {
+  await page.getByLabel('New source name').fill(`${label} ${randomUUID()}`);
+  await page.getByRole('button', { name: 'Save source' }).click();
+  const source = page.getByLabel('Saved OpenAI import source');
+  await expect(source).toHaveValue(/^[0-9a-f-]{36}$/i);
+  return source.inputValue();
+}
 
 type ThreadRecord = {
   id: number;
@@ -134,8 +142,10 @@ test('account import identity stays with backend when Settings display name is Y
   mkdirSync(exportFolder);
   writeFileSync(join(exportFolder, 'conversations.json'), '[]');
   const requests: Array<{ path: string; userId: string | undefined }> = [];
+  const logicalSource = { id: '10000000-0000-4000-8000-000000000001', label: 'Probe source' };
   const job = {
     job_id: 'identity-probe-job',
+    openai_import_source_id: logicalSource.id,
     source_system: 'openai',
     status: 'receiving',
     total_file_count: 1,
@@ -162,6 +172,16 @@ test('account import identity stays with backend when Settings display name is Y
     await page.route(/\/api\/imports\/openai-account(?:\/.*)?$/, async (route) => {
       const path = new URL(route.request().url()).pathname;
       requests.push({ path, userId: route.request().headers()['x-user-id'] });
+      if (path.endsWith('/sources')) {
+        await route.fulfill({ json: { sources: [logicalSource] } });
+        return;
+      }
+      if (path === '/api/imports/openai-account') {
+        expect(route.request().postDataJSON()).toEqual({
+          source_system: 'openai', openai_import_source_id: logicalSource.id,
+          total_file_count: 1, total_byte_count: 2,
+        });
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -184,11 +204,13 @@ test('account import identity stays with backend when Settings display name is Y
     await page.getByRole('tab', { name: 'Data' }).click();
     await page.getByRole('button', { name: 'Import Conversation History' }).click();
     await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
+    await page.getByLabel('Saved OpenAI import source').selectOption(logicalSource.id);
     const chooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Choose Folder' }).click();
     await (await chooserPromise).setFiles(exportFolder);
 
     await expect.poll(() => requests.map(({ path }) => path), { timeout: 10_000 }).toEqual([
+      '/api/imports/openai-account/sources',
       '/api/imports/openai-account',
       '/api/imports/openai-account/identity-probe-job/files',
       '/api/imports/openai-account/identity-probe-job/commit',
@@ -228,6 +250,7 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
     await page.getByRole('button', { name: 'Import Conversation History' }).click();
     await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
     await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+    const logicalSourceId = await saveOpenAIImportSource(page, 'Staging probe');
 
     const createResponsePromise = page.waitForResponse((response) =>
       new URL(response.url()).pathname === '/api/imports/openai-account' &&
@@ -247,6 +270,7 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
     const jobId = String(created.job_id ?? '');
     expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(created.source_system).toBe('openai');
+    expect(created.openai_import_source_id).toBe(logicalSourceId);
     expect(created.total_file_count).toBe(2);
     expect(created.total_byte_count).toBe(expectedBytes);
 
@@ -276,6 +300,7 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
     expect(statusResponse.status()).toBe(200);
     const readback = await statusResponse.json();
     expect(readback.job_id).toBe(jobId);
+    expect(readback.openai_import_source_id).toBe(logicalSourceId);
     expect(readback.status).toBe('receiving');
     expect(readback.total_file_count).toBe(2);
     expect(readback.total_byte_count).toBe(expectedBytes);
@@ -285,7 +310,7 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
     const dbContainer = process.env.PW_ACCOUNT_IMPORT_DB_CONTAINER;
     if (dbContainer) {
       const sql = `BEGIN READ ONLY;\nSELECT row_to_json(t)::text FROM (
-        SELECT id, user_id, source_system, status, total_file_count,
+        SELECT id, user_id, source_system, openai_import_source_id, status, total_file_count,
                total_byte_count, uploaded_file_count, uploaded_byte_count,
                jsonb_array_length(staged_manifest::jsonb) AS manifest_count,
                (SELECT jsonb_agg(entry->>'path' ORDER BY ordinal)
@@ -302,6 +327,7 @@ test('current account import UI stages an OpenAI batch through Guardian', async 
         id: jobId,
         user_id: 'local',
         source_system: 'openai',
+        openai_import_source_id: logicalSourceId,
         status: 'receiving',
         total_file_count: 2,
         total_byte_count: expectedBytes,
@@ -340,6 +366,7 @@ test('current account import UI commits a valid OpenAI export for materializatio
   const assistantMessageId = 'axis-import-assistant-message-20260923-01';
   const exportData = [{
     conversation_id: sourceConversationId,
+    conversation_template_id: null,
     id: sourceConversationId,
     title: 'Axis Import Materialization Probe',
     current_node: assistantMessageId,
@@ -385,6 +412,7 @@ test('current account import UI commits a valid OpenAI export for materializatio
     await page.getByRole('button', { name: 'Import Conversation History' }).click();
     await expect(page.getByRole('heading', { name: 'Import Conversation History' })).toBeVisible();
     await expect(page.getByTestId('account-import-source-openai')).toBeChecked();
+    const logicalSourceId = await saveOpenAIImportSource(page, 'Materialization probe');
 
     const createResponsePromise = page.waitForResponse((response) =>
       new URL(response.url()).pathname === '/api/imports/openai-account' &&
@@ -408,6 +436,7 @@ test('current account import UI commits a valid OpenAI export for materializatio
     const jobId = String(created.job_id ?? '');
     expect(jobId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(created.source_system).toBe('openai');
+    expect(created.openai_import_source_id).toBe(logicalSourceId);
     expect(created.total_file_count).toBe(1);
     expect(created.total_byte_count).toBe(bytes.length);
 
@@ -433,6 +462,7 @@ test('current account import UI commits a valid OpenAI export for materializatio
     expect(statusResponse.status()).toBe(200);
     const readback = await statusResponse.json();
     expect(readback.job_id).toBe(jobId);
+    expect(readback.openai_import_source_id).toBe(logicalSourceId);
     expect(readback.status).toBe('queued');
     expect(readback.uploaded_file_count).toBe(1);
     expect(readback.uploaded_byte_count).toBe(bytes.length);

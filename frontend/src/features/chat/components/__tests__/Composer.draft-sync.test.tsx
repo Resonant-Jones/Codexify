@@ -1,20 +1,42 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Composer } from "@/features/chat/components/Composer";
 import {
   CHAT_COMPOSER_CONTROLS_BOTTOM_GAP_CLASS,
   CHAT_COMPOSER_SEND_EDGE_INSET_CLASS,
   CHAT_COMPOSER_SEND_SLOT_BALANCE_CLASS,
 } from "@/features/chat/chatLane";
-import api from "@/lib/api";
+import { Composer } from "@/features/chat/components/Composer";
 import composerSource from "@/features/chat/components/Composer.tsx?raw";
+import type { SlashCommandLibrary } from "@/features/chat/useSlashCommandLibrary";
+import api from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   default: {
     post: vi.fn(),
   },
 }));
+
+const obsidianLibrary: SlashCommandLibrary = {
+  status: "ready",
+  manifest: {
+    schemaVersion: 1,
+    manifestRevision: "obsidian-fixture",
+    commands: [{
+      id: "obsidian",
+      token: "/obsidian",
+      scaffold: "/obsidian",
+      label: "Obsidian",
+      description: "Use Obsidian context",
+      aliases: ["obs"],
+      keywords: [],
+      interactionModes: ["chat_intent"],
+      effects: { intentKind: "integration", retrievalHint: "none" },
+      availability: "unknown",
+      availabilityReason: "eligibility_not_evaluated",
+    }],
+  },
+};
 
 describe("Composer draft sync", () => {
   afterEach(() => {
@@ -133,6 +155,7 @@ describe("Composer draft sync", () => {
 
     render(
       <Composer
+        slashCommandLibrary={obsidianLibrary}
         onSend={onSend}
         draftScopeKey="tab-1"
         draftValue=""
@@ -178,6 +201,7 @@ describe("Composer draft sync", () => {
 
     render(
       <Composer
+        slashCommandLibrary={obsidianLibrary}
         onSend={onSend}
         draftScopeKey="tab-1"
         draftValue=""

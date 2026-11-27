@@ -371,6 +371,7 @@ def _extract_generation_model(message: dict[str, Any]) -> str | None:
 
 def build_openai_export_asset_evidence_index(
     inventory: OpenAIExportInventory,
+    *, selected_source: bool = False,
 ) -> dict[str, list[OpenAIExportImageEvidence]]:
     """Index image and PDF references using explicit message/export evidence.
 
@@ -386,7 +387,10 @@ def build_openai_export_asset_evidence_index(
     else:
         return {}
 
-    conversations = adapter.iter_conversations(inventory)
+    conversations = adapter.iter_conversations(
+        inventory, **({"preserve_duplicates": True} if selected_source else {})
+    )
+    from guardian.core.openai_import_routing import UnresolvedOpenAIGroup, classify_openai_group
 
     asset_alias_counts: dict[str, int] = {}
     for record in inventory.files:
@@ -406,6 +410,11 @@ def build_openai_export_asset_evidence_index(
 
     index: dict[str, list[OpenAIExportImageEvidence]] = {}
     for conversation in conversations:
+        if selected_source:
+            try:
+                classify_openai_group(conversation)
+            except UnresolvedOpenAIGroup:
+                continue
         source_thread_id = _coerce_nonempty(
             conversation.get("conversation_id") or conversation.get("id")
         ) or None
@@ -455,9 +464,10 @@ def build_openai_export_asset_evidence_index(
 
 def build_openai_export_image_evidence_index(
     inventory: OpenAIExportInventory,
+    *, selected_source: bool = False,
 ) -> dict[str, list[OpenAIExportImageEvidence]]:
     """Compatibility name for the shared image/document reference index."""
-    return build_openai_export_asset_evidence_index(inventory)
+    return build_openai_export_asset_evidence_index(inventory, selected_source=selected_source)
 
 
 def resolve_openai_export_image_evidence(
@@ -767,7 +777,8 @@ class OpenAILegacyExportAdapter:
         return list(self.iter_conversations(inventory))
 
     def iter_conversations(
-        self, inventory: OpenAIExportInventory, *, scratch_dir: Path | None = None
+        self, inventory: OpenAIExportInventory, *, scratch_dir: Path | None = None,
+        preserve_duplicates: bool = False
     ) -> Iterator[dict[str, Any]]:
         candidates = [
             record
@@ -782,7 +793,8 @@ class OpenAILegacyExportAdapter:
 
         record = sorted(candidates, key=lambda item: item.path)[0]
         yield from _iter_normalized_conversations(
-            [record], export_format="legacy", scratch_dir=scratch_dir
+            [record], export_format="legacy", scratch_dir=scratch_dir,
+            preserve_duplicates=preserve_duplicates
         )
 
 
@@ -799,11 +811,34 @@ class OpenAIShardedExportAdapter:
         inventory: OpenAIExportInventory,
         *,
         scratch_dir: Path | None = None,
+        preserve_duplicates: bool = False,
     ) -> Iterator[dict[str, Any]]:
         """Yield in legacy adapter order without retaining the export corpus."""
         yield from _iter_normalized_conversations(
-            inventory.files, export_format="sharded", scratch_dir=scratch_dir
+            inventory.files, export_format="sharded", scratch_dir=scratch_dir,
+            preserve_duplicates=preserve_duplicates
         )
+
+
+def _prepare_conversation_for_selected_source(conversation: dict[str, Any]) -> None:
+    from guardian.core.openai_import_routing import (
+        UNRESOLVED_RECORD_PREFIX,
+        UnresolvedOpenAIGroup,
+        original_openai_conversation_id,
+    )
+
+    try:
+        source_id = original_openai_conversation_id(conversation)
+    except UnresolvedOpenAIGroup:
+        # Do not let a failing record borrow either of two contradictory
+        # source IDs for aggregate/checkpoint accounting. This private key
+        # exists only to identify a warning and can never be a scoped thread
+        # source identity (including if an archive supplies this prefix).
+        source_id = UNRESOLVED_RECORD_PREFIX + hashlib.sha256(
+            json.dumps(conversation, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()[:32]
+    conversation["id"] = source_id
+    conversation["conversation_id"] = source_id
 
 
 def _iter_normalized_conversations(
@@ -811,6 +846,7 @@ def _iter_normalized_conversations(
     *,
     export_format: str,
     scratch_dir: Path | None,
+    preserve_duplicates: bool = False,
 ) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     with TemporaryDirectory(prefix="openai-messages-", dir=scratch_dir) as tmp:
@@ -830,8 +866,10 @@ def _iter_normalized_conversations(
                             payload, source_path=record.path, export_format=export_format
                         )
                         for conversation in extracted:
+                            if preserve_duplicates:
+                                _prepare_conversation_for_selected_source(conversation)
                             source_id = _conversation_identity(conversation)
-                            if source_id not in seen:
+                            if preserve_duplicates or source_id not in seen:
                                 seen.add(source_id)
                                 yield conversation
                         for message, source_path in message_records:
@@ -873,7 +911,7 @@ def _iter_normalized_conversations(
                     rows, export_format=export_format
                 ):
                     source_id = _conversation_identity(conversation)
-                    if source_id not in seen:
+                    if preserve_duplicates or source_id not in seen:
                         seen.add(source_id)
                         yield conversation
 

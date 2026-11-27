@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,8 @@ const coordinator = vi.hoisted(() => {
 const apiMocks = vi.hoisted(() => ({
   post: vi.fn(),
   preflight: vi.fn(),
+  listSources: vi.fn(),
+  createSource: vi.fn(),
 }));
 
 vi.mock("@/features/imports/accountImportCoordinator", () => ({
@@ -43,6 +45,8 @@ vi.mock(import("@/lib/api"), async (importOriginal) => {
   return {
     ...actual,
     default: { post: apiMocks.post },
+    listOpenAIImportSources: apiMocks.listSources,
+    createOpenAIImportSource: apiMocks.createSource,
     normalizeChatGptImportStats: (payload: unknown) => payload,
     normalizeImportRuntimeError: () => ({ message: "Import failed" }),
     preflightBackendAvailability: apiMocks.preflight,
@@ -106,6 +110,14 @@ function directoryEntry(path: string, pages: TestEntry[][]): TestEntry {
   };
 }
 
+async function selectSavedOpenAISource() {
+  await screen.findByRole("option", { name: "Saved Pro" });
+  await userEvent.setup().selectOptions(
+    screen.getByLabelText("Saved OpenAI import source"),
+    "saved-pro-id"
+  );
+}
+
 function idleSnapshot() {
   return {
     phase: "idle",
@@ -125,6 +137,11 @@ describe("ChatGPTImportModal account export intake", () => {
     coordinator.subscribe.mockImplementation(() => () => {});
     apiMocks.preflight.mockReset().mockResolvedValue({ ok: true });
     apiMocks.post.mockReset();
+    apiMocks.listSources.mockReset().mockResolvedValue([
+      { id: "saved-business-id", label: "Saved Business" },
+      { id: "saved-pro-id", label: "Saved Pro" },
+    ]);
+    apiMocks.createSource.mockReset();
   });
 
   it("preserves the receiving job when Choose File reselects the original ZIP", () => {
@@ -249,6 +266,82 @@ describe("ChatGPTImportModal account export intake", () => {
     expect(startOptions).toBeUndefined();
   });
 
+  it("does not stage a fresh OpenAI export before the owner explicitly selects a source", async () => {
+    const archive = new File(["zip"], "openai-export.zip", { type: "application/zip" });
+    render(<ChatGPTImportModal open onOpenChange={vi.fn()} />);
+    await screen.findByRole("option", { name: "Saved Pro" });
+    expect(screen.getByRole("button", { name: "Choose Folder" })).toBeDisabled();
+    fireEvent.drop(
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
+      { dataTransfer: { files: [archive] } }
+    );
+    expect(screen.getByText(/Select or create a saved OpenAI import source before uploading/)).toBeInTheDocument();
+    expect(coordinator.start).not.toHaveBeenCalled();
+  });
+
+  it("creates a logical OpenAI source and sends only its returned ID", async () => {
+    const user = userEvent.setup();
+    apiMocks.createSource.mockResolvedValue({ id: "new-source-id", label: "Separate Business" });
+    render(<ChatGPTImportModal open onOpenChange={vi.fn()} />);
+    await screen.findByRole("option", { name: "Saved Pro" });
+    await user.type(screen.getByLabelText("New source name"), "Separate Business");
+    await user.click(screen.getByRole("button", { name: "Save source" }));
+    expect(apiMocks.createSource).toHaveBeenCalledWith("Separate Business", expect.any(AbortSignal));
+    await waitFor(() => expect(screen.getByLabelText("Saved OpenAI import source")).toHaveValue("new-source-id"));
+    const archive = new File(["zip"], "openai-export.zip", { type: "application/zip" });
+    fireEvent.drop(
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
+      { dataTransfer: { files: [archive] } }
+    );
+    expect(coordinator.start).toHaveBeenCalledWith(
+      [{ file: archive, relativePath: "openai-export.zip" }], "openai", "new-source-id"
+    );
+  });
+
+  it("does not submit a folder drop under a different source while directory enumeration is pending", async () => {
+    const user = userEvent.setup();
+    const file = new File(["[]"], "conversations.json");
+    let release: ((pages: TestEntry[]) => void) | undefined;
+    const pendingRoot: TestEntry = {
+      isDirectory: true,
+      isFile: false,
+      fullPath: "/export",
+      createReader: () => ({
+        readEntries: (done) => {
+          if (release) done([]);
+          else release = done;
+        },
+      }),
+    };
+    render(<ChatGPTImportModal open onOpenChange={vi.fn()} />);
+    await selectSavedOpenAISource();
+    fireEvent.drop(
+      screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
+      { dataTransfer: { items: [{ webkitGetAsEntry: () => pendingRoot }], files: [] } },
+    );
+    expect(release).toBeDefined();
+    await user.selectOptions(screen.getByLabelText("Saved OpenAI import source"), "saved-business-id");
+    await act(async () => release!([fileEntry("/export/conversations.json", file)]));
+    expect(coordinator.start).not.toHaveBeenCalled();
+  });
+
+  it("resumes with the durable job source without asking the owner to rebind it", async () => {
+    const user = userEvent.setup();
+    coordinator.state.current = {
+      ...idleSnapshot(),
+      phase: "failed",
+      job: { ...queuedJob, status: "receiving", openai_import_source_id: "original-source-id" },
+    };
+    const { container } = render(<ChatGPTImportModal open onOpenChange={vi.fn()} />);
+    expect(screen.queryByLabelText("Saved OpenAI import source")).not.toBeInTheDocument();
+    expect(screen.getByText(/Resuming keeps the OpenAI source/)).toBeInTheDocument();
+    expect(apiMocks.listSources).not.toHaveBeenCalled();
+    const file = new File(["zip"], "openai-export.zip", { type: "application/zip" });
+    fireEvent.change(container.querySelector('input[type="file"]:not([multiple])')!, { target: { files: [file] } });
+    await user.click(screen.getByRole("button", { name: "Upload & Migrate" }));
+    expect(coordinator.start).toHaveBeenCalledWith([{file, relativePath: file.name}], "openai");
+  });
+
   it("sends source_system=openai when OpenAI is selected and a folder is dropped", async () => {
     const user = userEvent.setup();
     const json = new File(["[]"], "conversations.json");
@@ -275,6 +368,7 @@ describe("ChatGPTImportModal account export intake", () => {
     expect(openaiRadio.checked).toBe(true);
     expect(anthropicRadio.checked).toBe(false);
 
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
@@ -286,7 +380,7 @@ describe("ChatGPTImportModal account export intake", () => {
     );
 
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
-    expect(coordinator.start).toHaveBeenCalledWith(expect.any(Array), "openai");
+    expect(coordinator.start).toHaveBeenCalledWith(expect.any(Array), "openai", "saved-pro-id");
   });
 
   it("routes both Anthropic and OpenAI through the same existing submission seam", async () => {
@@ -319,6 +413,7 @@ describe("ChatGPTImportModal account export intake", () => {
     // Reset and drive the OpenAI branch through the same modal.
     coordinator.start.mockClear();
     await user.click(screen.getByTestId("account-import-source-openai"));
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
@@ -344,6 +439,7 @@ describe("ChatGPTImportModal account export intake", () => {
     render(
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
@@ -401,6 +497,7 @@ describe("ChatGPTImportModal account export intake", () => {
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
 
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       {
@@ -432,6 +529,7 @@ describe("ChatGPTImportModal account export intake", () => {
     render(
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
+    await selectSavedOpenAISource();
     const folderInput = document.querySelector(
       'input[type="file"][webkitdirectory]'
     ) as HTMLInputElement;
@@ -452,6 +550,7 @@ describe("ChatGPTImportModal account export intake", () => {
       <ChatGPTImportModal open onOpenChange={vi.fn()} userName="account-a" />
     );
 
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       { dataTransfer: { files: [archive] } }
@@ -462,7 +561,8 @@ describe("ChatGPTImportModal account export intake", () => {
     // to OpenAI; the second argument must always be the canonical source.
     expect(coordinator.start).toHaveBeenCalledWith(
       [{ file: archive, relativePath: "openai-export.zip" }],
-      "openai"
+      "openai",
+      "saved-pro-id"
     );
   });
 
@@ -473,6 +573,7 @@ describe("ChatGPTImportModal account export intake", () => {
     ]);
     render(<ChatGPTImportModal open onOpenChange={vi.fn()} userName="You" />);
 
+    await selectSavedOpenAISource();
     fireEvent.drop(
       screen.getByText(/Drop the complete export folder/).closest("div.rounded-xl")!,
       { dataTransfer: { items: [{ webkitGetAsEntry: () => root }], files: [] } }
@@ -481,7 +582,8 @@ describe("ChatGPTImportModal account export intake", () => {
     await waitFor(() => expect(coordinator.start).toHaveBeenCalledOnce());
     expect(coordinator.start).toHaveBeenCalledWith(
       [{ file: json, relativePath: "export/conversations.json" }],
-      "openai"
+      "openai",
+      "saved-pro-id"
     );
   });
 

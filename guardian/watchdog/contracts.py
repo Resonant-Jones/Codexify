@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 class WatchdogReceiptDisposition(str, Enum):
@@ -286,9 +286,10 @@ WATCHDOG_REVIEW_DISPATCH_STATES = frozenset(
 WATCHDOG_REVIEW_EXECUTION_ERROR_CODES = frozenset(
     code.value for code in WatchdogReviewExecutionErrorCode
 )
-WATCHDOG_REVIEW_DISPATCH_ERROR_CODES = frozenset(
-    code.value for code in WatchdogReviewDispatchErrorCode
-) | WATCHDOG_REVIEW_EXECUTION_ERROR_CODES
+WATCHDOG_REVIEW_DISPATCH_ERROR_CODES = (
+    frozenset(code.value for code in WatchdogReviewDispatchErrorCode)
+    | WATCHDOG_REVIEW_EXECUTION_ERROR_CODES
+)
 
 # Model-neutral v1 source-evidence bounds. A capture either contains the whole
 # bounded PR file set or is terminally blocked; it never claims partial input.
@@ -463,7 +464,8 @@ def _optional_positive_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
     try:
-        candidate = int(value)
+        # Let int() decide which external values it can convert.
+        candidate = int(cast(Any, value))
     except (TypeError, ValueError):
         return None
     return candidate if candidate > 0 else None

@@ -220,6 +220,7 @@ def process_account_import_task(
                 str(snapshot.get("source_system") or "").strip().lower()
             )
 
+            openai_import_source_id = snapshot.get("openai_import_source_id")
             if job_source_system == "openai":
                 # A crash after the durable batch checkpoint but before Redis
                 # enqueue leaves the job running. Startup requeues that job;
@@ -363,6 +364,8 @@ def process_account_import_task(
                         for value in checkpoint.get("conversation_ids", [])
                     ),
                     on_batch_committed=record_batch_and_handoff,
+                    **({"openai_import_source_id": openai_import_source_id}
+                       if openai_import_source_id is not None else {}),
                 )
                 # The importer turns callback exceptions into diagnostics; keep
                 # the handoff's retryable classification across that boundary.
@@ -398,7 +401,9 @@ def process_account_import_task(
                 summary=source_summary,
             )
 
-            evidence_index = build_openai_export_image_evidence_index(inventory)
+            evidence_index = build_openai_export_image_evidence_index(
+                inventory, **({"selected_source": True} if openai_import_source_id is not None else {})
+            )
             completed_media_paths = {
                 str(value) for value in checkpoint.get("media_paths", [])
             }
@@ -468,7 +473,11 @@ def process_account_import_task(
                         skipped.append(
                             {
                                 "path": record.path,
-                                "code": "document_import_failed" if record.detected_kind == "pdf" else "image_import_failed",
+                                "code": (
+                                    exc.code if isinstance(exc, AccountImportError)
+                                    else "document_import_failed" if record.detected_kind == "pdf"
+                                    else "image_import_failed"
+                                ),
                                 "message": str(exc) or exc.__class__.__name__,
                             }
                         )

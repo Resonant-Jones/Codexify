@@ -23,8 +23,13 @@ def test_lineage_and_schema_upgrade_downgrade(monkeypatch):
     spec.loader.exec_module(module)
     assert module.down_revision == "c7e4a1b9d602"
     script = ScriptDirectory.from_config(Config("backend/alembic.ini"))
-    assert script.get_heads() == ["e723ba9046cd"]
+    # The pilot must stay on the single active lineage, but later migrations
+    # can advance the head. Check the historical edges independently.
+    assert len(script.get_heads()) == 1
+    active_lineage = {revision.revision for revision in script.iterate_revisions("head", "base")}
+    assert "e723ba9046cd" in active_lineage
     assert script.get_revision("e723ba9046cd").down_revision == "d8a90bf32107"
+    assert script.get_revision("d8a90bf32107").down_revision == module.revision
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as connection:
         monkeypatch.setattr(
