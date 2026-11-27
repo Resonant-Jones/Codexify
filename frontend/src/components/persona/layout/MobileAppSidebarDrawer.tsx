@@ -74,12 +74,13 @@ export default function MobileAppSidebarDrawer({
 
   React.useEffect(() => {
     if (!isOpen || isShelf || typeof document === "undefined") return undefined;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeRef.current?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
-      returnFocusRef?.current?.focus();
+      (returnFocusRef?.current ?? trigger)?.focus();
     };
   }, [isOpen, isShelf, returnFocusRef]);
 

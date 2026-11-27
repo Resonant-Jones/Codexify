@@ -42,14 +42,14 @@ from guardian.core.chat_completion_service import (
     ChatTaskCancelled,
     ToolLoopExecutionError,
 )
-from guardian.core.chat_redis_deadline import (
-    accepted_redis_scope,
-    use_redis_terminal_budget,
-)
 from guardian.core.chat_postgres_deadline import (
     accepted_postgres_query_scope,
     postgres_operation_scope,
     use_postgres_terminal_budget,
+)
+from guardian.core.chat_redis_deadline import (
+    accepted_redis_scope,
+    use_redis_terminal_budget,
 )
 from guardian.core.completion_terminal import (
     CompletionTerminalError,
@@ -62,9 +62,9 @@ from guardian.core.config import (
     validate_llm_config,
 )
 from guardian.core.db import (
+    MERGE_MESSAGE_METADATA_SQL,
     ChatAttemptReconciliation,
     GuardianDB,
-    MERGE_MESSAGE_METADATA_SQL,
     get_chat_completion_attempt_by_task_id,
     load_guardian_db_from_env,
     observe_chat_completion_attempt_terminal,
@@ -81,7 +81,6 @@ from guardian.core.llm_catalog import (
     resolve_provider_for_model,
 )
 from guardian.core.metrics import CHAT_TURN_METADATA_PERSIST_FAILURES_TOTAL
-from guardian.core.request_correlation import correlation_metadata
 from guardian.core.provider_registry import (
     default_model_for_provider,
     normalize_provider,
@@ -89,6 +88,7 @@ from guardian.core.provider_registry import (
     validate_provider_model_selection,
 )
 from guardian.core.provider_truth import build_provider_truth
+from guardian.core.request_correlation import correlation_metadata
 from guardian.evals.spine import schedule_post_completion_eval
 from guardian.protocol_tokens import (
     ErrorCode,
@@ -111,11 +111,8 @@ from guardian.tasks.chat_deadline import (
     accepted_chat_deadline_for_task,
     parse_accepted_chat_task_deadline,
 )
-from guardian.tasks.types import (
-    ChatCompletionTask,
-    TaskLifecycleState,
-    task_from_dict,
-)
+from guardian.tasks.types import ChatCompletionTask, TaskLifecycleState, task_from_dict
+from guardian.utils.log_safety import install_safe_logging
 from guardian.voice.audio_assets import (
     compute_text_hash,
     find_cached_asset,
@@ -123,7 +120,6 @@ from guardian.voice.audio_assets import (
     upsert_message_audio_asset_status,
 )
 from guardian.voice.runtime import assistant_message_audio_autogenerate_enabled
-from guardian.utils.log_safety import install_safe_logging
 
 install_safe_logging()
 logger = logging.getLogger(__name__)
@@ -578,13 +574,17 @@ def _publish_durable_terminal_if_present(
     try:
         if attempt is None:
             authority = observe_chat_completion_attempt_terminal(
-                dependencies.chatlog_db, request_id=task.request_id,
-                backend_task_id=task.task_id, thread_id=task.thread_id,
+                dependencies.chatlog_db,
+                request_id=task.request_id,
+                backend_task_id=task.task_id,
+                thread_id=task.thread_id,
                 turn_id=_extract_turn_id(task),
             )
             attempt = {
-                "backend_task_id": task.task_id, "request_id": task.request_id,
-                "thread_id": task.thread_id, "turn_id": _extract_turn_id(task),
+                "backend_task_id": task.task_id,
+                "request_id": task.request_id,
+                "thread_id": task.thread_id,
+                "turn_id": _extract_turn_id(task),
                 "completed_message_id": authority.completed_message_id,
                 "terminal_event_type": authority.terminal_event_type,
                 "terminal_outcome": authority.terminal_outcome,
@@ -610,7 +610,8 @@ def _publish_durable_terminal_if_present(
         return False
     message_id = _coerce_message_id(attempt.get("completed_message_id"))
     event_type = (
-        TaskEventType.TASK_COMPLETED.value if message_id is not None
+        TaskEventType.TASK_COMPLETED.value
+        if message_id is not None
         else attempt.get("terminal_event_type")
     )
     if event_type not in {
@@ -626,8 +627,11 @@ def _publish_durable_terminal_if_present(
         "request_id": task.request_id,
         "task_id": task.task_id,
         "attempt_id": getattr(task, "attempt_id", "") or None,
-        "reason": "durable_completion_recorded" if message_id is not None
-        else "durable_terminal_outcome_recorded",
+        "reason": (
+            "durable_completion_recorded"
+            if message_id is not None
+            else "durable_terminal_outcome_recorded"
+        ),
     }
     if message_id is not None:
         payload["message_id"] = message_id
@@ -644,7 +648,8 @@ def _publish_durable_terminal_if_present(
             if outcome.get("failure_code"):
                 payload["failure_code"] = outcome["failure_code"]
     if (
-        message_id is not None and isinstance(result, dict)
+        message_id is not None
+        and isinstance(result, dict)
         and _coerce_message_id(result.get("message_id")) == message_id
     ):
         for key in (
@@ -1688,9 +1693,7 @@ def _compat_resolve_task(task: ChatCompletionTask) -> ChatCompletionTask:
             )
             if not valid:
                 if explicit_text_model:
-                    raise LLMConfigError(
-                        reason or "Requested model is not available"
-                    )
+                    raise LLMConfigError(reason or "Requested model is not available")
                 fallback_model = _degraded_provider_model_fallback(
                     provider=provider,
                     requested_model=model,
@@ -2315,9 +2318,7 @@ def _run_chat_completion_task_compat(
     }
     if isinstance(completion_result, dict):
         if isinstance(completion_result.get("runtime_provenance"), dict):
-            result["runtime_provenance"] = dict(
-                completion_result["runtime_provenance"]
-            )
+            result["runtime_provenance"] = dict(completion_result["runtime_provenance"])
         helper_tool_loop_execution = completion_result.get("execution")
         helper_payload_summary = completion_result.get("payload_summary")
         helper_trace = completion_result.get("trace")
@@ -2509,9 +2510,8 @@ def _run_chat_completion_task_compat(
             None,
         )
         if callable(atomic_persist):
-            atomic_persist = getattr(
-                dependencies.chatlog_db,
-                "create_assistant_message_for_completion_attempt",
+            atomic_persist = (
+                dependencies.chatlog_db.create_assistant_message_for_completion_attempt
             )
             # This is the trusted canonical assistant creation boundary. It
             # binds the assistant to its exact durable attempt and mints the
@@ -2552,9 +2552,7 @@ def _run_chat_completion_task_compat(
                 task.thread_id,
                 "assistant",
                 assistant_text,
-                hosted_room_participant_id=(
-                    hosted_room_context.actor_participant_id
-                ),
+                hosted_room_participant_id=(hosted_room_context.actor_participant_id),
                 sender_display_name_snapshot=(
                     hosted_room_context.sender_display_name_snapshot
                 ),
@@ -2677,18 +2675,25 @@ def _read_attempt_for_worker(task: ChatCompletionTask) -> dict[str, Any] | None:
         )
     logger.warning(
         "[chat-worker] durable_attempt_unconfirmed task_id=%s request_id=%s",
-        task.task_id, task.request_id,
+        task.task_id,
+        task.request_id,
     )
     return None
 
 
-def _project_observed_terminal(task: ChatCompletionTask, attempt: dict[str, Any]) -> bool:
+def _project_observed_terminal(
+    task: ChatCompletionTask, attempt: dict[str, Any]
+) -> bool:
     # Live-event mirroring may append to the PostgreSQL outbox as well.
     # Neither observation resource scope authorizes accepted task work.
     with postgres_operation_scope(2.0), redis_operation_scope():
         return _publish_durable_terminal_if_present(
-            task, run_id="", started=time.monotonic(),
-            lifecycle_timings={}, result=None, attempt=attempt,
+            task,
+            run_id="",
+            started=time.monotonic(),
+            lifecycle_timings={},
+            result=None,
+            attempt=attempt,
         )
 
 
@@ -2701,14 +2706,17 @@ def _observe_and_cleanup_terminal_attempt(
     try:
         with postgres_operation_scope(2.0):
             authority = observe_chat_completion_attempt_terminal(
-                dependencies.chatlog_db, request_id=task.request_id,
-                backend_task_id=task.task_id, thread_id=task.thread_id,
+                dependencies.chatlog_db,
+                request_id=task.request_id,
+                backend_task_id=task.task_id,
+                thread_id=task.thread_id,
                 turn_id=_extract_turn_id(task),
             )
     except Exception:
         logger.warning(
             "[chat-worker] terminal_cleanup_authority_unconfirmed task_id=%s",
-            task.task_id, exc_info=True,
+            task.task_id,
+            exc_info=True,
         )
         return None
     if authority.completed_message_id is None and authority.terminal_event_type is None:
@@ -2716,7 +2724,8 @@ def _observe_and_cleanup_terminal_attempt(
     token = authority.turn_lock_token
     if not isinstance(token, str) or not token.strip():
         logger.warning(
-            "[chat-worker] terminal_cleanup_capability_unavailable task_id=%s", task.task_id,
+            "[chat-worker] terminal_cleanup_capability_unavailable task_id=%s",
+            task.task_id,
         )
         return authority
     try:
@@ -2724,30 +2733,40 @@ def _observe_and_cleanup_terminal_attempt(
         # or transport-derived terminal authority is assumed.
         with redis_operation_scope():
             released = release_terminal_attempt_turn_lock(
-                task.thread_id, owner_task_id=task.task_id, lease_token=token,
+                task.thread_id,
+                owner_task_id=task.task_id,
+                lease_token=token,
             )
         if not released:
             logger.info(
-                "[chat-worker] terminal_cleanup_replacement_preserved task_id=%s", task.task_id,
+                "[chat-worker] terminal_cleanup_replacement_preserved task_id=%s",
+                task.task_id,
             )
     except Exception:
         logger.warning(
-            "[chat-worker] terminal_cleanup_unconfirmed task_id=%s", task.task_id,
+            "[chat-worker] terminal_cleanup_unconfirmed task_id=%s",
+            task.task_id,
             exc_info=True,
         )
     return authority
 
 
 def _project_terminal_authority(
-    task: ChatCompletionTask, authority: ChatAttemptReconciliation,
+    task: ChatCompletionTask,
+    authority: ChatAttemptReconciliation,
 ) -> None:
-    _project_observed_terminal(task, {
-        "backend_task_id": task.task_id, "request_id": task.request_id,
-        "thread_id": task.thread_id, "turn_id": _extract_turn_id(task),
-        "completed_message_id": authority.completed_message_id,
-        "terminal_event_type": authority.terminal_event_type,
-        "terminal_outcome": authority.terminal_outcome,
-    })
+    _project_observed_terminal(
+        task,
+        {
+            "backend_task_id": task.task_id,
+            "request_id": task.request_id,
+            "thread_id": task.thread_id,
+            "turn_id": _extract_turn_id(task),
+            "completed_message_id": authority.completed_message_id,
+            "terminal_event_type": authority.terminal_event_type,
+            "terminal_outcome": authority.terminal_outcome,
+        },
+    )
 
 
 def _run_chat_task(task: ChatCompletionTask) -> None:
@@ -2773,7 +2792,8 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
         try:
             snapshot = attempt.get("deadline_snapshot")
             if invalid or (
-                snapshot is not None and (
+                snapshot is not None
+                and (
                     not isinstance(snapshot, dict)
                     or parse_accepted_chat_task_deadline(snapshot) != deadline
                     or deadline is None
@@ -2782,16 +2802,26 @@ def _run_chat_task(task: ChatCompletionTask) -> None:
                 raise ValueError("accepted task differs from original durable deadline")
         except ValueError:
             logger.warning(
-                "[chat-worker] original_deadline_unconfirmed task_id=%s", task.task_id,
+                "[chat-worker] original_deadline_unconfirmed task_id=%s",
+                task.task_id,
             )
             return
     query_clock = time.monotonic()
     query_wall = datetime.now(timezone.utc)
     try:
-        with accepted_postgres_query_scope(
-            deadline, now=query_wall, monotonic_at_wall=query_clock, invalid=invalid,
-        ), accepted_redis_scope(
-            deadline, now=query_wall, monotonic_at_wall=query_clock, invalid=invalid,
+        with (
+            accepted_postgres_query_scope(
+                deadline,
+                now=query_wall,
+                monotonic_at_wall=query_clock,
+                invalid=invalid,
+            ),
+            accepted_redis_scope(
+                deadline,
+                now=query_wall,
+                monotonic_at_wall=query_clock,
+                invalid=invalid,
+            ),
         ):
             _run_chat_task_with_query_budget(task)
     finally:
@@ -2943,12 +2973,17 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
             terminal_recorded = _record_chat_completion_attempt_terminal(
                 task, TaskEventType.TASK_CANCELLED.value
             )
-            if not terminal_recorded:
-                if _publish_durable_terminal_if_present(
-                    task, run_id=run_id, started=started,
-                    lifecycle_timings=lifecycle_timings, result=None,
-                ) or task.request_id:
-                    return
+            if not terminal_recorded and (
+                _publish_durable_terminal_if_present(
+                    task,
+                    run_id=run_id,
+                    started=started,
+                    lifecycle_timings=lifecycle_timings,
+                    result=None,
+                )
+                or task.request_id
+            ):
+                return
             terminal_timings = _finalize_lifecycle_timings(lifecycle_timings)
             _safe_publish(
                 task.task_id,
@@ -3313,7 +3348,6 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
                 "selection_source": result.get("selection_source"),
                 "model_selection": result.get("model_selection"),
                 "fallback_reason": result.get("fallback_reason"),
-                "model_selection": result.get("model_selection"),
                 "upstream_status": result.get("upstream_status"),
                 "provider_error": result.get("provider_error"),
                 "transport_classification": result.get("transport_classification"),
@@ -3343,7 +3377,6 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
                 "catalog_version_hash": result.get("catalog_version_hash"),
                 "assistant_message_audio_autogenerate": audio_autogenerate_scheduled,
                 "payload_summary": result.get("payload_summary"),
-                "retrieval_provenance": result.get("retrieval_provenance"),
                 "retrieval_query": result_retrieval_query,
                 "retrieval_target": result_retrieval_target,
                 "retrieval_query_matches_latest_turn": result.get(
@@ -3396,9 +3429,7 @@ def _run_chat_task_with_query_budget(task: ChatCompletionTask) -> None:
                 "request_id": task.request_id,
                 "task_id": task.task_id,
                 "attempt_id": getattr(task, "attempt_id", "") or None,
-                "request_correlation": cancellation_metadata.get(
-                    "request_correlation"
-                ),
+                "request_correlation": cancellation_metadata.get("request_correlation"),
                 **terminal_timings,
             },
         )
@@ -3680,7 +3711,9 @@ def run_forever() -> None:
                     owned_tasks += 1
                 heartbeat_wake.set()
                 try:
-                    cancelled_before_dispatch = _chat_task_cancelled_before_dispatch(task)
+                    cancelled_before_dispatch = _chat_task_cancelled_before_dispatch(
+                        task
+                    )
                 except BaseException:
                     release_activity()
                     raise

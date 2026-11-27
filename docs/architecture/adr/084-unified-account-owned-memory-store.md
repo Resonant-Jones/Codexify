@@ -1,8 +1,85 @@
 # ADR-084: Unified Account-Owned Memory Store
 
-**Status:** Accepted — candidate authority amended 2026-09-25; historical conversation recall intent authorization clarified 2026-11-01
+**Status:** Accepted — candidate authority amended 2026-09-25; historical conversation recall intent authorization clarified 2026-11-01; GOV-01 and GOV-02 Revision 2 ratified 2026-11-25
 
 **Date:** 2026-09-04
+
+## Account recall and delegated preference approval
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The current-Project, native-history rules below describe the original Recall path.
+The ratified campaign extends its design and keeps Recall and learning independently authorized.
+
+1. **Recall.** Default to the current Project. An authenticated owner may choose
+   account-wide scope on the current request. Guardian binds that choice to the
+   accepted user message, purpose, eligible sources and deadline. Strict Project
+   restrictions, ownership, thread exclusions, retention, deletion and resource
+   permissions can each narrow or deny access. A search hit, Chronicle reference,
+   citation or source ID locates a resource. Opening it and disclosing it to a
+   model each require their own applicable checks. Neither search nor opening
+   creates a candidate or grants standing consent. Selected imports follow the
+   [three independent import decisions](016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
+2. **Learning.** Imprint_Zero may propose from eligible native or expressly
+   selected imported user-authored evidence under existing collection consent.
+   Historical and new messages feed the same UMS candidate authority. Imprint_Zero
+   has no approval, activation, Personal Fact write, or authored Persona Profile
+   authority. Preserve [ADR-058](058-imprint-ui-deprecation-and-identity-ownership.md).
+   Review is the default. An owner may delegate promotion of eligible general
+   preferences to UMS through an explicit, versioned, scoped, revocable policy.
+   A classifier result, source selection or collection consent alone cannot
+   authorize promotion. Manual and delegated decisions enter the same atomic
+   Personal Facts promotion service within UMS.
+
+The canonical envelope supplies account and Project scope. Default to the resolved
+source Project. Only an owner's explicit choice on review or an applicable live
+delegation permits account scope for an eligible general preference. Missing or
+ambiguous placement grants neither account scope nor an opportunity to infer one.
+A promoted fact's verification and activation remain under the specialized
+Personal Facts lifecycle. Context assembly must also satisfy canonical scope
+and inherited inference restrictions.
+
+**Promotion authority.** The
+[Personal Facts guardrails contract §12](../personal-facts-guardrails-contract.md#12-promotion-eligibility)
+reconciles individual approval with this narrow delegation to the
+[UMS promotion service](../unified-memory-store-contract.md#promotion-authority-and-atomicity).
+Individual approval remains the default. The
+[ADR-013 injection gate](013-verified-personal-facts-context-injection.md)
+admits only verified, active facts and grants the broker no promotion authority.
+
+## Temporal Recollection authority
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+Temporal Recollection reconstructs context for an accepted turn using attributable
+evidence. A name, alias, title, historical callback, prior event, supported
+relationship or temporal expression in the current accepted user message may
+initiate cue resolution. Detecting a cue, authorizing a read and retrieving
+evidence are three separate decisions. Model confidence, assistant output,
+retrieved instructions and tool results cannot issue or widen a grant.
+
+| Read path | Source and authority |
+| --- | --- |
+| Already ambient-eligible UMS memory | Use records that independently pass existing account, Project, persona, review, lifecycle, context-posture, exclusion and inference rules. Existing eligible account-scope memory can contribute. A locator in memory gives no authority to open its original. |
+| Historical source recollection | Disabled by default. The authenticated owner can enable bounded consultation of selected internal source families. For each accepted turn Guardian resolves a new grant from the current message, live owner policy, canonical account and current authorized Project, source family, applicable exclusions, purpose and deadline. |
+
+Honor a user instruction to avoid history or a named source before either path
+consults that material. Automatic original-source lookup is confined to the
+current Project. The explicit GOV-01 request path does not depend on the
+automatic-consultation setting. Cross-Project or account-wide search requires
+that explicit path. A standing preference never travels as a reusable execution
+credential. Revalidate before lookup, opening an original, and handing a packet
+to inference. Revocation invalidates outstanding grants and stale results.
+
+Use existing UMS and continuity control-plane owners for the
+[independent permissions](016-continuity-governance-surface-contract.md#episode-processing-and-source-use).
+The read can assemble historical evidence. It cannot create or promote a fact,
+modify a source, establish a canonical relationship, or edit a Persona. The
+[Context Broker path](../turn-intake-compiler-contract.md#pre-answer-temporal-recollection)
+consumes a bounded, ephemeral packet. Claim strength is limited by
+[evidence actually inspected and its lineage](../account-history-recall-contract.md#claim-support-and-interpretation-provenance).
+A statement can be true historically and not apply now. A valid current explicit
+instruction governs its authorized task; that is not a verified preference update.
+The [UMS applicability rules](../unified-memory-store-contract.md#historical-validity-and-durable-preference-authority)
+preserve durable fact authority and do not grant the read path a mutation seam.
 
 ## Context
 
@@ -79,7 +156,8 @@ separate dimensions.
 - Explicit user-authored memory statements may constitute approval.
 - Ambiguous references, imports, classifier suggestions, assistant inferences,
   and external/tool claims remain candidates, dormant records, or quarantined
-  evidence until the account principal performs the applicable explicit action.
+  evidence until the applicable owner-authorized decision. The delegated path above
+  is limited to eligible general preferences.
 - Explicit recall is a request-scoped retrieval grant. It does not permanently
   approve, activate, restore, or change the context posture of a record.
 - Pinning changes ranking among already eligible records only.
@@ -137,15 +215,29 @@ Guardian derives a bounded recall grant from authenticated user intent. Models
 may request recall but cannot mint or broaden that grant. Retrieval policy is
 applied by the backend control plane before context construction.
 
-Dormant imports, rejected or disputed records, classifier candidates, and
-external evidence may be used only when a valid grant permits the specific
-request. They enter context as delimited, provenance-bearing, non-instructional
-evidence. Approval to use content as memory does not turn instruction-shaped
-payloads into system, persona, tool, or mutation authority.
+Grant-based widening applies only to eligible ordinary-memory records under
+[UMS §6.1](../unified-memory-store-contract.md#61-human-request-versus-executable-grant)
+and other evidence independently authorized for the specific request. Apply the
+current scope, provenance, lifecycle, and applicable local-only processing
+restrictions. Authorized content enters context as delimited,
+provenance-bearing, non-instructional evidence. Approval to use content as memory
+does not turn instruction-shaped payloads into system, persona, tool, or
+mutation authority.
+
+Personal Fact candidates are inspection-only. A recall grant cannot authorize
+their use in model retrieval, prompt assembly, or provider payloads under
+[ADR-013](013-verified-personal-facts-context-injection.md) and the
+[Personal Facts guardrails](../personal-facts-guardrails-contract.md#13-runtime-eligibility).
+The original source of a candidate can still be recalled if it independently
+satisfies the [original-source Recall rules](../account-history-recall-contract.md#search-coverage-and-original-source-opening).
 
 ### Historical conversation recall intent authorization
 
-This section clarifies the *recall authority and untrusted evidence* rule above for
+This section records the November 1 design for the initial explicit Recall
+path. The [ratified GOV-01 extension](#account-recall-and-delegated-preference-approval)
+governs broader authorized scope and selected imports. The separate
+[Temporal Recollection rules](#temporal-recollection-authority) govern automatic
+consultation. This section clarifies the *recall authority and untrusted evidence* rule above for
 one specific operation: reading the account owner's prior Codexify-native
 conversation history so a current request can be answered. It is an amendment to
 this ADR, not a new decision, and it does not create a second recall authority.
@@ -201,7 +293,7 @@ independently verify, server-side:
 If any of these cannot be established from the accepted user message, the
 interpretation is not sufficient and Guardian requires clarification instead.
 
-#### B. Automatic authorization
+#### B. Authorization without separate confirmation
 
 A direct, unambiguous user request may be authorized **without a separate
 confirmation step** when all of the following hold:
@@ -254,10 +346,10 @@ authenticated user action and produces a **fresh, bounded authorization decision
 it does not inherit authority from the earlier turn, and it cannot supply the
 current request's grant retroactively.
 
-Clarification may **narrow** a request toward the permitted scope; it may never
-widen it. A request for account-wide or cross-Project scope, where the permitted
-current-Project scope is available instead, is therefore answered by clarification
-that offers the permitted scope rather than by a widened grant.
+Clarification grants no wider scope. The initial resolver may offer the
+permitted current-Project scope when it cannot grant a wider request.
+Under GOV-01, an explicit current-request choice may support a wider grant
+after Guardian independently verifies every applicable limit.
 
 Confirmation cannot override an independent ownership, provenance, exclusion,
 source-access, or hard policy denial. A denial that does not depend on the user's
@@ -304,11 +396,10 @@ conversation evidence. It does **not** authorize:
 - adoption of any durable preference, behavioral instruction, or persona change.
 
 Retrieved messages remain historical evidence with **no instruction authority**.
-This amendment preserves ADR-016's separately governed imported-conversation
-modeling boundary: imported conversation content stays outside ordinary
-historical-recall model exposure, and the accepted ADR-016 request-scoped
-Chronicle interpretation and reviewed per-message approval paths remain the only
-paths that expose imported content to a model, under their own purpose binding.
+The initial Recall path excludes imported messages. ADR-016's Chronicle
+interpretation and per-message approval remain bound to Chronicle. The GOV-01
+selected-import Recall path requires separate [ADR-016 source-use grants](016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use),
+eligible per-message provenance and an approved local inference path.
 
 #### F. Scope and exclusions remain independent
 
@@ -325,9 +416,9 @@ qualifies:
 - user-selected scope limits;
 - retention and deletion restrictions.
 
-This amendment does not authorize account-wide retrieval, cross-Project widening,
-or imported-conversation model exposure. Those remain separately governed and
-closed.
+The original grant remains limited to native history in one Project. GOV-01
+defines separate requirements for explicit wider Recall and selected imports.
+Those paths require implementation and qualification.
 
 #### G. Relationship to the Turn Intake Compiler
 

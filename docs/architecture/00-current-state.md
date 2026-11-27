@@ -2,7 +2,7 @@
 
 This file is the canonical short-form source of truth for Codexify's current operational and release state. If it conflicts with older architecture, planning, or roadmap language on short-horizon reality, this file wins.
 
-Local reconciliation note (2026-11-20): the migration graph and combined registry below describe an unpublished candidate integrating main `1435cfa210fe`. The inherited audit and CI observations describe that main baseline, not new hosted CI, live migration, or qualification evidence for this candidate. Release HOLD remains unchanged.
+Draft #1093 reconciliation note (2026-11-27): the candidate migration graph and combined registry below incorporate main `0a447d937a65` on top of the November 20 local convergence. The November 20 audit and its CI references are historical, not fresh hosted CI for this draft, a live migration receipt, or qualification evidence. Release HOLD remains unchanged.
 
 ## Last updated
 
@@ -83,6 +83,8 @@ Meaningful shifts on `main` since the previous audit publish (`ef188d08c`, 2026-
 
 ## Active blockers
 
+- **Guardian continuity Private Preview qualification remains open.** Resonant Jones ratified the [consolidated continuity governance](README.md#guardian-recall-temporal-recollection-and-imprint_zero) on 2026-11-25. The first usable Private Preview for this campaign requires Stage 2B Temporal Recollection and support for selected eligible imported history.
+  Stage 0 requires independently verified mainline integration before Stage 1 work can be authorized. Stage 1 and later stages still require campaign-level implementation or runtime proof. Existing bounded Recall and per-message origin classification establish only narrower prerequisites. Release remains **HOLD**.
 - **Current-tip supported-Compose qualification remains open.** The source-matched launcher and stock Compose each have a `PASS` receipt from an earlier revision. Both receipts are `stale`, and the two `HOLD` surfaces have no receipt. A fresh current-tip supported-Compose qualification remains missing, and it is the only step that moves a surface to `current`.
 - **The registry drift guard is not structurally fixed.** The drift is closed at this tip and the tip's `Guardian CI` run is green, but the projection is still computed over changed paths and the contract still cannot absorb the merge's own path delta. The same red push can return on the next merge that lands a surface path.
 - **A timing-sensitive frontend assertion has failed on `main` twice, and the tip's green run is not evidence that it cannot fail again.** `e9eb0cae8` failed on the stream-cancellation assertion and `2bddad1136` failed on the duplicate-image-submission lock-release assertion -- two different assertions in `GuardianChat.turn-lock-lifecycle.test.tsx`. Both red commits were docs-only with byte-identical frontend trees to green parents. This is flakiness in a ~25s test file with `waitFor` timeouts -- not a regression, and not fixed. The frontend tree has since changed, so the current tip has not reproduced either failure.

@@ -1,5 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, useState } from "react";
+import GuardianChatWindow, { type GuardianWindowMode } from "@/components/persona/layout/GuardianChatWindow";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatView from "@/features/chat/ChatView";
@@ -165,6 +166,56 @@ describe("GuardianChat streaming drafts", () => {
   afterEach(() => {
     taskEventHandlers.clear();
     harnessApi = null;
+  });
+
+  it("keeps the active turn subscribed once while minimized and re-docks the completed response", async () => {
+    function WindowHarness() {
+      const [mode, setMode] = useState<GuardianWindowMode>("docked");
+      const opener = useRef<HTMLButtonElement>(null);
+      return <>
+        <div id="cfy-portal-root" />
+        <button ref={opener} onClick={() => setMode("open")}>Open Guardian</button>
+        <GuardianChatWindow mode={mode} onModeChange={setMode} opener={opener} onDock={() => setMode("docked")}>
+          <textarea aria-label="Draft" />
+          <StreamingChatHarness />
+        </GuardianChatWindow>
+      </>;
+    }
+    render(<WindowHarness />);
+    await screen.findByText("thread-7-user");
+    const draft = screen.getByRole("textbox", { name: "Draft" });
+    fireEvent.change(draft, { target: { value: "Unsent next message" } });
+    act(() => {
+      harnessApi!.startCompletion(7, "floating-task");
+      harnessApi!.startCompletionSession({ threadId: 7, taskId: "floating-task", reloadVersion: 1 });
+    });
+    await waitFor(() => expect(taskEventHandlers.has("floating-task")).toBe(true));
+    const subscribed = taskEventHandlers.get("floating-task");
+    const reads = apiSpies.get.mock.calls.length;
+    const open = screen.getByRole("button", { name: "Open Guardian" });
+    fireEvent.click(open);
+    expect(screen.getByRole("button", { name: "Move Guardian Chat" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Minimize Guardian Chat" }));
+    expect(screen.getByRole("button", { name: "Restore Guardian Chat" })).toHaveFocus();
+    expect(draft).not.toBeVisible();
+    expect(taskEventHandlers.get("floating-task")).toBe(subscribed);
+    expect(emitTaskEvent("floating-task", { type: "task.chunk", thread_id: 7, delta: "Working" })).toBe(true);
+    act(() => harnessApi!.handleIncomingAssistantMessage({
+      id: 42, thread_id: 7, role: "assistant", content: "Finished while minimized",
+      created_at: "2026-04-02T00:00:42.000Z", task_id: "floating-task",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Guardian Chat" }));
+    expect(screen.getByText("Finished while minimized")).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Guardian Chat" }), { key: "Escape" });
+    expect(open).toHaveFocus();
+    fireEvent.click(open);
+    fireEvent.click(screen.getByRole("button", { name: "Dock Guardian Chat" }));
+    expect(screen.queryByRole("dialog", { name: "Guardian Chat" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+    expect(draft).toHaveValue("Unsent next message");
+    expect(screen.getAllByText("Finished while minimized")).toHaveLength(1);
+    expect(apiSpies.get).toHaveBeenCalledTimes(reads);
+    expect(apiSpies.post).not.toHaveBeenCalled();
   });
 
   it("renders streamed chunks before the final assistant message lands", async () => {

@@ -26,6 +26,103 @@ Source anchors:
 
 # Codexify Architecture KB
 
+## Guardian Recall, Temporal Recollection and Imprint_Zero
+
+**Ratification and scope freeze.** On 2026-11-25 Resonant Jones ratified GOV-01
+and GOV-02 Revision 2 together. The frozen campaign is the consolidated text at
+`c2afb38f36963a052556a826e2e90f4dc2793fc2`, including GOV-01 at
+`68d10826be4fa1976dbbd45df9cf6d1c2a64436d`. Changes to its scope or acceptance
+requirements require a new explicit decision by the decision owner.
+
+Recall opens authorized original evidence. Temporal Recollection resolves a cue
+and assembles a bounded chronology from eligible evidence. Imprint_Zero proposes
+learning under consent. UMS owns the durable memory lifecycle. The first usable Private Preview requires both selected imported history and
+**Stage 2B Temporal Recollection**. Release posture is **HOLD**.
+
+Read the [ratified ADR amendments](adr/adr-index.md#ratified-guardian-continuity-amendments)
+together. ADR-016 governs archive treatment and derived processing. ADR-084
+governs the two recollection paths and durable memory authority. ADR-112 governs
+accepted-worker authorization. The
+[managed capabilities and consent study](https://app.notion.com/p/419beb70dda98129a3a0cd9d00c293a3)
+is supporting research. The repository contracts govern.
+
+Stage 0 includes this ratification and independently verified mainline
+integration. Mainline verification is a prerequisite to issuing the first
+Stage 1 implementation Task Spec. Each runtime stage requires a separately
+authorized Task Spec and its own evidence receipt. All runtime proof
+obligations are open.
+
+| Stage | Required evidence before claiming the capability |
+| --- | --- |
+| 0. Governance ratification and mainline integration | Record human acceptance against Revision 2 and verify the ratified, reconciled governance is on main. |
+| 1. Accepted-worker identity, durable native and imported provenance, and deterministic coverage | Two accounts on one shared worker, including sequential use and interrupted/replayed work. Prove native custody and positive imported provenance per message, mixed and unknown origin handling, strict Project exclusions, deterministic bounded traversal beyond 500 threads and truthful partial coverage. |
+| 2. Governed Recall and original-source opening | Prove explicit account-wide search while automatic historical consultation is disabled, result membership and independent authorization, revocation before open, missing/unauthorized assets and authenticated original-source navigation. Exercise the [history](account-history-recall-contract.md#search-coverage-and-original-source-opening), [agent](agent-tool-loop-contract.md#bounded-recall-continuation) and [provider](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall) path, including deadline, checkpoint replay, approved local inference and cloud fallback denial. |
+| 2B. Temporal Recollection (mandatory for Preview) | After proven Stage 2 Recall and the [UMS read-eligibility prerequisite](unified-memory-store-contract.md#read-side-eligibility-for-temporal-recollection), prove the authorized PostgreSQL episode projection, pre-answer cue resolution, bounded original evidence assembly, chronological attribution, interpretation provenance, evidence-quality and current-applicability behavior, and the Vestige and temporal preference replays below. No full Turn Intake Compiler, general graph or durable interpretation store is required. Establish measured numeric work limits before authorizing implementation. Portability, source access and provenance gates apply to this slice. |
+| 3. Canonical candidates and Review-mode Imprint_Zero | Prove [UMS candidate authority](unified-memory-store-contract.md#imprint_zero-candidates-and-promotion), consent revocation before collection, Settings and inline decisions, and scope-aware context. Prove export/restore, erasure and suppression on replay **before historical candidate writes**. Verify imported exposure/learning independence and locality of extraction and subsequent use. |
+| 4. Governed Auto-approve | Apply the jointly ratified guardrails and UMS decision. Prove revocation before commit, denial on missing metadata, atomic/idempotent promotion under concurrency, and protection of rejected or purged records. Qualify selected imports separately, including mixed-context locality after promotion and restore. |
+| 5. Private Preview qualification | In signed-in Preview chat, recover a known original source from another owned Project and a selected import. Require passing Stage 2B behavioral proofs within its measured work limits, then demonstrate both promotion modes, subsequent scoped use, separate-account isolation, interruption/retry, export/restore, permanent erasure and resurrection suppression on the release candidate. |
+
+### Stage 2B behavioral proof obligations
+
+Exercise two accounts and multiple Projects on a shared worker. Test automatic
+historical consultation disabled and explicitly enabled, negative user instructions
+and attempted cross-Project widening. Revoke permission before retrieval, between
+anchor and original, and before provider handoff. Check ambiguous aliases, overlapping
+or unknown dates, retrospective imports, corrections and conflicting accounts.
+Delete, exclude, move and revise sources, then retry, restore and rebuild. Prove
+ineligible data cannot affect results through aliases, ranking, counts or cached
+excerpts. Exercise restricted imported indexing, local-only exposure, fallback
+denial, continuation, and the original deadline. Require source-level coverage
+and separate proof of delegated approval guardrails in the integrated Preview.
+
+**Vestige replay.** The owner reported that Axis-Dot missed a humorous reference
+to Vestige as Keeper of the Codex. No transcript, event date or relationship among
+Pulse, Vestige and Axis is established here. Before building an executable replay,
+obtain the owner-authorized original exchange and its supporting source evidence.
+Use sanitized synthetic equivalents in tracked public fixtures unless the owner
+explicitly permits publication of the originals. Replay the first user message
+before any explanation of the reference. Hold the cue constant across these cases.
+
+| Evidence posture | Expected behavior |
+| --- | --- |
+| A. Authorized original entry available | Resolve the cue against that entry. Recognize the title and any relationship only to the extent independently supported by the originals. |
+| B. Entry unavailable, eligible conversation evidence available | Use the conversation spans and attribute what they support. A title alone cannot establish a relationship. Do not imply the missing entry was opened. |
+| C. Neither source supports recognition | Express uncertainty or non-recognition naturally. An invented biography fails the fixture. |
+| D. Same-name or same-title collision | Keep distinct identities. Resolve only when evidence supports the disambiguation; otherwise preserve uncertainty. Do not merge subjects. |
+| E. Plausible but incorrect derived recap | Use the authorized original to reject or qualify unsupported claims. Keep the recap attributed; no invented quotation or Persona experience. |
+| F. Recap-only evidence | Attribute what the recap says. Do not imply original inspection or independently confirm the relationship, title or chronology. |
+
+Score cue detection, anchor retrieval, entity resolution, source authorization,
+evidence quality, relationship support, temporal reconstruction, attribution,
+present applicability, natural response and abstention separately.
+A natural recognition can be brief. It need not recite the recovered chronology.
+Separate retrieval from answer scoring and include cross-session updates and
+unanswerable cases, following the evaluation approach of
+[LongMemEval](https://arxiv.org/abs/2410.10813). This is research input.
+The report of the missed callback and the evaluation design confer no runtime proof.
+
+**Temporal preference replay.** Use authorized synthetic evidence containing an
+older attributable preference, a newer potentially changed statement, a late
+import of the older statement, a distinct current-turn instruction and a
+derived recap. Track event, assertion, acquisition and interpretation clocks
+independently. Exercise these cases:
+
+| Request | Expected behavior |
+| --- | --- |
+| Historical question | Attribute the earlier preference and present only supported chronology, regardless of import order. |
+| Current task | Follow the scoped current instruction without writing, deactivating or promoting durable memory or resolving a conflicting candidate. |
+| Both requests with recap only | Attribute the recap and qualify history; no exact quotation or claim an original was inspected. Follow the scoped current instruction as before. |
+
+Reverse the import order and rebuild the index without altering historical
+answers or semantic timestamps. Repeat derived summaries without gaining
+independent corroboration. Check that a one-off exception does not stick,
+material conflicts get surfaced or routed to review, reversible defaults avoid
+unnecessary confirmation, consequential ambiguity is clarified, and an explicit
+durable correction can still use the authorized UMS path. These proof obligations remain open.
+
+Documentation validation records consistency of the decision. Preview acceptance requires
+release-candidate runtime evidence for the frozen scope.
+
 ## Browser episodic context and recall routing
 
 For chat-backed browser continuity and future browser-history recall, read the

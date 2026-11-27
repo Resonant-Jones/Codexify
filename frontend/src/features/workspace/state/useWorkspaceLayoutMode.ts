@@ -180,15 +180,20 @@ export function useWorkspaceLayoutMode({
     [activeThreadId, storageKey]
   );
 
-  const [paneRatio, setPaneRatioState] = useState<number>(() => {
-    const persisted = readPersistedWorkspaceLayoutState(activeThreadStorageKey);
-    return getWorkspacePaneRatioForLayoutMode(
-      persisted.layoutMode ?? "chat_focus"
-    );
-  });
+  // An absent preference defaults to the same ratio as an intentional Chat Focus.
+  // Preserve that distinction when the shell must choose one primary pane.
+  const [choice, setChoice] = useState(() => ({
+    key: activeThreadStorageKey,
+    mode: readPersistedWorkspaceLayoutState(activeThreadStorageKey).layoutMode ?? null,
+  }));
+
+  const [paneRatio, setPaneRatioState] = useState<number>(() =>
+    getWorkspacePaneRatioForLayoutMode(choice.mode ?? "chat_focus")
+  );
 
   useEffect(() => {
     const persisted = readPersistedWorkspaceLayoutState(activeThreadStorageKey);
+    setChoice({ key: activeThreadStorageKey, mode: persisted.layoutMode ?? null });
     const nextPaneRatio = getWorkspacePaneRatioForLayoutMode(
       persisted.layoutMode ?? "chat_focus"
     );
@@ -214,6 +219,7 @@ export function useWorkspaceLayoutMode({
   const setLayoutMode = useCallback(
     (nextLayoutMode: WorkspaceLayoutMode) => {
       const nextPaneRatio = getWorkspacePaneRatioForLayoutMode(nextLayoutMode);
+      setChoice({ key: activeThreadStorageKey, mode: nextLayoutMode });
       setPaneRatioState(nextPaneRatio);
 
       if (typeof window === "undefined") return;
@@ -238,6 +244,7 @@ export function useWorkspaceLayoutMode({
   const primaryPaneBasis = `${(primaryPaneRatio * 100).toFixed(2)}%`;
 
   return {
+    explicitMode: choice.key === activeThreadStorageKey ? choice.mode : null,
     paneRatio,
     setPaneRatio,
     minPaneRatio: MIN_WORKSPACE_PANE_RATIO,

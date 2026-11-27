@@ -1,3 +1,6 @@
+import GuardianChatWindow, { type GuardianWindowMode } from "./GuardianChatWindow";
+import { usePrimaryCanvas } from "./usePrimaryCanvas";
+import { allocatePanels, DockedPanelDivider, SIDE_MIN, WORK_MIN, CHAT_MIN, DIVIDER } from "./DockedPanelDivider";
 import PersonalSetupCard from "@/components/bootstrap/PersonalSetupCard";
 import { BOOTSTRAP_CONTRACT_VERSION, BootstrapWorkflow, BootstrapHumanAction } from "@/contracts/bootstrapReadiness.generated";
 import OnboardingProvider from "@/features/onboarding/OnboardingProvider";
@@ -2670,6 +2673,7 @@ export default function AppShell({
     routeContext: workspaceRouteContext,
   });
   const {
+    explicitMode: explicitWorkspaceMode,
     paneRatio: workspacePaneRatio,
     minPaneRatio: minWorkspacePaneRatio,
     maxPaneRatio: maxWorkspacePaneRatio,
@@ -2800,26 +2804,12 @@ export default function AppShell({
     const raw = window.localStorage.getItem("cfy.documentsSidebarOpen");
     return raw === "false" ? false : true;
   });
-  const documentsSidebarVisible = !isPhoneShell && documentsSidebarOpen;
+
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("cfy.documentsSidebarOpen", String(documentsSidebarOpen));
   }, [documentsSidebarOpen]);
-
-  useEffect(() => {
-    if (view !== "documents") return;
-    if (isPhoneShell) return;
-    if (workspaceLayoutMode !== "workspace_focus") return;
-    const vw = window.innerWidth;
-    if (vw < 1200 && documentsSidebarOpen) {
-      setDocumentsSidebarOpen(false);
-    }
-  }, [view, isPhoneShell, workspaceLayoutMode, documentsSidebarOpen]);
-
-  const toggleDocumentsSidebar = useCallback(() => {
-    setDocumentsSidebarOpen((prev) => !prev);
-  }, []);
 
   const [galleryMenu, setGalleryMenu] = useState<{ x: number; y: number; src?: string } | null>(null);
   const [visionBusySrc, setVisionBusySrc] = useState<string | null>(null);
@@ -2993,6 +2983,78 @@ export default function AppShell({
   const showWorkspaceDrawer =
     workspaceShellEnabled &&
     (workspaceDrawerOpen || (isPhoneShell && workspaceDrawerMotionPhase === "closing"));
+  const [lane, setLane] = useState<HTMLDivElement | null>(null);
+  const [laneWidth, setLaneWidth] = useState(0);
+  React.useLayoutEffect(() => {
+    if (!lane) return;
+    const measure = () => setLaneWidth(lane.clientWidth || window.innerWidth);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(lane);
+    window.addEventListener("resize", measure);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [lane]);
+  const [sidePreference, setSidePreference] = useState(300);
+  const [sideVisible, setSideVisible] = useState(false);
+  const [workPreference, setWorkPreference] = useState<{ mode: string; width: number } | null>(null);
+  const docked = workspaceShellEnabled && !isPhoneShell && laneWidth > 0;
+  const panels = allocatePanels(laneWidth, shellViewportProfile.sidebarArrangement === "split",
+    view === "guardian" ? sideVisible : (view === "documents" || view === "library") && documentsSidebarOpen, showWorkspaceDrawer && !isPhoneShell, sidePreference,
+    workPreference?.mode === workspaceLayoutMode ? workPreference.width : laneWidth * workspacePaneRatio);
+  const primaryCanvas = usePrimaryCanvas(
+    docked && view === "guardian" && showWorkspaceDrawer,
+    laneWidth, `${generalProjectSessionScope}/${activeRouteThreadId ?? "new"}`, explicitWorkspaceMode
+  );
+  const canvasPane = primaryCanvas.pane;
+  const [guardianWindowMode, setGuardianWindowMode] = useState<GuardianWindowMode>("docked");
+  const guardianOpener = useRef<HTMLButtonElement>(null);
+  const canFloatGuardian = canvasPane === "workspace" && !isFocusedBrowser && !startupLocked && activeRoomId == null;
+  useEffect(() => {
+    if (!canFloatGuardian) setGuardianWindowMode("docked");
+  }, [canFloatGuardian]);
+  const sidebarOpener = useRef<(() => void) | null>(null);
+  const recordPrimaryUse = (event: React.PointerEvent | React.KeyboardEvent) => {
+    if ("button" in event && event.button !== 0) return;
+    if ("key" in event && ["Tab", "Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const pane = target.closest("[data-primary-pane]")?.getAttribute("data-primary-pane");
+    if (pane === "workspace" || pane === "chat") primaryCanvas.recordUse(pane);
+  };
+  const canvasControls = canvasPane && (
+    <div role="group" aria-label="Primary panel layout" className="flex flex-wrap items-center gap-2">
+      {canFloatGuardian && <button type="button" className="pill-tab" ref={guardianOpener}
+        aria-haspopup="dialog" aria-expanded={guardianWindowMode === "open"}
+        aria-controls={guardianWindowMode !== "docked" ? "guardian-chat-window" : undefined}
+        onClick={() => {
+          if (guardianWindowMode === "open") document.getElementById("guardian-chat-window")?.focus();
+          else setGuardianWindowMode("open");
+        }}>{guardianWindowMode === "open" ? "Focus Guardian" : guardianWindowMode === "minimized" ? "Restore Guardian" : "Open Guardian"}</button>}
+      {canvasPane === "workspace" && <button type="button" className="pill-tab" onClick={() => sidebarOpener.current?.()}>Show sidebar</button>}
+      <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "chat_focus"} onClick={() => setWorkspaceLayoutMode("chat_focus")}>Focus Chat</button>
+      <button type="button" className="pill-tab" aria-pressed={explicitWorkspaceMode === "workspace_focus"} onClick={() => setWorkspaceLayoutMode("workspace_focus")}>Focus Workspace</button>
+      {explicitWorkspaceMode && explicitWorkspaceMode !== "balanced_split" && (
+        <button type="button" className="pill-tab" onClick={() => setWorkspaceLayoutMode("balanced_split")}>Use automatic layout</button>
+      )}
+    </div>
+  );
+  const focusSidebarFits = lane ? panels.fitsSidebar : shellViewportProfile.sidebarArrangement === "split";
+  const documentsOverlay = docked && !panels.fitsSidebar && (view === "documents" || view === "library");
+  const documentsSidebarVisible = !isPhoneShell && !documentsOverlay && documentsSidebarOpen;
+  const toggleDocumentsSidebar = () => documentsOverlay
+    ? setIsPhoneSidebarOpen(open => !open)
+    : setDocumentsSidebarOpen(open => !open);
+  const workspaceOverlay = isPhoneShell || (view !== "guardian" && docked && laneWidth < CHAT_MIN + WORK_MIN + DIVIDER);
+  const sideDivider = <DockedPanelDivider label={view === "guardian" ? "Resize Sidepanel and Chat" : "Resize Sidepanel and content"}
+    value={panels.side} min={SIDE_MIN} max={panels.sideMax} onChange={width => {
+      if (showWorkspaceDrawer && width !== panels.side) setWorkPreference({ mode: workspaceLayoutMode, width: panels.work });
+      setSidePreference(width);
+    }} />;
+  const workspaceDivider = docked && showWorkspaceDrawer && !workspaceOverlay && !canvasPane && (
+    <DockedPanelDivider label={view === "guardian" ? "Resize Chat and Workspace" : "Resize content and Workspace"}
+      reverse value={panels.work} min={WORK_MIN} max={panels.workMax}
+      onChange={width => setWorkPreference({ mode: workspaceLayoutMode, width })} />
+  );
   const workspaceProjectId =
     view === "documents" || view === "library"
       ? documentsScope.projectId
@@ -3014,10 +3076,11 @@ export default function AppShell({
           minHeight: 0,
         }
       : {
-          flexBasis: primaryPaneBasis,
-          flexGrow: primaryPaneRatio,
+          display: canvasPane === "workspace" ? "none" : undefined,
+          flexBasis: docked ? 0 : primaryPaneBasis,
+          flexGrow: canvasPane ? 1 : primaryPaneRatio,
           flexShrink: 1,
-          minWidth: primaryPaneMinWidth,
+          minWidth: docked ? 0 : primaryPaneMinWidth,
           minHeight: 0,
         }
     : {
@@ -3025,12 +3088,13 @@ export default function AppShell({
         minWidth: 0,
         minHeight: 0,
       };
-  const workspaceDrawerPaneStyle: React.CSSProperties = isPhoneShell
+  const workspaceDrawerPaneStyle: React.CSSProperties = workspaceOverlay
     ? {
         padding: "var(--board-edge)",
         flex: "0 0 auto",
         width: mobileShellProfile.guardian.drawerWidth,
-        minWidth: mobileShellProfile.guardian.drawerWidth,
+        minWidth: 0,
+        maxWidth: "100%",
         height: "100%",
         minHeight: "100%",
         maxHeight: "100%",
@@ -3044,10 +3108,12 @@ export default function AppShell({
     : {
         padding: "var(--board-edge)",
         marginLeft: "auto",
-        flexBasis: workspacePaneBasis,
-        flexGrow: workspacePaneRatio,
+        display: canvasPane === "chat" ? "none" : undefined,
+        width: canvasPane ? "100%" : undefined,
+        flexBasis: canvasPane ? 0 : docked ? panels.work : workspacePaneBasis,
+        flexGrow: canvasPane ? 1 : docked ? 0 : workspacePaneRatio,
         flexShrink: 1,
-        minWidth: workspacePaneMinWidth,
+        minWidth: docked ? 0 : workspacePaneMinWidth,
         minHeight: "0",
         maxHeight: "100%",
         borderRadius: "var(--card-radius)",
@@ -3070,7 +3136,7 @@ export default function AppShell({
       }
     : {};
   const sharedWorkspaceDrawer = showWorkspaceDrawer ? (
-    isPhoneShell ? (
+    workspaceOverlay ? (
       <div
         data-testid="workspace-drawer-overlay"
         data-overlay-mode="mobile"
@@ -3121,6 +3187,7 @@ export default function AppShell({
     ) : (
       <div
         data-testid="workspace-drawer-pane"
+        data-primary-pane="workspace"
         data-pane-basis={workspacePaneBasis}
         data-pane-min-width={workspacePaneMinWidth}
         data-shell-workspace-arrangement={shellViewportProfile.workspaceArrangement}
@@ -3387,12 +3454,12 @@ export default function AppShell({
       className="pill-tab shrink-0 whitespace-nowrap"
       data-state={documentsSidebarOpen ? "active" : "inactive"}
       data-testid="documents-sidebar-toggle"
-      aria-pressed={documentsSidebarOpen}
-      aria-label={documentsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
-      title={documentsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+      aria-pressed={documentsOverlay ? isPhoneSidebarOpen : documentsSidebarOpen}
+      aria-label={(documentsOverlay ? isPhoneSidebarOpen : documentsSidebarOpen) ? "Hide sidebar" : "Show sidebar"}
+      title={(documentsOverlay ? isPhoneSidebarOpen : documentsSidebarOpen) ? "Hide sidebar" : "Show sidebar"}
       onClick={toggleDocumentsSidebar}
     >
-      {documentsSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+      {(documentsOverlay ? isPhoneSidebarOpen : documentsSidebarOpen) ? "Hide Sidebar" : "Show Sidebar"}
     </PhonePressButton>
     ) : null;
   const systemStatusUtilityAction = (
@@ -3460,7 +3527,7 @@ export default function AppShell({
       </div>
     </header>
   ) : null;
-  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
+  const phoneSidebarWorkspace = isNonGuardianPhoneFrameShell || documentsOverlay || showFocusedAppSidebar ? (
     view === "documents" || view === "library" ? (
       <SidebarRoot
         threads={documentsSidebarThreadsForRender}
@@ -3493,12 +3560,12 @@ export default function AppShell({
       />
     )
   ) : null;
-  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || showFocusedAppSidebar ? (
+  const phoneSidebarOverlay = isNonGuardianPhoneFrameShell || documentsOverlay || showFocusedAppSidebar ? (
     <MobileAppSidebarDrawer
       isOpen={showFocusedAppSidebar ? focusedSidebarOpen : isPhoneSidebarOpen}
       onClose={showFocusedAppSidebar ? () => setFocusedSidebarVisibility(false) : () => setIsPhoneSidebarOpen(false)}
-      presentation={showFocusedAppSidebar ? "shelf" : "modal"}
-      pinned={showFocusedAppSidebar && focusedSidebarPinned}
+      presentation={showFocusedAppSidebar && focusSidebarFits ? "shelf" : "modal"}
+      pinned={showFocusedAppSidebar && focusedSidebarPinned && focusSidebarFits}
       onPinnedChange={(pinned) => {
         setFocusedSidebarPinned(pinned);
         if (pinned) setFocusedSidebarOpen(true);
@@ -3567,7 +3634,7 @@ export default function AppShell({
       presentation={browserPresentation}
       onPresentationChange={handleBrowserPresentationChange}
       focusedSidebarOpen={focusedSidebarOpen}
-      focusedSidebarPinned={focusedSidebarPinned}
+      focusedSidebarPinned={focusedSidebarPinned && focusSidebarFits}
       onFocusedSidebarReveal={() => setFocusedSidebarOpen(true)}
     >
     <div
@@ -3899,6 +3966,8 @@ export default function AppShell({
               } as React.CSSProperties}
             >
               <div
+                ref={setLane}
+                style={docked ? { gap: 0, position: "relative" } : undefined}
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
@@ -3932,8 +4001,8 @@ export default function AppShell({
                         ? undefined
                         : documentsSidebarVisible
                           ? {
-                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-                              gap: "var(--gutter)",
+                              gridTemplateColumns: `${panels.side || sidePreference}px 12px minmax(0, 1fr)`,
+                              gap: 0,
                             }
                           : undefined
                     }
@@ -3977,6 +4046,7 @@ export default function AppShell({
                         </FrameCard>
                       </div>
                     )}
+                    {documentsSidebarVisible && sideDivider}
                     {!isPhoneShell && !documentsSidebarVisible && (
                       <button
                         type="button"
@@ -4014,6 +4084,7 @@ export default function AppShell({
                     </FrameCard>
                   </div>
                 </div>
+                {workspaceDivider}
                 {sharedWorkspaceDrawer}
               </div>
             </div>
@@ -4034,6 +4105,8 @@ export default function AppShell({
               } as React.CSSProperties}
             >
               <div
+                ref={setLane}
+                style={docked ? { gap: 0, position: "relative" } : undefined}
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
@@ -4067,8 +4140,8 @@ export default function AppShell({
                         ? undefined
                         : documentsSidebarVisible
                           ? {
-                              gridTemplateColumns: "clamp(300px, 24vw, 360px) minmax(0, 1fr)",
-                              gap: "var(--gutter)",
+                              gridTemplateColumns: `${panels.side || sidePreference}px 12px minmax(0, 1fr)`,
+                              gap: 0,
                             }
                           : undefined
                     }
@@ -4112,6 +4185,7 @@ export default function AppShell({
                         </FrameCard>
                       </div>
                     )}
+                    {documentsSidebarVisible && sideDivider}
                     {!isPhoneShell && !documentsSidebarVisible && (
                       <button
                         type="button"
@@ -4145,6 +4219,7 @@ export default function AppShell({
                     </FrameCard>
                   </div>
                 </div>
+                {workspaceDivider}
                 {sharedWorkspaceDrawer}
               </div>
             </div>
@@ -4225,9 +4300,15 @@ export default function AppShell({
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
+                ref={setLane}
+                data-primary-canvas={canvasPane ?? "split"}
+                onPointerDownCapture={recordPrimaryUse}
+                onKeyDownCapture={recordPrimaryUse}
+                style={docked ? { gap: 0, position: "relative", flexDirection: canvasPane ? "column" : undefined } : undefined}
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
+                {canvasControls}
                 <div
                   data-testid="workspace-primary-pane"
                   data-pane-basis={
@@ -4243,62 +4324,75 @@ export default function AppShell({
                   className="min-h-0 min-w-0"
                   style={workspacePrimaryPaneStyle}
                 >
-                  <div
-                    className="flex h-full w-full min-h-0 isolate flex-col"
-                    aria-busy={sessionComposerBlocked}
-                    data-composer-blocked={
-                      sessionComposerBlocked ? "true" : "false"
-                    }
-                    style={{
-                      ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
-                    } as React.CSSProperties}
-                  >
-                    <ErrorBoundary>
-                      <GuardianChatWithSidebar
-                        key={`guardian-surface-${guardianSurfaceEpoch}`}
-                        guardianName={guardianName}
-                        userName={userName}
-                        userProfession={role}
-                        prefill={prefill}
-                        onPrefillConsumed={() => setPrefill(undefined)}
-                        pendingDocumentTiles={pendingComposerDocumentTiles}
-                        onPendingDocumentTilesConsumed={() =>
-                          setPendingComposerDocumentTiles([])
-                        }
-                        onWorkspaceToggle={toggleWorkspaceDrawer}
-                        workspaceOpen={workspaceDrawerOpen}
-                        providerRuntimeState={providerRuntimeState}
-                        runtimeHealth={runtimeHealth}
-                        activeWorkspaceDoc={null}
-                        onWorkspaceClose={closeWorkspaceDrawer}
-                        onProjectChange={handleGuardianProjectChange}
-                        onSidebarSnapshot={handleGuardianSidebarSnapshot}
-                        activeApplicationView={view}
-                        applicationDestinations={
-                          PHONE_NAVIGATION_DESTINATIONS
-                        }
-                        onNavigateApplicationView={navigateToView}
-                        isApplicationNavigationExpanded={
-                          isApplicationNavigationExpanded
-                        }
-                        onApplicationNavigationExpandedChange={
-                          setIsApplicationNavigationExpanded
-                        }
-                        frameFirstMobile={isNarrowGuardianFrameShell}
-                        mobileFramePrelude={guardianMobileFramePrelude}
-                        browserFocused={isFocusedBrowser}
-                        focusedSidebarOpen={focusedSidebarOpen}
-                        focusedSidebarPinned={focusedSidebarPinned}
-                        onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
-                        onFocusedSidebarPinnedChange={(pinned) => {
-                          setFocusedSidebarPinned(pinned);
-                          if (pinned) setFocusedSidebarOpen(true);
-                        }}
-                        focusedShelfStyle={styleVars as React.CSSProperties}
-                      />
-                    </ErrorBoundary>
-                  </div>
+                  <GuardianChatWindow mode={canFloatGuardian ? guardianWindowMode : "docked"}
+                    onModeChange={setGuardianWindowMode} opener={guardianOpener}
+                    onDock={() => {
+                      setGuardianWindowMode("docked");
+                      setWorkspaceLayoutMode(laneWidth >= CHAT_MIN + WORK_MIN + DIVIDER * 2 ? "balanced_split" : "chat_focus");
+                    }}>
+                    <div
+                      className="flex h-full w-full min-h-0 isolate flex-col"
+                      aria-busy={sessionComposerBlocked}
+                      data-composer-blocked={
+                        sessionComposerBlocked ? "true" : "false"
+                      }
+                      style={{
+                        ...(isPhoneShell ? { "--frame": "1px", "--rim": "1px" } : {}),
+                      } as React.CSSProperties}
+                    >
+                      <ErrorBoundary>
+                        <GuardianChatWithSidebar
+                          key={`guardian-surface-${guardianSurfaceEpoch}`}
+                          sidebarOpener={sidebarOpener}
+                          allowDockedSidebar={docked ? panels.fitsSidebar && canvasPane !== "workspace" : undefined}
+                          onDockedSidebarChange={setSideVisible}
+                          sidebarWidth={panels.side || sidePreference}
+                          sidebarDivider={sideDivider}
+                          guardianName={guardianName}
+                          userName={userName}
+                          userProfession={role}
+                          prefill={prefill}
+                          onPrefillConsumed={() => setPrefill(undefined)}
+                          pendingDocumentTiles={pendingComposerDocumentTiles}
+                          onPendingDocumentTilesConsumed={() =>
+                            setPendingComposerDocumentTiles([])
+                          }
+                          onWorkspaceToggle={toggleWorkspaceDrawer}
+                          workspaceOpen={workspaceDrawerOpen}
+                          providerRuntimeState={providerRuntimeState}
+                          runtimeHealth={runtimeHealth}
+                          activeWorkspaceDoc={null}
+                          onWorkspaceClose={closeWorkspaceDrawer}
+                          onProjectChange={handleGuardianProjectChange}
+                          onSidebarSnapshot={handleGuardianSidebarSnapshot}
+                          activeApplicationView={view}
+                          applicationDestinations={
+                            PHONE_NAVIGATION_DESTINATIONS
+                          }
+                          onNavigateApplicationView={navigateToView}
+                          isApplicationNavigationExpanded={
+                            isApplicationNavigationExpanded
+                          }
+                          onApplicationNavigationExpandedChange={
+                            setIsApplicationNavigationExpanded
+                          }
+                          frameFirstMobile={isNarrowGuardianFrameShell}
+                          mobileFramePrelude={guardianMobileFramePrelude}
+                          browserFocused={isFocusedBrowser}
+                          focusedSidebarOpen={focusedSidebarOpen}
+                          focusedSidebarPinned={focusedSidebarPinned && focusSidebarFits}
+                          onFocusedSidebarOpenChange={setFocusedSidebarVisibility}
+                          onFocusedSidebarPinnedChange={(pinned) => {
+                            setFocusedSidebarPinned(pinned);
+                            if (pinned) setFocusedSidebarOpen(true);
+                          }}
+                          focusedShelfStyle={styleVars as React.CSSProperties}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  </GuardianChatWindow>
                 </div>
+                {workspaceDivider}
                 {sharedWorkspaceDrawer}
               </div>
             </div>
@@ -4313,6 +4407,8 @@ export default function AppShell({
               style={{ "--gutter": "var(--shell-gap)" } as React.CSSProperties}
             >
               <div
+                ref={setLane}
+                style={docked ? { gap: 0, position: "relative" } : undefined}
                 className={workspaceShellLaneClassName}
                 {...workspaceSplitSurfaceProps}
               >
@@ -4366,6 +4462,7 @@ export default function AppShell({
                     />
                   )}
                 </div>
+                {workspaceDivider}
                 {sharedWorkspaceDrawer}
               </div>
             </div>
