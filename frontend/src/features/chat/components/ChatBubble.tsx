@@ -10,7 +10,10 @@ import { motion } from "framer-motion";
 import { Volume2 } from "lucide-react";
 import { useRenderableMediaSrc } from "@/hooks/useRenderableMediaSrc";
 import { Message, MessageAttachment } from "@/types/ui";
-import { resolveMediaSrc } from "@/lib/mediaUrl";
+import {
+  extractBackendMediaPath,
+  resolveMediaSrc,
+} from "@/lib/mediaUrl";
 import {
   documentIdentityKey,
   loadCanonicalDocumentTile,
@@ -426,6 +429,35 @@ function RenderableChatImage({
   );
 }
 
+function AssistantMarkdownImage({
+  src,
+  alt,
+}: {
+  src: string;
+  alt?: string;
+}) {
+  // Assistant Markdown is untrusted; only backend-owned media may reach an img sink.
+  if (extractBackendMediaPath(src) === null) {
+    return (
+      <span
+        data-testid="blocked-assistant-image"
+        className="my-2 inline-flex max-w-full rounded-xl border border-black/10 px-3 py-2 text-xs opacity-70 dark:border-white/10"
+      >
+        External image blocked{alt ? `: ${alt}` : ""}
+      </span>
+    );
+  }
+
+  return (
+    <RenderableChatImage
+      src={resolveMediaSrc(src)}
+      alt={alt || "uploaded media"}
+      className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
+      style={{ maxHeight: 320, objectFit: "cover" }}
+    />
+  );
+}
+
 export function ChatBubble({
   message,
   threadId,
@@ -619,12 +651,7 @@ export function ChatBubble({
       </a>;
     },
     img: ({ src, alt }: any) => (
-      <RenderableChatImage
-        src={resolveMediaSrc(String(src ?? ""))}
-        alt={alt || "uploaded media"}
-        className="my-2 max-w-full rounded-xl border border-black/10 dark:border-white/10"
-        style={{ maxHeight: 320, objectFit: "cover" }}
-      />
+      <AssistantMarkdownImage src={String(src ?? "")} alt={alt} />
     ),
   };
 

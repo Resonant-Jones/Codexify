@@ -161,7 +161,7 @@ describe("ChatBubble", () => {
     );
   });
 
-  it("leaves external assistant markdown image URLs untouched", () => {
+  it("renders assistant markdown images from configured backend URLs", () => {
     render(
       <ChatBubble
         isGuardian
@@ -169,15 +169,63 @@ describe("ChatBubble", () => {
           id: "msg-5",
           authorId: "bot",
           authorName: "Guardian",
-          content: "![External image](https://cdn.example.com/image.jpg?x=1#hero)",
+          content: "![Backend image](http://backend.test/media/images/signed.jpg?sig=abc123#viewer)",
           createdAt: Date.now(),
         }}
       />
     );
 
-    expect(screen.getByRole("img", { name: "External image" })).toHaveAttribute(
+    expect(screen.getByRole("img", { name: "Backend image" })).toHaveAttribute(
       "src",
-      "https://cdn.example.com/image.jpg?x=1#hero"
+      "http://backend.test/media/images/signed.jpg?sig=abc123#viewer"
+    );
+  });
+
+  it("blocks external assistant markdown images before creating image elements", () => {
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-external-images",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: [
+            "![HTTPS image](https://cdn.example.com/image.jpg?secret=conversation)",
+            "![Protocol-relative image](//cdn.example.com/image.jpg)",
+          ].join("\n\n"),
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(
+      screen.queryByRole("img", { name: "HTTPS image" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Protocol-relative image" })
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("blocked-assistant-image")).toHaveLength(2);
+  });
+
+  it("blocks non-media assistant image paths while preserving their alt text nearby", () => {
+    render(
+      <ChatBubble
+        isGuardian
+        message={{
+          id: "msg-untrusted-image-path",
+          authorId: "bot",
+          authorName: "Guardian",
+          content: "![Untrusted image](/untrusted/image.jpg)",
+          createdAt: Date.now(),
+        }}
+      />
+    );
+
+    expect(
+      screen.queryByRole("img", { name: "Untrusted image" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("blocked-assistant-image")).toHaveTextContent(
+      "External image blocked: Untrusted image"
     );
   });
 
