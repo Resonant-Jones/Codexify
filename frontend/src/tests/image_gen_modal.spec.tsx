@@ -69,6 +69,20 @@ describe("ImageGenModal", () => {
       { timeout: 210_000 }
     );
   });
+  it("requires a replacement for an unavailable saved model", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn().mockResolvedValue(undefined);
+    localStorage.setItem("cfy.imagegen.provider", "openai");
+    localStorage.setItem("cfy.imagegen.model", "gpt-image-1.5");
+    render(<ImageGenModal open onOpenChange={vi.fn()} initialPrompt="Moon" onGenerate={onGenerate} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Choose a replacement");
+    expect(screen.getByLabelText("Model")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Generate" })).toBeDisabled();
+    expect(onGenerate).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("Model"), "test-flare");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    expect(onGenerate).toHaveBeenCalledExactlyOnceWith({ prompt: "Moon", provider: "openai", model: "test-flare" });
+  });
   it("uses the chat callback so a new thread can be created before generation", async () => {
     const user = userEvent.setup(),
       onGenerate = vi.fn().mockResolvedValue(undefined);
