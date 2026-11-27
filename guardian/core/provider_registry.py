@@ -1852,6 +1852,7 @@ def validate_provider_model_selection(
     model_id: str | None,
     settings: Settings,
     local_model_ids: Iterable[str] | None = None,
+    require_available_inventory: bool = False,
 ) -> tuple[bool, str | None]:
     provider = normalize_provider(provider_id)
     capability = resolve_provider_capability(provider, settings)
@@ -1859,6 +1860,11 @@ def validate_provider_model_selection(
         return False, str(capability["disabled_reason"] or "Provider unavailable")
 
     model = normalize_model_id(model_id)
+    if require_available_inventory and (
+        not capability["authorized"]
+        or capability["model_index"]["state"] != "available"
+    ):
+        return False, "Provider requires an available discovered chat model"
     if not model:
         if capability["default_model"]:
             return True, None

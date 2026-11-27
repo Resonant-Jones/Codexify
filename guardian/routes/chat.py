@@ -94,12 +94,13 @@ from guardian.core.chat_completion_service import (
     read_provider_request_captures,
     reconcile_chat_attempt_receipts,
     resolve_thread_completion_settings,
-    split_history_and_latest_turn,
     store_provider_request_capture,
 )
 from guardian.core.chat_postgres_deadline import postgres_operation_scope
+from guardian.core.chat_thinking_effort import validate_effort
 from guardian.core.db import (
     MERGE_MESSAGE_METADATA_SQL,
+    StaleChatTurnError,
     find_conflicting_source_lineage,
     get_chat_completion_attempt_by_task_id,
     list_chat_completion_attempts_for_thread,
@@ -630,6 +631,8 @@ class ChatCompletionRequest(BaseModel):
     max_context: Optional[int] = 50
     provider: Optional[str] = None
     reasoning_mode: Optional[str] = None
+    thinking_effort: Literal["default", "low", "high", "max"] | None = None
+    expected_message_id: int | None = Field(default=None, strict=True, gt=0)
     system_override: Optional[str] = None
     preferred_name: Optional[str] = None
     profession: Optional[str] = None
@@ -2857,6 +2860,13 @@ def chat_list_messages(
     }
 
 
+def _stale_authored_turn() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail="The authored message changed. Review the current turn and retry.",
+    )
+
+
 @router.post("/{thread_id}/complete")
 async def chat_complete(
     thread_id: int,
@@ -2905,68 +2915,17 @@ async def chat_complete(
             thread_id, request_user_scope
         )
 
-    limit = int(body.max_context or 50)
-    try:
-        items = chatlog_db.list_messages(
-            thread_id,
-            limit=limit,
-            offset=0,
-            user_id=_request_account_id(request_user_scope),
-        )
-    except TypeError:
-        items = chatlog_db.list_messages(thread_id, limit=limit, offset=0)
-    try:
-        items = sorted(items, key=lambda m: m.get("id") or 0)
-    except Exception:
-        pass
-    message_ids = [
-        message_id
-        for message_id in (_coerce_message_id(item.get("id")) for item in items)
-        if message_id is not None
-    ]
-    if message_ids:
-        backfill = _fetch_message_extra_meta(
-            thread_id=thread_id,
-            message_ids=message_ids,
-        )
-        if backfill:
-            for item in items:
-                message_id = _coerce_message_id(item.get("id"))
-                if message_id is None or item.get("extra_meta"):
-                    continue
-                metadata = backfill.get(message_id)
-                if metadata:
-                    item["extra_meta"] = metadata
-    context: List[Dict[str, str]] = []
-    for msg in items:
-        role = str(msg.get("role") or "").strip()
-        msg_content = msg.get("content")
-        if isinstance(msg_content, list):
-            # Structured content (multimodal): extract text for context check
-            text_parts = [
-                str(p.get("text", "")).strip()
-                for p in msg_content
-                if isinstance(p, dict) and p.get("type") == "text"
-            ]
-            text_content = " ".join(t for t in text_parts if t)
-            if text_content:
-                context.append({"role": role, "content": text_content})
-        elif (
-            isinstance(msg_content, str)
-            and msg_content.strip()
-            and msg_content.strip().lower() != "null"
-        ):
-            context.append({"role": role, "content": msg_content})
-    if not context:
-        raise HTTPException(status_code=400, detail="Thread has no usable context")
-    latest_turn = split_history_and_latest_turn(items)["latest_turn"]
-    if latest_turn is None:
-        raise HTTPException(status_code=400, detail="Thread has no usable context")
-    latest_turn_message_id = (
-        _coerce_message_id(latest_turn.get("id"))
-        if isinstance(latest_turn, dict)
-        else None
+    account_id = _request_account_id(request_user_scope)
+    has_receipt = body.expected_message_id is not None
+    if body.thinking_effort is not None and not has_receipt:
+        raise _stale_authored_turn()
+    latest_turn = chatlog_db.resolve_authored_chat_turn(
+        thread_id, user_id=account_id, message_id=body.expected_message_id
     )
+    if latest_turn is None:
+        if has_receipt:
+            raise _stale_authored_turn()
+        raise HTTPException(status_code=400, detail="Thread has no usable context")
 
     requested_source_mode = normalize_source_mode(
         body.source_mode
@@ -2984,6 +2943,23 @@ async def chat_complete(
     model = thread_execution.model
     reasoning_mode = thread_execution.reasoning_mode
     source_mode = thread_execution.source_mode
+    if body.thinking_effort is not None:
+        if (requested_provider, requested_model) != (
+            provider,
+            model,
+        ) or body.reasoning_mode != "think":
+            raise HTTPException(
+                status_code=409,
+                detail="Thinking effort selection changed. Review the route and retry.",
+            )
+        validate_effort(
+            body.thinking_effort,
+            provider,
+            model,
+            reasoning_mode,
+            llm_settings,
+            check_inventory=True,
+        )
 
     requested_depth_raw = normalize_requested_depth_raw(body.depth_mode)
     # Binary projection: deep iff raw request is exactly "deep".
@@ -3073,7 +3049,6 @@ async def chat_complete(
     internal_depth_mode = map_internal_depth_mode(
         requested_depth_raw, effective_depth_mode
     )
-    account_id = _request_account_id(request_user_scope)
     doc_context_override = await _build_doc_context_override(
         thread_id=thread_id,
         depth_mode=internal_depth_mode,
@@ -3114,7 +3089,7 @@ async def chat_complete(
         request_id=root_request_id,
         user_id=account_id,
         thread_id=thread_id,
-        latest_turn_message_id=latest_turn_message_id,
+        latest_turn_message_id=latest_turn["id"],
         latest_turn_messages=_detect_structured_latest_turn(latest_turn),
         provider=provider,
         model=requested_model,
@@ -3125,6 +3100,7 @@ async def chat_complete(
         ),
         provider_pinned=bool(provider),
         reasoning_mode=body.reasoning_mode,
+        thinking_effort=body.thinking_effort,
         max_context=body.max_context,
         depth_mode=internal_depth_mode,
         requested_source_mode=requested_source_mode,
@@ -3175,7 +3151,10 @@ async def chat_complete(
             turn_id=turn_id,
             request_id=root_request_id,
             account_acceptance_scope=request_user_scope,
+            authored_turn_has_receipt=has_receipt,
         )
+    except StaleChatTurnError as exc:
+        raise _stale_authored_turn() from exc
     except ChatCompletionEnqueueError as exc:
         if exc.reason == "turn_in_flight":
             raise HTTPException(status_code=429, detail="turn_in_flight")

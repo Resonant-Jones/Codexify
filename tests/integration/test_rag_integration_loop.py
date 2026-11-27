@@ -81,6 +81,23 @@ class StubChatLog:
         )
         return message_id
 
+    def resolve_authored_chat_turn(
+        self, thread_id: int, *, user_id: str, message_id: int | None
+    ) -> dict[str, Any] | None:
+        if thread_id != self.thread["id"] or user_id != self.thread["user_id"]:
+            return None
+        turn = next(
+            (
+                row
+                for row in reversed(self._messages)
+                if row["thread_id"] == thread_id and row["role"] == "user"
+            ),
+            None,
+        )
+        if turn is None or (message_id is not None and turn["id"] != message_id):
+            return None
+        return dict(turn)
+
     def list_messages(
         self,
         thread_id: int,
@@ -270,9 +287,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
 
     # Prevent DB-backed imprint reads from breaking hermetic tests (e.g., sqlite :memory: has no tables).
     try:
-        from guardian.cognition.imprints import (
-            store as imprint_store,  # type: ignore
-        )
+        from guardian.cognition.imprints import store as imprint_store  # type: ignore
 
         monkeypatch.setattr(
             imprint_store,
@@ -315,9 +330,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
 
     # Patch known builder modules (system + modular prompt builders).
     try:
-        from guardian.cognition import (
-            system_prompt_builder as spb,  # type: ignore
-        )
+        from guardian.cognition import system_prompt_builder as spb  # type: ignore
 
         monkeypatch.setattr(
             spb, "build_system_prompt", fake_build_system_prompt, raising=False
@@ -362,9 +375,7 @@ async def test_rag_integration_memory_loop(monkeypatch):
         pass
 
     try:
-        from guardian.cognition import (
-            modular_prompt_builder as mpb,  # type: ignore
-        )
+        from guardian.cognition import modular_prompt_builder as mpb  # type: ignore
 
         monkeypatch.setattr(
             mpb, "build_system_prompt", fake_build_system_prompt, raising=False
@@ -629,6 +640,9 @@ async def test_rag_integration_memory_loop(monkeypatch):
         assert task_id.strip()
         assert observed["attempt"]["backend_task_id"] == task_id
         assert observed["attempt"]["thread_id"] == 1
+        assert (
+            observed["attempt"]["authored_turn"].message_id == posted["message"]["id"]
+        )
         assert observed["attempt_accepted"] is True
 
         queued_payload = dequeue(CHAT_QUEUE_NAME, block=False)

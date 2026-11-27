@@ -42,19 +42,20 @@ def _capture_accepted_completion(captured: dict[str, object]):
 async def test_chat_complete_injects_local_user_id_into_task_payload(
     monkeypatch,
 ):
+    resolve_turn = MagicMock(
+        return_value={"id": 1, "role": "user", "content": "Hello", "extra_meta": {}}
+    )
     monkeypatch.setattr(
         chat_routes,
         "chatlog_db",
         SimpleNamespace(
             get_chat_thread=lambda _thread_id: {
                 "id": 1,
-                "user_id": "test_user",
+                "user_id": "local",
                 "project_id": 7,
                 "archived_at": None,
             },
-            list_messages=lambda *_args, **_kwargs: [
-                {"role": "user", "content": "Hello"}
-            ],
+            resolve_authored_chat_turn=resolve_turn,
             count_messages=lambda *_args, **_kwargs: 1,
             write_audit_log=lambda *_args, **_kwargs: None,
             get_thread_profile=lambda *_args, **_kwargs: None,
@@ -87,8 +88,10 @@ async def test_chat_complete_injects_local_user_id_into_task_payload(
     )
 
     assert isinstance(response, dict)
+    resolve_turn.assert_called_once_with(1, user_id="local", message_id=None)
     task = captured["task"]
     assert isinstance(task, ChatCompletionTask)
+    assert task.latest_turn_message_id == 1
     assert task.user_id == "local"
     assert task.to_dict()["user_id"] == "local"
 
@@ -101,6 +104,9 @@ async def test_chat_complete_injects_local_user_id_into_task_payload(
 async def test_chat_complete_uses_request_account_id_for_task_payload(
     monkeypatch,
 ):
+    resolve_turn = MagicMock(
+        return_value={"id": 1, "role": "user", "content": "Hello", "extra_meta": {}}
+    )
     monkeypatch.setattr(
         chat_routes,
         "chatlog_db",
@@ -111,9 +117,7 @@ async def test_chat_complete_uses_request_account_id_for_task_payload(
                 "project_id": 7,
                 "archived_at": None,
             },
-            list_messages=lambda *_args, **_kwargs: [
-                {"role": "user", "content": "Hello"}
-            ],
+            resolve_authored_chat_turn=resolve_turn,
             count_messages=lambda *_args, **_kwargs: 1,
             write_audit_log=lambda *_args, **_kwargs: None,
             get_thread_profile=lambda *_args, **_kwargs: None,
@@ -146,8 +150,10 @@ async def test_chat_complete_uses_request_account_id_for_task_payload(
     )
 
     assert isinstance(response, dict)
+    resolve_turn.assert_called_once_with(1, user_id="acct-123", message_id=None)
     task = captured["task"]
     assert isinstance(task, ChatCompletionTask)
+    assert task.latest_turn_message_id == 1
     assert task.user_id == "acct-123"
     assert task.to_dict()["user_id"] == "acct-123"
 
