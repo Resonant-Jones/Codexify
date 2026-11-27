@@ -475,7 +475,7 @@ These do not start unless enabled:
 - `EMBEDDING_BACKEND=local|dummy|gpt_oss|nomic`, where `stub` is accepted as an alias for `dummy`
 - `GUARDIAN_ENABLE_GRAPH_CONTEXT=true` / `GUARDIAN_ENABLE_GRAPH_LOGGING=true`
 - `ENABLE_CONNECTOR_WORKER=true`, plus provider tokens such as `GITHUB_TOKEN`
-- `IMAGE_GEN_PROVIDER` + `IMAGE_GEN_MODEL`
+- `IMAGE_GEN_PROVIDER` + optional `IMAGE_GEN_MODEL`. With OpenAI configured and no model override, image generation uses `gpt-image-2.6-sunburst`. The `/sunburst` and `/flare` commands select their corresponding GPT Image 2.6 variants. Replace retired GPT Image 1-series or DALL·E overrides before rollout; retired requests fail without contacting OpenAI. Existing generated images retain their original model labels.
 - `ELEVENLABS_API_KEY` or `GOOGLE_APPLICATION_CREDENTIALS` for real TTS
 - `GUARDIAN_ALLOWED_ORIGINS`, such as `http://localhost:5173,tauri://localhost,https://tauri.localhost`
 
