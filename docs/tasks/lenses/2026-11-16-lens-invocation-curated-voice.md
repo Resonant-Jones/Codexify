@@ -141,6 +141,21 @@ omitted from that push. Only those source graph fields were corrected; release
 HOLD and operational readiness remain unchanged. Local architecture rerun uses
 cached LFS JSON fixtures, without downloads or weakening any assertion.
 
+## November 27 source reconciliation
+
+The existing draft now includes main `0a447d937a65e`. The candidate has
+145 Alembic revisions and one head, `c47692abc107`. Its merge revision joins
+unchanged parents `a64c358e2241` (OpenAI import routing) and `1b6c8d9e2f40`
+(inactive voice accounting) without schema operations or funding seeds. The
+previous 143-revision receipt above describes the older draft. Main also
+supplies the GitHub Knowledge migration test that verifies its own lineage
+without fixing the global head at an old revision.
+
+At this graph's fork, use an explicit revision to test a merge-only downgrade
+on disposable state; relative `-1` is ambiguous there. This does not authorize
+a live downgrade. The branch remains an inactive accounting candidate: no
+provider, credential, rollout, or release posture changed.
+
 ## Root-reviewed runtime/rollback plan
 
 This PR can be useful as inactive shared accounting only. It neither installs
