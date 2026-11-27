@@ -4,6 +4,7 @@ import asyncio
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from threading import Barrier, Event
 
 import fakeredis
@@ -15,11 +16,15 @@ from fastapi.testclient import TestClient
 from guardian.core import ai_router
 from guardian.core import chat_completion_service as service
 from guardian.core import dependencies
+from guardian.core.chat_account_custody import resolve_accepted_chat_work_identity
+from guardian.core.db import GuardianDB
+from guardian.core.message_origin_classification import classify_message_origin
 from guardian.core.pgdb import PgDB
 from guardian.queue import redis_queue
 from guardian.queue.turn_lock import get_turn_lock, release_turn_lock
 from guardian.routes import chat
 from guardian.tasks.types import ChatCompletionTask
+from guardian.workers.chat_embedding_worker import _update_embedding_status
 from tests.core.test_chat_completion_service_thread_config import (
     _seed_completion_service,
 )
@@ -60,7 +65,8 @@ def authored_database():
 def ordinary_chat(authored_database, capture, monkeypatch):
     settings, _, _ = capture
     db = PgDB(authored_database)
-    thread = db.create_chat_thread(ACCOUNT, "Receipt test")
+    project_id = db.create_project(f"Receipt proof {uuid.uuid4().hex}", user_id=ACCOUNT)
+    thread = db.create_chat_thread(ACCOUNT, "Receipt test", project_id=project_id)
     redis = fakeredis.FakeRedis()
     monkeypatch.setattr(redis_queue, "_CLIENT", redis)
     monkeypatch.setattr(redis_queue, "_QUEUE_CLIENT", redis)
@@ -119,6 +125,15 @@ def queued_task():
     return ChatCompletionTask.from_dict(payload)
 
 
+def attempt_receipt(db, task):
+    with db._connect() as conn:
+        return conn.execute(
+            "SELECT accepted_account_id, accepted_user_message_id, accepted_at "
+            "FROM chat_completion_attempts WHERE backend_task_id = %s",
+            (task.task_id,),
+        ).fetchone()
+
+
 @pytest.mark.parametrize(
     ("effort", "provider_effort", "with_receipt"),
     [
@@ -158,14 +173,10 @@ def test_long_chat_preserves_authored_target_and_default(
     assert task.task_id == response.json()["task_id"]
     assert task.thinking_effort == effort
     assert (task.provider, task.model, task.reasoning_mode) == (*ROUTE[:2], "think")
-    with db._connect() as conn:
-        receipt = conn.execute(
-            "SELECT accepted_account_id, accepted_at FROM chat_completion_attempts "
-            "WHERE backend_task_id = %s",
-            (task.task_id,),
-        ).fetchone()
+    receipt = attempt_receipt(db, task)
     assert receipt is not None
     assert receipt["accepted_account_id"] == ACCOUNT
+    assert receipt["accepted_user_message_id"] == target
     assert receipt["accepted_at"] is not None
 
     # Move the newest window entirely past the accepted row, including a later
@@ -176,6 +187,8 @@ def test_long_chat_preserves_authored_target_and_default(
     db.create_message(
         thread_id, "user", "later backdated turn", created_at="2020-01-01T00:00:00Z"
     )
+    identity = resolve_accepted_chat_work_identity(db, task)
+    assert identity.accepted_user_message_id == target
 
     _seed_completion_service(monkeypatch, thread_row=db.get_chat_thread(thread_id))
     monkeypatch.setattr(dependencies, "chatlog_db", db)
@@ -337,6 +350,7 @@ def test_concurrent_submissions_and_replay_keep_request_identity(
     assert sorted(response.status_code for response in responses) == [200, 429]
     accepted = queued_task()
     assert accepted.latest_turn_message_id == target
+    assert attempt_receipt(db, accepted)["accepted_user_message_id"] == target
     assert redis_queue.dequeue(service.CHAT_COMPLETION_QUEUE_NAME, block=False) is None
     assert release_turn_lock(thread_id, accepted.task_id)
 
@@ -350,6 +364,7 @@ def test_concurrent_submissions_and_replay_keep_request_identity(
     assert replay.status_code == 200, replay.text
     retried = queued_task()
     assert retried.latest_turn_message_id == target
+    assert attempt_receipt(db, retried)["accepted_user_message_id"] == target
     assert retried.request_id == request_ids[2]
     assert retried.task_id != accepted.task_id
     assert release_turn_lock(thread_id, retried.task_id)
@@ -384,6 +399,79 @@ def test_no_receipt_accepts_unmarked_structured_ordinary_turn(ordinary_chat):
     task = queued_task()
     assert task.latest_turn_message_id == legacy
     assert task.latest_turn_messages == original
+    assert attempt_receipt(db, task)["accepted_user_message_id"] is None
+
+
+def test_rejects_mismatched_authored_turn_and_custody_ids(ordinary_chat, monkeypatch):
+    client, db, thread_id = ordinary_chat
+    other = post_message(client, thread_id, "another authored source")
+    target = post_message(client, thread_id, "current authored source")
+    persist = service.create_chat_completion_attempt
+
+    def persist_with_mismatch(store, **kwargs):
+        kwargs["accepted_user_message_id"] = other
+        return persist(store, **kwargs)
+
+    monkeypatch.setattr(
+        service, "create_chat_completion_attempt", persist_with_mismatch
+    )
+    response = complete(client, thread_id, target)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == STALE
+    assert redis_queue.dequeue(service.CHAT_COMPLETION_QUEUE_NAME, block=False) is None
+    assert get_turn_lock(thread_id) is None
+    with db._connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT 1 FROM chat_completion_attempts WHERE thread_id = %s",
+                (thread_id,),
+            ).fetchone()
+            is None
+        )
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [("processing", "ready"), ("ready", "failed"), ("failed", "processing")],
+)
+def test_embedding_lifecycle_preserves_native_source_custody(
+    ordinary_chat, before, after
+):
+    client, db, thread_id = ordinary_chat
+    target = post_message(client, thread_id, "native source with ordinary enrichment")
+    worker_db = GuardianDB(db._sa_url)
+
+    def enrich(status):
+        now = datetime.now(timezone.utc)
+        _update_embedding_status(
+            worker_db,
+            target,
+            status=status,
+            error="fixture failure" if status == "failed" else None,
+            started_at=now,
+            completed_at=None if status == "processing" else now,
+        )
+        with db._connect() as conn:
+            metadata = conn.execute(
+                "SELECT extra_meta FROM chat_messages WHERE id = %s", (target,)
+            ).fetchone()["extra_meta"]
+        assert metadata["embedding_status"] == status
+        assert classify_message_origin(metadata).label == "unknown"
+
+    try:
+        enrich(before)
+        response = complete(client, thread_id, target)
+        assert response.status_code == 200, response.text
+        task = queued_task()
+        assert attempt_receipt(db, task)["accepted_user_message_id"] == target
+        identity = resolve_accepted_chat_work_identity(db, task)
+        assert identity.accepted_user_message_id == target
+
+        enrich(after)
+        enriched_identity = resolve_accepted_chat_work_identity(db, task)
+        assert enriched_identity == identity
+    finally:
+        worker_db.engine.dispose()
 
 
 def test_pinned_history_preserves_baseline_image_inputs(

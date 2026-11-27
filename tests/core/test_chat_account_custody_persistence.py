@@ -103,11 +103,22 @@ def test_source_custody_requires_original_account_before_database_use():
     [
         (build_native_origin_assertion().as_metadata(), 11),
         ({}, None),
-        ({"origin": "chatgpt_import"}, None),
+        ({"embedding_status": "ready"}, None),
+        ({"origin": "chatgpt_import", "embedding_status": "ready"}, None),
+        ({"message_origin": "native", "embedding_status": "ready"}, None),
         (
             {
                 **build_native_origin_assertion().as_metadata(),
                 "origin": "claude_import",
+                "embedding_status": "failed",
+            },
+            None,
+        ),
+        (
+            {
+                **build_native_origin_assertion().as_metadata(),
+                "era": "ambiguous",
+                "embedding_status": "processing",
             },
             None,
         ),

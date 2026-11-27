@@ -446,6 +446,20 @@ _GUARDIAN_DB_CACHE_LOCK = Lock()
 _DEFAULT_USER_ID = "local"
 
 
+def has_native_ordinary_chat_origin(extra_meta: Any) -> bool:
+    """Check positive origin at the ordinary authored-source boundary."""
+    from guardian.core.message_origin_classification import classify_message_origin
+
+    if not isinstance(extra_meta, dict):
+        return False
+    # The ordinary embedding worker writes this lifecycle field. Historical
+    # classification still receives the full metadata and treats it conservatively.
+    origin_metadata = {
+        key: value for key, value in extra_meta.items() if key != "embedding_status"
+    }
+    return classify_message_origin(origin_metadata).is_native
+
+
 def resolve_authored_chat_turn(
     session: Session,
     *,
@@ -455,8 +469,6 @@ def resolve_authored_chat_turn(
     lock_message: bool = False,
 ) -> dict[str, Any] | None:
     """Resolve a submitted receipt or select the current ordinary turn by ID."""
-    from guardian.core.message_origin_classification import classify_message_origin
-
     query = (
         select(
             ChatMessage.id,
@@ -509,16 +521,10 @@ def resolve_authored_chat_turn(
         return None
     if row["content"].strip().lower() in {"", "null"}:
         return None
-    if message_id is not None:
-        # Ordinary chat embeddings also write this lifecycle field. It carries no
-        # source claim for a receipt, even though recall treats it conservatively.
-        origin_metadata = {
-            key: value
-            for key, value in row["extra_meta"].items()
-            if key != "embedding_status"
-        }
-        if not classify_message_origin(origin_metadata).is_native:
-            return None
+    if message_id is not None and not has_native_ordinary_chat_origin(
+        row["extra_meta"]
+    ):
+        return None
     return dict(row)
 
 

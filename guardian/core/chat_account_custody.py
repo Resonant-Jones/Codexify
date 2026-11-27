@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from guardian.core.message_origin_classification import classify_message_origin
+from guardian.core.db import has_native_ordinary_chat_origin
 from guardian.core.project_ownership import classify_project_ownership
 from guardian.db.models import (
     ChatCompletionAttempt,
@@ -116,8 +116,7 @@ def eligible_chat_source_id(
     if lock_source:
         # Acceptance must hold source eligibility through the attempt insert.
         query = query.with_for_update(read=True)
-    # This is the existing origin classification, not durable origin custody.
-    if classify_message_origin(query.scalar()).is_native:
+    if has_native_ordinary_chat_origin(query.scalar()):
         return message_id
     return None
 

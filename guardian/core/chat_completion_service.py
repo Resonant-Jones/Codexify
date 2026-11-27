@@ -1036,10 +1036,6 @@ def enqueue_chat_completion(
     except ValueError as exc:
         raise ChatCompletionEnqueueError("account_acceptance_unavailable") from exc
 
-    # Capture Guardian's route-selected identity before any queue preparation.
-    accepted_user_message_id = (
-        task.latest_turn_message_id if accepted_account_id else None
-    )
     task_identity = _normalize_task_identity(getattr(task, "task_id", None))
     if task_identity is None or task.thread_id != thread_id:
         raise ChatCompletionEnqueueError("task_identity_invalid")
@@ -1054,6 +1050,11 @@ def enqueue_chat_completion(
             task.latest_turn_message_id,
             has_receipt=authored_turn_has_receipt,
         )
+
+    # Use the same route selection that persistence revalidates under lock.
+    accepted_user_message_id = (
+        authored_turn.message_id if accepted_account_id and authored_turn else None
+    )
 
     task.task_id = task_identity
     if request_id is not None:
