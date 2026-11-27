@@ -1,5 +1,5 @@
 Purpose: Define the canonical provider-neutral architecture boundary that separates semantic model/tool intent from provider-specific wire representation, so DeepSeek, OpenAI Chat Completions, OpenAI Responses, Whoosh'd/local providers, and future providers can all participate in the same Codexify tool-turn contract without driving different Guardian agent runtimes or tool executors.
-Last updated: 2026-08-10
+Last updated: 2026-11-25
 Source anchors:
 - docs/architecture/agent-tool-loop-contract.md
 - docs/architecture/provider-capability-contract.md
@@ -17,6 +17,59 @@ Source anchors:
 - Stage 0 commit f7a11746da86ae7bdd67c9aafbd60d885fb4e324
 - Stage 1 commit ea87dc0e8c6832de49aa663e53ff9c34ac8d5dca
 
+## Provider continuation for Recall
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The one-tool-turn limit in §§3 and 15 governs the implemented path and all
+unrelated tools. For governed Recall alone, the ratified adapter sequence is search → optional open
+of one returned result → final answer. Search may also lead directly to the
+final answer. The permitted open set comes from Guardian after the completed
+search. The final continuation offers no further tool invocation.
+
+Normalize decisions under canonical command identity and pair each result with
+its own tool-call correlation identity. Keep search and open distinguished from
+each other, from their Command Bus runs, and from the enclosing accepted task,
+attempt and authored turn. A provider-generated call ID conveys no authority.
+Multiple simultaneous calls, a different second command and a further call after
+open terminate under the bounded failure rules.
+
+Keep provider-private continuation state opaque to Guardian and Command Bus,
+owned by the adapter and scoped to the same accepted attempt and deadline.
+Guardian checks the applicable exposure policy before every content handoff.
+Imported and mixed restricted context, including reinjected results and replay,
+requires the approved local path. Withhold restricted content on fallback.
+A retry must reconcile canonical checkpoints and live permissions before result
+reuse. If necessary private state cannot be recovered within the permitted
+adapter boundary, report continuation failure. Neither re-dispatching a frozen
+operation nor persisting private state in the transcript or Memory Store is a
+recovery path. Provider-private state remains subject to the existing durability rules.
+
+Use the [agent-loop checkpoint and transcript rules](agent-tool-loop-contract.md#bounded-recall-continuation)
+and [Recall result semantics](account-history-recall-contract.md#search-coverage-and-original-source-opening).
+Local transport availability, per-model continuation support and restricted-data
+fallback denial require runtime qualification.
+
+### Stage 2B provider boundary
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.** Accept a bounded,
+labeled evidence packet only after the Context Broker has revalidated current
+source-use and destination authority. Preserve distinct temporal dimensions,
+uncertainty, source roles, exact revision provenance, evidence quality, opened-source
+versus locator-only status, claim limitations, current-turn applicability and
+Persona attribution during translation. Keep historical evidence distinct from
+current instructions. Only authorized packet content
+may enter the adapter. Apply the most restrictive contributing inference posture
+to initial dispatch, retry, continuation and fallback. A cloud adapter cannot
+receive restricted imported spans or their derived packet. If no permitted
+local path exists, withhold that context and report the actual coverage.
+
+Server-side assembly has no provider tool-call correlation ID of its own.
+Preserve the GOV-01 search → optional open → final answer boundary for
+model-selected operations. Re-entry checks live authorization and remaining
+deadline before re-disclosure. Adapter-private continuation state grants no
+access to cached evidence. Neither parallel calls nor a new deadline follow
+from receiving a chronological packet.
+
 ## Scope
 
 This note is the canonical architecture contract for the seam between provider transport and Codexify's semantic model/tool-turn boundary.
@@ -29,7 +82,10 @@ It governs:
 - where Codexify executes the authorized action;
 - what the provider adapter must and must not do on the way back into the provider.
 
-It does not implement transport. It does not select any provider. It does not authorize any specific capability. It does not change the existing one-tool-turn runtime contract. It does not change Command Bus authority.
+The contract governs provider translation and leaves transport selection and
+command authorization to their respective owners. The implemented runtime
+limits a turn to one command. The ratified [Recall continuation](#provider-continuation-for-recall)
+defines the sole exception for future implementation.
 
 ## Governing Principle
 
@@ -100,7 +156,11 @@ This contract explicitly preserves the current one-tool-turn limitation:
 - Parallel or recursive tool calls are not implied by this contract.
 - If a provider returns multiple tool calls while the runtime only supports one, they must not all execute. The adapter/runtime must preserve the existing bounded failure/limit doctrine. The exact implementation of "preserve" is deferred; the doctrine is not.
 
-This contract does not change `agent-tool-loop-contract.md`'s one-tool-turn runtime contract. It does not introduce a recursive planner, a parallel tool step, or a multi-turn tool loop.
+The ratified [Recall continuation](#provider-continuation-for-recall) allows
+at most one normalized decision per provider response and one bounded serial
+search-to-open continuation per accepted turn. The [agent tool-loop contract](agent-tool-loop-contract.md#bounded-recall-continuation)
+defines when Guardian may offer the open. Its command and argument bound still
+govern the provider response.
 
 ## 4. Identity Rules
 

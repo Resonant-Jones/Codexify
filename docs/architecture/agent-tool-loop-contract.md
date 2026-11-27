@@ -1,5 +1,5 @@
 Purpose: Define the implemented bounded tool-augmented chat completion contract so the backend exposes one honest tool turn without implying a general autonomous agent loop.
-Last updated: 2026-10-14
+Last updated: 2026-11-25
 Source anchors:
 - guardian/core/chat_completion_service.py
 - guardian/core/ai_router.py
@@ -11,6 +11,62 @@ Source anchors:
 - docs/architecture/runtime-protocol-token-contract.md
 - docs/architecture/provider-tool-turn-boundary-contract.md
 
+## Bounded Recall continuation
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The implemented one-command semantics below remain the baseline. The ratified
+exception permits one authorized historical search, optionally one independently
+authorized open of one result from that search, and one final answer. All other
+tools keep the single-command boundary. A later model-selected read, including
+another page, requires a newly authorized user turn.
+
+1. **Search.** Use the accepted request, task, user message, live attempt and
+   original deadline. Validate the grant before advertisement and dispatch through
+   Command Bus. Freeze the canonical search command and arguments digest before
+   dispatch. Retain enough protected, attempt-bound result identity to establish
+   exactly which members the completed search returned.
+2. **Open.** Only after a completed search with an eligible result may the adapter
+   offer an open constrained to that result set. Guardian verifies the selected
+   member, its parent search run, current resource and model-exposure authority,
+   policy revisions and remaining budget before dispatch. Freeze the open decision
+   independently under the same attempt and deadline. Reject a substituted ID,
+   arbitrary second command, parallel selection or third operation.
+3. **Reentry.** Keep an ordered durable checkpoint for each chosen operation,
+   correlating step, canonical command, argument digest, logical parent and
+   Command Bus run. Duplicate delivery may reconcile the same frozen choice and
+   run only after reauthorization. Recheck before reusing or disclosing results.
+   A completed step cannot execute twice. A conflicting or unverifiable checkpoint,
+   pending run, cancellation, expiry or revoked grant cannot yield a successful
+   open. Report the actual reached stage. No retry refreshes the deadline or scope.
+4. **Finish.** Preserve one authored user turn and at most one durable final
+   assistant answer. Attribute search excerpts and original-source reads
+   distinctly. If open was denied, missing or failed, any permitted answer must
+   state the observed limits. Partial coverage cannot support an exhaustive
+   negative answer. Record command outcomes, coverage and terminal state without
+   copying restricted content into operational receipts.
+
+The [provider contract](provider-tool-turn-boundary-contract.md#provider-continuation-for-recall)
+owns opaque adapter state and correlation. The
+[Recall contract](account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns resource authorization and coverage. The exception leaves all other command budgets and provider-private state rules intact.
+
+### Stage 2B server-side evidence assembly
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.** Before answering,
+the Context Broker may assemble multiple eligible original spans in one bounded
+read operation under Guardian's source-access decisions. Recheck every resource.
+The model cannot select another command, specify an arbitrary internal query or
+expand a graph through this path. Original-source reads, including retries, share
+the accepted-task deadline and the [Stage 2B budgets and receipt rules](account-history-recall-contract.md#bounded-chronological-evidence-packet).
+Only canonical checkpoint metadata may guide replay. Recheck policy, source
+revision, suppression and remaining budget before reusing any result.
+
+Count and report server-side assembly separately from model-selected commands.
+If the model requests Recall, route it through Command Bus under GOV-01's one
+search and at most one authorized open of a returned result. Server-side assembly
+adds no model-selected tool turn. Preserve one authored turn, one final answer
+and the original deadline across both paths.
+
 ## Adjacent Governing Contract
 
 Provider wire translation is governed by
@@ -19,8 +75,9 @@ That contract defines the canonical semantic seam between provider transport
 and Codexify model/tool-turn semantics. The bounded runtime described in this
 file consumes provider-normalized semantic outcomes; it does not consume
 provider wire formats directly. The Stage 1 advertised-subset authorization
-gate remains the pre-execution authority seam, and the one-tool-turn runtime
-contract in this file is unchanged.
+gate remains the pre-execution authority seam. The [bounded Recall continuation](#bounded-recall-continuation)
+is the sole ratified exception to the implemented one-tool-turn limit.
+Stage 2B server-side assembly uses its separate read authority.
 
 ## Scope
 
@@ -230,7 +287,9 @@ Loop stop reasons are canonical tokens in `guardian/protocol_tokens.py`:
 
 - If the first provider response is malformed as a tool decision, the runtime stops with `tool_decision_invalid`.
 - If command-bus execution fails, the runtime stops with `tool_command_failed`.
-- If the model tries to request a second tool turn, the runtime stops with `tool_turn_limit_reached`.
+- Under the implemented one-command path, a second tool turn stops with
+  `tool_turn_limit_reached`. The [ratified Recall exception](#bounded-recall-continuation)
+  requires a completed search and a reauthorized open of a single returned source.
 - The runtime does not recurse on tool failure.
 - The runtime does not silently downgrade a structured tool decision into an undefined loop.
 

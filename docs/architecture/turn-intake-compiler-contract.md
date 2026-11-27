@@ -3,7 +3,7 @@
 Purpose: Define the governed pre-model seam that classifies a user turn into typed runtime posture before retrieval, context assembly, tool/action routing, model invocation, memory writes, or mutation.
 Classification: architecture contract
 Implementation status: docs-only contract; no live runtime implementation in this task
-Last updated: 2026-06-27
+Last updated: 2026-11-25
 Source anchors / governing docs:
 - docs/architecture/README.md
 - docs/architecture/00-current-state.md
@@ -21,6 +21,70 @@ This is a docs-only contract. It defines the pre-model turn-posture seam and doe
 Companion surface: [Turn Intake Fixture Pack](./turn-intake-fixture-pack.md) provides representative expected classifications for this contract. It is docs-only and does not prove runtime implementation. Future classifier or routing tests should treat it as doctrine source material only after converting the expectations into executable fixtures.
 
 Related proposal: [Turn Intake Token Domain Proposal](./turn-intake-token-domain-proposal.md) evaluates which repeated contract and fixture values may deserve promotion into canonical token registries later. It is proposal-only and does not create runtime tokens.
+
+## Pre-answer Temporal Recollection
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+The existing intake contract and [fixture pack](turn-intake-fixture-pack.md)
+describe expected behavior. Stage 2B can implement this narrow accepted-turn
+path in the existing Context Broker and retrieval policy flow without first
+building the full compiler. The following steps describe the target.
+
+1. Resolve the authenticated account, accepted user message, live attempt,
+   current Project, source-use limits and original deadline. Honor a request
+   to avoid history or specific sources, including on retry.
+2. Detect a possible historical cue in the accepted message. For example, a
+   title or callback can suggest an entity even if nobody asks a recall question.
+   Treat classification and confidence as advisory. Apply existing UMS ambient
+   eligibility or obtain the separate fresh historical grant before any lookup.
+   On the ambient-memory path select only among eligible UMS records. Skip the
+   episode index and original-source reads unless Guardian independently issues
+   the historical grant. A memory can support an answer within its existing
+   eligibility even when its original source cannot be opened.
+3. On the historical path search authorized names, titles and aliases for exact matches first. If
+   needed, use permitted full-text or semantic retrieval within the same bounds.
+   Rank eligible anchors for relevance, keeping ambiguity visible. Do not merge
+   subjects on string similarity. Expand from a selected anchor only through
+   bounded, evidenced relationships to eligible related episodes.
+4. Recheck each original resource, revision and span through Recall's read
+   authority. Load only the authorized originals within the shared budget. Use
+   event time for chronological presentation and retain distinct source roles,
+   retrospective assertions, conflicts and missing dates. Assess claim support
+   and present applicability without treating delivery order or recency as proof.
+5. Revalidate before provider handoff and assemble the
+   [chronological evidence packet](account-history-recall-contract.md#bounded-chronological-evidence-packet)
+   under the original deadline. Mark historical text as untrusted evidence.
+   A natural answer may recognize the callback without reciting the timeline.
+   If support is insufficient, express uncertainty or ask for clarification.
+   Never claim another Persona's experience as the active Persona's own.
+
+This is trusted server-side assembly. The owner policy defaults to disabled
+and bounds automatic historical lookup to the current Project under a fresh
+accepted-turn grant. Explicit Recall uses its own [request-bound authority](adr/084-unified-account-owned-memory-store.md#account-recall-and-delegated-preference-approval)
+even when automatic consultation is disabled. The intake classifier cannot issue its
+own grant, launch an unrestricted graph traversal, scan the whole vault, or
+fall through to an external connector. Browser, Notion and GitHub lookup each
+have separate authorities. A cue does not activate browser-history retrieval.
+[ADR-070](adr/070-browser-episodic-context-and-recall.md) documents the separate
+browser lane. Recollection produces one bounded input for the authored turn.
+
+### Historical evidence and current-turn applicability
+
+Separate reconstructed history, applicability to this turn and any later durable
+memory decision. A valid current explicit instruction takes precedence over a
+historical preference for the task as authorized. This cannot widen permissions,
+override higher-priority constraints, or change a Personal Fact, Profile or Persona.
+Use the current instruction even when only a derived historical recap is available.
+
+When applicability materially affects the answer, distinguish “you preferred X
+then” from “I don't know if that still applies.” Use a reasonable, reversible
+default for low-stakes choices when the available evidence and authority permit;
+clarify when consequential, irreversible or material ambiguity cannot otherwise
+be resolved. No routine reconfirmation is required. A one-off exception does not
+constitute a new preference. Send explicitly requested durable changes to
+[UMS authority](unified-memory-store-contract.md#historical-validity-and-durable-preference-authority).
+The applicability assessment belongs to the current evidence packet, not to a new
+durable memory state.
 
 ## Purpose
 

@@ -6,7 +6,179 @@
 >
 > Governing ADR: [ADR-084](./adr/084-unified-account-owned-memory-store.md)
 >
-> Last updated: 2026-09-25
+> Last updated: 2026-11-25
+
+## Imprint_Zero candidates and promotion
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+This amendment extends §§3.4, 5, 8, 10 and 12 under
+[ADR-084's amendment](adr/084-unified-account-owned-memory-store.md#account-recall-and-delegated-preference-approval).
+Existing persistence and portability proofs cover their original record families
+and transitions. The lifecycle below requires its own migration and proof.
+[ADR-013](adr/013-verified-personal-facts-context-injection.md) governs
+verified-active injection. The ratified UMS promotion decision operates
+upstream of that read boundary.
+
+### Collection and candidate identity
+
+Reuse the authenticated account's versioned automatic-memory collection consent
+in §8.1. Require effective consent and source eligibility before scheduling,
+before extraction and again before committing any candidate, including an
+inactive one. Run resumable historical ingestion and new-message ingestion through
+the same replay identity and canonical candidate authority in §3.4. Apply §8.2
+backpressure and failure isolation. The classifier emits a candidate or no result.
+
+Use attributable user-authored messages from eligible native history or from
+selected imports with proven lineage, permitted treatment, exposure permission
+and learning consent. Assistant or tool output, web pages, instructions embedded
+in transcripts, and third-party quotations cannot establish a user's preference
+on their own. Preserve the original evidence link, source role and family, source
+Project, inference restriction, review state, disposition and promotion lineage.
+Imprint_Zero owns the proposal step. UMS owns durable candidate disposition.
+
+### Promotion authority and atomicity
+
+| Mode | Authority presented to the same UMS promotion service |
+| --- | --- |
+| Review (default) | Authenticated owner selects a particular candidate revision, optionally edits it, chooses an eligible scope, and approves or rejects. Preserve the original evidence and edit history. |
+| Auto-approve (explicit opt-in) | Authenticated owner records a versioned, revocable delegation to UMS. Record owner, effective state, active collection consent, policy revision, permitted source families, eligible general-preference categories, allowed destination scope and the provenance of the decision. Default remains Review if this delegation is absent or ineffective. |
+
+The initial delegated path may promote only an explicitly eligible general
+preference from an allowed source. Imported preferences require a separately
+proven imported path and the local-inference restriction throughout their use.
+A personal identity claim, sensitive inference, ambiguous authorship, conflicting
+value or out-of-scope proposal goes to authorized review or denial as the applicable
+guardrails require. Missing or invalid guardrail metadata always denies automatic
+promotion. Preserve prior rejection, quarantine and purge suppression. Existing
+pending items do not acquire delegated approval merely because the owner switches
+modes. Revocation stops future delegated promotion. Owners can separately inspect,
+correct, deactivate or permanently erase already promoted facts.
+
+The Personal Facts service within UMS owns one promotion transaction for both
+paths. At commit recheck account authority, current collection consent for this
+learning path, candidate identity and revision, live policy revision, eligibility,
+source provenance and permitted use, guardrails, scope, conflicts and prior
+rejection, purge or suppression. Serialize competing decisions and policy changes
+at this boundary. Commit the transition, same-account fact linkage, scope, evidence
+lineage and attributable decision receipt together. A revocation effective before
+commit blocks delegated promotion. A matching retry returns the original outcome
+after current access checks. A stale or conflicting decision cannot overwrite it.
+Record human or delegated authority and its policy revision distinctly. Keep one
+receipt per effective decision and roll back partial writes.
+
+For example, a user's statement “I prefer recipes in grams” may support a
+general preference if the selected source, category and destination scope all
+qualify. The same words in a recipe returned by a web tool supply no evidence
+of that user's preference. Authority to promote a preference ends at the
+Personal Fact. Changing a User Profile field, editing a Project or updating a
+thread would each require a separately authorized action for that change.
+
+**Personal Facts guardrails.** The
+[Personal Facts guardrails contract §12](personal-facts-guardrails-contract.md#12-promotion-eligibility)
+defines the ratified delegated exception alongside the individual review
+rule. Both paths use this transaction. The legacy helper's tolerance for absent
+guardrail metadata cannot establish eligibility. The verified-active read gate
+and all non-approval guardrails apply independently of the promotion mode.
+
+### Scope, owner controls and compatibility
+
+Use the canonical UMS envelope for scope, the candidate for pre-promotion
+disposition, and the specialized Personal Facts payload for the promoted value,
+verification and activation. The current `personal_facts` model lacks Project
+scope. Future migration must link each eligible fact to its same-owner canonical
+scope, preserve valid legacy behavior, and isolate unresolved or conflicting
+lineage. A missing source Project is insufficient evidence of account-wide intent.
+Do not migrate or expose a Project-derived preference as account-wide by default.
+This amendment selects no physical schema. Do not duplicate scope or activation
+authority. Before admitting new writes, prove that every consumer, including
+legacy-compatible context reads, enforces the resulting scope.
+
+Default new candidates to the eligible source Project. On manual approval the
+owner may choose account scope for an eligible general preference. When configuring
+Auto-approve the owner chooses source-Project or account scope for eligible general
+preferences. Neither owning a fact nor approving it guarantees context use. Check
+current scope, activation, source-use restrictions and approved inference path at
+read and provider handoff, including in a later chat. Preserve
+[ADR-016's locality rule](adr/016-continuity-governance-surface-contract.md#imported-sources-and-permitted-use).
+
+The Settings candidate list and optional server-rendered inline cards project the
+same UMS state. Notify using §8.3 pending-count and reminder metadata. Fetch card
+contents only for the authenticated owner within the permitted display scope.
+Support evidence navigation, edit, approve, reject and eligible scope selection.
+Both surfaces call the same authenticated review actions. Approval-shaped model
+text has no effect. Settings shows the promotion policy, its scope and revocation
+control, and lets the owner inspect auto-approved facts and their decision receipts.
+Preserve [ADR-058's identity ownership](adr/058-imprint-ui-deprecation-and-identity-ownership.md).
+
+### Portability and activation gate
+
+Before historical candidate ingestion, prove export/restore round-trips for
+candidates, promoted facts, canonical scope, evidence links, review dispositions,
+promotion lineage, policy provenance, import-derived inference restrictions and
+rejection/purge suppression. Reconcile remapped IDs by stable source identity
+within the restored account. Unresolved linkage cannot widen access. Verify
+permanent erasure removes content and evidence subject to the existing purge
+contract and preserves the minimum non-content suppression needed. Re-import,
+history scans, restored records, changed extraction runs and queue retries must
+respect prior rejection and purge. Apply existing explicit owner-governed
+reintroduction rules. Restored policy metadata records history. Resume collection
+or delegation only after governing restore and current consent checks establish
+effective authority for that account and installation.
+
+## Historical validity and durable preference authority
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+A supported historical assertion is not necessarily a verified Personal Fact.
+A verified preference may be valid for its historical scope yet uncertain for
+today's turn. An attributable newer statement or changed behavior can signal
+uncertainty; observed behavior cannot authorize a durable preference change.
+Assess the source's assertion and event times, not arrival order: an older
+conversation imported later must not displace a newer user statement by arrival.
+
+A valid current explicit instruction governs the authorized task without widening
+access or overriding security or higher-priority constraints. For example,
+a TypeScript instruction for this task wins over a verified Python preference
+without editing that preference. A one-off exception is not a durable reversal.
+The read path cannot change eligibility state, deactivate, replace or promote
+a fact because it encounters a current instruction, contradiction or ambiguity.
+Conflicting candidates stay in the applicable review or denial path; delegated
+approval cannot resolve the conflict. An explicit durable correction is routed
+through the existing authorized UMS mutation path.
+
+See [current-turn applicability](turn-intake-compiler-contract.md#historical-evidence-and-current-turn-applicability)
+for the broker boundary and [interpretation governance](account-history-recall-contract.md#claim-support-and-interpretation-provenance)
+for transient evidence and independently authorized retention.
+
+## Read-side eligibility for Temporal Recollection
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+The existing `episodic_semantic_memory` species can supply evidence when all
+ambient eligibility checks pass. The other canonical species keep their defined
+meanings. A PostgreSQL episode projection is derived from sources. It adds no
+UMS species, durable biography or parallel identity authority.
+
+The narrow UMS prerequisite for Stage 2B is an executable, proven read decision
+for each contributing record: authenticated owner, canonical account or Project
+scope, persona attribution, review and lifecycle status, context posture,
+exclusions and permitted inference destination. Preserve eligible account-scope
+memory in ordinary turns. Do not infer account scope from missing metadata or
+use an account-wide compatibility listing to satisfy strict Project restrictions.
+The broker's current verified-fact reader filters by user, verified status and
+activation. That code path alone cannot prove scoped, restriction-aware context
+assembly. Stage 2B needs this read boundary and proven Recall. It does not
+depend on Stage 3 candidate ingestion or Stage 4 delegated promotion.
+
+Keep explicit-recall-only records and pending candidates outside ambient memory.
+Automatic consultation of original history requires the owner-enabled,
+disabled-by-default [historical recollection policy](adr/084-unified-account-owned-memory-store.md#temporal-recollection-authority)
+and a fresh accepted-turn grant confined to the current Project. Explicit
+historical Recall uses its own [current-request authorization](adr/084-unified-account-owned-memory-store.md#account-recall-and-delegated-preference-approval)
+and remains independently available when automatic consultation is disabled.
+Index membership, a memory reference and an inferred relationship confer no
+eligibility. Recollection performs no collection, promotion or activation.
+Import-derived memory retains applicable local-inference restrictions at every
+subsequent use. Evidence associated with another Persona
+keeps its source attribution under [ADR-058](adr/058-imprint-ui-deprecation-and-identity-ownership.md).
 
 ## 1. Purpose
 
@@ -188,7 +360,7 @@ The candidate owns two independent, typed pre-promotion dimensions:
 | Field | Canonical values | Authority |
 | --- | --- | --- |
 | `candidate_guardrail_status` | `reviewable`, `quarantined`, `discarded`, `promotion_blocked` | Guardrail disposition, using the existing Personal Facts guardrail vocabulary. |
-| `candidate_review_state` | `pending`, `approved`, `rejected`, `disputed` | Account-user review decision, using the existing UMS review vocabulary. |
+| `candidate_review_state` | `pending`, `approved`, `rejected`, `disputed` | Owner-authorized UMS disposition using the existing review vocabulary. Only approval may be delegated under the promotion rules above. |
 | `candidate_reason_code` | Existing canonical Personal Facts reason token, nullable only when no reason applies | Machine-readable reason for the current disposition; `excessive_key_length` identifies an overlong proposal. |
 
 These are target contract values, not a claim that the current runtime has
@@ -197,16 +369,19 @@ returns `quarantine`/`discard` dispositions while the guardrails contract
 names `quarantined`/`discarded` guardrail states. The later implementation
 must reconcile that legacy input at one boundary and register the accepted
 serialized values before persistence or API use; it must not store both
-spellings as aliases. ADR-090 remains responsible for the exact Personal
-Facts guardrail-to-candidate binding.
+spellings as aliases. The [Personal Facts guardrails contract](personal-facts-guardrails-contract.md)
+governs guardrail dispositions and promotion eligibility. This section owns their
+binding to the canonical UMS candidate.
 
 New candidates start `pending`. A `quarantined`, `discarded`, or
 `promotion_blocked` candidate cannot be approved or promoted. An account-user
 rejection or dispute is retained on the candidate; ordinary replay cannot
 reset it. `approved` is recorded only in the promotion transaction, after
 `reviewable` eligibility and a non-null bounded `fact_key` are proven. The
-candidate decision timestamp and append-only transition audit preserve who
-acted, when, and why under §4.2. No new serialized aliases are introduced.
+[promotion rules](#promotion-authority-and-atomicity) require distinct evidence
+for an individual owner decision and UMS approval under live delegation.
+The candidate decision timestamp and append-only transition audit preserve
+who acted, when, and why under §4.2. No new serialized aliases are introduced.
 
 Promotion is one account-authorized transition from UMS candidate to a
 `personal_facts` row. It creates or resolves the fact idempotently, retains the
@@ -850,7 +1025,7 @@ For each species the contract fixes:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Episodic / semantic memory | `episodic_semantic_memory` | user (Vault, explicit remember) or legacy ordinary-memory writer | yes, by default | yes | yes (§4.10) | mutable in place; revisioned on authority transitions | `memory_entries` row, all silos |
 | Verified personal fact | `verified_personal_fact` | Personal Facts service only | yes (already verified) | yes | yes (Personal Facts evidence trail) | revisioned, append-only mutations | `personal_facts` row where `status='verified'` AND `is_active=true` |
-| Candidate / unreviewed fact | `candidate_unreviewed_fact` | Personal Facts service or import pipeline | required before any promotion; never ambient as candidate | account-authorized inspection only for quarantined/rejected candidates | yes (candidate-linked `memory_provenance` in target; legacy Personal Facts evidence during compatibility reads) | revisioned, append-only mutations | legacy `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false`; target UMS candidate under §3.4 |
+| Candidate / unreviewed fact | `candidate_unreviewed_fact` | Personal Facts service or import pipeline | owner-authorized UMS approval required before promotion; never ambient as candidate | account-authorized inspection only | yes (candidate-linked `memory_provenance` in target; legacy Personal Facts evidence during compatibility reads) | revisioned, append-only mutations | legacy `personal_facts` row where `status ∈ {candidate, disputed, archived}` OR `is_active=false`; target UMS candidate under §3.4 |
 
 The last column is a **legacy compatibility map**, not target candidate
 authority. The UMS candidate record owns pre-promotion state and evidence
@@ -1176,10 +1351,10 @@ by relational foreign key.
 | `candidate_guardrail_status` | `String(32)`           | NULL    | NULL      | Candidate guardrail disposition; required only for candidate species |
 | `candidate_review_state` | `String(32)`               | NULL    | NULL      | Candidate pre-promotion review authority; required only for candidate species |
 | `candidate_reason_code` | `String(64)`                | NULL    | NULL      | Canonical reason for candidate disposition where applicable |
-| `candidate_decided_at` | `TIMESTAMP(timezone=True)`   | NULL    | NULL      | Time of the latest account-user candidate review decision |
+| `candidate_decided_at` | `TIMESTAMP(timezone=True)`   | NULL    | NULL      | Time of the latest owner-authorized candidate disposition |
 | `candidate_predecessor_id` | `String(36)`             | NULL    | NULL      | Same-account predecessor candidate for explicit re-evaluation |
 | `promoted_personal_fact_id` | `BigInteger`             | NULL    | NULL      | Local same-account link to the promoted `personal_facts.id`; archive restore remaps it |
-| `reviewed_at`         | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which user review first approved the row; non-NULL means reviewed |
+| `reviewed_at`         | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp of the first owner-authorized approval; non-NULL means reviewed |
 | `activated_at`        | `TIMESTAMP(timezone=True)`    | NULL    | NULL      | Timestamp at which the row became ambient-eligible; non-NULL means activated |
 | `pinned`              | `Boolean`                     | NOT NULL | `false`  | Priority flag; pinning changes priority only, not truth or ownership |
 | `held`                | `Boolean`                     | NOT NULL | `false`  | Decay-suspension flag; held rows do not transition lifecycle through decay |
@@ -1332,7 +1507,10 @@ Activation must never be recorded before review.
 The governance states are logically distinct but need not
 occupy different wall-clock instants. Atomic
 review-and-activate operations may persist one timestamp
-for both transitions. Artificial timestamp offsets (for
+for both transitions. A delegated Personal Fact approval counts as review for
+this ordering only when the canonical UMS transaction establishes eligible
+owner authority and records the approval. Activation still requires its own
+lifecycle eligibility. Artificial timestamp offsets (for
 example, an artificial `+1 microsecond` separation) are
 forbidden as a way to satisfy the schema. Timestamp
 equality does not collapse the two governance states into
@@ -2333,7 +2511,7 @@ canonical.
 | --- | --- | --- | --- |
 | User: “Remember that I prefer X” | approved, active, revisioned | yes | yes when all policy gates pass |
 | User: “Remember this” referring to assistant, web, tool, or mixed content | exact target preview or pending proposal | yes during preview/review | only after exact confirmation |
-| Automatic post-turn classifier | pending candidate | review surface only unless explicitly requested | no |
+| Automatic post-turn classifier | pending candidate under collection consent | account-authorized review only | excluded as a candidate; a promoted fact may qualify under the verified-active rules |
 | OpenAI/Anthropic memory import | dormant, `explicit_recall_only` record; optional candidate fact | yes through a turn-scoped grant | no until approved and activated |
 | Web/tool claim about the user | quarantined evidence | explicit inspection only | never by itself |
 | Assistant personality/identity inference | candidate/quarantine | explicit inspection only | no until explicit approval and subtype policy allows |
@@ -2416,12 +2594,15 @@ MemoryRecallGrant
 Rules:
 
 - The model cannot mint, widen, persist, replay, or reuse a grant.
-- The repository and Context Broker require the grant for any non-ambient
-  record.
+- The repository and Context Broker require the explicit recall grant for any
+  eligible non-ambient UMS record used through this path. The Stage 2B
+  historical-consultation grant authorizes eligible original sources and
+  supplies no access to non-ambient UMS records.
 - The grant is bound to one authenticated account principal and one request.
 - Wrong-account, expired, replayed, or scope-expanded grants fail closed.
-- Pending, rejected, disputed, dormant, retired, imported, or quarantined
-  content requires explicit user intent naming the relevant widening.
+- Eligible pending, rejected, disputed, dormant, retired, imported, or
+  quarantined ordinary memory requires explicit user intent naming the
+  relevant widening. Personal Fact candidates remain inspection-only under §7.
 - Explicit recall does not approve, activate, restore, edit, pin, hold, or
   change context posture.
 

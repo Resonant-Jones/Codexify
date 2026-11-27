@@ -3,9 +3,65 @@
 - Status: Accepted architecture decision; implementation pending
 - Date / accepted: 2026-11-13
 - Decision owner and human approver: Resonant Jones
-- Scope: trusted Private Preview GitHub/Notion read-only connector pilot
+- Scope: trusted Private Preview GitHub/Notion read-only connector pilot and independently authorized continuity reads under GOV-01 and GOV-02 Revision 2
 - Evidence posture: documented-contract and inspected code paths, not runtime proof
 - Release posture: HOLD unchanged
+
+## Recall on the trusted Preview worker
+
+**CX-RECALL-IMPRINT-GOV-01 · Ratified by Resonant Jones, 2026-11-25.**
+The accepted pilot below covers GitHub and Notion reads. GOV-01 reuses its
+in-process, account-bound Command Bus topology for a separately authorized Recall
+operation. Connector permissions, the operator key, an authenticated HTTP route
+and queue-supplied account fields cannot establish worker authority for Recall.
+
+Before advertising a Recall operation, Guardian must establish the original
+accepting account, accepted request and user message, canonical task, live attempt,
+Recall grant and purpose, permitted operation and source scope, applicable policy
+revisions, exclusions and original deadline. Verify current account eligibility,
+Project and thread ownership, resource policy, cancellation and terminal state.
+For a potential open, establish the permitted result set before advertisement
+and resolve the exact selected object before dispatch. Bind the canonical command
+and arguments to the accepted attempt at execution. Command Bus enforces the grant
+for every model-selected operation.
+
+Repeat authorization at execution and on every retry. Reconstruct authority only
+from canonical accepted-work records and current policy within the original scope
+and deadline. Deny stale, revoked, incomplete or mismatched authority, including
+on replay of a completed result. Sequential requests from different accounts on a
+shared worker must never share grants, results or provider continuation state.
+
+Use a dedicated read-only PostgreSQL role, read-only transactions and bounded,
+typed reads. Guardian independently enforces account, Project, resource, purpose
+and content-use restrictions. Arbitrary SQL is outside this authority. Verify
+asset-store permissions at original-source open.
+
+[Recall](../account-history-recall-contract.md#search-coverage-and-original-source-opening)
+owns the evidence grant. The [tool loop](../agent-tool-loop-contract.md#bounded-recall-continuation)
+owns sequencing and replay. A two-account shared-worker proof is required before
+any Preview worker can exercise this extension.
+
+## Accepted work for recollection
+
+**CX-RECALL-IMPRINT-GOV-02 Revision 2 · Ratified by Resonant Jones, 2026-11-25.**
+For an enabled ambient historical read on the trusted Preview worker, bind
+Guardian's decision to the original accepting account, canonical task, user
+message, turn and live attempt, current Project, source families, recollection
+purpose, current policy revisions and original deadline. The standing owner
+policy is an input to that decision. Neither background-worker identity nor a
+previous grant or provider continuation is sufficient. A missing canonical
+binding denies the historical read.
+
+The Context Broker can assemble a bounded set of internal source spans under
+that grant. Reauthorize at retrieval, at each original resource and immediately
+before provider handoff. On retry, reconcile the accepted task and checkpoint,
+remaining budgets, source revisions and current permissions. Discard stale
+evidence and deny on revocation, cancellation, expiry or mismatch. Reentry must
+preserve one final answer and must never restart the time or work budget.
+Prove alternating accounts on the same worker cannot reuse each other's grant,
+index candidates, cached packets or provider state. Model-selected operations
+still require the GOV-01 Command Bus path. Connector and browser access require
+their own authority.
 
 ## Context and decision
 
@@ -143,7 +199,7 @@ in-process topology is settled; the detailed adapter and proof remain pending.
 
 ## Connector and history boundaries
 
-Scope is only trusted Private Preview GitHub/Notion `content_search` and
+The connector pilot covers only trusted Private Preview GitHub/Notion `content_search` and
 `content_read`. Preserve their provider-specific execution, credential and
 resource-permission owners; the legacy GitHub sync owner remains separate.
 No connector writes, repository mutations, ingestion/synchronization, memory or
@@ -151,12 +207,13 @@ identity mutations, background scheduling, global connector authorization or
 default Beta route promotion are introduced.
 
 This mechanism may be reusable, but permission never follows reuse automatically.
-The [history recall contract](../account-history-recall-contract.md) retains its
-request-scoped HistoryRecallGrant, canonical account and Project ownership,
-per-message provenance classification and imported-history model-exposure
-exclusions. This connector decision does **not** activate remote/multi-user
-history-recall workers or amend ADR-016/084 consent. Imported-history exposure
-remains separately unauthorized.
+The [history recall contract](../account-history-recall-contract.md) retains
+request-bound grants, canonical ownership and per-message provenance checks.
+The initial runtime excludes imports from its Recall path. The independently
+ratified continuity reads at the top of this ADR require their own authority
+and shared-worker proof. Selected imported content requires ADR-016 and ADR-084
+authorization and approved local inference. Connector approval supplies no
+Recall, recollection or imported-content permission.
 
 ## Alignment and consequences
 
@@ -170,7 +227,7 @@ remains separately unauthorized.
 - ADR-094 supplies invocation-specific revalidation and shared-worker isolation
   principles. Its subject is coding execution credentials; it neither mandates
   connector bearer transport nor grants connector authority.
-- ADR-016 and ADR-084 remain unchanged, including import/recall consent.
+- ADR-016 and ADR-084 govern consent and source use independently of the connector pilot.
 
 None of these decisions is superseded. The smaller trusted topology avoids an
 unnecessary credential service but requires a carefully proven canonical-state
@@ -178,7 +235,8 @@ resolver and isolation boundary. Missing proof continues to deny execution.
 
 ## Subsequent implementation proof requirements
 
-These are required future proofs, **not tests executed by this docs task**:
+These future proofs apply to the GitHub/Notion connector pilot. Continuity
+proofs are governed by the [campaign gates](../README.md#guardian-recall-temporal-recollection-and-imprint_zero).
 
 1. Account A executes only its authorized read.
 2. Account B cannot reuse A's job or connector.
@@ -189,7 +247,7 @@ These are required future proofs, **not tests executed by this docs task**:
 7. Same-worker sequential A/B work preserves credential/context isolation.
 8. CommandRun/events retain truthful account and attempt lineage without secrets.
 9. Command Bus manifest, policy and permission checks cannot be bypassed.
-10. Imported-history content remains excluded.
+10. Connector execution excludes imported-history content.
 
 No runtime, migration, configuration, test, deployment or release qualification
 is established by this decision. HOLD and both release lanes remain unchanged.
