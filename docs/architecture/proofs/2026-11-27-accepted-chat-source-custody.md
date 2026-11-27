@@ -117,3 +117,65 @@ mutation remain separate work. Historical reads stay disabled in ordinary
 chat. No serving database was contacted. This receipt proves only the
 isolated prerequisite and does not establish Stage 1 or Private Preview
 qualification.
+
+## Integration reconciliation · 2026-11-27
+
+PR [#1106](https://github.com/Resonant-Jones/Codexify/pull/1106) originally
+published `700c9b318572088ac080cddeec60705bc057465d`. The branch integrates
+verified mainline `75e65582b4b3b435322747aaf003ea72eaeafde3` through the
+two-parent merge `1c197d684f1c98fafb6b34005d6cfd4c0f3672cd`.
+The reconciled runtime and tests were evaluated at
+`16fe99495dbdd492622366e3d8e14993897b559c`. The isolated evaluations
+and their earlier validation failures above retain their original scope.
+
+- **Authored-turn authority.** Attempt creation preserves mainline thread
+  locking and rechecks the selected authored turn inside the acceptance
+  transaction. The enqueue handoff takes the custody ID from that same
+  selection. Disagreement produces the existing stale-turn refusal. A
+  stale submission returns HTTP 409 before attempt creation or queue
+  publication. A receipt-less legacy turn can complete with NULL source
+  custody. Once accepted, newer messages cannot replace the bound source.
+- **Ordinary embedding.** Authored-turn admission and source custody share
+  the existing ordinary-only interpretation of `embedding_status`. The
+  historical classifier still receives full metadata. An origin assertion
+  remains required, and actual import evidence, malformed assertions and
+  conflicting or ambiguous origins remain ineligible. The route proof used
+  ordinary message creation, real PostgreSQL writes through the embedding
+  worker metadata seam, and real source resolution before and after
+  enrichment. It used canonical numeric IDs with psycopg 3. An additional
+  disposable run verified the same write seam with string IDs through
+  psycopg2. The initial psycopg 3 string-ID attempt failed on PostgreSQL's
+  bigint/VARCHAR comparison. That worker address-binding path is outside
+  the custody correction.
+- **Executed local validation.** Python 3.11.15 ran 451 focused tests
+  (15 warnings), 890 architecture and evidence-packet tests (one warning),
+  and 42 qualification tests (one warning), with zero failures, errors or
+  skips in the final runs. The focused suite includes exact PostgreSQL
+  source readback, concurrent and duplicate request checks, stale-turn
+  rejection, three embedding-state transitions, sequential A → B → A
+  resolution, substituted-source denial, lifecycle denial and the existing
+  post-selection checkpoint checks.
+- **Disposable PostgreSQL 17.6.** The dedicated migration test executed
+  upgrade, downgrade and re-upgrade, legacy NULL preservation, immutable
+  source and account custody, normal checkpoint and terminal writes, and
+  denial after source deletion. Alembic resolved 144 revisions and the
+  single head `e4b7c2d9a601` with parent `a64c358e2241`. The dated
+  `ab71d5ce9604` Preview checkpoint is six revisions behind in the source
+  graph. The serving database was not contacted.
+- **Qualification and formatting.** The previously published head's
+  Guardian CI stopped at `test_committed_registry_is_current` and skipped
+  the container migration job. The repository generator refreshed the
+  committed projection after the runtime commit. The generated diff changes
+  only the two stale path counts, and local qualification, generated-artifact,
+  tracked-path and diff checks passed. Against the integrated mainline,
+  Black 26.5.1, isort 5.12.0 and pyupgrade 3.4.0 showed only pre-existing
+  whole-file differences. Ruff found zero new diagnostics. Local merge and
+  runtime commits bypassed only Black and isort after checking the baseline
+  differences. Hook configuration remains intact.
+- **Boundary.** This proof establishes the reconciled Stage 1A prerequisite
+  in disposable PostgreSQL. It grants no historical-read authority and
+  activates no resolver consumer. Accepted content-revision custody and
+  durable native-origin custody remain separate. The corrected branch still
+  requires authorized publication, fresh CI including the container migration
+  job, review on the corrected head, and separate human merge approval.
+  Release remains **HOLD**.
