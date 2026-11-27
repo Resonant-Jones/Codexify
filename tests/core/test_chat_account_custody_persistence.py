@@ -104,7 +104,13 @@ def test_source_custody_requires_original_account_before_database_use():
         (build_native_origin_assertion().as_metadata(), 11),
         ({}, None),
         ({"origin": "chatgpt_import"}, None),
-        ({**build_native_origin_assertion().as_metadata(), "origin": "claude_import"}, None),
+        (
+            {
+                **build_native_origin_assertion().as_metadata(),
+                "origin": "claude_import",
+            },
+            None,
+        ),
         (None, None),
     ],
 )

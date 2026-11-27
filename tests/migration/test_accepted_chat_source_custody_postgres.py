@@ -214,9 +214,9 @@ def test_migration_source_custody_roundtrip(disposable_database, monkeypatch):
         args_hash="a" * 64,
     )
     with sessions.begin() as session:
-        session.get(
-            ChatCompletionAttempt, task.request_id
-        ).terminal_event_type = "task.failed"
+        session.get(ChatCompletionAttempt, task.request_id).terminal_event_type = (
+            "task.failed"
+        )
     with engine.connect() as connection:
         before = connection.execute(
             text(

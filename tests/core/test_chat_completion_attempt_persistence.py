@@ -159,9 +159,13 @@ def test_persistence_failure_blocks_enqueue_and_cleans_up(acceptance, monkeypatc
     )
     with pytest.raises(service.ChatCompletionEnqueueError) as error:
         service.enqueue_chat_completion(
-            task, thread_id=1, turn_id="turn-1", participant=participant,
+            task,
+            thread_id=1,
+            turn_id="turn-1",
+            participant=participant,
             account_acceptance_scope=RequestUserScope(
-                user_id=task.user_id, account_id=task.user_id,
+                user_id=task.user_id,
+                account_id=task.user_id,
             ),
         )
     assert error.value.reason == "attempt_persistence_unavailable"

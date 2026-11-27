@@ -22,8 +22,7 @@ def upgrade() -> None:
         "(accepted_user_message_id > 0 AND accepted_account_id IS NOT NULL "
         "AND length(trim(accepted_account_id)) > 0)",
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE FUNCTION chat_attempt_source_custody_immutable()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
@@ -34,15 +33,12 @@ def upgrade() -> None:
             RETURN NEW;
         END;
         $$
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TRIGGER chat_attempt_source_custody_immutable
         BEFORE UPDATE ON chat_completion_attempts
         FOR EACH ROW EXECUTE FUNCTION chat_attempt_source_custody_immutable()
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

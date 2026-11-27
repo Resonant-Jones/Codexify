@@ -324,8 +324,12 @@ def test_identity_is_content_free_and_resolves_a_b_a_without_checkpoints(store):
     a = accepted_source_work(store)
     seed_source(store, message_id=12, thread=2, account="b@example.com")
     b = seed(
-        store, account="b@example.com", thread=2, suffix="b",
-        message_id=12, checkpoint=False,
+        store,
+        account="b@example.com",
+        thread=2,
+        suffix="b",
+        message_id=12,
+        checkpoint=False,
     )
     first = resolve_accepted_chat_work_identity(store, a)
     second = resolve_accepted_chat_work_identity(store, b)
@@ -475,7 +479,9 @@ def test_preselection_denies_cancelled_and_unavailable_authority(store, monkeypa
     with pytest.raises(
         ChatAccountCustodyUnavailable, match="^accepted_chat_account_unavailable$"
     ):
-        resolve_accepted_chat_work_identity(SimpleNamespace(_sa_session=unavailable), task)
+        resolve_accepted_chat_work_identity(
+            SimpleNamespace(_sa_session=unavailable), task
+        )
 
 
 @pytest.mark.parametrize(

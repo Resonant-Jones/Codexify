@@ -10,13 +10,13 @@ from tests.utils import get_test_user_id
 
 
 def _override_request_scope(test_client, user_id: str) -> None:
-    test_client.app.dependency_overrides[
-        chat_routes.get_request_user_scope
-    ] = lambda: RequestUserScope(
-        user_id=user_id,
-        subject_id="external-auth-subject",
-        account_id=user_id,
-        multi_user_enabled=False,
+    test_client.app.dependency_overrides[chat_routes.get_request_user_scope] = (
+        lambda: RequestUserScope(
+            user_id=user_id,
+            subject_id="external-auth-subject",
+            account_id=user_id,
+            multi_user_enabled=False,
+        )
     )
 
 
