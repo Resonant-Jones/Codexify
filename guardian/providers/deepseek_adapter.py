@@ -7,6 +7,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+NATIVE_EFFORT_LEVELS = ("low", "high", "max")
+
 
 @dataclass(frozen=True)
 class DeepSeekResponse:
@@ -48,17 +50,23 @@ def build_payload(
     model: str,
     messages: list[dict[str, Any]],
     reasoning_mode: str | None = None,
+    thinking_effort: str | None = None,
     temperature: float | None = None,
     tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     enabled = thinking_enabled(reasoning_mode)
+    if thinking_effort is not None and (
+        not enabled or thinking_effort not in (*NATIVE_EFFORT_LEVELS, "default")
+    ):
+        raise ValueError("Invalid thinking effort for this DeepSeek request")
     payload: dict[str, Any] = {
         "model": model,
         "messages": copy.deepcopy(messages),
         "thinking": {"type": "enabled" if enabled else "disabled"},
     }
     if enabled:
-        payload["reasoning_effort"] = "high"
+        if thinking_effort != "default":
+            payload["reasoning_effort"] = thinking_effort or "high"
     else:
         payload["temperature"] = 0.7 if temperature is None else float(temperature)
     if tools:

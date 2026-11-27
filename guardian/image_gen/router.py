@@ -1,5 +1,4 @@
 import os
-from typing import Type
 
 from fastapi import HTTPException
 
@@ -8,7 +7,7 @@ from guardian.image_gen.providers.local import LocalImageGen
 from guardian.image_gen.providers.openai import OpenAIImageGen
 from guardian.image_gen.providers.stability import StabilityImageGen
 
-_PROVIDERS: dict[str, Type[ImageGenProvider]] = {
+_PROVIDERS: dict[str, type[ImageGenProvider]] = {
     "openai": OpenAIImageGen,
     "local": LocalImageGen,
     "stability": StabilityImageGen,
@@ -16,9 +15,7 @@ _PROVIDERS: dict[str, Type[ImageGenProvider]] = {
 
 
 def _resolve_provider(provider: str | None = None) -> str:
-    provider_name = (
-        (provider or os.getenv("IMAGE_GEN_PROVIDER") or "").strip().lower()
-    )
+    provider_name = (provider or os.getenv("IMAGE_GEN_PROVIDER") or "").strip().lower()
     if not provider_name:
         raise HTTPException(
             status_code=400,
@@ -78,14 +75,18 @@ class ImageGenRouter:
                     "unavailable_reason": reason,
                 }
             )
-        default_provider = (
-            (os.getenv("IMAGE_GEN_PROVIDER") or "openai").strip().lower()
-        )
+        default_provider = (os.getenv("IMAGE_GEN_PROVIDER") or "openai").strip().lower()
         default_adapter = _PROVIDERS.get(default_provider)
+        configured_model = (os.getenv("IMAGE_GEN_MODEL") or "").strip()
+        if (
+            default_adapter is OpenAIImageGen
+            and configured_model in OpenAIImageGen.retired_models
+        ):
+            configured_model = ""
         return {
             "providers": providers,
             "default_provider": default_provider,
-            "default_model": os.getenv("IMAGE_GEN_MODEL")
+            "default_model": configured_model
             or (default_adapter.default_model if default_adapter else ""),
         }
 
@@ -104,11 +105,23 @@ class ImageGenRouter:
         return provider_cls()
 
     @staticmethod
-    def resolve_model(
-        model: str | None = None, provider: str | None = None
-    ) -> str:
+    def resolve_model(model: str | None = None, provider: str | None = None) -> str:
         configured = (model or os.getenv("IMAGE_GEN_MODEL") or "").strip()
         if configured:
+            provider_name = (
+                (provider or os.getenv("IMAGE_GEN_PROVIDER") or "").strip().lower()
+            )
+            if (
+                provider_name == OpenAIImageGen.name
+                and configured in OpenAIImageGen.retired_models
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"OpenAI image model '{configured}' has been retired from Codexify. "
+                        "Choose GPT Image 2.6 Sunburst or Flare."
+                    ),
+                )
             return configured
         adapter = _PROVIDERS.get(_resolve_provider(provider))
         return _resolve_model(adapter.default_model if adapter else None)
@@ -120,7 +133,8 @@ class ImageGenRouter:
         provider: str | None = None,
         **kwargs,
     ) -> bytes:
-        provider = ImageGenRouter.get_provider(provider)
-        resolved_model = ImageGenRouter.resolve_model(model, provider.name)
-        _validate_model(provider, resolved_model)
-        return provider.generate(prompt, model=resolved_model, **kwargs)
+        provider_name = _resolve_provider(provider)
+        resolved_model = ImageGenRouter.resolve_model(model, provider_name)
+        adapter = ImageGenRouter.get_provider(provider_name)
+        _validate_model(adapter, resolved_model)
+        return adapter.generate(prompt, model=resolved_model, **kwargs)

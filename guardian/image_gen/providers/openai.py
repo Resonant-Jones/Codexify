@@ -1,13 +1,12 @@
-from guardian.metering.runtime import deny_unqualified_spend
-
 import base64
 import os
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import HTTPException
 
 from guardian.core.egress import EgressDeniedError, assert_egress_allowed
 from guardian.image_gen.base import ImageGenProvider
+from guardian.metering.runtime import deny_unqualified_spend
 
 try:
     from openai import OpenAI  # type: ignore
@@ -18,22 +17,25 @@ except Exception:
 class OpenAIImageGen(ImageGenProvider):
     name = "openai"
     label = "OpenAI"
-    default_model = "gpt-image-2.5-sunburst"
-    model_aliases = {"sunburst": default_model, "flare": "gpt-image-2.5-flare"}
+    default_model = "gpt-image-2.6-sunburst"
+    model_aliases = {"sunburst": default_model, "flare": "gpt-image-2.6-flare"}
+    retired_models = frozenset(
+        {
+            "gpt-image-1",
+            "gpt-image-1-mini",
+            "gpt-image-1.5",
+            "gpt-image-1.5-2025-12-16",
+            "chatgpt-image-latest",
+            "dall-e-3",
+            "dall-e-2",
+        }
+    )
     supported_models = {
-        "gpt-image-2.6-sunburst",
-        "gpt-image-2.6-flare",
+        *model_aliases.values(),
         "gpt-image-2.5-sunburst",
         "gpt-image-2.5-flare",
         "gpt-image-2",
-        "gpt-image-1.5",
-        "gpt-image-1",
-        "gpt-image-1-mini",
-        "dall-e-3",
-        "dall-e-2",
     }
-    # Keep legacy request compatibility without offering retired models in the UI.
-    catalog_models = supported_models - {"dall-e-3", "dall-e-2"}
 
     @classmethod
     def unavailable_reason(cls) -> str | None:
@@ -47,21 +49,15 @@ class OpenAIImageGen(ImageGenProvider):
             return "OpenAI image generation is not configured."
         return None
 
-    def __init__(
-        self, api_key: str | None = None, base_url: str | None = None
-    ):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
         try:
             assert_egress_allowed("openai")
         except EgressDeniedError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         if OpenAI is None:
-            raise HTTPException(
-                status_code=500, detail="openai package not installed"
-            )
+            raise HTTPException(status_code=500, detail="openai package not installed")
         resolved_base = (
-            (base_url or os.getenv("OPENAI_BASE_URL") or "")
-            .strip()
-            .rstrip("/")
+            (base_url or os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/")
         )
         # Guardian's shared OpenAI setting is an origin; the SDK expects /v1.
         if resolved_base == "https://api.openai.com":
@@ -86,7 +82,7 @@ class OpenAIImageGen(ImageGenProvider):
         self,
         prompt: str,
         model: str | None = None,
-        **kwargs: Dict[str, Any],
+        **kwargs: dict[str, Any],
     ) -> bytes:
         deny_unqualified_spend()
         if not model:

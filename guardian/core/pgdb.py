@@ -44,6 +44,7 @@ from guardian.core.db import (
     apply_native_origin_assertion,
     build_native_origin_assertion,
     find_conflicting_source_lineage,
+    resolve_authored_chat_turn,
     strip_reserved_origin,
 )
 from .chat_postgres_deadline import (
@@ -2064,8 +2065,38 @@ class PgDB(ChatDB):
             messages = [row for row in messages if row.get("kind") not in exclude_kinds]
         return messages
 
-    def recent_messages(self, thread_id: int, *, limit: int) -> list[dict[str, Any]]:
-        """Return the newest bounded thread window in chronological order."""
+    def resolve_authored_chat_turn(
+        self, thread_id: int, *, user_id: str, message_id: int | None
+    ) -> dict[str, Any] | None:
+        with self._sa_session() as session:
+            return resolve_authored_chat_turn(
+                session, thread_id=thread_id, user_id=user_id, message_id=message_id
+            )
+
+    def recent_messages(
+        self, thread_id: int, *, limit: int, through_message_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return a chronological thread window, optionally ending at an exact row."""
+        if through_message_id is not None:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT message.id, message.thread_id, message.role,
+                               message.content, message.created_at,
+                               CASE WHEN message.id = anchor.id THEN message.extra_meta END AS extra_meta
+                        FROM chat_messages AS message
+                        JOIN chat_messages AS anchor
+                          ON anchor.id = %s AND anchor.thread_id = message.thread_id
+                        WHERE message.thread_id = %s
+                          AND message.id <= anchor.id
+                          AND (message.created_at, message.id) <= (anchor.created_at, anchor.id)
+                        ORDER BY message.created_at DESC, message.id DESC
+                        LIMIT %s
+                        """,
+                        (through_message_id, thread_id, limit),
+                    )
+                    return [dict(row) for row in reversed(cur.fetchall())]
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(

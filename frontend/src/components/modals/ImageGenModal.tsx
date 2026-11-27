@@ -66,9 +66,16 @@ export function ImageGenModal({
           next.providers[0];
         setCatalog(next);
         setProviderId(selected?.id || "");
+        const useSavedModel = !savedProvider || selected?.id === savedProvider;
+        const aliasModel = initialModelAlias && selected?.model_aliases[initialModelAlias];
+        if (!aliasModel && useSavedModel && savedModel && !selected?.models.includes(savedModel)) {
+          setModel("");
+          setError("Your saved image model is no longer offered. Choose a replacement.");
+          return;
+        }
         setModel(
-          (initialModelAlias && selected?.model_aliases[initialModelAlias]) ||
-            (savedModel && selected?.models.includes(savedModel)
+          aliasModel ||
+            (useSavedModel && savedModel
               ? savedModel
               : selected?.models.includes(next.default_model)
                 ? next.default_model
@@ -159,6 +166,7 @@ export function ImageGenModal({
             disabled={generating || !catalog}
             onChange={(e) => {
               setProviderId(e.target.value);
+              setError(null);
               setModel(
                 catalog?.providers.find((item) => item.id === e.target.value)?.default_model || ""
               );
@@ -178,8 +186,12 @@ export function ImageGenModal({
             className="rounded-lg border bg-[var(--panel-bg)] p-2"
             value={model}
             disabled={generating || !provider}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => {
+              setModel(e.target.value);
+              setError(null);
+            }}
           >
+            {!model && <option value="" disabled>Choose an image model</option>}
             {provider?.models.map((item) => (
               <option key={item} value={item}>
                 {item}

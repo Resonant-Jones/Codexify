@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from guardian.queue import task_events
-from guardian.protocol_tokens import ChatEventType, ErrorCode
-from guardian.core.db import ChatAttemptReconciliation
-from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from guardian.core import chat_completion_service
+from guardian.core.db import ChatAttemptReconciliation
+from guardian.protocol_tokens import ChatEventType, ErrorCode
+from guardian.queue import task_events
+from guardian.queue.turn_lock import TurnLockEnvelope, build_turn_lock_envelope
 from guardian.routes import chat as chat_routes
 from tests.utils import get_test_api_key, get_test_auth_headers
 
@@ -25,15 +25,8 @@ os.environ.setdefault("ENABLE_CONNECTOR_WORKER", "0")
 @pytest.fixture
 def mock_db():
     mock = MagicMock()
-    mock.list_messages.return_value = [
-        {
-            "id": 1,
-            "thread_id": 1,
-            "role": "user",
-            "content": "Test message",
-            "created_at": "2026-03-13T12:00:00",
-        }
-    ]
+    turn = {"id": 1, "role": "user", "content": "Test message", "extra_meta": {}}
+    mock.resolve_authored_chat_turn.return_value = turn
     mock.get_chat_thread.return_value = {
         "id": 1,
         "user_id": "test_user",
@@ -46,7 +39,10 @@ def mock_db():
     # Authenticated acceptance rechecks canonical thread ownership and User
     # existence in the same transaction as the new durable attempt.
     session = mock._sa_session.return_value.__enter__.return_value
-    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = "test_user"
+    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = (
+        "test_user"
+    )
+    session.execute.return_value.mappings.return_value.one_or_none.return_value = turn
     mock.write_audit_log.return_value = None
     return mock
 
@@ -229,7 +225,6 @@ def test_terminal_state_helper_detects_terminal_event(monkeypatch):
     assert evidence["event"]["data"] == {"result": "ok"}
 
 
-
 @pytest.fixture
 def durable_recovery(monkeypatch):
     lock = _stale_lock()
@@ -271,6 +266,7 @@ def test_complete_recovers_from_durable_orphan_with_only_new_queue_identity(
     task = captured["task"]
     assert len(calls) == 2 and calls[0] == calls[1] == task.task_id
     assert task.task_id != lock.owner_task_id and task.request_id != "request-stale"
+    assert task.latest_turn_message_id == 1
     assert captured["queue_name"] == "codexify:queue:chat"
     cleanup.assert_called_once_with(1, owner_task_id=lock.owner_task_id, lease_token=lock.lease_token)
     mock_db.write_audit_log.assert_not_called()
