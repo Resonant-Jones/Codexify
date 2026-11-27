@@ -8560,3 +8560,82 @@ class InferenceBudgetAllocation(Base):
         ForeignKey("inference_budget_windows.id", ondelete="RESTRICT"),
         primary_key=True,
     )
+
+
+class VoiceBudgetReservation(Base):
+    """Inactive typed one-dispatch liability; never a credential or entitlement.
+
+    Account/thread/message references intentionally have no cascading foreign
+    keys: deletion must neither erase liability nor be blocked by this record.
+    """
+
+    __tablename__ = "voice_budget_reservations"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    payer_scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    binding_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    budget_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    unit_contract: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_ceiling: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reserved_units: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    price_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    settled_units: Mapped[int | None] = mapped_column(BigInteger)
+    settlement_hash: Mapped[str | None] = mapped_column(String(64))
+    settlement_usage: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint("provider = 'deepgram'", name="ck_voice_budget_provider"),
+        CheckConstraint(
+            "unit_contract IN ('connection_ms','synthesis_characters')",
+            name="ck_voice_budget_unit",
+        ),
+        CheckConstraint(
+            "state IN ('reserved','dispatched','settled','released')",
+            name="ck_voice_budget_state",
+        ),
+        CheckConstraint(
+            "reserved_units > 0 AND quantity_ceiling > 0",
+            name="ck_voice_budget_bounds",
+        ),
+        CheckConstraint(
+            "(state = 'settled' AND settled_units IS NOT NULL AND settled_units >= 0 AND settlement_hash IS NOT NULL AND settlement_usage IS NOT NULL) OR (state != 'settled' AND settled_units IS NULL AND settlement_hash IS NULL AND settlement_usage IS NULL)",
+            name="ck_voice_budget_settlement",
+        ),
+        Index("ix_voice_budget_account", "account_id", "created_at"),
+    )
+
+
+class VoiceBudgetAllocation(Base):
+    __tablename__ = "voice_budget_allocations"
+    attempt_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("voice_budget_reservations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    window_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("inference_budget_windows.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class VoiceBudgetDispatch(Base):
+    """One committed claim; a crash after this commit is uncertain liability."""
+
+    __tablename__ = "voice_budget_dispatches"
+    attempt_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("voice_budget_reservations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    dispatch_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
