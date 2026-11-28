@@ -28,23 +28,40 @@ def _capture_create(monkeypatch):
     def create(db, **kwargs):
         captured.append(dict(kwargs))
         kwargs.pop("accepted_account_id", None)
+        kwargs.pop("accepted_user_message_id", None)
+        kwargs.pop("authored_turn", None)
         return original(db, **kwargs)
 
     monkeypatch.setattr(service, "create_chat_completion_attempt", create)
     return captured
 
 
-def test_authenticated_ordinary_scope_reaches_persistence(acceptance, monkeypatch):
+@pytest.mark.parametrize("has_receipt", [True, False, None])
+def test_authenticated_ordinary_scope_reaches_persistence(
+    acceptance, monkeypatch, has_receipt
+):
     task = _task("ordinary", 1)
     scope = RequestUserScope(
         user_id=task.user_id, account_id=task.user_id, subject_id="external-subject"
     )
     captured = _capture_create(monkeypatch)
     result = service.enqueue_chat_completion(
-        task, thread_id=1, turn_id="turn-a", account_acceptance_scope=scope
+        task,
+        thread_id=1,
+        turn_id="turn-a",
+        account_acceptance_scope=scope,
+        authored_turn_has_receipt=has_receipt,
     )
     assert result.queue_accepted
     assert captured[0]["accepted_account_id"] == scope.account_id
+    if has_receipt is None:
+        assert captured[0]["accepted_user_message_id"] is None
+        assert "authored_turn" not in captured[0]
+    else:
+        authored = captured[0]["authored_turn"]
+        assert authored.has_receipt is has_receipt
+        assert authored.message_id == task.latest_turn_message_id
+        assert captured[0]["accepted_user_message_id"] == authored.message_id
     assert acceptance.events.index("commit_attempt") < acceptance.events.index(
         "enqueue"
     )
@@ -58,6 +75,7 @@ def test_omitted_scope_does_not_infer_custody_from_task(acceptance, monkeypatch,
         task, thread_id=1, turn_id="turn-a"
     ).queue_accepted
     assert "accepted_account_id" not in captured[0]
+    assert "accepted_user_message_id" not in captured[0]
 
 
 def test_legacy_local_scope_preserves_chat_without_new_custody(acceptance, monkeypatch):
@@ -70,6 +88,7 @@ def test_legacy_local_scope_preserves_chat_without_new_custody(acceptance, monke
         account_acceptance_scope=RequestUserScope(user_id=task.user_id),
     ).queue_accepted
     assert "accepted_account_id" not in captured[0]
+    assert "accepted_user_message_id" not in captured[0]
 
 
 @pytest.mark.parametrize("kind", ["owner", "guest"])

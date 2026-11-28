@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 from guardian.core import chat_completion_service
+from guardian.core.db import build_native_origin_assertion
 from guardian.core.dependencies import RequestUserScope
-from guardian.routes import chat as chat_routes
+from guardian.db.models import ChatCompletionAttempt, ChatMessage
 from guardian.queue.turn_lock import build_turn_lock_envelope
+from guardian.routes import chat as chat_routes
 from tests.utils import get_test_user_id
 
 
 def _override_request_scope(test_client, user_id: str) -> None:
-    test_client.app.dependency_overrides[
-        chat_routes.get_request_user_scope
-    ] = lambda: RequestUserScope(
-        user_id=user_id,
-        subject_id=user_id,
-        account_id=user_id,
-        multi_user_enabled=False,
+    test_client.app.dependency_overrides[chat_routes.get_request_user_scope] = (
+        lambda: RequestUserScope(
+            user_id=user_id,
+            subject_id="external-auth-subject",
+            account_id=user_id,
+            multi_user_enabled=False,
+        )
     )
 
 
@@ -52,7 +54,12 @@ def test_chat_complete_queues_latest_user_turn_identity(
     expected_user_id = get_test_user_id()
     # Canonical thread and User lookups at authenticated acceptance.
     session = mock_db._sa_session.return_value.__enter__.return_value
-    session.query.return_value.filter_by.return_value.with_for_update.return_value.scalar.return_value = expected_user_id
+    custody_query = session.query.return_value.filter_by.return_value
+    custody_query.with_for_update.return_value.scalar.side_effect = [
+        expected_user_id,
+        expected_user_id,
+        build_native_origin_assertion().as_metadata(),
+    ]
     mock_db.get_chat_thread.return_value = {
         "id": 1,
         "user_id": expected_user_id,
@@ -83,6 +90,11 @@ def test_chat_complete_queues_latest_user_turn_identity(
     )
 
     def _capture_enqueue(task, queue_name):
+        attempt = session.add.call_args.args[0]
+        assert isinstance(attempt, ChatCompletionAttempt)
+        assert attempt.accepted_user_message_id == 3
+        assert attempt.accepted_account_id == expected_user_id
+        assert attempt.accepted_at is None
         captured["task"] = task
         captured["queue_name"] = queue_name
         captured["queued_payload"] = task.to_dict()
@@ -104,6 +116,16 @@ def test_chat_complete_queues_latest_user_turn_identity(
     assert getattr(task, "latest_turn_message_id") == 3
     assert captured["queued_payload"]["latest_turn_message_id"] == 3
     assert "turn_id=" in getattr(task, "origin")
+    assert session.query.call_args_list[2].args[0] is ChatMessage.extra_meta
+    assert session.query.return_value.filter_by.call_args_list[2].kwargs == {
+        "id": 3,
+        "thread_id": 1,
+        "user_id": expected_user_id,
+        "role": "user",
+        "kind": "chat",
+        "hosted_room_participant_id": None,
+        "sender_display_name_snapshot": None,
+    }
 
 
 def test_chat_complete_rejects_threads_without_a_user_turn(

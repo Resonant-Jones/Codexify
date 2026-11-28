@@ -446,6 +446,20 @@ _GUARDIAN_DB_CACHE_LOCK = Lock()
 _DEFAULT_USER_ID = "local"
 
 
+def has_native_ordinary_chat_origin(extra_meta: Any) -> bool:
+    """Check positive origin at the ordinary authored-source boundary."""
+    from guardian.core.message_origin_classification import classify_message_origin
+
+    if not isinstance(extra_meta, dict):
+        return False
+    # The ordinary embedding worker writes this lifecycle field. Historical
+    # classification still receives the full metadata and treats it conservatively.
+    origin_metadata = {
+        key: value for key, value in extra_meta.items() if key != "embedding_status"
+    }
+    return classify_message_origin(origin_metadata).is_native
+
+
 def resolve_authored_chat_turn(
     session: Session,
     *,
@@ -455,8 +469,6 @@ def resolve_authored_chat_turn(
     lock_message: bool = False,
 ) -> dict[str, Any] | None:
     """Resolve a submitted receipt or select the current ordinary turn by ID."""
-    from guardian.core.message_origin_classification import classify_message_origin
-
     query = (
         select(
             ChatMessage.id,
@@ -509,16 +521,10 @@ def resolve_authored_chat_turn(
         return None
     if row["content"].strip().lower() in {"", "null"}:
         return None
-    if message_id is not None:
-        # Ordinary chat embeddings also write this lifecycle field. It carries no
-        # source claim for a receipt, even though recall treats it conservatively.
-        origin_metadata = {
-            key: value
-            for key, value in row["extra_meta"].items()
-            if key != "embedding_status"
-        }
-        if not classify_message_origin(origin_metadata).is_native:
-            return None
+    if message_id is not None and not has_native_ordinary_chat_origin(
+        row["extra_meta"]
+    ):
+        return None
     return dict(row)
 
 
@@ -533,8 +539,9 @@ def create_chat_completion_attempt(
     turn_lock_token: str | None = None,
     accepted_account_id: str | None = None,
     authored_turn: AuthoredChatTurn | None = None,
+    accepted_user_message_id: int | None = None,
 ) -> None:
-    """Commit the resource binding before the task can enter Redis."""
+    """Commit the authenticated resource binding before publishing the task."""
     if deadline_snapshot is not None:
         if not isinstance(deadline_snapshot, AcceptedChatTaskDeadline):
             raise ValueError("Recovery requires the original accepted deadline")
@@ -552,7 +559,19 @@ def create_chat_completion_attempt(
         )
     ):
         raise ValueError("Invalid accepted account custody")
+    if accepted_user_message_id is not None and accepted_account_id is None:
+        raise ValueError("Accepted message custody requires accepted account custody")
+    if (
+        authored_turn is not None
+        and accepted_user_message_id is not None
+        and (
+            type(accepted_user_message_id) is not int
+            or authored_turn.message_id != accepted_user_message_id
+        )
+    ):
+        raise StaleChatTurnError()
     with chatlog_db._sa_session() as session:
+        source_id = None
         if accepted_account_id is not None or authored_turn is not None:
             # New message inserts also lock this thread via their foreign key.
             # The subsequent receipt read is serialized with those inserts.
@@ -587,6 +606,16 @@ def create_chat_completion_attempt(
             )
             if turn is None or turn["id"] != authored_turn.message_id:
                 raise StaleChatTurnError()
+        if accepted_account_id is not None and accepted_user_message_id is not None:
+            from guardian.core.chat_account_custody import eligible_chat_source_id
+
+            source_id = eligible_chat_source_id(
+                session,
+                message_id=accepted_user_message_id,
+                account_id=accepted_account_id,
+                thread_id=thread_id,
+                lock_source=True,
+            )
         session.add(
             ChatCompletionAttempt(
                 request_id=request_id,
@@ -600,6 +629,7 @@ def create_chat_completion_attempt(
                 ),
                 turn_lock_token=turn_lock_token,
                 accepted_account_id=accepted_account_id,
+                accepted_user_message_id=source_id,
             )
         )
 

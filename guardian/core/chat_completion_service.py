@@ -1051,6 +1051,11 @@ def enqueue_chat_completion(
             has_receipt=authored_turn_has_receipt,
         )
 
+    # Use the same route selection that persistence revalidates under lock.
+    accepted_user_message_id = (
+        authored_turn.message_id if accepted_account_id and authored_turn else None
+    )
+
     task.task_id = task_identity
     if request_id is not None:
         task.request_id = request_id
@@ -1228,7 +1233,10 @@ def enqueue_chat_completion(
             deadline_snapshot=deadline,
             turn_lock_token=locked.lease_token,
             **(
-                {"accepted_account_id": accepted_account_id}
+                {
+                    "accepted_account_id": accepted_account_id,
+                    "accepted_user_message_id": accepted_user_message_id,
+                }
                 if accepted_account_id
                 else {}
             ),
